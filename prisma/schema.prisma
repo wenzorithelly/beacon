@@ -1,0 +1,105 @@
+// Juriscan Control App — schema
+// Kept Postgres-portable: no `enum` (String + Zod unions) and no scalar lists
+// (tags/notes modeled as related rows — SQLite can't store arrays).
+// To deploy: flip datasource.provider to "postgresql" and point DATABASE_URL at Neon.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  // Prisma 7: connection URL lives in prisma.config.ts (Migrate) and the
+  // driver adapter in lib/db.ts (runtime). To deploy, switch to "postgresql".
+}
+
+/// A unit on the map: a roadmap front/task/subtask OR an architecture feature node.
+/// Discriminated by `view`. Self-references for the fronts -> tasks -> subtasks tree.
+model Node {
+  id         String   @id @default(cuid())
+  view       String // "ROADMAP" | "ARCHITECTURE"
+  cluster    String? // lane: "EMERGENCY","FRONT_1".. | "AUTH","SEARCH"..
+  title      String
+  role       String? // one-line technical role
+  plain      String? // plain-English description
+  status     String   @default("PENDING")
+  // ROADMAP: DONE|IN_PROGRESS|PENDING|BLOCKED|CANCELLED|DEPRIORITIZED
+  // ARCH:    KEEP|REBUILD|REPLACE|DROP
+  priority   Int      @default(2) // 0 critical .. 3 low; deprioritize bumps this
+  progress   Int      @default(0) // optional manual override; else derived from children
+  x          Float    @default(0) // persisted canvas position
+  y          Float    @default(0)
+  sourceRef  String? // nullable file:line — FUTURE introspection hook
+  externalId String? // FUTURE introspection node id
+  source     String   @default("MANUAL") // "MANUAL" | future "INTROSPECTION"
+
+  parentId String?
+  parent   Node?   @relation("NodeTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children Node[]  @relation("NodeTree")
+
+  tags     Tag[]  @relation("NodeTags")
+  notes    Note[]
+  bugs     Bug[]
+  edgesOut Edge[] @relation("EdgeFrom")
+  edgesIn  Edge[] @relation("EdgeTo")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([view])
+  @@index([parentId])
+  @@index([cluster])
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  body      String
+  nodeId    String
+  node      Node     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([nodeId])
+}
+
+model Tag {
+  id    String @id @default(cuid())
+  label String @unique
+  color String?
+  nodes Node[] @relation("NodeTags") // implicit M:N — Postgres-portable
+}
+
+model Edge {
+  id     String  @id @default(cuid())
+  fromId String
+  toId   String
+  from   Node    @relation("EdgeFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to     Node    @relation("EdgeTo", fields: [toId], references: [id], onDelete: Cascade)
+  kind   String  @default("DEPENDS") // DEPENDS|CONTAINS|RELATES|REPLACES
+  label  String?
+
+  @@unique([fromId, toId, kind])
+  @@index([fromId])
+  @@index([toId])
+}
+
+/// A known issue. Seeded from the proposal's confirmed bugs; a future Sentry
+/// adapter upserts here keyed on (source, externalId).
+model Bug {
+  id         String   @id @default(cuid())
+  title      String
+  detail     String?
+  severity   String   @default("medium") // critical|high|medium|low
+  status     String   @default("OPEN") // OPEN|IN_PROGRESS|RESOLVED|WONTFIX
+  sourceRef  String? // real file:line
+  source     String   @default("MANUAL") // "MANUAL" | future "SENTRY"
+  externalId String? // FUTURE Sentry issue id
+  nodeId     String?
+  node       Node?    @relation(fields: [nodeId], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([nodeId])
+  @@index([severity])
+  @@index([source, externalId]) // future Sentry upsert lookup
+}
