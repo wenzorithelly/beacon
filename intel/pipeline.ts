@@ -3,6 +3,7 @@ import type { IntelConfig } from "@/intel/config";
 import { scanFiles } from "@/intel/extractors/files";
 import { fetchOpenApi } from "@/intel/extractors/openapi";
 import { extractGraph, type Provider } from "@/intel/extract";
+import { fetchSettings } from "@/intel/settings";
 import { mergeSnapshot } from "@/intel/merge";
 import { postSnapshot } from "@/intel/ingest";
 import type { Snapshot } from "@/lib/ingest";
@@ -24,10 +25,16 @@ export async function runPipeline(config: IntelConfig) {
 
   const endpointFacts = await fetchOpenApi(config.openapiUrl);
 
+  // The model/provider chosen in the control-app UI override the config defaults.
+  const remote = await fetchSettings(config.controlUrl);
+  const effective = remote
+    ? { ...config, llm: { ...config.llm, model: remote.intelModel, provider: remote.intelProvider } }
+    : config;
+
   let ai: Snapshot | null = null;
   let provider: Provider = "none";
   try {
-    const r = await extractGraph(files, endpointFacts, config);
+    const r = await extractGraph(files, endpointFacts, effective);
     ai = r.snapshot;
     provider = r.provider;
   } catch (e) {
@@ -52,6 +59,7 @@ export async function runPipeline(config: IntelConfig) {
   return {
     ok: res.ok,
     provider,
+    model: effective.llm.model,
     aiUsed: ai != null,
     files: files.length,
     tables: snapshot.tables?.length ?? 0,

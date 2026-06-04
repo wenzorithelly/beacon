@@ -18,6 +18,7 @@ import "@xyflow/react/dist/style.css";
 import { DbTableNode, type DbTableNodeData } from "@/components/graph/db-table-node";
 import { EndpointNode, type EndpointNodeData } from "@/components/graph/endpoint-node";
 import { DbDetailSidebar } from "@/components/graph/db-detail-sidebar";
+import { ModelPicker } from "@/components/graph/model-picker";
 import { ACCESS_COLOR } from "@/components/graph/db-types";
 import { cn } from "@/lib/utils";
 import type {
@@ -210,6 +211,8 @@ export function DbMapClient({
             >
               endpoints
             </button>
+            <div className="mx-1 h-4 w-px bg-border" />
+            <ModelPicker />
           </Panel>
         </ReactFlow>
       </div>

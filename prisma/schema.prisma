@@ -199,3 +199,12 @@ model SyncState {
   version   Int      @default(0)
   updatedAt DateTime @updatedAt
 }
+
+/// Single-row app settings the intel daemon reads each run (so the model can be
+/// switched from the UI without editing the config or restarting the watcher).
+model AppSetting {
+  id            String   @id @default("singleton")
+  intelModel    String   @default("claude-haiku-4-5")
+  intelProvider String   @default("auto")
+  updatedAt     DateTime @updatedAt
+}

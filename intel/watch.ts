@@ -19,7 +19,7 @@ const providerLabel =
 
 console.log(`[intel] watching: ${roots.join(", ")}`);
 console.log(
-  `[intel] control=${config.controlUrl} model=${config.llm.model} ` +
+  `[intel] control=${config.controlUrl} model=${config.llm.model} (default; live via UI dropdown) ` +
     `provider=${providerLabel} openapi=${config.openapiUrl ?? "none"}`,
 );
 
@@ -38,7 +38,8 @@ async function run() {
     const r = await runPipeline(config);
     console.log(
       `[intel] ${r.ok ? "synced" : `FAILED(${r.status})`}: ` +
-        `${r.files} files · ${r.tables} tables · ${r.endpoints} endpoints [${r.provider}]`,
+        `${r.files} files · ${r.tables} tables · ${r.endpoints} endpoints ` +
+        `[${r.provider} · ${r.model}]`,
     );
   } catch (e) {
     console.error("[intel] pipeline error:", e instanceof Error ? e.message : e);
