@@ -1,4 +1,4 @@
-import { KeyRound, Link2 } from "lucide-react";
+import { KeyRound, Link2, X } from "lucide-react";
 import {
   ACCESS_COLOR,
   METHOD_COLOR,
@@ -14,11 +14,13 @@ export function DbDetailSidebar({
   tables,
   relations,
   endpoints,
+  onClose,
 }: {
   selected: DbSelection;
   tables: DbTablePayload[];
   relations: DbRelationPayload[];
   endpoints: EndpointPayload[];
+  onClose: () => void;
 }) {
   const nameById = new Map(tables.map((t) => [t.id, t.name]));
 
@@ -41,8 +43,20 @@ export function DbDetailSidebar({
   }
 
   return (
-    <aside className="w-80 shrink-0 overflow-y-auto border-l border-border bg-background/60 p-4">
-      {body}
+    <aside className="glass absolute bottom-3 right-3 top-3 z-10 flex w-80 flex-col rounded-2xl">
+      <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Detalhes
+        </span>
+        <button
+          onClick={onClose}
+          title="Fechar"
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">{body}</div>
     </aside>
   );
 }
@@ -231,7 +245,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md border border-border bg-card py-2">
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] py-2">
       <div className="text-lg font-semibold">{value}</div>
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
     </div>

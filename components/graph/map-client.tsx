@@ -18,6 +18,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
+import { PanelRight } from "lucide-react";
 import { NodeCard, type MapNodeData } from "@/components/graph/node-card";
 import { DetailSidebar } from "@/components/graph/detail-sidebar";
 import { AddNodeButton } from "@/components/graph/add-node-button";
@@ -113,6 +114,7 @@ export function MapClient({
   const [nodes, setNodes] = useState<Node<MapNodeData>[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(true);
 
   // Resync from the server after a mutation (router.refresh sends new props).
   useEffect(() => setNodes(initialNodes), [initialNodes]);
@@ -185,91 +187,103 @@ export function MapClient({
     });
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] w-full">
-      <div className="relative flex-1">
-        <ReactFlow
-          nodes={displayNodes}
-          edges={displayEdges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeClick={(_, node) => setSelectedId(node.id)}
-          onPaneClick={() => setSelectedId(null)}
-          onNodeDragStop={(_, node) =>
-            persistPosition(node.id, node.position.x, node.position.y)
-          }
-          colorMode="dark"
-          fitView
-          minZoom={0.2}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background gap={20} color="#222" />
-          <Controls className="!bg-card !text-foreground" />
-          <MiniMap
-            pannable
-            zoomable
-            className="!bg-card"
-            nodeColor={(n) =>
-              (n.data as MapNodeData)?.priority === 0 ? "#ff3860" : "#555"
-            }
-          />
+    <div className="relative h-[calc(100vh-3.5rem)] w-full">
+      <ReactFlow
+        nodes={displayNodes}
+        edges={displayEdges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onNodeClick={(_, node) => {
+          setSelectedId(node.id);
+          setPanelOpen(true);
+        }}
+        onPaneClick={() => setSelectedId(null)}
+        onNodeDragStop={(_, node) => persistPosition(node.id, node.position.x, node.position.y)}
+        colorMode="dark"
+        fitView
+        minZoom={0.2}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background gap={22} color="#2a2a32" />
+        <Controls className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur" />
+        <MiniMap
+          pannable
+          zoomable
+          className="!rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
+          nodeColor={(n) => ((n.data as MapNodeData)?.priority === 0 ? "#ff3860" : "#555")}
+        />
 
-          <Panel
-            position="top-left"
-            className="flex items-center gap-1 rounded-lg border border-border bg-card/90 p-1 backdrop-blur"
-          >
-            {(["ROADMAP", "ARCHITECTURE"] as const).map((v) => (
-              <Link
-                key={v}
-                href={`/map?view=${v}`}
-                className={cn(
-                  "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                  view === v
-                    ? "bg-secondary text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {v === "ROADMAP" ? "Roadmap" : "Arquitetura"}
-              </Link>
-            ))}
-            <div className="mx-1 h-4 w-px bg-border" />
-            <AddNodeButton view={view} />
-          </Panel>
-
-          <Panel
-            position="top-right"
-            className="flex max-w-xs flex-wrap items-center justify-end gap-1 rounded-lg border border-border bg-card/90 p-1.5 backdrop-blur"
-          >
-            <button
-              onClick={() => setBugsOnly((b) => !b)}
+        <Panel position="top-left" className="glass flex items-center gap-1 rounded-xl p-1">
+          {(["ROADMAP", "ARCHITECTURE"] as const).map((v) => (
+            <Link
+              key={v}
+              href={`/map?view=${v}`}
               className={cn(
-                "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
-                bugsOnly
-                  ? "border-red-500/40 bg-red-500/15 text-red-300"
-                  : "border-border text-muted-foreground hover:text-foreground",
+                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                view === v
+                  ? "bg-white/10 text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
-              só com bugs
-            </button>
-            {statusesPresent.map((s) => (
-              <button
-                key={s}
-                onClick={() => toggleStatus(s)}
-                className={cn(
-                  "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
-                  statusFilter.has(s)
-                    ? "border-foreground/40 bg-secondary text-foreground"
-                    : "border-border text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {STATUS_META[s]?.label ?? s}
-              </button>
-            ))}
-          </Panel>
-        </ReactFlow>
-      </div>
+              {v === "ROADMAP" ? "Roadmap" : "Arquitetura"}
+            </Link>
+          ))}
+          <div className="mx-1 h-4 w-px bg-white/10" />
+          <AddNodeButton view={view} />
+        </Panel>
 
-      <DetailSidebar view={view} selected={selected} allNodes={nodePayload} />
+        <Panel
+          position="top-right"
+          className="glass flex max-w-xs flex-wrap items-center justify-end gap-1 rounded-xl p-1.5"
+        >
+          <button
+            onClick={() => setBugsOnly((b) => !b)}
+            className={cn(
+              "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+              bugsOnly
+                ? "border-red-500/40 bg-red-500/15 text-red-300"
+                : "border-white/10 text-muted-foreground hover:text-foreground",
+            )}
+          >
+            só com bugs
+          </button>
+          {statusesPresent.map((s) => (
+            <button
+              key={s}
+              onClick={() => toggleStatus(s)}
+              className={cn(
+                "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                statusFilter.has(s)
+                  ? "border-foreground/40 bg-white/10 text-foreground"
+                  : "border-white/10 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {STATUS_META[s]?.label ?? s}
+            </button>
+          ))}
+        </Panel>
+
+        {!panelOpen && (
+          <Panel position="bottom-right">
+            <button
+              onClick={() => setPanelOpen(true)}
+              className="glass flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <PanelRight className="size-4" /> detalhes
+            </button>
+          </Panel>
+        )}
+      </ReactFlow>
+
+      {panelOpen && (
+        <DetailSidebar
+          view={view}
+          selected={selected}
+          allNodes={nodePayload}
+          onClose={() => setPanelOpen(false)}
+        />
+      )}
     </div>
   );
 }

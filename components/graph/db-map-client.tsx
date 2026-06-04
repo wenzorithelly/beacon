@@ -27,6 +27,7 @@ import type {
   EndpointPayload,
 } from "@/components/graph/db-types";
 import { DesignPanel } from "@/components/graph/design-panel";
+import { PanelRight } from "lucide-react";
 import type { DraftGraph } from "@/lib/design";
 
 const nodeTypes = { dbTable: DbTableNode, endpoint: EndpointNode };
@@ -46,6 +47,7 @@ export function DbMapClient({
 }) {
   const [showEndpoints, setShowEndpoints] = useState(true);
   const [selected, setSelected] = useState<DbSelection>(null);
+  const [panelOpen, setPanelOpen] = useState(true);
 
   const usageCount = useMemo(() => {
     const m = new Map<string, number>();
@@ -172,65 +174,81 @@ export function DbMapClient({
   }, []);
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] w-full">
-      <div className="relative flex-1">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onNodeClick={(_, node) =>
-            setSelected({ id: node.id, kind: node.type === "endpoint" ? "endpoint" : "table" })
-          }
-          onPaneClick={() => setSelected(null)}
-          onNodeDragStop={(_, node) =>
-            persist(
-              node.type === "endpoint" ? "endpoint" : "table",
-              node.id,
-              node.position.x,
-              node.position.y,
-            )
-          }
-          colorMode="dark"
-          fitView
-          minZoom={0.15}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background gap={20} color="#222" />
-          <Controls className="!bg-card !text-foreground" />
-          <MiniMap pannable zoomable className="!bg-card" nodeColor="#555" />
-          <Panel
-            position="top-left"
-            className="flex items-center gap-2 rounded-lg border border-border bg-card/90 p-1.5 backdrop-blur"
+    <div className="relative h-[calc(100vh-3.5rem)] w-full">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onNodeClick={(_, node) => {
+          setSelected({ id: node.id, kind: node.type === "endpoint" ? "endpoint" : "table" });
+          setPanelOpen(true);
+        }}
+        onPaneClick={() => setSelected(null)}
+        onNodeDragStop={(_, node) =>
+          persist(
+            node.type === "endpoint" ? "endpoint" : "table",
+            node.id,
+            node.position.x,
+            node.position.y,
+          )
+        }
+        colorMode="dark"
+        fitView
+        minZoom={0.15}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background gap={22} color="#2a2a32" />
+        <Controls className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur" />
+        <MiniMap
+          pannable
+          zoomable
+          className="!rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
+          nodeColor="#555"
+        />
+
+        <Panel position="top-left" className="glass flex items-center gap-2 rounded-xl p-1.5">
+          <span className="px-1 text-xs font-semibold">Banco de dados v2</span>
+          <button
+            onClick={() => setShowEndpoints((s) => !s)}
+            className={cn(
+              "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+              showEndpoints
+                ? "border-sky-500/40 bg-sky-500/15 text-sky-300"
+                : "border-white/10 text-muted-foreground hover:text-foreground",
+            )}
           >
-            <span className="px-1 text-xs font-semibold">Banco de dados v2</span>
+            endpoints
+          </button>
+          <div className="mx-1 h-4 w-px bg-white/10" />
+          <ModelPicker />
+        </Panel>
+
+        <Panel position="top-left" className="!top-16">
+          <DesignPanel draftGraph={draftGraph} />
+        </Panel>
+
+        {!panelOpen && (
+          <Panel position="top-right">
             <button
-              onClick={() => setShowEndpoints((s) => !s)}
-              className={cn(
-                "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
-                showEndpoints
-                  ? "border-sky-500/40 bg-sky-500/15 text-sky-300"
-                  : "border-border text-muted-foreground hover:text-foreground",
-              )}
+              onClick={() => setPanelOpen(true)}
+              className="glass flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
-              endpoints
+              <PanelRight className="size-4" /> detalhes
             </button>
-            <div className="mx-1 h-4 w-px bg-border" />
-            <ModelPicker />
           </Panel>
+        )}
+      </ReactFlow>
 
-          <Panel position="top-left" className="!top-14">
-            <DesignPanel draftGraph={draftGraph} />
-          </Panel>
-        </ReactFlow>
-      </div>
-
-      <DbDetailSidebar
-        selected={selected}
-        tables={tables}
-        relations={relations}
-        endpoints={endpoints}
-      />
+      {panelOpen && (
+        <DbDetailSidebar
+          selected={selected}
+          tables={tables}
+          relations={relations}
+          endpoints={endpoints}
+          onClose={() => setPanelOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { X } from "lucide-react";
 import { SeverityBadge } from "@/components/badges";
 import {
   ARCH_STATUSES,
@@ -41,18 +42,34 @@ export function DetailSidebar({
   view,
   selected,
   allNodes,
+  onClose,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   selected: MapNodePayload | null;
   allNodes: MapNodePayload[];
+  onClose: () => void;
 }) {
   return (
-    <aside className="w-80 shrink-0 overflow-y-auto border-l border-border bg-background/60 p-4">
-      {selected ? (
-        <NodeDetail key={selected.id} node={selected} view={view} />
-      ) : (
-        <Overview view={view} nodes={allNodes} />
-      )}
+    <aside className="glass absolute bottom-3 right-3 top-3 z-10 flex w-80 flex-col rounded-2xl">
+      <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Detalhes
+        </span>
+        <button
+          onClick={onClose}
+          title="Fechar"
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        {selected ? (
+          <NodeDetail key={selected.id} node={selected} view={view} />
+        ) : (
+          <Overview view={view} nodes={allNodes} />
+        )}
+      </div>
     </aside>
   );
 }

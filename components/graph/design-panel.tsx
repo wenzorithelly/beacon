@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { PROMPT_FORMATS } from "@/lib/prompt-format";
@@ -57,23 +58,38 @@ export function DesignPanel({ draftGraph }: { draftGraph: DraftGraph }) {
 
   if (!open) {
     return (
-      <Button size="sm" className="h-7 px-2 text-xs" onClick={() => setOpen(true)}>
-        + Desenhar{hasDraft ? " (rascunho)" : ""}
-      </Button>
+      <button
+        onClick={() => setOpen(true)}
+        className="glass flex h-9 items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-foreground transition hover:brightness-125"
+      >
+        <Sparkles className="size-4 text-amber-300" />
+        Desenhar com IA
+        {hasDraft && (
+          <span className="rounded bg-sky-500/15 px-1 text-[10px] text-sky-300">rascunho</span>
+        )}
+      </button>
     );
   }
 
   return (
-    <div className="w-80 rounded-lg border border-border bg-card/95 p-2.5 backdrop-blur">
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-xs font-semibold">Desenhar banco</span>
+    <div className="glass w-96 rounded-2xl p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-sm font-semibold">
+          <Sparkles className="size-4 text-amber-300" />
+          Desenhar banco com IA
+        </span>
         <button
           onClick={() => setOpen(false)}
-          className="text-xs text-muted-foreground hover:text-foreground"
+          title="Fechar"
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
         >
-          fechar
+          <X className="size-4" />
         </button>
       </div>
+      <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+        Descreva o banco em linguagem natural. A IA desenha as tabelas e conexões como rascunho —
+        depois copie o prompt para implementar.
+      </p>
       <Textarea
         value={desc}
         rows={3}

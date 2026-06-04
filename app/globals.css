@@ -122,9 +122,57 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    background-color: #08080b;
+    /* layered ambient glow (warm brand top-left, cool violet right, soft base) */
+    background-image:
+      radial-gradient(55rem 38rem at 8% -12%, oklch(0.72 0.15 70 / 0.12), transparent 60%),
+      radial-gradient(48rem 40rem at 112% 8%, oklch(0.6 0.2 300 / 0.1), transparent 55%),
+      radial-gradient(46rem 34rem at 50% 118%, oklch(0.6 0.13 250 / 0.08), transparent 60%);
+    background-attachment: fixed;
   }
   html {
     @apply font-sans;
   }
+}
+
+@layer components {
+  /* Frosted-glass surface for floating panels, sidebars, and chrome. */
+  .glass {
+    background:
+      linear-gradient(180deg, oklch(1 0 0 / 0.07), oklch(1 0 0 / 0.02)),
+      color-mix(in oklab, var(--card) 38%, transparent);
+    backdrop-filter: blur(26px) saturate(185%);
+    -webkit-backdrop-filter: blur(26px) saturate(185%);
+    border: 1px solid oklch(1 0 0 / 0.12);
+    box-shadow:
+      0 16px 50px -16px rgba(0, 0, 0, 0.78),
+      inset 0 1px 0 oklch(1 0 0 / 0.1);
+  }
+  /* Lighter variant for inline toolbars/chips. */
+  .glass-soft {
+    background: oklch(1 0 0 / 0.05);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    border: 1px solid oklch(1 0 0 / 0.08);
+  }
+}
+
+/* Slim, subtle scrollbars inside glass panels. */
+.glass ::-webkit-scrollbar,
+.glass::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.glass ::-webkit-scrollbar-thumb,
+.glass::-webkit-scrollbar-thumb {
+  background: oklch(1 0 0 / 0.12);
+  border-radius: 9999px;
+}
+
+/* Let the ambient background show through the React Flow canvas. */
+.react-flow,
+.react-flow__pane,
+.react-flow__renderer {
+  background: transparent !important;
 }
