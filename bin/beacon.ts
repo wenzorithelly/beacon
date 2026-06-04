@@ -14,8 +14,11 @@ import { fileURLToPath } from "node:url";
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cwd = process.cwd();
 
-// Subcommands: `beacon mcp` (MCP server) / `beacon hook` (PostToolUse reporter).
-if (process.argv[2] === "mcp") {
+// Subcommands: `beacon init` (map an existing repo) / `beacon mcp` (MCP server) /
+// `beacon hook` (PostToolUse reporter). Default: launch the panel.
+if (process.argv[2] === "init") {
+  await import(join(pkgDir, "bin/init.ts"));
+} else if (process.argv[2] === "mcp") {
   await import(join(pkgDir, "bin/mcp.ts"));
 } else if (process.argv[2] === "hook") {
   await import(join(pkgDir, "bin/hook.ts"));
@@ -61,6 +64,7 @@ function launchPanel() {
       `bunx prisma db push --url "${dbUrl}" --schema "${join(pkgDir, "prisma/schema.prisma")}"`,
       { cwd: pkgDir, env, stdio: "inherit" },
     );
+    console.log("[beacon] tip: already have code here? run `beacon init` to map the project.");
   }
 
   console.log(`\n  ◉ Beacon\n  repo:  ${repo}\n  data:  ${data}\n  url:   ${url}\n`);
