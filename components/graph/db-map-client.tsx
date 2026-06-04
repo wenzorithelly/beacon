@@ -26,6 +26,8 @@ import type {
   DbTablePayload,
   EndpointPayload,
 } from "@/components/graph/db-types";
+import { DesignPanel } from "@/components/graph/design-panel";
+import type { DraftGraph } from "@/lib/design";
 
 const nodeTypes = { dbTable: DbTableNode, endpoint: EndpointNode };
 
@@ -35,10 +37,12 @@ export function DbMapClient({
   tables,
   relations,
   endpoints,
+  draftGraph,
 }: {
   tables: DbTablePayload[];
   relations: DbRelationPayload[];
   endpoints: EndpointPayload[];
+  draftGraph: DraftGraph;
 }) {
   const [showEndpoints, setShowEndpoints] = useState(true);
   const [selected, setSelected] = useState<DbSelection>(null);
@@ -213,6 +217,10 @@ export function DbMapClient({
             </button>
             <div className="mx-1 h-4 w-px bg-border" />
             <ModelPicker />
+          </Panel>
+
+          <Panel position="top-left" className="!top-14">
+            <DesignPanel draftGraph={draftGraph} />
           </Panel>
         </ReactFlow>
       </div>

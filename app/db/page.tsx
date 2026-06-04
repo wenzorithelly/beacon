@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { DbMapClient } from "@/components/graph/db-map-client";
+import { getDraft, getDraftPayload } from "@/lib/design";
 import type {
   DbRelationPayload,
   DbTablePayload,
@@ -9,6 +10,8 @@ import type {
 export const dynamic = "force-dynamic";
 
 export default async function DbPage() {
+  const draft = await getDraftPayload();
+  const draftGraph = await getDraft();
   const tablesRaw = await db.dbTable.findMany({
     include: { columns: { orderBy: { ord: "asc" } } },
   });
@@ -54,5 +57,12 @@ export default async function DbPage() {
     tables: e.tables.map((u) => ({ tableId: u.tableId, access: u.access })),
   }));
 
-  return <DbMapClient tables={tables} relations={relations} endpoints={endpoints} />;
+  return (
+    <DbMapClient
+      tables={[...tables, ...draft.tables]}
+      relations={[...relations, ...draft.relations]}
+      endpoints={endpoints}
+      draftGraph={draftGraph}
+    />
+  );
 }

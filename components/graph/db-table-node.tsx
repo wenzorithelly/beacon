@@ -18,14 +18,16 @@ export type DbTableNode = Node<DbTableNodeData>;
 const hClass = "!h-2 !w-2 !border-0 !bg-zinc-600";
 
 export function DbTableNode({ data, selected }: NodeProps<DbTableNode>) {
-  const color = domainColor(data.domain);
+  const draft = data.source === "DRAFT";
+  const color = draft ? "#4ea1ff" : domainColor(data.domain);
   return (
     <div
       className={cn(
         "w-[232px] overflow-hidden rounded-md border bg-card text-card-foreground shadow-sm",
+        draft && "border-dashed",
         selected && "ring-2 ring-[var(--accent,#f5b942)]",
       )}
-      style={{ borderColor: `${color}55` }}
+      style={{ borderColor: draft ? "#4ea1ff88" : `${color}55` }}
     >
       {/* dual handles per side so FK edges attach on the side facing the peer */}
       <Handle type="target" position={Position.Left} id="tl" className={hClass} style={{ top: "38%" }} />
@@ -44,12 +46,24 @@ export function DbTableNode({ data, selected }: NodeProps<DbTableNode>) {
               className="inline-block size-1.5 rounded-full bg-emerald-400"
             />
           )}
+          {draft && (
+            <span
+              title="rascunho — proposta, ainda não implementada"
+              className="inline-block size-1.5 rounded-full bg-sky-400"
+            />
+          )}
           {data.name}
         </span>
-        {data.domain && (
-          <span className="text-[10px] uppercase tracking-wide" style={{ color }}>
-            {data.domain}
+        {draft ? (
+          <span className="rounded bg-sky-500/15 px-1 text-[9px] uppercase tracking-wide text-sky-300">
+            rascunho
           </span>
+        ) : (
+          data.domain && (
+            <span className="text-[10px] uppercase tracking-wide" style={{ color }}>
+              {data.domain}
+            </span>
+          )
         )}
       </div>
 
