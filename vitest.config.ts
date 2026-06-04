@@ -15,5 +15,13 @@ export default defineConfig({
     env: {
       DATABASE_URL: "file:./test.db",
     },
+    // One shared SQLite file. Run all files sequentially in a single worker and
+    // disable module isolation so every file reuses the SAME libSQL connection
+    // (the db singleton) — otherwise each file opens its own connection and they
+    // deadlock on the shared test.db. (Vitest 4: these are top-level options.)
+    pool: "forks",
+    fileParallelism: false,
+    maxWorkers: 1,
+    isolate: false,
   },
 });
