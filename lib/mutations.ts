@@ -98,3 +98,15 @@ export async function linkBugToNode(bugId: string, nodeId: string | null) {
 export async function deleteBug(id: string) {
   return db.bug.delete({ where: { id } });
 }
+
+// ── Database-design map positions ───────────────────────────────────────────
+
+export async function updateDbTablePosition(id: string, x: number, y: number) {
+  const pos = positionSchema.parse({ x, y });
+  return db.dbTable.update({ where: { id }, data: pos });
+}
+
+export async function updateEndpointPosition(id: string, x: number, y: number) {
+  const pos = positionSchema.parse({ x, y });
+  return db.endpoint.update({ where: { id }, data: pos });
+}

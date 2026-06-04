@@ -103,3 +103,89 @@ model Bug {
   @@index([severity])
   @@index([source, externalId]) // future Sentry upsert lookup
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Database design map. Models the planned Juriscan v2 backend schema
+// (FastAPI + SQLAlchemy + Alembic): tables, columns, FK relationships, and which
+// API endpoints touch which tables. A future introspection job can upsert these
+// from the SQLAlchemy metadata + FastAPI routes (keyed on name/path).
+// ─────────────────────────────────────────────────────────────────────────────
+
+model DbTable {
+  id          String  @id @default(cuid())
+  name        String  @unique // e.g. "firms"
+  domain      String? // grouping lane: "auth","firms","search"...
+  description String?
+  x           Float   @default(0)
+  y           Float   @default(0)
+
+  columns DbColumn[]
+  fksOut  DbRelation[]    @relation("FkFrom")
+  fksIn   DbRelation[]    @relation("FkTo")
+  usages  EndpointTable[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([domain])
+}
+
+model DbColumn {
+  id       String  @id @default(cuid())
+  tableId  String
+  table    DbTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  name     String
+  type     String // SQLAlchemy/PG type, e.g. "UUID", "TEXT", "vector(1536)"
+  isPk     Boolean @default(false)
+  isFk     Boolean @default(false)
+  nullable Boolean @default(true)
+  note     String?
+  ord      Int     @default(0) // display order
+
+  @@unique([tableId, name])
+  @@index([tableId])
+}
+
+model DbRelation {
+  id          String  @id @default(cuid())
+  fromTableId String
+  toTableId   String
+  fromTable   DbTable @relation("FkFrom", fields: [fromTableId], references: [id], onDelete: Cascade)
+  toTable     DbTable @relation("FkTo", fields: [toTableId], references: [id], onDelete: Cascade)
+  fromColumn  String // FK column on fromTable
+  toColumn    String // referenced column on toTable (usually its PK)
+  label       String?
+
+  @@index([fromTableId])
+  @@index([toTableId])
+}
+
+model Endpoint {
+  id          String  @id @default(cuid())
+  method      String // GET|POST|PUT|PATCH|DELETE
+  path        String // /firms/{id}/members
+  domain      String?
+  description String?
+  x           Float   @default(0)
+  y           Float   @default(0)
+
+  tables EndpointTable[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([method, path])
+  @@index([domain])
+}
+
+model EndpointTable {
+  id         String   @id @default(cuid())
+  endpointId String
+  tableId    String
+  endpoint   Endpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  table      DbTable  @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  access     String   @default("read") // read|write|read-write
+
+  @@unique([endpointId, tableId])
+  @@index([tableId])
+}
