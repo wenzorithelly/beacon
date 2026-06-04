@@ -16,13 +16,13 @@ export function GlassPanel({
 }: React.ComponentProps<"div">) {
   return (
     <div className={cn("glass relative isolate overflow-hidden", className)} {...props}>
-      {/* specular sheen — bright top-left falloff */}
+      {/* specular sheen — very subtle top-left falloff */}
       <span
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10 rounded-[inherit]"
         style={{
           background:
-            "radial-gradient(130% 90% at 0% 0%, oklch(1 0 0 / 0.12), transparent 55%)",
+            "radial-gradient(90% 60% at 0% 0%, oklch(1 0 0 / 0.04), transparent 42%)",
         }}
       />
       {/* film grain — subtle, keeps the frost from looking flat */}

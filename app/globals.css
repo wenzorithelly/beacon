@@ -142,15 +142,14 @@
      sheen/noise layers live in the <GlassPanel> component (components/ui/glass-panel). */
   .glass {
     background:
-      linear-gradient(180deg, oklch(1 0 0 / 0.09), oklch(1 0 0 / 0.02)),
-      color-mix(in oklab, var(--card) 30%, transparent);
-    backdrop-filter: blur(30px) saturate(195%);
-    -webkit-backdrop-filter: blur(30px) saturate(195%);
-    border: 1px solid oklch(1 0 0 / 0.12);
+      linear-gradient(180deg, oklch(1 0 0 / 0.04), oklch(1 0 0 / 0.015)),
+      color-mix(in oklab, var(--card) 34%, transparent);
+    backdrop-filter: blur(30px) saturate(190%);
+    -webkit-backdrop-filter: blur(30px) saturate(190%);
+    border: 1px solid oklch(1 0 0 / 0.1);
     box-shadow:
       0 20px 60px -18px rgba(0, 0, 0, 0.82),
-      inset 0 1px 0 oklch(1 0 0 / 0.16),
-      inset 0 0 0 1px oklch(1 0 0 / 0.04);
+      inset 0 1px 0 oklch(1 0 0 / 0.08);
   }
   /* Lighter variant for inline toolbars/chips. */
   .glass-soft {
