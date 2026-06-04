@@ -146,6 +146,25 @@ function NodeDetail({
         </div>
       )}
 
+      {node.files.length > 0 && (
+        <div>
+          <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Arquivos ({node.files.length})
+          </h3>
+          <ul className="space-y-0.5">
+            {node.files.map((f) => (
+              <li
+                key={f}
+                title={f}
+                className="truncate rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground hover:bg-white/5"
+              >
+                {f}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* actions */}
       <div className="flex flex-wrap gap-1.5 pt-1">
         <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>

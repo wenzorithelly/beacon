@@ -38,11 +38,12 @@ model Node {
   parent   Node?   @relation("NodeTree", fields: [parentId], references: [id], onDelete: Cascade)
   children Node[]  @relation("NodeTree")
 
-  tags     Tag[]  @relation("NodeTags")
+  tags     Tag[]      @relation("NodeTags")
   notes    Note[]
   bugs     Bug[]
-  edgesOut Edge[] @relation("EdgeFrom")
-  edgesIn  Edge[] @relation("EdgeTo")
+  files    NodeFile[]
+  edgesOut Edge[]     @relation("EdgeFrom")
+  edgesIn  Edge[]     @relation("EdgeTo")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -50,6 +51,18 @@ model Node {
   @@index([view])
   @@index([parentId])
   @@index([cluster])
+}
+
+/// A repo file a feature spans. Reported by a Claude Code session as it works
+/// (via the MCP server), so clicking a feature shows every file it touches.
+model NodeFile {
+  id     String @id @default(cuid())
+  nodeId String
+  node   Node   @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  path   String
+
+  @@unique([nodeId, path])
+  @@index([nodeId])
 }
 
 model Note {

@@ -24,6 +24,7 @@ export interface MapNodePayload {
   parentId: string | null;
   isCriterion: boolean;
   bugs: BugPayload[];
+  files: string[];
 }
 
 export interface MapEdgePayload {

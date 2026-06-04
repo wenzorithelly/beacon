@@ -20,6 +20,7 @@ export default async function MapPage({
       bugs: {
         select: { id: true, title: true, severity: true, status: true, sourceRef: true },
       },
+      files: { select: { path: true }, orderBy: { path: "asc" } },
     },
   });
   const dbEdges = await db.edge.findMany({
@@ -42,6 +43,7 @@ export default async function MapPage({
     parentId: n.parentId,
     isCriterion: n.tags.some((t) => t.label === "criterion"),
     bugs: n.bugs,
+    files: n.files.map((f) => f.path),
   }));
 
   const edges: MapEdgePayload[] = dbEdges.map((e) => ({

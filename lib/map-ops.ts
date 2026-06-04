@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { bumpVersion } from "@/lib/ingest";
 import { matchFeature, type Scored } from "@/lib/match";
+import { repoRoot } from "@/lib/project";
 
 // Map write operations used by the HTTP API + the MCP server. Lets a Claude Code
 // session see the roadmap and register what it's working on: flag an existing
@@ -153,4 +154,44 @@ export async function finishFeature(input: {
     return { ok: true, id: best.id };
   }
   return { ok: false, candidates: candidates.length ? candidates : undefined };
+}
+
+// Make a reported path repo-relative (paths come from a session's cwd).
+function normalizePath(p: string): string {
+  let s = p.trim();
+  const root = repoRoot();
+  if (s.startsWith(root)) s = s.slice(root.length);
+  return s.replace(/^[./]+/, "").trim();
+}
+
+/** Record the files a feature spans (reported by a session as it works). */
+export async function touchFiles(input: {
+  id?: string;
+  title?: string;
+  files: string[];
+}): Promise<{ ok: boolean; id?: string; count?: number; candidates?: Scored[] }> {
+  const files = Array.from(new Set((input.files ?? []).map(normalizePath).filter(Boolean)));
+  const nodes = await db.node.findMany({ where: { view: "ROADMAP" } });
+
+  let node = input.id ? nodes.find((n) => n.id === input.id) : undefined;
+  if (!node && input.title) {
+    const { best, candidates } = matchFeature(
+      input.title,
+      nodes.map((n) => ({ id: n.id, title: n.title })),
+    );
+    if (best) node = nodes.find((n) => n.id === best.id);
+    else if (candidates.length) return { ok: false, candidates };
+  }
+  if (!node) return { ok: false };
+
+  for (const path of files) {
+    await db.nodeFile.upsert({
+      where: { nodeId_path: { nodeId: node.id, path } },
+      create: { nodeId: node.id, path },
+      update: {},
+    });
+  }
+  await bumpVersion();
+  const count = await db.nodeFile.count({ where: { nodeId: node.id } });
+  return { ok: true, id: node.id, count };
 }

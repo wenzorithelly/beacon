@@ -51,10 +51,28 @@ server.registerTool(
       id: z.string().optional().describe("exact node id from beacon_map (most reliable)"),
       front: z.string().optional().describe("the front/area it belongs to (existing or new)"),
       detail: z.string().optional().describe("one-line description"),
+      files: z.array(z.string()).optional().describe("repo-relative files this feature touches"),
     },
   },
-  async ({ title, id, front, detail }) => {
-    const r = await post("/api/map/start", { title, id, front, detail });
+  async ({ title, id, front, detail, files }) => {
+    const r = await post("/api/map/start", { title, id, front, detail, files });
+    return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
+  },
+);
+
+server.registerTool(
+  "beacon_touch_files",
+  {
+    description:
+      "Record the files a feature spans, so clicking it on the map shows everything it touches. Call this as you edit files for a feature. Pass the node `id` (from beacon_map) when known, else the title.",
+    inputSchema: {
+      files: z.array(z.string()).describe("repo-relative file paths you touched"),
+      id: z.string().optional().describe("node id from beacon_map (most reliable)"),
+      title: z.string().optional().describe("feature title (fuzzy-matched if no id)"),
+    },
+  },
+  async ({ files, id, title }) => {
+    const r = await post("/api/map/files", { files, id, title });
     return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
   },
 );
