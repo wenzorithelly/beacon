@@ -8,18 +8,24 @@ import {
   type EndpointPayload,
 } from "@/components/graph/db-types";
 import type { DbSelection } from "@/components/graph/db-map-client";
+import { GlassPanel } from "@/components/ui/glass-panel";
+import { ModelPicker } from "@/components/graph/model-picker";
+import { DesignPanel } from "@/components/graph/design-panel";
+import type { DraftGraph } from "@/lib/design";
 
 export function DbDetailSidebar({
   selected,
   tables,
   relations,
   endpoints,
+  draftGraph,
   onClose,
 }: {
   selected: DbSelection;
   tables: DbTablePayload[];
   relations: DbRelationPayload[];
   endpoints: EndpointPayload[];
+  draftGraph: DraftGraph;
   onClose: () => void;
 }) {
   const nameById = new Map(tables.map((t) => [t.id, t.name]));
@@ -43,21 +49,29 @@ export function DbDetailSidebar({
   }
 
   return (
-    <aside className="glass absolute bottom-3 right-3 top-3 z-10 flex w-80 flex-col rounded-2xl">
+    <GlassPanel className="absolute bottom-3 right-3 top-3 z-10 flex w-80 flex-col rounded-2xl">
       <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2.5">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Detalhes
+          Painel
         </span>
         <button
           onClick={onClose}
-          title="Fechar"
+          title="Fechar painel"
           className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
         >
           <X className="size-4" />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto p-4">{body}</div>
-    </aside>
+      <div className="flex-1 overflow-y-auto">
+        <div className="space-y-2.5 border-b border-white/10 p-3.5">
+          <DesignPanel draftGraph={draftGraph} />
+          <div className="flex items-center gap-2 border-t border-white/10 pt-2.5">
+            <ModelPicker />
+          </div>
+        </div>
+        <div className="p-4">{body}</div>
+      </div>
+    </GlassPanel>
   );
 }
 

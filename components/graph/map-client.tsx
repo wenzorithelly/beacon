@@ -234,8 +234,8 @@ export function MapClient({
         </Panel>
 
         <Panel
-          position="top-right"
-          className="glass flex max-w-xs flex-wrap items-center justify-end gap-1 rounded-xl p-1.5"
+          position="top-left"
+          className="glass !top-16 flex max-w-md flex-wrap items-center gap-1 rounded-xl p-1.5"
         >
           <button
             onClick={() => setBugsOnly((b) => !b)}
@@ -265,12 +265,12 @@ export function MapClient({
         </Panel>
 
         {!panelOpen && (
-          <Panel position="bottom-right">
+          <Panel position="top-right">
             <button
               onClick={() => setPanelOpen(true)}
               className="glass flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
-              <PanelRight className="size-4" /> detalhes
+              <PanelRight className="size-4" /> painel
             </button>
           </Panel>
         )}

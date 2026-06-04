@@ -18,7 +18,6 @@ import "@xyflow/react/dist/style.css";
 import { DbTableNode, type DbTableNodeData } from "@/components/graph/db-table-node";
 import { EndpointNode, type EndpointNodeData } from "@/components/graph/endpoint-node";
 import { DbDetailSidebar } from "@/components/graph/db-detail-sidebar";
-import { ModelPicker } from "@/components/graph/model-picker";
 import { ACCESS_COLOR } from "@/components/graph/db-types";
 import { cn } from "@/lib/utils";
 import type {
@@ -26,7 +25,6 @@ import type {
   DbTablePayload,
   EndpointPayload,
 } from "@/components/graph/db-types";
-import { DesignPanel } from "@/components/graph/design-panel";
 import { PanelRight } from "lucide-react";
 import type { DraftGraph } from "@/lib/design";
 
@@ -220,12 +218,6 @@ export function DbMapClient({
           >
             endpoints
           </button>
-          <div className="mx-1 h-4 w-px bg-white/10" />
-          <ModelPicker />
-        </Panel>
-
-        <Panel position="top-left" className="!top-16">
-          <DesignPanel draftGraph={draftGraph} />
         </Panel>
 
         {!panelOpen && (
@@ -234,7 +226,7 @@ export function DbMapClient({
               onClick={() => setPanelOpen(true)}
               className="glass flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
-              <PanelRight className="size-4" /> detalhes
+              <PanelRight className="size-4" /> painel
             </button>
           </Panel>
         )}
@@ -246,6 +238,7 @@ export function DbMapClient({
           tables={tables}
           relations={relations}
           endpoints={endpoints}
+          draftGraph={draftGraph}
           onClose={() => setPanelOpen(false)}
         />
       )}

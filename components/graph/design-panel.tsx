@@ -2,19 +2,19 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, X } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { PROMPT_FORMATS } from "@/lib/prompt-format";
 import type { DraftGraph } from "@/lib/design";
 
 /**
- * Describe the database you want → AI draws it as a DRAFT layer → copy a build
- * prompt (Claude Code / DBML / SQL) to implement it. Lives on the /db toolbar.
+ * "Desenhar" — describe the database in natural language → AI draws it as a DRAFT
+ * layer → copy a build prompt (Claude Code / DBML / SQL). Rendered inline inside the
+ * floating side panel.
  */
 export function DesignPanel({ draftGraph }: { draftGraph: DraftGraph }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [desc, setDesc] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,45 +56,24 @@ export function DesignPanel({ draftGraph }: { draftGraph: DraftGraph }) {
     setTimeout(() => setCopied(null), 1500);
   }
 
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="glass flex h-9 items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-foreground transition hover:brightness-125"
-      >
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold">
         <Sparkles className="size-4 text-amber-300" />
-        Desenhar com IA
+        Desenhar
         {hasDraft && (
           <span className="rounded bg-sky-500/15 px-1 text-[10px] text-sky-300">rascunho</span>
         )}
-      </button>
-    );
-  }
-
-  return (
-    <div className="glass w-96 rounded-2xl p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-sm font-semibold">
-          <Sparkles className="size-4 text-amber-300" />
-          Desenhar banco com IA
-        </span>
-        <button
-          onClick={() => setOpen(false)}
-          title="Fechar"
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
-        >
-          <X className="size-4" />
-        </button>
       </div>
       <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
-        Descreva o banco em linguagem natural. A IA desenha as tabelas e conexões como rascunho —
-        depois copie o prompt para implementar.
+        Descreva o banco em linguagem natural. A IA desenha as tabelas como rascunho — depois
+        copie o prompt para implementar.
       </p>
       <Textarea
         value={desc}
         rows={3}
         onChange={(e) => setDesc(e.target.value)}
-        placeholder="Descreva o banco: ex. 'escritórios multi-tenant com usuários, cota mensal e chaves de API hasheadas'"
+        placeholder="ex.: escritórios multi-tenant com usuários, cota mensal e chaves de API hasheadas"
         className="text-xs"
       />
       <div className="mt-2 flex items-center gap-1.5">
@@ -120,7 +99,7 @@ export function DesignPanel({ draftGraph }: { draftGraph: DraftGraph }) {
       </div>
       {error && <p className="mt-1.5 text-[11px] text-red-300">{error}</p>}
       {hasDraft && (
-        <div className="mt-2 border-t border-border pt-2">
+        <div className="mt-2 border-t border-white/10 pt-2">
           <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
             Copiar p/ implementar
           </div>

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
+import { GlassPanel } from "@/components/ui/glass-panel";
 import { SeverityBadge } from "@/components/badges";
 import {
   ARCH_STATUSES,
@@ -50,14 +51,14 @@ export function DetailSidebar({
   onClose: () => void;
 }) {
   return (
-    <aside className="glass absolute bottom-3 right-3 top-3 z-10 flex w-80 flex-col rounded-2xl">
+    <GlassPanel className="absolute bottom-3 right-3 top-3 z-10 flex w-80 flex-col rounded-2xl">
       <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2.5">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           Detalhes
         </span>
         <button
           onClick={onClose}
-          title="Fechar"
+          title="Fechar painel"
           className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
         >
           <X className="size-4" />
@@ -70,7 +71,7 @@ export function DetailSidebar({
           <Overview view={view} nodes={allNodes} />
         )}
       </div>
-    </aside>
+    </GlassPanel>
   );
 }
 
