@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { MapClient } from "@/components/graph/map-client";
+import { getFeatureDraft } from "@/lib/feature-design";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +37,7 @@ export default async function MapPage({
     priority: n.priority,
     x: n.x,
     y: n.y,
+    source: n.source,
     sourceRef: n.sourceRef,
     parentId: n.parentId,
     isCriterion: n.tags.some((t) => t.label === "criterion"),
@@ -50,5 +52,7 @@ export default async function MapPage({
     label: e.label,
   }));
 
-  return <MapClient view={view} nodes={payload} edges={edges} />;
+  const featureDraft = view === "ARCHITECTURE" ? await getFeatureDraft() : { features: [] };
+
+  return <MapClient view={view} nodes={payload} edges={edges} featureDraft={featureDraft} />;
 }

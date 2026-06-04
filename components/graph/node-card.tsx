@@ -12,6 +12,7 @@ export type MapNodeData = {
   priority: number;
   cluster: string | null;
   view: string;
+  source: string;
   sourceRef: string | null;
   isCriterion: boolean;
   isChild: boolean;
@@ -34,15 +35,18 @@ export function NodeCard({ data, selected }: NodeProps<MapNode>) {
   const critical = data.priority === 0;
   const cancelled = data.status === "CANCELLED" || data.status === "DROP";
   const dimmed = data.status === "DEPRIORITIZED";
+  const draft = data.source === "DRAFT";
 
   return (
     <div
       className={cn(
         "rounded-lg border bg-card px-3 py-2 text-card-foreground shadow-sm transition",
         data.isChild ? "w-56" : "w-64",
-        critical
-          ? "border-[#ff3860]/60 shadow-[0_0_0_1px_rgba(255,56,96,0.15)]"
-          : "border-border",
+        draft
+          ? "border-dashed border-sky-400/50 bg-sky-500/[0.06]"
+          : critical
+            ? "border-[#ff3860]/60 shadow-[0_0_0_1px_rgba(255,56,96,0.15)]"
+            : "border-border",
         selected && "ring-2 ring-[var(--accent,#f5b942)]",
         cancelled && "opacity-60",
         dimmed && "opacity-70 border-dashed",
@@ -83,7 +87,13 @@ export function NodeCard({ data, selected }: NodeProps<MapNode>) {
       )}
 
       <div className="mt-2 flex items-center gap-1.5">
-        <StatusBadge status={data.status} />
+        {draft ? (
+          <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-sky-300">
+            rascunho
+          </span>
+        ) : (
+          <StatusBadge status={data.status} />
+        )}
         {data.sourceRef && (
           <span className="truncate font-mono text-[10px] text-muted-foreground/60">
             {data.sourceRef.split("/").pop()}

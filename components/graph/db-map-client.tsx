@@ -26,6 +26,7 @@ import type {
   EndpointPayload,
 } from "@/components/graph/db-types";
 import { PanelRight } from "lucide-react";
+import { useAiContext } from "@/components/ai/ai-context";
 import type { DraftGraph } from "@/lib/design";
 
 const nodeTypes = { dbTable: DbTableNode, endpoint: EndpointNode };
@@ -46,6 +47,7 @@ export function DbMapClient({
   const [showEndpoints, setShowEndpoints] = useState(true);
   const [selected, setSelected] = useState<DbSelection>(null);
   const [panelOpen, setPanelOpen] = useState(true);
+  const { setSelection } = useAiContext();
 
   const usageCount = useMemo(() => {
     const m = new Map<string, number>();
@@ -179,10 +181,20 @@ export function DbMapClient({
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onNodeClick={(_, node) => {
-          setSelected({ id: node.id, kind: node.type === "endpoint" ? "endpoint" : "table" });
+          const kind = node.type === "endpoint" ? "endpoint" : "table";
+          setSelected({ id: node.id, kind });
           setPanelOpen(true);
+          const d = node.data as { name?: string; method?: string; path?: string };
+          setSelection({
+            kind: kind === "endpoint" ? "endpoint" : "tabela",
+            label: kind === "endpoint" ? `${d.method} ${d.path}` : (d.name ?? "tabela"),
+            id: node.id,
+          });
         }}
-        onPaneClick={() => setSelected(null)}
+        onPaneClick={() => {
+          setSelected(null);
+          setSelection(null);
+        }}
         onNodeDragStop={(_, node) =>
           persist(
             node.type === "endpoint" ? "endpoint" : "table",

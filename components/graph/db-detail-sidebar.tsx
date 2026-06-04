@@ -9,7 +9,7 @@ import {
 } from "@/components/graph/db-types";
 import type { DbSelection } from "@/components/graph/db-map-client";
 import { GlassPanel } from "@/components/ui/glass-panel";
-import { DesignPanel } from "@/components/graph/design-panel";
+import { DbDraftActions } from "@/components/graph/db-draft-actions";
 import type { DraftGraph } from "@/lib/design";
 
 export function DbDetailSidebar({
@@ -62,9 +62,11 @@ export function DbDetailSidebar({
         </button>
       </div>
       <div className="flex-1 overflow-y-auto">
-        <div className="border-b border-white/10 p-3.5">
-          <DesignPanel draftGraph={draftGraph} />
-        </div>
+        {draftGraph.tables.length > 0 && (
+          <div className="border-b border-white/10 p-3.5">
+            <DbDraftActions draftGraph={draftGraph} />
+          </div>
+        )}
         <div className="p-4">{body}</div>
       </div>
     </GlassPanel>

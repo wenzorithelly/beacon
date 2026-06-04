@@ -19,6 +19,7 @@ export interface MapNodePayload {
   priority: number;
   x: number;
   y: number;
+  source: string;
   sourceRef: string | null;
   parentId: string | null;
   isCriterion: boolean;

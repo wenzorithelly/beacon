@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { TopNav } from "@/components/top-nav";
 import { LiveRefresh } from "@/components/live-refresh";
+import { AiContextProvider } from "@/components/ai/ai-context";
+import { CommandBar } from "@/components/ai/command-bar";
 
 const geistSans = Geist({
   variable: "--font-sans",
@@ -31,8 +34,13 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <LiveRefresh />
-        <TopNav />
-        <main className="flex flex-1 flex-col">{children}</main>
+        <AiContextProvider>
+          <TopNav />
+          <main className="flex flex-1 flex-col">{children}</main>
+          <Suspense>
+            <CommandBar />
+          </Suspense>
+        </AiContextProvider>
       </body>
     </html>
   );

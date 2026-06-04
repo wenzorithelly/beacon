@@ -105,11 +105,20 @@ Given a plain-language description, design a clean relational schema:
 - Design only what the description implies — do not invent unrelated tables.
 - Output ONLY the schema via the provided structure.`;
 
-export async function generateDraft(description: string): Promise<DraftGraph | null> {
+export async function generateDraft(
+  description: string,
+  contextHint?: string,
+): Promise<DraftGraph | null> {
   const settings = await getAppSettings();
+  const prompt = [
+    contextHint ? `Contexto atual: ${contextHint}.` : "",
+    `Design a database schema for:\n\n${description}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const raw = await structured({
     system: DESIGN_SYSTEM,
-    prompt: `Design a database schema for:\n\n${description}`,
+    prompt,
     schema: DRAFT_JSON_SCHEMA,
     model: settings.intelModel,
     provider: settings.intelProvider,

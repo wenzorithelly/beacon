@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
+import { FeatureDraftActions } from "@/components/graph/feature-draft-actions";
+import type { FeatureGraph } from "@/lib/feature-design";
 import { SeverityBadge } from "@/components/badges";
 import {
   ARCH_STATUSES,
@@ -43,11 +45,13 @@ export function DetailSidebar({
   view,
   selected,
   allNodes,
+  featureDraft,
   onClose,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   selected: MapNodePayload | null;
   allNodes: MapNodePayload[];
+  featureDraft: FeatureGraph;
   onClose: () => void;
 }) {
   return (
@@ -64,12 +68,19 @@ export function DetailSidebar({
           <X className="size-4" />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto p-4">
-        {selected ? (
-          <NodeDetail key={selected.id} node={selected} view={view} />
-        ) : (
-          <Overview view={view} nodes={allNodes} />
+      <div className="flex-1 overflow-y-auto">
+        {featureDraft.features.length > 0 && (
+          <div className="border-b border-white/10 p-3.5">
+            <FeatureDraftActions featureDraft={featureDraft} />
+          </div>
         )}
+        <div className="p-4">
+          {selected ? (
+            <NodeDetail key={selected.id} node={selected} view={view} />
+          ) : (
+            <Overview view={view} nodes={allNodes} />
+          )}
+        </div>
       </div>
     </GlassPanel>
   );

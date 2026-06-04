@@ -1,4 +1,8 @@
-import { clearDraft, generateDraft, persistDraft } from "@/lib/design";
+import {
+  clearFeatureDraft,
+  generateFeatures,
+  persistFeatureDraft,
+} from "@/lib/feature-design";
 import { structuredProvider } from "@/lib/ai-structured";
 import { getAppSettings } from "@/lib/settings";
 import { bumpVersion } from "@/lib/ingest";
@@ -18,18 +22,18 @@ export async function POST(req: Request) {
         { status: 503 },
       );
     }
-    const graph = await generateDraft(
+    const graph = await generateFeatures(
       description.trim(),
       typeof context === "string" ? context : undefined,
     );
-    if (!graph || graph.tables.length === 0) {
-      return new Response("The model returned no schema. Try a more specific description.", {
+    if (!graph || graph.features.length === 0) {
+      return new Response("The model returned no features. Try a more specific description.", {
         status: 502,
       });
     }
-    await persistDraft(graph);
-    await bumpVersion(); // refresh the open /db map via SSE
-    return Response.json({ ok: true, tables: graph.tables.length, relations: graph.relations.length });
+    await persistFeatureDraft(graph);
+    await bumpVersion();
+    return Response.json({ ok: true, features: graph.features.length });
   } catch (e) {
     return new Response(`design failed: ${e instanceof Error ? e.message : "error"}`, {
       status: 500,
@@ -38,7 +42,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE() {
-  await clearDraft();
+  await clearFeatureDraft();
   await bumpVersion();
   return Response.json({ ok: true });
 }

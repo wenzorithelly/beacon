@@ -24,6 +24,8 @@ import { DetailSidebar } from "@/components/graph/detail-sidebar";
 import { AddNodeButton } from "@/components/graph/add-node-button";
 import { SEVERITY_RANK, STATUS_META } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { useAiContext } from "@/components/ai/ai-context";
+import type { FeatureGraph } from "@/lib/feature-design";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
 
 const nodeTypes = { roadmapNode: NodeCard, archNode: NodeCard };
@@ -54,6 +56,7 @@ function buildNodes(payload: MapNodePayload[]): Node<MapNodeData>[] {
         priority: n.priority,
         cluster: n.cluster,
         view: n.view,
+        source: n.source,
         sourceRef: n.sourceRef,
         isCriterion: n.isCriterion,
         isChild: n.parentId != null,
@@ -100,11 +103,14 @@ export function MapClient({
   view,
   nodes: nodePayload,
   edges: edgePayload,
+  featureDraft,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   nodes: MapNodePayload[];
   edges: MapEdgePayload[];
+  featureDraft: FeatureGraph;
 }) {
+  const { setSelection } = useAiContext();
   const initialNodes = useMemo(() => buildNodes(nodePayload), [nodePayload]);
   const initialEdges = useMemo(
     () => buildEdges(nodePayload, edgePayload),
@@ -197,8 +203,16 @@ export function MapClient({
         onNodeClick={(_, node) => {
           setSelectedId(node.id);
           setPanelOpen(true);
+          setSelection({
+            kind: node.data.view === "ARCHITECTURE" ? "feature" : "tarefa",
+            label: node.data.title,
+            id: node.id,
+          });
         }}
-        onPaneClick={() => setSelectedId(null)}
+        onPaneClick={() => {
+          setSelectedId(null);
+          setSelection(null);
+        }}
         onNodeDragStop={(_, node) => persistPosition(node.id, node.position.x, node.position.y)}
         colorMode="dark"
         fitView
@@ -281,6 +295,7 @@ export function MapClient({
           view={view}
           selected={selected}
           allNodes={nodePayload}
+          featureDraft={featureDraft}
           onClose={() => setPanelOpen(false)}
         />
       )}
