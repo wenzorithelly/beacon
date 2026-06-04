@@ -9,6 +9,7 @@ const LINKS = [
   { href: "/db", label: "Banco" },
   { href: "/list", label: "Lista" },
   { href: "/bugs", label: "Bugs" },
+  { href: "/settings", label: "Config" },
 ];
 
 export function TopNav() {
