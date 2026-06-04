@@ -97,7 +97,7 @@ function NodeDetail({
           onValueChange={(v) => run(() => setStatusAction(node.id, v))}
         >
           <SelectTrigger className="h-8" disabled={pending}>
-            <SelectValue />
+            <SelectValue>{(v: string) => STATUS_META[v]?.label ?? v}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {statuses.map((s) => (

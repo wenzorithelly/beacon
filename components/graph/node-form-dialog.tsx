@@ -132,7 +132,7 @@ export function NodeFormDialog({
               <Label>Status</Label>
               <Select value={status} onValueChange={setStatus}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>{(v: string) => STATUS_META[v]?.label ?? v}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {statuses.map((s) => (
