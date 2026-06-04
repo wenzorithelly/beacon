@@ -1,24 +1,27 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  applyEdgeChanges,
+  applyNodeChanges,
   Background,
   Controls,
   MarkerType,
   MiniMap,
   Panel,
   ReactFlow,
-  useEdgesState,
-  useNodesState,
   type Edge,
+  type EdgeChange,
   type Node,
+  type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import { NodeCard, type MapNodeData } from "@/components/graph/node-card";
 import { DetailSidebar } from "@/components/graph/detail-sidebar";
-import { SEVERITY_RANK } from "@/lib/constants";
+import { AddNodeButton } from "@/components/graph/add-node-button";
+import { SEVERITY_RANK, STATUS_META } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
 
@@ -60,10 +63,7 @@ function buildNodes(payload: MapNodePayload[]): Node<MapNodeData>[] {
   });
 }
 
-function buildEdges(
-  payload: MapNodePayload[],
-  edges: MapEdgePayload[],
-): Edge[] {
+function buildEdges(payload: MapNodePayload[], edges: MapEdgePayload[]): Edge[] {
   const ids = new Set(payload.map((n) => n.id));
   const containment: Edge[] = payload
     .filter((n) => n.parentId && ids.has(n.parentId))
@@ -110,9 +110,58 @@ export function MapClient({
     [nodePayload, edgePayload],
   );
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, setNodes] = useState<Node<MapNodeData>[]>(initialNodes);
+  const [edges, setEdges] = useState<Edge[]>(initialEdges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Resync from the server after a mutation (router.refresh sends new props).
+  useEffect(() => setNodes(initialNodes), [initialNodes]);
+  useEffect(() => setEdges(initialEdges), [initialEdges]);
+
+  // Filters (client-side, instant — never persisted into node state).
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
+  const [bugsOnly, setBugsOnly] = useState(false);
+
+  const statusesPresent = useMemo(
+    () => Array.from(new Set(nodePayload.map((n) => n.status))),
+    [nodePayload],
+  );
+
+  const passes = useCallback(
+    (d: MapNodeData) => {
+      if (bugsOnly && d.bugCount === 0) return false;
+      if (statusFilter.size && !statusFilter.has(d.status)) return false;
+      return true;
+    },
+    [bugsOnly, statusFilter],
+  );
+
+  const displayNodes = useMemo(
+    () => nodes.map((n) => ({ ...n, hidden: !passes(n.data) })),
+    [nodes, passes],
+  );
+  const hiddenIds = useMemo(
+    () => new Set(displayNodes.filter((n) => n.hidden).map((n) => n.id)),
+    [displayNodes],
+  );
+  const displayEdges = useMemo(
+    () =>
+      edges.map((e) => ({
+        ...e,
+        hidden: hiddenIds.has(e.source) || hiddenIds.has(e.target),
+      })),
+    [edges, hiddenIds],
+  );
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<Node<MapNodeData>>[]) =>
+      setNodes((nds) => applyNodeChanges(changes, nds)),
+    [],
+  );
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
+    [],
+  );
 
   const selected = useMemo(
     () => nodePayload.find((n) => n.id === selectedId) ?? null,
@@ -127,12 +176,20 @@ export function MapClient({
     });
   }, []);
 
+  const toggleStatus = (s: string) =>
+    setStatusFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(s)) next.delete(s);
+      else next.add(s);
+      return next;
+    });
+
   return (
     <div className="flex h-[calc(100vh-3.5rem)] w-full">
       <div className="relative flex-1">
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={displayNodes}
+          edges={displayEdges}
           nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
@@ -156,7 +213,11 @@ export function MapClient({
               (n.data as MapNodeData)?.priority === 0 ? "#ff3860" : "#555"
             }
           />
-          <Panel position="top-left" className="flex gap-1 rounded-lg border border-border bg-card/90 p-1 backdrop-blur">
+
+          <Panel
+            position="top-left"
+            className="flex items-center gap-1 rounded-lg border border-border bg-card/90 p-1 backdrop-blur"
+          >
             {(["ROADMAP", "ARCHITECTURE"] as const).map((v) => (
               <Link
                 key={v}
@@ -170,6 +231,39 @@ export function MapClient({
               >
                 {v === "ROADMAP" ? "Roadmap" : "Arquitetura"}
               </Link>
+            ))}
+            <div className="mx-1 h-4 w-px bg-border" />
+            <AddNodeButton view={view} />
+          </Panel>
+
+          <Panel
+            position="top-right"
+            className="flex max-w-xs flex-wrap items-center justify-end gap-1 rounded-lg border border-border bg-card/90 p-1.5 backdrop-blur"
+          >
+            <button
+              onClick={() => setBugsOnly((b) => !b)}
+              className={cn(
+                "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                bugsOnly
+                  ? "border-red-500/40 bg-red-500/15 text-red-300"
+                  : "border-border text-muted-foreground hover:text-foreground",
+              )}
+            >
+              só com bugs
+            </button>
+            {statusesPresent.map((s) => (
+              <button
+                key={s}
+                onClick={() => toggleStatus(s)}
+                className={cn(
+                  "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                  statusFilter.has(s)
+                    ? "border-foreground/40 bg-secondary text-foreground"
+                    : "border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {STATUS_META[s]?.label ?? s}
+              </button>
             ))}
           </Panel>
         </ReactFlow>

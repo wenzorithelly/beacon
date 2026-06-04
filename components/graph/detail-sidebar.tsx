@@ -1,5 +1,40 @@
-import { SeverityBadge, StatusBadge } from "@/components/badges";
-import { clusterLabel } from "@/lib/constants";
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { SeverityBadge } from "@/components/badges";
+import {
+  ARCH_STATUSES,
+  ROADMAP_STATUSES,
+  STATUS_META,
+  clusterLabel,
+} from "@/lib/constants";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { NodeFormDialog } from "@/components/graph/node-form-dialog";
+import {
+  cancelAction,
+  deleteNodeAction,
+  deprioritizeAction,
+  setStatusAction,
+} from "@/app/actions/nodes";
 import type { MapNodePayload } from "@/components/graph/types";
 
 export function DetailSidebar({
@@ -14,7 +49,7 @@ export function DetailSidebar({
   return (
     <aside className="w-80 shrink-0 overflow-y-auto border-l border-border bg-background/60 p-4">
       {selected ? (
-        <NodeDetail node={selected} />
+        <NodeDetail key={selected.id} node={selected} view={view} />
       ) : (
         <Overview view={view} nodes={allNodes} />
       )}
@@ -22,8 +57,27 @@ export function DetailSidebar({
   );
 }
 
-function NodeDetail({ node }: { node: MapNodePayload }) {
+function NodeDetail({
+  node,
+  view,
+}: {
+  node: MapNodePayload;
+  view: "ROADMAP" | "ARCHITECTURE";
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [editOpen, setEditOpen] = useState(false);
+  const [subOpen, setSubOpen] = useState(false);
+
+  const statuses = view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES;
   const openBugs = node.bugs.filter((b) => b.status !== "RESOLVED");
+
+  const run = (fn: () => Promise<unknown>) =>
+    startTransition(async () => {
+      await fn();
+      router.refresh();
+    });
+
   return (
     <div className="space-y-3">
       <div>
@@ -34,25 +88,88 @@ function NodeDetail({ node }: { node: MapNodePayload }) {
           )}
         </div>
         <h2 className="mt-1 text-lg font-semibold leading-tight">{node.title}</h2>
-        <div className="mt-2">
-          <StatusBadge status={node.status} />
-        </div>
       </div>
 
-      {node.role && (
-        <p className="text-sm text-foreground/90">{node.role}</p>
-      )}
-      {node.plain && (
-        <p className="text-sm text-muted-foreground">{node.plain}</p>
-      )}
+      <div className="space-y-1.5">
+        <span className="text-xs text-muted-foreground">Status</span>
+        <Select
+          value={node.status}
+          onValueChange={(v) => run(() => setStatusAction(node.id, v))}
+        >
+          <SelectTrigger className="h-8" disabled={pending}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {statuses.map((s) => (
+              <SelectItem key={s} value={s}>
+                {STATUS_META[s]?.label ?? s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {node.role && <p className="text-sm text-foreground/90">{node.role}</p>}
+      {node.plain && <p className="text-sm text-muted-foreground">{node.plain}</p>}
       {node.sourceRef && (
         <div className="rounded-md border border-border bg-card px-2 py-1.5 font-mono text-xs text-muted-foreground">
           {node.sourceRef}
         </div>
       )}
 
+      {/* actions */}
+      <div className="flex flex-wrap gap-1.5 pt-1">
+        <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+          Editar
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setSubOpen(true)}>
+          + Subnó
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={pending}
+          onClick={() => run(() => cancelAction(node.id))}
+        >
+          Cancelar
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={pending}
+          onClick={() => run(() => deprioritizeAction(node.id))}
+        >
+          Despriorizar
+        </Button>
+        <AlertDialog>
+          <AlertDialogTrigger
+            render={
+              <Button size="sm" variant="outline" className="text-red-300">
+                Excluir
+              </Button>
+            }
+          />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir “{node.title}”?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Isto remove o nó e todos os seus subnós. Não pode ser desfeito.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => run(() => deleteNodeAction(node.id))}
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+
       {openBugs.length > 0 && (
-        <div>
+        <div className="pt-1">
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Bugs ({openBugs.length})
           </h3>
@@ -62,7 +179,7 @@ function NodeDetail({ node }: { node: MapNodePayload }) {
                 key={bug.id}
                 className="rounded-md border border-border bg-card p-2 text-sm"
               >
-                <div className="mb-1 flex items-center gap-2">
+                <div className="mb-1">
                   <SeverityBadge severity={bug.severity} />
                 </div>
                 <div className="font-medium leading-snug">{bug.title}</div>
@@ -75,6 +192,36 @@ function NodeDetail({ node }: { node: MapNodePayload }) {
             ))}
           </ul>
         </div>
+      )}
+
+      {editOpen && (
+        <NodeFormDialog
+          open
+          onOpenChange={setEditOpen}
+          mode="edit"
+          view={view}
+          heading="Editar nó"
+          nodeId={node.id}
+          defaults={{
+            title: node.title,
+            role: node.role,
+            plain: node.plain,
+            status: node.status,
+            cluster: node.cluster,
+          }}
+        />
+      )}
+      {subOpen && (
+        <NodeFormDialog
+          open
+          onOpenChange={setSubOpen}
+          mode="create"
+          view={view}
+          heading="Novo subnó"
+          parentId={node.id}
+          position={{ x: node.x, y: node.y + 120 }}
+          defaults={{ cluster: node.cluster }}
+        />
       )}
     </div>
   );
@@ -93,7 +240,7 @@ function Overview({
     0,
   );
   const topBugs = nodes
-    .flatMap((n) => n.bugs.map((b) => ({ ...b, node: n })))
+    .flatMap((n) => n.bugs)
     .filter((b) => b.status !== "RESOLVED" && b.severity === "critical");
 
   return (
@@ -103,8 +250,8 @@ function Overview({
           {view === "ROADMAP" ? "Roadmap de produção" : "Arquitetura de referência"}
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Clique em um nó para ver detalhes. Arraste para reorganizar — as posições
-          são salvas.
+          Clique em um nó para ver detalhes e ações. Arraste para reorganizar — as
+          posições são salvas.
         </p>
       </div>
 
