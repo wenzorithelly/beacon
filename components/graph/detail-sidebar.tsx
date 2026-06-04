@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { FeatureDraftActions } from "@/components/graph/feature-draft-actions";
 import type { FeatureGraph } from "@/lib/feature-design";
@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { NodeFormDialog } from "@/components/graph/node-form-dialog";
 import {
+  acceptSuggestionAction,
   cancelAction,
   deleteNodeAction,
   deprioritizeAction,
@@ -118,6 +119,37 @@ function NodeDetail({
         </div>
         <h2 className="mt-1 text-lg font-semibold leading-tight">{node.title}</h2>
       </div>
+
+      {node.source === "INIT" && (
+        <div className="rounded-lg border border-violet-400/30 bg-violet-500/[0.06] p-2.5">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-violet-300">
+            <Sparkles className="size-3.5" /> Sugestão da IA
+          </div>
+          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+            Direção sugerida ao mapear o repositório. Aceite para virar uma frente sua, ou
+            dispense.
+          </p>
+          <div className="mt-2 flex gap-1.5">
+            <Button
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              disabled={pending}
+              onClick={() => run(() => acceptSuggestionAction(node.id))}
+            >
+              Aceitar
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-xs text-muted-foreground"
+              disabled={pending}
+              onClick={() => run(() => deleteNodeAction(node.id))}
+            >
+              Dispensar
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-1.5">
         <span className="text-xs text-muted-foreground">Status</span>

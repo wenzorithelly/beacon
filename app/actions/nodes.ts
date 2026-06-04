@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { db } from "@/lib/db";
 import {
   cancelNode,
   createNode,
@@ -49,5 +50,11 @@ export async function cancelAction(id: string) {
 
 export async function deleteNodeAction(id: string) {
   await deleteNode(id);
+  revalidate();
+}
+
+/** Promote an AI suggestion (source=INIT) into a real, kept node. */
+export async function acceptSuggestionAction(id: string) {
+  await db.node.update({ where: { id }, data: { source: "MANUAL" } });
   revalidate();
 }

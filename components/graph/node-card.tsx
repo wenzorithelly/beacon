@@ -1,6 +1,7 @@
 "use client";
 
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { Sparkles } from "lucide-react";
 import { StatusBadge } from "@/components/badges";
 import { cn } from "@/lib/utils";
 
@@ -47,7 +48,7 @@ export function NodeCard({ data, selected }: NodeProps<MapNode>) {
         draft
           ? "border-dashed border-sky-400/50 bg-sky-500/[0.06]"
           : suggested
-            ? "border-dashed border-amber-400/40 bg-amber-500/[0.04]"
+            ? "border-dashed border-violet-400/60 bg-violet-500/[0.07] shadow-[0_0_0_1px_rgba(167,139,250,0.18)]"
             : critical
               ? "border-[#ff3860]/60 shadow-[0_0_0_1px_rgba(255,56,96,0.15)]"
               : "border-border",
@@ -103,8 +104,9 @@ export function NodeCard({ data, selected }: NodeProps<MapNode>) {
             rascunho
           </span>
         ) : suggested ? (
-          <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-300">
-            sugerido
+          <span className="flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-300">
+            <Sparkles className="size-2.5" />
+            sugestão IA
           </span>
         ) : (
           <StatusBadge status={data.status} />
