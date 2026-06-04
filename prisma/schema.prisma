@@ -116,6 +116,7 @@ model DbTable {
   name        String  @unique // e.g. "firms"
   domain      String? // grouping lane: "auth","firms","search"...
   description String?
+  source      String  @default("MANUAL") // "MANUAL" | "INTROSPECTION" (live from code)
   x           Float   @default(0)
   y           Float   @default(0)
 
@@ -166,6 +167,7 @@ model Endpoint {
   path        String // /firms/{id}/members
   domain      String?
   description String?
+  source      String  @default("MANUAL") // "MANUAL" | "INTROSPECTION"
   x           Float   @default(0)
   y           Float   @default(0)
 
@@ -188,4 +190,12 @@ model EndpointTable {
 
   @@unique([endpointId, tableId])
   @@index([tableId])
+}
+
+/// Single-row counter bumped on every introspection ingest; clients poll/subscribe
+/// to it to live-refresh the maps.
+model SyncState {
+  id        String   @id @default("singleton")
+  version   Int      @default(0)
+  updatedAt DateTime @updatedAt
 }

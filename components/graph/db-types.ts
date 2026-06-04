@@ -14,6 +14,7 @@ export interface DbTablePayload {
   name: string;
   domain: string | null;
   description: string | null;
+  source: string;
   x: number;
   y: number;
   columns: DbColumnPayload[];
@@ -39,6 +40,7 @@ export interface EndpointPayload {
   path: string;
   domain: string | null;
   description: string | null;
+  source: string;
   x: number;
   y: number;
   tables: EndpointUsagePayload[];

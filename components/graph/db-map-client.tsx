@@ -78,6 +78,7 @@ export function DbMapClient({
           domain: t.domain,
           columns: t.columns,
           usageCount: usageCount.get(t.id) ?? 0,
+          source: t.source,
         },
       })),
     [tables, usageCount],
@@ -89,7 +90,7 @@ export function DbMapClient({
         id: e.id,
         type: "endpoint",
         position: { x: e.x, y: e.y },
-        data: { method: e.method, path: e.path, domain: e.domain },
+        data: { method: e.method, path: e.path, domain: e.domain, source: e.source },
       })),
     [endpoints],
   );

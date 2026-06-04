@@ -10,6 +10,7 @@ export type DbTableNodeData = {
   domain: string | null;
   columns: DbColumnPayload[];
   usageCount: number;
+  source: string;
 };
 
 export type DbTableNode = Node<DbTableNodeData>;
@@ -36,7 +37,15 @@ export function DbTableNode({ data, selected }: NodeProps<DbTableNode>) {
         className="flex items-center justify-between px-2.5 py-1.5"
         style={{ background: `${color}1f` }}
       >
-        <span className="font-mono text-sm font-semibold">{data.name}</span>
+        <span className="flex items-center gap-1.5 font-mono text-sm font-semibold">
+          {data.source === "INTROSPECTION" && (
+            <span
+              title="live — derived from your code"
+              className="inline-block size-1.5 rounded-full bg-emerald-400"
+            />
+          )}
+          {data.name}
+        </span>
         {data.domain && (
           <span className="text-[10px] uppercase tracking-wide" style={{ color }}>
             {data.domain}

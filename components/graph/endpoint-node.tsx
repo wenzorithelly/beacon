@@ -8,6 +8,7 @@ export type EndpointNodeData = {
   method: string;
   path: string;
   domain: string | null;
+  source: string;
 };
 
 export type EndpointNode = Node<EndpointNodeData>;
@@ -25,6 +26,12 @@ export function EndpointNode({ data, selected }: NodeProps<EndpointNode>) {
     >
       <Handle type="source" position={Position.Left} id="sl" className={hClass} />
       <Handle type="source" position={Position.Right} id="sr" className={hClass} />
+      {data.source === "INTROSPECTION" && (
+        <span
+          title="live — derived from your code"
+          className="inline-block size-1.5 shrink-0 rounded-full bg-emerald-400"
+        />
+      )}
       <span
         className="rounded px-1.5 py-0.5 text-[10px] font-bold"
         style={{ background: `${color}22`, color }}

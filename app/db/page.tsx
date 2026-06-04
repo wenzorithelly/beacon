@@ -20,6 +20,7 @@ export default async function DbPage() {
     name: t.name,
     domain: t.domain,
     description: t.description,
+    source: t.source,
     x: t.x,
     y: t.y,
     columns: t.columns.map((c) => ({
@@ -47,6 +48,7 @@ export default async function DbPage() {
     path: e.path,
     domain: e.domain,
     description: e.description,
+    source: e.source,
     x: e.x,
     y: e.y,
     tables: e.tables.map((u) => ({ tableId: u.tableId, access: u.access })),
