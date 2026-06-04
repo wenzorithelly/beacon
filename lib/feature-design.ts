@@ -45,7 +45,7 @@ const FEATURE_JSON_SCHEMA: Record<string, unknown> = {
   required: ["features"],
 };
 
-const SYSTEM = `You design product/architecture features for a software system (Juriscan: a Brazilian legal-precedent search SaaS — FastAPI backend).
+const SYSTEM = `You design product/architecture features for the current software project. Infer its domain and stack from the provided context.
 
 Given a plain-language description, propose a small, focused set of feature nodes:
 - title: short feature name

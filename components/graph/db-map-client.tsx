@@ -218,7 +218,7 @@ export function DbMapClient({
         />
 
         <Panel position="top-left" className="glass flex items-center gap-2 rounded-xl p-1.5">
-          <span className="px-1 text-xs font-semibold">Banco de dados v2</span>
+          <span className="px-1 text-xs font-semibold">Banco de dados</span>
           <button
             onClick={() => setShowEndpoints((s) => !s)}
             className={cn(

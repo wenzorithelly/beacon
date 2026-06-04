@@ -28,7 +28,7 @@ describe("integrations", () => {
 
   it("builds a setup prompt that includes the config", () => {
     const p = integrationSetupPrompt("sentry", { dsn: "https://x@sentry.io/1" });
-    expect(p).toContain("sentry-sdk");
+    expect(p).toContain("Sentry");
     expect(p).toContain("https://x@sentry.io/1");
   });
 });

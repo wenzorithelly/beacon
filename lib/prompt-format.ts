@@ -4,7 +4,7 @@ import type { DraftGraph } from "@/lib/design";
 
 export function toClaudePrompt(g: DraftGraph): string {
   const lines: string[] = [
-    "Implement this database schema in the Juriscan backend (FastAPI + SQLAlchemy 2.0 + Alembic):",
+    "Implement this database schema in this project, following its existing stack and conventions:",
     "",
   ];
   for (const t of g.tables) {
@@ -24,7 +24,7 @@ export function toClaudePrompt(g: DraftGraph): string {
     lines.push("");
   }
   lines.push(
-    "Use SQLAlchemy 2.0 declarative models (Mapped / mapped_column) under app/models/, wire the relationships, and generate a single Alembic migration. Keep table and column names exactly as given.",
+    "Create the models/migrations using the project's existing ORM and patterns, wire the relationships, and keep table and column names exactly as given.",
   );
   return lines.join("\n");
 }

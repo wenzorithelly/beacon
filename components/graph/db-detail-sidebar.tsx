@@ -217,10 +217,10 @@ function Overview({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-sm font-semibold">Banco de dados (proposta v2)</h2>
+        <h2 className="text-sm font-semibold">Banco de dados</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Esquema FastAPI + SQLAlchemy + Alembic. Clique numa tabela ou endpoint para
-          ver detalhes. Arraste para reorganizar — as posições são salvas.
+          Esquema vivo, derivado do seu código. Clique numa tabela ou endpoint para ver
+          detalhes. Arraste para reorganizar — as posições são salvas.
         </p>
       </div>
       <dl className="grid grid-cols-3 gap-2 text-center">

@@ -54,11 +54,11 @@ describe("persistDraft / getDraft", () => {
 });
 
 describe("prompt formatters", () => {
-  it("toClaudePrompt mentions tables, FKs, and the stack", () => {
+  it("toClaudePrompt mentions tables, FKs, and the project's stack", () => {
     const p = toClaudePrompt(GRAPH);
     expect(p).toContain("firms");
     expect(p).toContain("users.firm_id -> firms.id");
-    expect(p).toContain("SQLAlchemy");
+    expect(p).toContain("existing stack");
   });
 
   it("toDbml emits Table + Ref", () => {

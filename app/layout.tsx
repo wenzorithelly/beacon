@@ -6,6 +6,7 @@ import { TopNav } from "@/components/top-nav";
 import { LiveRefresh } from "@/components/live-refresh";
 import { AiContextProvider } from "@/components/ai/ai-context";
 import { CommandBar } from "@/components/ai/command-bar";
+import { repoName } from "@/lib/project";
 
 const geistSans = Geist({
   variable: "--font-sans",
@@ -18,8 +19,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Juriscan Control",
-  description: "Completion mental-map for the Juriscan production rebuild",
+  title: "Beacon",
+  description: "A local control panel for the repository you're working in",
 };
 
 export default function RootLayout({
@@ -35,7 +36,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <LiveRefresh />
         <AiContextProvider>
-          <TopNav />
+          <TopNav repo={repoName()} />
           <main className="flex flex-1 flex-col">{children}</main>
           <Suspense>
             <CommandBar />

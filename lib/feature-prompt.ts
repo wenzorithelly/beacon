@@ -10,7 +10,7 @@ export interface FeatureLite {
 /** Claude Code prompt to implement the drafted features. */
 export function featuresToPrompt(features: FeatureLite[]): string {
   const lines: string[] = [
-    "Implement these features in the Juriscan backend (FastAPI + SQLAlchemy):",
+    "Implement these features in this project, following its existing stack and conventions:",
     "",
   ];
   for (const f of features) {
