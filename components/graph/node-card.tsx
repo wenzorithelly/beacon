@@ -36,6 +36,7 @@ export function NodeCard({ data, selected }: NodeProps<MapNode>) {
   const cancelled = data.status === "CANCELLED" || data.status === "DROP";
   const dimmed = data.status === "DEPRIORITIZED";
   const draft = data.source === "DRAFT";
+  const working = data.status === "IN_PROGRESS";
 
   return (
     <div
@@ -47,6 +48,7 @@ export function NodeCard({ data, selected }: NodeProps<MapNode>) {
           : critical
             ? "border-[#ff3860]/60 shadow-[0_0_0_1px_rgba(255,56,96,0.15)]"
             : "border-border",
+        working && "border-sky-400/60 shadow-[0_0_0_1px_rgba(56,160,255,0.25)]",
         selected && "ring-2 ring-[var(--accent,#f5b942)]",
         cancelled && "opacity-60",
         dimmed && "opacity-70 border-dashed",
@@ -61,6 +63,12 @@ export function NodeCard({ data, selected }: NodeProps<MapNode>) {
             cancelled && "line-through",
           )}
         >
+          {working && (
+            <span
+              title="em andamento — sendo trabalhado agora"
+              className="mr-1.5 inline-block size-2 animate-pulse rounded-full bg-sky-400 align-middle"
+            />
+          )}
           {data.isCriterion && (
             <span
               title="Critério de sucesso"

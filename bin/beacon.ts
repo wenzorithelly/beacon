@@ -14,6 +14,13 @@ import { fileURLToPath } from "node:url";
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cwd = process.cwd();
 
+// `beacon mcp` → run the MCP server (stdio) instead of launching the panel.
+if (process.argv[2] === "mcp") {
+  await import(join(pkgDir, "bin/mcp.ts"));
+} else {
+  launchPanel();
+}
+
 function gitToplevel(): string {
   try {
     return execSync("git rev-parse --show-toplevel", {
@@ -27,57 +34,60 @@ function gitToplevel(): string {
   }
 }
 
-const repo = gitToplevel() || cwd;
-const id = createHash("sha256").update(repo).digest("hex").slice(0, 12);
-const data = join(homedir(), ".beacon", id);
-mkdirSync(data, { recursive: true });
+function launchPanel() {
+  const repo = gitToplevel() || cwd;
+  const id = createHash("sha256").update(repo).digest("hex").slice(0, 12);
+  const data = join(homedir(), ".beacon", id);
+  mkdirSync(data, { recursive: true });
 
-const dbFile = join(data, "db.sqlite");
-const dbUrl = `file:${dbFile}`;
-const port = process.env.PORT || "4319";
-const url = `http://localhost:${port}`;
+  const dbFile = join(data, "db.sqlite");
+  const dbUrl = `file:${dbFile}`;
+  const port = process.env.PORT || "4319";
+  const url = `http://localhost:${port}`;
 
-const env = {
-  ...process.env,
-  BEACON_REPO: repo,
-  BEACON_DATA_DIR: data,
-  DATABASE_URL: dbUrl,
-  PORT: port,
-};
+  const env = {
+    ...process.env,
+    BEACON_REPO: repo,
+    BEACON_DATA_DIR: data,
+    DATABASE_URL: dbUrl,
+    PORT: port,
+  };
 
-if (!existsSync(dbFile)) {
-  console.log(`[beacon] first run for ${repo} — creating database…`);
-  execSync(
-    `bunx prisma db push --url "${dbUrl}" --schema "${join(pkgDir, "prisma/schema.prisma")}"`,
-    { cwd: pkgDir, env, stdio: "inherit" },
-  );
-}
+  if (!existsSync(dbFile)) {
+    console.log(`[beacon] first run for ${repo} — creating database…`);
+    execSync(
+      `bunx prisma db push --url "${dbUrl}" --schema "${join(pkgDir, "prisma/schema.prisma")}"`,
+      { cwd: pkgDir, env, stdio: "inherit" },
+    );
+  }
 
-console.log(`\n  ◉ Beacon\n  repo:  ${repo}\n  data:  ${data}\n  url:   ${url}\n`);
+  console.log(`\n  ◉ Beacon\n  repo:  ${repo}\n  data:  ${data}\n  url:   ${url}\n`);
 
-const app = spawn("bun", ["run", "dev"], { cwd: pkgDir, env, stdio: "inherit" });
+  const app = spawn("bun", ["run", "dev"], { cwd: pkgDir, env, stdio: "inherit" });
 
-// Give the app a moment to come up, then start the watcher + open the browser.
-const watchTimer = setTimeout(() => {
-  spawn("bun", ["run", "intel/watch.ts"], { cwd: pkgDir, env, stdio: "inherit" });
-  if (!process.env.BEACON_NO_OPEN) {
-    const opener = platform() === "darwin" ? "open" : platform() === "win32" ? "start" : "xdg-open";
-    try {
-      execSync(`${opener} ${url}`, { stdio: "ignore" });
-    } catch {
-      /* no browser opener available */
+  // Give the app a moment to come up, then start the watcher + open the browser.
+  const watchTimer = setTimeout(() => {
+    spawn("bun", ["run", "intel/watch.ts"], { cwd: pkgDir, env, stdio: "inherit" });
+    if (!process.env.BEACON_NO_OPEN) {
+      const opener =
+        platform() === "darwin" ? "open" : platform() === "win32" ? "start" : "xdg-open";
+      try {
+        execSync(`${opener} ${url}`, { stdio: "ignore" });
+      } catch {
+        /* no browser opener available */
+      }
     }
-  }
-}, 3500);
+  }, 3500);
 
-function shutdown() {
-  clearTimeout(watchTimer);
-  try {
-    app.kill();
-  } catch {
-    /* already gone */
+  function shutdown() {
+    clearTimeout(watchTimer);
+    try {
+      app.kill();
+    } catch {
+      /* already gone */
+    }
+    process.exit(0);
   }
-  process.exit(0);
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
