@@ -1,0 +1,8 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "demo-backend", "version": "1" },
+  "paths": {
+    "/firms": { "post": { "tags": ["firms"], "summary": "Create a firm" } },
+    "/users": { "get": { "tags": ["auth"], "summary": "List users" } }
+  }
+}

@@ -1,10 +1,16 @@
-.PHONY: install up down build test test-watch lint db-up db-reset seed studio db-postgres deploy
+.PHONY: install up down build test test-watch lint db-up db-reset seed studio db-postgres deploy watch dev
 
 install:    ## install deps
 	bun install
 
-up:         ## run dev server (http://localhost:3000)
+up:         ## run the control app dev server (http://localhost:3000)
 	bun run dev
+
+watch:      ## run the live code-intelligence watcher (control app must be up)
+	bun run intel/watch.ts
+
+dev:        ## run control app + intel watcher together (Ctrl-C stops both)
+	@bash -c 'bun run dev & DEV=$$!; trap "kill $$DEV 2>/dev/null" EXIT; sleep 2; bun run intel/watch.ts'
 
 down:       ## no daemon — stop the dev server with Ctrl-C
 	@echo "No background daemon. Stop the dev server with Ctrl-C."

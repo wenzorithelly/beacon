@@ -43,6 +43,46 @@ make studio       # prisma studio
 > Prisma 7 note: after changing the schema, run `bunx prisma generate` and restart
 > the dev server (the client singleton is cached in-process).
 
+## Live code-intelligence daemon (`intel/`)
+
+As you write the Juriscan backend (any language), a watcher keeps the `/db` map in
+sync — tables, FK relationships, and which endpoints touch which tables — updating
+live as you save.
+
+```bash
+make up      # terminal 1: the control app
+make watch   # terminal 2: the watcher  (or `make dev` to run both)
+```
+
+It reads `juriscan.config.json` at the repo root (`juriscan_v2/`):
+
+```json
+{
+  "roots": ["backend", "web"],
+  "openapiUrl": "http://localhost:8000/openapi.json",
+  "controlUrl": "http://localhost:3000",
+  "llm": { "provider": "auto", "model": "claude-haiku-4-5" }
+}
+```
+
+How it works: on each save, [`watchexec`-style] debounced watcher → gather source
+files + the framework's OpenAPI spec → **Claude reads the code** and emits a
+structured graph (tables/columns/FKs + endpoint↔table usage) → `POST /api/ingest`
+upserts it (preserving your manual nodes + hand-placed positions) → SSE refreshes the
+open map. Introspected nodes show a green "live" dot.
+
+**Provider — no API key needed.** `provider: "auto"` (default) runs the extraction
+through the **Claude Code CLI in headless mode**, using your **Claude Code
+subscription** (`claude -p --json-schema …`). Force it with `"claude-cli"`, or set
+`"api"` + `ANTHROPIC_API_KEY` to use the Anthropic API instead. With neither, the
+daemon still ingests endpoints from OpenAPI (deterministic-only).
+
+**Model.** Defaults to `claude-haiku-4-5` since this runs on every save — bump to
+`claude-sonnet-4-6` / `claude-opus-4-8` if extraction misses things.
+
+The control app stays ahead of the rebuild: it works empty (you watch the schema take
+shape from your first model) and degrades gracefully when the DB/server aren't up yet.
+
 ## Deploy (Vercel + Neon Postgres)
 
 The schema is Postgres-portable (no enums, no scalar lists). To deploy:
