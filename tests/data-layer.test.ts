@@ -1,13 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
-
-async function resetDb() {
-  await db.bug.deleteMany();
-  await db.edge.deleteMany();
-  await db.note.deleteMany();
-  await db.node.deleteMany();
-  await db.tag.deleteMany();
-}
+import { resetDb } from "./helpers";
 
 beforeEach(resetDb);
 
