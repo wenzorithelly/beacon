@@ -1,11 +1,10 @@
 import { db } from "@/lib/db";
 import { bumpVersion } from "@/lib/ingest";
+import { matchFeature, type Scored } from "@/lib/match";
 
 // Map write operations used by the HTTP API + the MCP server. Lets a Claude Code
 // session see the roadmap and register what it's working on: flag an existing
 // feature as "being worked on", or add a new one under the right front (or a new front).
-
-const norm = (s: string) => s.toLowerCase().trim();
 
 export interface MapView {
   fronts: Array<{
@@ -40,16 +39,25 @@ export async function listMap(): Promise<MapView> {
 }
 
 export type StartResult =
-  | { action: "flagged"; id: string; title: string }
-  | { action: "created"; id: string; title: string; front: string | null };
+  | { action: "flagged"; id: string; title: string; via: "id" | "match"; score?: number }
+  | { action: "created"; id: string; title: string; front: string | null }
+  | { action: "ambiguous"; candidates: Scored[] };
+
+async function setStatus(id: string, status: string) {
+  await db.node.update({ where: { id }, data: { status } });
+  await bumpVersion();
+}
 
 /**
- * A session starts working on a feature. If it already exists on the map, flag it
- * IN_PROGRESS ("being worked on"). Otherwise create it under `front` (creating that
- * front if needed), marked IN_PROGRESS and tagged source=SESSION.
+ * A session starts working on a feature. Resolution order:
+ *  1. explicit `id` (from beacon_map) → flag it (100% reliable)
+ *  2. confident, unambiguous fuzzy match → flag it
+ *  3. plausible-but-ambiguous matches → return candidates to disambiguate
+ *  4. no match → create it under `front` (creating that front if needed)
  */
 export async function startFeature(input: {
   title: string;
+  id?: string | null;
   front?: string | null;
   detail?: string | null;
 }): Promise<StartResult> {
@@ -57,22 +65,32 @@ export async function startFeature(input: {
   if (!title) throw new Error("title required");
 
   const nodes = await db.node.findMany({ where: { view: "ROADMAP" } });
-  const existing =
-    nodes.find((n) => norm(n.title) === norm(title)) ??
-    nodes.find((n) => norm(n.title).includes(norm(title)) || norm(title).includes(norm(n.title)));
 
-  if (existing) {
-    await db.node.update({ where: { id: existing.id }, data: { status: "IN_PROGRESS" } });
-    await bumpVersion();
-    return { action: "flagged", id: existing.id, title: existing.title };
+  if (input.id) {
+    const n = nodes.find((x) => x.id === input.id);
+    if (n) {
+      await setStatus(n.id, "IN_PROGRESS");
+      return { action: "flagged", id: n.id, title: n.title, via: "id" };
+    }
   }
 
+  const { best, candidates } = matchFeature(
+    title,
+    nodes.map((n) => ({ id: n.id, title: n.title })),
+  );
+  if (best) {
+    await setStatus(best.id, "IN_PROGRESS");
+    return { action: "flagged", id: best.id, title: best.title, via: "match", score: best.score };
+  }
+  if (candidates.length) return { action: "ambiguous", candidates };
+
+  // No match → create.
   const fronts = nodes.filter((n) => !n.parentId);
   let parentId: string | null = null;
   let frontTitle: string | null = null;
 
   if (input.front) {
-    const f = fronts.find((n) => norm(n.title) === norm(input.front!));
+    const f = matchFeature(input.front, fronts.map((n) => ({ id: n.id, title: n.title }))).best;
     if (f) {
       parentId = f.id;
       frontTitle = f.title;
@@ -111,13 +129,28 @@ export async function startFeature(input: {
   return { action: "created", id: task.id, title, front: frontTitle };
 }
 
-export async function finishFeature(title: string): Promise<{ ok: boolean; id?: string }> {
+export async function finishFeature(input: {
+  title?: string;
+  id?: string;
+}): Promise<{ ok: boolean; id?: string; candidates?: Scored[] }> {
   const nodes = await db.node.findMany({ where: { view: "ROADMAP" } });
-  const match =
-    nodes.find((n) => norm(n.title) === norm(title)) ??
-    nodes.find((n) => norm(n.title).includes(norm(title)));
-  if (!match) return { ok: false };
-  await db.node.update({ where: { id: match.id }, data: { status: "DONE" } });
-  await bumpVersion();
-  return { ok: true, id: match.id };
+
+  if (input.id) {
+    const n = nodes.find((x) => x.id === input.id);
+    if (n) {
+      await setStatus(n.id, "DONE");
+      return { ok: true, id: n.id };
+    }
+  }
+  if (!input.title) return { ok: false };
+
+  const { best, candidates } = matchFeature(
+    input.title,
+    nodes.map((n) => ({ id: n.id, title: n.title })),
+  );
+  if (best) {
+    await setStatus(best.id, "DONE");
+    return { ok: true, id: best.id };
+  }
+  return { ok: false, candidates: candidates.length ? candidates : undefined };
 }

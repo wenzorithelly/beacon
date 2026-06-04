@@ -10,6 +10,7 @@ export async function POST(req: Request) {
     }
     const result = await startFeature({
       title: body.title,
+      id: typeof body.id === "string" ? body.id : null,
       front: typeof body.front === "string" ? body.front : null,
       detail: typeof body.detail === "string" ? body.detail : null,
     });

@@ -5,10 +5,15 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    if (typeof body.title !== "string" || !body.title.trim()) {
-      return new Response("title required", { status: 400 });
+    if (typeof body.id !== "string" && (typeof body.title !== "string" || !body.title.trim())) {
+      return new Response("title or id required", { status: 400 });
     }
-    return Response.json(await finishFeature(body.title));
+    return Response.json(
+      await finishFeature({
+        title: typeof body.title === "string" ? body.title : undefined,
+        id: typeof body.id === "string" ? body.id : undefined,
+      }),
+    );
   } catch (e) {
     return new Response(`finish failed: ${e instanceof Error ? e.message : "error"}`, {
       status: 500,

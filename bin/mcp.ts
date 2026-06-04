@@ -45,15 +45,16 @@ server.registerTool(
   "beacon_start_feature",
   {
     description:
-      "Register that you're starting work on a feature. If it already exists on the map it's flagged as being worked on; otherwise it's added under `front` (a new front is created if it doesn't exist). Prefer tagging to an existing front (see beacon_map).",
+      "Register that you're starting work on a feature. If it already exists on the map it's flagged as being worked on; otherwise it's added under `front` (a new front is created if it doesn't exist). For reliability, call beacon_map first and pass the matching node's `id`. If the response is {action:'ambiguous', candidates}, re-call with the chosen `id`.",
     inputSchema: {
       title: z.string().describe("the feature you're starting"),
+      id: z.string().optional().describe("exact node id from beacon_map (most reliable)"),
       front: z.string().optional().describe("the front/area it belongs to (existing or new)"),
       detail: z.string().optional().describe("one-line description"),
     },
   },
-  async ({ title, front, detail }) => {
-    const r = await post("/api/map/start", { title, front, detail });
+  async ({ title, id, front, detail }) => {
+    const r = await post("/api/map/start", { title, id, front, detail });
     return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
   },
 );
@@ -61,11 +62,11 @@ server.registerTool(
 server.registerTool(
   "beacon_finish_feature",
   {
-    description: "Mark a feature on the map as done.",
-    inputSchema: { title: z.string() },
+    description: "Mark a feature on the map as done. Pass the node `id` from beacon_map when known.",
+    inputSchema: { title: z.string().optional(), id: z.string().optional() },
   },
-  async ({ title }) => {
-    const r = await post("/api/map/finish", { title });
+  async ({ title, id }) => {
+    const r = await post("/api/map/finish", { title, id });
     return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
   },
 );
