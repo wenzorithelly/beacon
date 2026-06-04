@@ -18,11 +18,11 @@ down:       ## no daemon — stop the dev server with Ctrl-C
 build:      ## production build (generates prisma client first)
 	bun run build
 
-test:       ## run the test suite once
-	bun run test
+test:       ## run the test suite once (bun test — native, no Vite)
+	bun test
 
 test-watch: ## run tests in watch mode
-	bun run test:watch
+	bun test --watch
 
 lint:       ## lint
 	bun run lint

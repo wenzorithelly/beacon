@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { db } from "@/lib/db";
 import * as m from "@/lib/mutations";
 import { resetDb } from "./helpers";

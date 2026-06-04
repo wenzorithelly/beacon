@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import type Anthropic from "@anthropic-ai/sdk";
 import { parseOpenApi } from "@/intel/extractors/openapi";
 import { scanFiles } from "@/intel/extractors/files";

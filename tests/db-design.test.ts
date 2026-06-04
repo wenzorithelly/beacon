@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "bun:test";
 import { db } from "@/lib/db";
 import { seedDatabaseDesign } from "@/lib/seed-db";
 

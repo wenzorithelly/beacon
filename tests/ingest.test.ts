@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { db } from "@/lib/db";
 import { getVersion, ingestSnapshot, type Snapshot } from "@/lib/ingest";
 

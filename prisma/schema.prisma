@@ -208,3 +208,59 @@ model AppSetting {
   intelProvider String   @default("auto")
   updatedAt     DateTime @updatedAt
 }
+
+// ── DB Designer: a proposed schema you draft before implementing. Isolated from
+// the real DbTable* (no name collisions) and clearable; persists so it survives the
+// live-refresh SSE. Rendered as a distinct "rascunho" layer on the /db map.
+model DraftTable {
+  id          String          @id @default(cuid())
+  name        String          @unique
+  domain      String?
+  description String?
+  x           Float           @default(0)
+  y           Float           @default(0)
+  columns     DraftColumn[]
+  fksOut      DraftRelation[] @relation("DraftFkFrom")
+  fksIn       DraftRelation[] @relation("DraftFkTo")
+  createdAt   DateTime        @default(now())
+}
+
+model DraftColumn {
+  id       String     @id @default(cuid())
+  tableId  String
+  table    DraftTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  name     String
+  type     String
+  isPk     Boolean    @default(false)
+  isFk     Boolean    @default(false)
+  nullable Boolean    @default(true)
+  note     String?
+  ord      Int        @default(0)
+
+  @@index([tableId])
+}
+
+model DraftRelation {
+  id          String     @id @default(cuid())
+  fromTableId String
+  toTableId   String
+  fromTable   DraftTable @relation("DraftFkFrom", fields: [fromTableId], references: [id], onDelete: Cascade)
+  toTable     DraftTable @relation("DraftFkTo", fields: [toTableId], references: [id], onDelete: Cascade)
+  fromColumn  String
+  toColumn    String
+  label       String?
+
+  @@index([fromTableId])
+  @@index([toTableId])
+}
+
+/// An external integration the user manages from /settings (Sentry, email, AI provider…).
+model Integration {
+  id        String   @id @default(cuid())
+  key       String   @unique // "sentry","email","ai-provider"
+  name      String
+  category  String?
+  enabled   Boolean  @default(false)
+  config    String   @default("{}") // JSON blob of per-integration fields
+  updatedAt DateTime @updatedAt
+}

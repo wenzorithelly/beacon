@@ -25,7 +25,7 @@ export function parseClaudeEnvelope(stdout: string): Snapshot | null {
   return snapshotSchema.parse(data);
 }
 
-function runClaude(args: string[], stdin: string): Promise<string> {
+export function runClaudeCli(args: string[], stdin: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn("claude", args, { stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
@@ -59,6 +59,6 @@ export async function runAiCli(
     "--json-schema",
     JSON.stringify(GRAPH_SCHEMA),
   ];
-  const out = await runClaude(args, buildUserPrompt(files, endpointFacts));
+  const out = await runClaudeCli(args, buildUserPrompt(files, endpointFacts));
   return parseClaudeEnvelope(out);
 }

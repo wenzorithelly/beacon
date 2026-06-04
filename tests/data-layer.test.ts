@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { db } from "@/lib/db";
 import { resetDb } from "./helpers";
 
@@ -50,14 +50,14 @@ describe("Edge", () => {
 
     await db.edge.create({ data: { fromId: a.id, toId: b.id, kind: "DEPENDS" } });
 
+    // Promise.resolve() adapts Prisma's thenable to a native Promise for bun:test.
     await expect(
-      db.edge.create({ data: { fromId: a.id, toId: b.id, kind: "DEPENDS" } }),
+      Promise.resolve(db.edge.create({ data: { fromId: a.id, toId: b.id, kind: "DEPENDS" } })),
     ).rejects.toMatchObject({ code: "P2002" });
 
     // same pair, different kind is allowed
-    await expect(
-      db.edge.create({ data: { fromId: a.id, toId: b.id, kind: "RELATES" } }),
-    ).resolves.toBeTruthy();
+    const other = await db.edge.create({ data: { fromId: a.id, toId: b.id, kind: "RELATES" } });
+    expect(other).toBeTruthy();
   });
 
   it("cascade-deletes edges when an endpoint node is removed", async () => {

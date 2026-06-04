@@ -27,7 +27,7 @@ where are the current bugs.*
 - React Flow (`@xyflow/react`) for the maps
 - **Prisma 7** + **libSQL** driver adapter over SQLite (better-sqlite3's native addon
   doesn't load under Bun — libSQL does). Bun for package management + runtime.
-- Vitest for tests
+- **`bun test`** (native — no Vite) for tests
 
 ## Develop
 
@@ -36,7 +36,7 @@ make install     # bun install
 make db-up        # apply migrations (creates dev.db)
 make seed         # seed roadmap, architecture, bugs, and the v2 DB design
 make up           # next dev → http://localhost:3000
-make test         # vitest (32 tests: data layer, seed integrity, mutations, db design)
+make test         # bun test (data layer, seed integrity, mutations, db design, ingest, intel…)
 make studio       # prisma studio
 ```
 

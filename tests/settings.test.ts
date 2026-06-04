@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { db } from "@/lib/db";
 import { getAppSettings, setAppSettings } from "@/lib/settings";
 import { INTEL_MODEL_IDS } from "@/lib/intel-models";
