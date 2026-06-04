@@ -47,7 +47,8 @@ const { runInit } = await import(join(pkgDir, "lib/init.ts"));
 const r = await runInit();
 
 console.log(
-  `\n  ✓ mapped ${r.components} components · ${r.tables} tables · ${r.endpoints} endpoints (from ${r.files} files)\n` +
+  `\n  ✓ mapped ${r.components} components · ${r.tables} tables · ${r.endpoints} endpoints` +
+    ` · ${r.roadmap} roadmap suggestions (from ${r.files} files)\n` +
     `  → run \`beacon\` to open the map.\n`,
 );
 process.exit(0);

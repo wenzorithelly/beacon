@@ -9,6 +9,7 @@ import { repoRoot } from "@/lib/project";
 import { loadConfig } from "@/intel/config";
 import { scanFiles, type SourceFile } from "@/intel/extractors/files";
 import { fetchOpenApi } from "@/intel/extractors/openapi";
+import { extractImports, importGraphText } from "@/intel/extractors/imports";
 import { extractGraph } from "@/intel/extract";
 import { mergeSnapshot } from "@/intel/merge";
 
@@ -27,6 +28,14 @@ const archSchema = z.object({
         plain: z.string().nullish(),
         files: z.array(z.string()).default([]),
         depends: z.array(z.string()).default([]),
+      }),
+    )
+    .default([]),
+  roadmap: z
+    .array(
+      z.object({
+        title: z.string().trim().min(1),
+        why: z.string().nullish(),
       }),
     )
     .default([]),
@@ -53,18 +62,32 @@ const ARCH_JSON_SCHEMA: Record<string, unknown> = {
         required: ["title", "domain"],
       },
     },
+    roadmap: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          title: { type: "string" },
+          why: { type: ["string", "null"] },
+        },
+        required: ["title"],
+      },
+    },
   },
-  required: ["components"],
+  required: ["components", "roadmap"],
 };
 
-const ARCH_SYSTEM = `You are a software architect mapping an EXISTING codebase from the repository context provided (file tree, manifests/README, and source samples).
+const ARCH_SYSTEM = `You are a software architect mapping an EXISTING codebase from the repository context provided (file tree, manifests/README, a MODULE DEPENDENCY GRAPH, and source samples).
 
 Produce a concise architecture map:
-- components: the main building blocks (services, modules, subsystems, features) — aim for ~8-25, not every file.
+- components: the main building blocks (services, modules, subsystems, features) — aim for ~8-25, not every file. USE THE DEPENDENCY GRAPH to draw sharper boundaries: files that import each other heavily usually belong to the same component; the external packages a file uses hint at its role.
 - domain: a short UPPERCASE area each belongs to (e.g. AUTH, API, DATA, UI, JOBS, BILLING, SEARCH, INFRA…).
 - role: one-line technical role. plain: one plain-language sentence.
 - files: the few key repo-relative files that implement it (so they can be linked on the map).
-- depends: titles of other components it depends on (optional).
+- depends: titles of other components it depends on, derived from the dependency graph (optional).
+
+Also propose "roadmap": 3-6 BROAD, HIGH-LEVEL directions for this project — big-picture themes only (e.g. "Harden auth & security", "Add automated test coverage", "Scale the data layer", "Add observability", "Pay down tech debt"). These are SUGGESTIONS, deliberately vague and strategic — NOT detailed tasks, NOT file-level. Keep each to a short title + one-line "why".
 
 Infer the stack from the manifests. Describe only what is actually present. Output ONLY via the structure.`;
 
@@ -111,10 +134,12 @@ export async function analyzeArchitecture(files: SourceFile[]): Promise<Arch | n
     .slice(0, 40)
     .map((f) => `// ${f.path}\n${f.content.slice(0, 1200)}`)
     .join("\n\n");
+  const graph = importGraphText(extractImports(files));
   const prompt = [
     `Repository: ${root}`,
     `## File tree\n${fileTree(files)}`,
     `## Manifests / README\n${readManifests(root)}`,
+    `## Module dependency graph (file -> internal imports | external pkgs)\n${graph || "(none detected)"}`,
     `## Source samples\n${sample}`,
   ].join("\n\n");
 
@@ -168,11 +193,32 @@ export async function persistArchitecture(arch: Arch): Promise<number> {
   return arch.components.length;
 }
 
+/** Persist the broad, high-level roadmap suggestions as ROADMAP fronts (source=INIT). */
+export async function persistRoadmap(roadmap: Arch["roadmap"]): Promise<number> {
+  await db.node.deleteMany({ where: { view: "ROADMAP", source: "INIT" } });
+  for (let i = 0; i < roadmap.length; i++) {
+    const r = roadmap[i];
+    await db.node.create({
+      data: {
+        view: "ROADMAP",
+        source: "INIT",
+        title: r.title,
+        plain: r.why ?? null,
+        status: "PENDING",
+        x: i * 320,
+        y: 0,
+      },
+    });
+  }
+  return roadmap.length;
+}
+
 export async function runInit(): Promise<{
   files: number;
   tables: number;
   endpoints: number;
   components: number;
+  roadmap: number;
 }> {
   const config = loadConfig();
   const roots = config.roots.map((r) => resolve(config.configDir, r));
@@ -208,15 +254,19 @@ export async function runInit(): Promise<{
     console.error("[init] db extraction failed:", e instanceof Error ? e.message : e);
   }
 
-  // 2. Architecture map.
+  // 2. Architecture map + high-level roadmap suggestions.
   let components = 0;
+  let roadmap = 0;
   try {
     const arch = await analyzeArchitecture(files);
-    if (arch) components = await persistArchitecture(arch);
+    if (arch) {
+      components = await persistArchitecture(arch);
+      roadmap = await persistRoadmap(arch.roadmap);
+    }
   } catch (e) {
     console.error("[init] architecture analysis failed:", e instanceof Error ? e.message : e);
   }
 
   await bumpVersion();
-  return { files: files.length, tables, endpoints, components };
+  return { files: files.length, tables, endpoints, components, roadmap };
 }

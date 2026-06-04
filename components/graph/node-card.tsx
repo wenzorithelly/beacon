@@ -37,6 +37,7 @@ export function NodeCard({ data, selected }: NodeProps<MapNode>) {
   const dimmed = data.status === "DEPRIORITIZED";
   const draft = data.source === "DRAFT";
   const working = data.status === "IN_PROGRESS";
+  const suggested = data.source === "INIT" && data.view === "ROADMAP";
 
   return (
     <div
@@ -45,9 +46,11 @@ export function NodeCard({ data, selected }: NodeProps<MapNode>) {
         data.isChild ? "w-56" : "w-64",
         draft
           ? "border-dashed border-sky-400/50 bg-sky-500/[0.06]"
-          : critical
-            ? "border-[#ff3860]/60 shadow-[0_0_0_1px_rgba(255,56,96,0.15)]"
-            : "border-border",
+          : suggested
+            ? "border-dashed border-amber-400/40 bg-amber-500/[0.04]"
+            : critical
+              ? "border-[#ff3860]/60 shadow-[0_0_0_1px_rgba(255,56,96,0.15)]"
+              : "border-border",
         working && "border-sky-400/60 shadow-[0_0_0_1px_rgba(56,160,255,0.25)]",
         selected && "ring-2 ring-[var(--accent,#f5b942)]",
         cancelled && "opacity-60",
@@ -98,6 +101,10 @@ export function NodeCard({ data, selected }: NodeProps<MapNode>) {
         {draft ? (
           <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-sky-300">
             rascunho
+          </span>
+        ) : suggested ? (
+          <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-300">
+            sugerido
           </span>
         ) : (
           <StatusBadge status={data.status} />
