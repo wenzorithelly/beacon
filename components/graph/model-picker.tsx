@@ -9,11 +9,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { INTEL_MODELS, modelLabel } from "@/lib/intel-models";
+import { ClaudeLogo } from "@/components/icons/claude-logo";
 
 /**
- * Picks the model the intel daemon uses. Persisted in the control DB; the watcher
- * reads it on its next run, so switching here takes effect on the next file save —
- * no config edit or restart.
+ * Compact model pill (Claude logo + model name) for the composer bottom bar.
+ * Persisted in the control DB; the watcher + designer read it on their next run.
  */
 export function ModelPicker() {
   const [model, setModel] = useState<string | null>(null);
@@ -37,20 +37,21 @@ export function ModelPicker() {
   if (model == null) return null;
 
   return (
-    <div className="flex items-center gap-1.5" title="Modelo usado pelo watcher de código">
-      <span className="text-[11px] text-muted-foreground">modelo</span>
-      <Select value={model} onValueChange={change}>
-        <SelectTrigger className="h-7 w-[168px] text-xs">
-          <SelectValue>{(v: string) => modelLabel(v)}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {INTEL_MODELS.map((m) => (
-            <SelectItem key={m.id} value={m.id}>
-              {m.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+    <Select value={model} onValueChange={change}>
+      <SelectTrigger
+        className="h-7 gap-1.5 rounded-lg border-white/12 bg-white/[0.04] px-2 text-xs"
+        title="Modelo usado pela IA"
+      >
+        <ClaudeLogo className="size-3.5 shrink-0" />
+        <SelectValue>{(v: string) => modelLabel(v)}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {INTEL_MODELS.map((m) => (
+          <SelectItem key={m.id} value={m.id}>
+            {m.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

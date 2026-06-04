@@ -2,16 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { ModelPicker } from "@/components/graph/model-picker";
 import { PROMPT_FORMATS } from "@/lib/prompt-format";
 import type { DraftGraph } from "@/lib/design";
 
 /**
- * "Desenhar" — describe the database in natural language → AI draws it as a DRAFT
- * layer → copy a build prompt (Claude Code / DBML / SQL). Rendered inline inside the
- * floating side panel.
+ * AI prompt composer (Claude Code / Zed style): a message editor with the model
+ * pill + submit in one bottom toolbar. Describe a database → AI draws it as a DRAFT
+ * layer → copy a build prompt to implement it.
  */
 export function DesignPanel({ draftGraph }: { draftGraph: DraftGraph }) {
   const router = useRouter();
@@ -58,64 +59,62 @@ export function DesignPanel({ draftGraph }: { draftGraph: DraftGraph }) {
 
   return (
     <div>
-      <div className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold">
-        <Sparkles className="size-4 text-amber-300" />
-        Desenhar
-        {hasDraft && (
-          <span className="rounded bg-sky-500/15 px-1 text-[10px] text-sky-300">rascunho</span>
-        )}
-      </div>
-      <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
-        Descreva o banco em linguagem natural. A IA desenha as tabelas como rascunho — depois
-        copie o prompt para implementar.
-      </p>
-      <Textarea
-        value={desc}
-        rows={3}
-        onChange={(e) => setDesc(e.target.value)}
-        placeholder="ex.: escritórios multi-tenant com usuários, cota mensal e chaves de API hasheadas"
-        className="text-xs"
-      />
-      <div className="mt-2 flex items-center gap-1.5">
-        <Button
-          size="sm"
-          className="h-7 px-2 text-xs"
-          disabled={busy || !desc.trim()}
-          onClick={generate}
-        >
-          {busy ? "Gerando…" : hasDraft ? "Regerar" : "Gerar"}
-        </Button>
-        {hasDraft && (
+      <div className="overflow-hidden rounded-xl border border-white/12 bg-black/25 transition-colors focus-within:border-white/25">
+        <Textarea
+          value={desc}
+          rows={3}
+          onChange={(e) => setDesc(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) generate();
+          }}
+          placeholder="Descreva o banco… ex.: escritórios multi-tenant com usuários, cota mensal e chaves de API hasheadas"
+          className="resize-none border-0 bg-transparent text-xs shadow-none focus-visible:ring-0"
+        />
+        <div className="flex items-center justify-between gap-2 border-t border-white/10 px-2 py-1.5">
+          <ModelPicker />
           <Button
             size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs"
+            className="h-7 gap-1 px-2.5 text-xs"
+            disabled={busy || !desc.trim()}
+            onClick={generate}
+          >
+            {busy ? (
+              "Gerando…"
+            ) : (
+              <>
+                <ArrowUp className="size-3.5" />
+                {hasDraft ? "Regerar" : "Gerar"}
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {error && <p className="mt-1.5 text-[11px] text-red-300">{error}</p>}
+
+      {hasDraft && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">copiar:</span>
+          {PROMPT_FORMATS.map((f) => (
+            <Button
+              key={f.id}
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => copy(f)}
+            >
+              {copied === f.id ? "✓" : f.label}
+            </Button>
+          ))}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[11px] text-muted-foreground"
             disabled={busy}
             onClick={clear}
           >
             Limpar
           </Button>
-        )}
-      </div>
-      {error && <p className="mt-1.5 text-[11px] text-red-300">{error}</p>}
-      {hasDraft && (
-        <div className="mt-2 border-t border-white/10 pt-2">
-          <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-            Copiar p/ implementar
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {PROMPT_FORMATS.map((f) => (
-              <Button
-                key={f.id}
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 text-[11px]"
-                onClick={() => copy(f)}
-              >
-                {copied === f.id ? "copiado ✓" : f.label}
-              </Button>
-            ))}
-          </div>
         </div>
       )}
     </div>

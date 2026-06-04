@@ -9,7 +9,6 @@ import {
 } from "@/components/graph/db-types";
 import type { DbSelection } from "@/components/graph/db-map-client";
 import { GlassPanel } from "@/components/ui/glass-panel";
-import { ModelPicker } from "@/components/graph/model-picker";
 import { DesignPanel } from "@/components/graph/design-panel";
 import type { DraftGraph } from "@/lib/design";
 
@@ -63,11 +62,8 @@ export function DbDetailSidebar({
         </button>
       </div>
       <div className="flex-1 overflow-y-auto">
-        <div className="space-y-2.5 border-b border-white/10 p-3.5">
+        <div className="border-b border-white/10 p-3.5">
           <DesignPanel draftGraph={draftGraph} />
-          <div className="flex items-center gap-2 border-t border-white/10 pt-2.5">
-            <ModelPicker />
-          </div>
         </div>
         <div className="p-4">{body}</div>
       </div>

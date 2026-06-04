@@ -52,7 +52,10 @@ export function AiCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <ModelPicker />
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">modelo</span>
+          <ModelPicker />
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">provedor</span>
           {provider != null && (
