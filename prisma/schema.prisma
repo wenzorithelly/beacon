@@ -216,10 +216,12 @@ model SyncState {
 /// Single-row app settings the intel daemon reads each run (so the model can be
 /// switched from the UI without editing the config or restarting the watcher).
 model AppSetting {
-  id            String   @id @default("singleton")
-  intelModel    String   @default("claude-haiku-4-5")
-  intelProvider String   @default("auto")
-  updatedAt     DateTime @updatedAt
+  id               String   @id @default("singleton")
+  intelModel       String   @default("claude-haiku-4-5")
+  intelProvider    String   @default("auto")
+  editor           String   @default("auto") // auto | cursor | vscode | windsurf | zed
+  currentFeatureId String? // the feature the session is working on (for the auto-report hook)
+  updatedAt        DateTime @updatedAt
 }
 
 // ── DB Designer: a proposed schema you draft before implementing. Isolated from

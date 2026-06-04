@@ -17,38 +17,47 @@ import {
 } from "@/components/ui/select";
 import { ModelPicker } from "@/components/graph/model-picker";
 import { INTEL_PROVIDERS } from "@/lib/intel-models";
+import { EDITOR_OPTIONS } from "@/lib/editors";
 
 const PROVIDER_LABELS: Record<string, string> = {
   auto: "Auto (assinatura → API)",
   "claude-cli": "Assinatura (Claude Code)",
   api: "API key (ANTHROPIC_API_KEY)",
 };
+const EDITOR_LABELS: Record<string, string> = Object.fromEntries(
+  EDITOR_OPTIONS.map((e) => [e.id, e.label]),
+);
 
 export function AiCard() {
   const [provider, setProvider] = useState<string | null>(null);
+  const [editor, setEditor] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/settings")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setProvider(d.intelProvider))
+      .then((d) => {
+        if (!d) return;
+        setProvider(d.intelProvider);
+        setEditor(d.editor ?? "auto");
+      })
       .catch(() => {});
   }, []);
 
-  async function change(v: string) {
-    setProvider(v);
+  async function save(patch: Record<string, string>) {
     await fetch("/api/settings", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ intelProvider: v }),
+      body: JSON.stringify(patch),
     }).catch(() => {});
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Banco / IA</CardTitle>
+        <CardTitle className="text-base">IA &amp; editor</CardTitle>
         <CardDescription>
-          Modelo e provedor usados pelo watcher de código e pelo designer de banco.
+          Modelo/provedor da IA (watcher + designer) e o editor que abre os arquivos de uma
+          feature.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-3">
@@ -59,7 +68,13 @@ export function AiCard() {
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">provedor</span>
           {provider != null && (
-            <Select value={provider} onValueChange={change}>
+            <Select
+              value={provider}
+              onValueChange={(v) => {
+                setProvider(v);
+                save({ intelProvider: v });
+              }}
+            >
               <SelectTrigger className="h-7 w-[210px] text-xs">
                 <SelectValue>{(v: string) => PROVIDER_LABELS[v] ?? v}</SelectValue>
               </SelectTrigger>
@@ -67,6 +82,29 @@ export function AiCard() {
                 {INTEL_PROVIDERS.map((p) => (
                   <SelectItem key={p} value={p}>
                     {PROVIDER_LABELS[p] ?? p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">editor</span>
+          {editor != null && (
+            <Select
+              value={editor}
+              onValueChange={(v) => {
+                setEditor(v);
+                save({ editor: v });
+              }}
+            >
+              <SelectTrigger className="h-7 w-[150px] text-xs">
+                <SelectValue>{(v: string) => EDITOR_LABELS[v] ?? v}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {EDITOR_OPTIONS.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.label}
                   </SelectItem>
                 ))}
               </SelectContent>

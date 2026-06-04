@@ -153,12 +153,16 @@ function NodeDetail({
           </h3>
           <ul className="space-y-0.5">
             {node.files.map((f) => (
-              <li
-                key={f}
-                title={f}
-                className="truncate rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground hover:bg-white/5"
-              >
-                {f}
+              <li key={f}>
+                <button
+                  onClick={() =>
+                    fetch(`/api/open?path=${encodeURIComponent(f)}`).catch(() => {})
+                  }
+                  title={`Abrir ${f} no editor`}
+                  className="block w-full truncate rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+                >
+                  {f}
+                </button>
               </li>
             ))}
           </ul>

@@ -2,6 +2,11 @@ import { db } from "@/lib/db";
 import { bumpVersion } from "@/lib/ingest";
 import { matchFeature, type Scored } from "@/lib/match";
 import { repoRoot } from "@/lib/project";
+import { setAppSettings } from "@/lib/settings";
+
+async function setCurrent(id: string) {
+  await setAppSettings({ currentFeatureId: id });
+}
 
 // Map write operations used by the HTTP API + the MCP server. Lets a Claude Code
 // session see the roadmap and register what it's working on: flag an existing
@@ -71,6 +76,7 @@ export async function startFeature(input: {
     const n = nodes.find((x) => x.id === input.id);
     if (n) {
       await setStatus(n.id, "IN_PROGRESS");
+      await setCurrent(n.id);
       return { action: "flagged", id: n.id, title: n.title, via: "id" };
     }
   }
@@ -81,6 +87,7 @@ export async function startFeature(input: {
   );
   if (best) {
     await setStatus(best.id, "IN_PROGRESS");
+    await setCurrent(best.id);
     return { action: "flagged", id: best.id, title: best.title, via: "match", score: best.score };
   }
   if (candidates.length) return { action: "ambiguous", candidates };
@@ -127,6 +134,7 @@ export async function startFeature(input: {
     },
   });
   await bumpVersion();
+  await setCurrent(task.id);
   return { action: "created", id: task.id, title, front: frontTitle };
 }
 

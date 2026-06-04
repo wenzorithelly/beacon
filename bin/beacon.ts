@@ -14,9 +14,11 @@ import { fileURLToPath } from "node:url";
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cwd = process.cwd();
 
-// `beacon mcp` → run the MCP server (stdio) instead of launching the panel.
+// Subcommands: `beacon mcp` (MCP server) / `beacon hook` (PostToolUse reporter).
 if (process.argv[2] === "mcp") {
   await import(join(pkgDir, "bin/mcp.ts"));
+} else if (process.argv[2] === "hook") {
+  await import(join(pkgDir, "bin/hook.ts"));
 } else {
   launchPanel();
 }
