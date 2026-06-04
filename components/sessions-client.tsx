@@ -24,6 +24,7 @@ function ago(iso: string): string {
 
 export function SessionsClient({ initial }: { initial: Payload }) {
   const [data, setData] = useState(initial);
+  const [showHeadless, setShowHeadless] = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -35,26 +36,46 @@ export function SessionsClient({ initial }: { initial: Payload }) {
     return () => clearInterval(t);
   }, []);
 
+  const interactive = data.sessions.filter((s) => s.kind === "interactive");
+  const headless = data.sessions.filter((s) => s.kind === "headless");
   const live = data.sessions.filter((s) => s.live).length;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-8 pb-32">
       <h1 className="text-2xl font-semibold tracking-tight">Sessões do Claude Code</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        <span className="font-mono">{data.name}</span> · {data.sessions.length} sessões ·{" "}
-        <span className="text-emerald-300">{live} ativa(s)</span>
+        <span className="font-mono">{data.name}</span> · {interactive.length} terminais ·{" "}
+        <span className="text-emerald-300">{live} ativo(s)</span>
       </p>
 
       <div className="mt-6 space-y-3">
-        {data.sessions.length === 0 && (
+        {interactive.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            Nenhuma sessão do Claude Code encontrada para este repositório.
+            Nenhum terminal do Claude Code para este repositório.
           </p>
         )}
-        {data.sessions.map((s) => (
+        {interactive.map((s) => (
           <SessionCard key={s.id} s={s} />
         ))}
       </div>
+
+      {headless.length > 0 && (
+        <div className="mt-6">
+          <button
+            onClick={() => setShowHeadless((h) => !h)}
+            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {showHeadless ? "▾" : "▸"} {headless.length} chamadas headless (claude -p)
+          </button>
+          {showHeadless && (
+            <div className="mt-3 space-y-2 opacity-70">
+              {headless.map((s) => (
+                <SessionCard key={s.id} s={s} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

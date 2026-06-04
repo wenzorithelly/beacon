@@ -70,21 +70,29 @@ function parseLines(text: string): any[] {
     .filter(Boolean);
 }
 
-function coordForRoot(root: string): { task?: string; status?: string } | null {
+interface CoordAgent {
+  task?: string;
+  status?: string;
+  branch?: string;
+}
+
+// All active coordination "terminals" registered for this repo (one per terminal the
+// user has open + registered). Used to attach the right task to each session.
+function activeAgentsForRoot(root: string): CoordAgent[] {
   try {
     const j = JSON.parse(readFileSync(COORD, "utf8"));
     const agents = Object.values(j.agents ?? {}) as Array<{
       directory?: string;
       task?: string;
       status?: string;
-      last_seen?: string;
+      branch?: string;
     }>;
-    const match = agents
+    return agents
       .filter((a) => typeof a.directory === "string" && a.directory.startsWith(root))
-      .filter((a) => a.status === "active");
-    return match[0] ?? null;
+      .filter((a) => a.status === "active")
+      .map((a) => ({ task: a.task, status: a.status, branch: a.branch }));
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -162,13 +170,22 @@ export function listProjectSessions(): SessionInfo[] {
 
   out.sort((a, b) => +new Date(b.lastActivityAt) - +new Date(a.lastActivityAt));
 
-  // Attach the project's active coordination task to the most-recent live interactive session.
-  const coord = coordForRoot(root);
-  if (coord) {
-    const target = out.find((s) => s.live && s.kind === "interactive") ?? out[0];
-    if (target) {
-      target.task = coord.task;
-      target.status = coord.status;
+  // Match each concurrent session to its coordination "terminal" by git branch, so two
+  // terminals open in the same repo on different branches each show their own task.
+  const agents = activeAgentsForRoot(root);
+  if (agents.length) {
+    const liveInteractive = out.filter((s) => s.live && s.kind === "interactive");
+    for (const s of out) {
+      if (s.kind !== "interactive") continue; // headless `claude -p` calls aren't terminals
+      let m = agents.find((a) => a.branch && s.branch && a.branch === s.branch);
+      // Unambiguous fallback: a single active terminal + a single live session → link them.
+      if (!m && agents.length === 1 && liveInteractive.length <= 1 && s.live) {
+        m = agents[0];
+      }
+      if (m) {
+        s.task = m.task;
+        s.status = m.status;
+      }
     }
   }
 
