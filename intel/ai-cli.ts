@@ -25,9 +25,16 @@ export function parseClaudeEnvelope(stdout: string): Snapshot | null {
   return snapshotSchema.parse(data);
 }
 
-export function runClaudeCli(args: string[], stdin: string): Promise<string> {
+export function runClaudeCli(
+  args: string[],
+  stdin: string,
+  opts?: { cwd?: string },
+): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("claude", args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn("claude", args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      cwd: opts?.cwd,
+    });
     let out = "";
     let err = "";
     child.stdout.on("data", (d) => (out += d));
