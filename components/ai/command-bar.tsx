@@ -108,9 +108,11 @@ export function CommandBar() {
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => {
           if (!on || !d) return;
+          // Only currently-open terminals (live), plus your saved Beacon chats — not
+          // every dead transcript that ever had a message.
           setSessions(
             (d.sessions as SessionInfo[]).filter(
-              (s) => s.kind === "interactive" || s.kind === "beacon",
+              (s) => s.kind === "beacon" || (s.kind === "interactive" && s.live),
             ),
           );
         })
