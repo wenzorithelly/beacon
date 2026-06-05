@@ -9,7 +9,6 @@ import {
   PenLine,
   RotateCcw,
   PanelLeftClose,
-  PanelLeftOpen,
 } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { Button } from "@/components/ui/button";
@@ -231,19 +230,8 @@ export function CommandBar() {
           ? "Forkar"
           : "Criar chat";
 
-  // Collapsed: a slim glass rail with just the logo to bring the panel back.
-  if (collapsed) {
-    return (
-      <button
-        type="button"
-        onClick={() => setCollapsed(false)}
-        title="Abrir o chat"
-        className="glass fixed left-3 top-[4.25rem] z-30 flex size-9 items-center justify-center rounded-xl border border-white/10 text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <PanelLeftOpen className="size-4" />
-      </button>
-    );
-  }
+  // Collapsed: nothing floats here — the top-nav toggle brings the panel back.
+  if (collapsed) return null;
 
   return (
     <GlassPanel className="fixed bottom-3 left-3 top-[4.25rem] z-30 flex w-80 flex-col rounded-2xl">
