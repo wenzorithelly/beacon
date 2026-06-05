@@ -139,10 +139,12 @@ export function listProjectSessions(): SessionInfo[] {
       let cwd = "";
       let branch: string | null = null;
       let startedAt: string | null = null;
+      let hasUser = false;
       for (const l of head) {
         if (!cwd && l.cwd) cwd = l.cwd;
         if (branch === null && l.gitBranch) branch = l.gitBranch;
         if (!startedAt && l.timestamp) startedAt = l.timestamp;
+        if (l.type === "user") hasUser = true;
       }
 
       let title = "";
@@ -175,17 +177,20 @@ export function listProjectSessions(): SessionInfo[] {
           : null;
 
       const lastActivityAt = lastTs ?? st.mtime.toISOString();
+      const live = now - new Date(lastActivityAt).getTime() < LIVE_WINDOW_MS;
       out.push({
         id: f.replace(/\.jsonl$/, ""),
         title: title || "(sem título)",
         cwd: cwd || "?",
         branch,
-        kind: title ? "interactive" : "headless",
+        // A real terminal session is interactive once it has a title, a user message,
+        // or is currently live — not only after Claude generates an AI title.
+        kind: title || hasUser || live ? "interactive" : "headless",
         messages,
         startedAt,
         lastActivityAt,
         mode,
-        live: now - new Date(lastActivityAt).getTime() < LIVE_WINDOW_MS,
+        live,
         model,
         contextTokens,
         contextWindow,
