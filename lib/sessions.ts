@@ -10,6 +10,8 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { repoRoot } from "@/lib/project";
+import { idForPath } from "@/lib/workspaces";
+import { chatTitles } from "@/lib/chats";
 
 // Reads Claude Code session transcripts for the current project from
 // ~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl and reports their state.
@@ -25,7 +27,7 @@ export interface SessionInfo {
   title: string;
   cwd: string;
   branch: string | null;
-  kind: "interactive" | "headless";
+  kind: "interactive" | "headless" | "beacon";
   messages: number | null;
   startedAt: string | null;
   lastActivityAt: string;
@@ -189,6 +191,19 @@ export function listProjectSessions(): SessionInfo[] {
         contextWindow,
         contextPct,
       });
+    }
+  }
+
+  // Tag the chats Beacon itself started (headless transcripts we created): give them
+  // their saved title and the "beacon" kind so the picker can list them distinctly.
+  const beacon = chatTitles(idForPath(root));
+  if (beacon.size) {
+    for (const s of out) {
+      const t = beacon.get(s.id);
+      if (t) {
+        s.kind = "beacon";
+        if (!s.title || s.title === "(sem título)") s.title = t;
+      }
     }
   }
 

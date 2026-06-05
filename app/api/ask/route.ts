@@ -1,5 +1,7 @@
 import { hasClaudeCli, runClaudeCli } from "@/intel/ai-cli";
 import { repoRoot } from "@/lib/project";
+import { idForPath } from "@/lib/workspaces";
+import { recordChat } from "@/lib/chats";
 
 export const dynamic = "force-dynamic";
 // Claude Code can take a while on a real ask — allow a generous window.
@@ -31,10 +33,20 @@ export async function POST(req: Request) {
         : ["-p", "--resume", target, "--output-format", "json"];
 
     // Run from the repo so transcripts resolve and the assistant has project context.
-    const env = JSON.parse(await runClaudeCli(args, prompt.trim(), { cwd: repoRoot() }));
+    const root = repoRoot();
+    const env = JSON.parse(await runClaudeCli(args, prompt.trim(), { cwd: root }));
+    const newId = env.session_id ?? null;
+    // Track a freshly-started thread (new chat or fork) so it shows up in the picker.
+    if (newId && (!target || fork)) {
+      try {
+        recordChat(idForPath(root), newId, prompt.trim());
+      } catch {
+        /* tracking is best-effort */
+      }
+    }
     return Response.json({
       text: typeof env.result === "string" ? env.result : "",
-      sessionId: env.session_id ?? null,
+      sessionId: newId,
       isError: !!env.is_error,
       cost: env.total_cost_usd ?? null,
     });
