@@ -1,8 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowUp, Plus, GitFork, PenLine, RotateCcw } from "lucide-react";
+import {
+  ArrowUp,
+  Plus,
+  GitFork,
+  PenLine,
+  RotateCcw,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,12 +47,12 @@ const META: Record<Context, { label: string; placeholder: string; endpoint?: str
   other: { label: "—", placeholder: "Abra o Banco ou a Arquitetura para desenhar com a IA." },
 };
 
-/** Global AI command bar: shared across pages, adapts to the current route + selection. */
+/** Global AI command bar, docked on the left; adapts to the current route + selection. */
 export function CommandBar() {
   const pathname = usePathname();
   const search = useSearchParams();
   const router = useRouter();
-  const { selection } = useAiContext();
+  const { selection, collapsed, setCollapsed } = useAiContext();
 
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -54,9 +62,6 @@ export function CommandBar() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [forkId, setForkId] = useState<string | null>(null);
 
-  // Chat state. `mode` is the up-front choice the user makes BEFORE typing.
-  // `thread` is the Beacon-started chat once a first message has been sent; further
-  // messages continue it (resume) instead of starting/forking again.
   const ctx: Context = pathname.startsWith("/db")
     ? "database"
     : pathname.startsWith("/map")
@@ -67,11 +72,13 @@ export function CommandBar() {
   const meta = META[ctx];
   const canDesign = ctx === "database" || ctx === "architecture";
 
+  // `modeChoice` is the up-front choice; `thread` is the Beacon-started chat once a
+  // first message has been sent — further messages continue it instead of re-forking.
   const [modeChoice, setModeChoice] = useState<Mode>(canDesign ? "design" : "new");
   const [thread, setThread] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // "design" only applies on design-capable routes; elsewhere it falls back to a new chat.
   const mode: Mode = modeChoice === "design" && !canDesign ? "new" : modeChoice;
 
   useEffect(() => {
@@ -98,21 +105,20 @@ export function CommandBar() {
     };
   }, []);
 
+  // Keep the conversation scrolled to the latest message.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [msgs, busy]);
+
   const forkTarget = sessions.find((s) => s.id === forkId) ?? null;
 
   const modes = useMemo(() => {
     const list: { id: Mode; label: string; icon: typeof Plus }[] = [];
-    if (canDesign) {
-      list.push({
-        id: "design",
-        label: ctx === "database" ? "Desenhar tabela" : "Desenhar feature",
-        icon: PenLine,
-      });
-    }
+    if (canDesign) list.push({ id: "design", label: "Desenhar", icon: PenLine });
     list.push({ id: "new", label: "Novo chat", icon: Plus });
-    list.push({ id: "fork", label: "Forkar chat", icon: GitFork });
+    list.push({ id: "fork", label: "Forkar", icon: GitFork });
     return list;
-  }, [canDesign, ctx]);
+  }, [canDesign]);
 
   function pickMode(m: Mode) {
     setModeChoice(m);
@@ -225,112 +231,145 @@ export function CommandBar() {
           ? "Forkar"
           : "Criar chat";
 
-  return (
-    <div className="pointer-events-none fixed bottom-3 left-1/2 z-30 w-[min(92vw,42rem)] -translate-x-1/2">
-      <GlassPanel className="pointer-events-auto rounded-2xl p-2">
-        {/* Up-front choice: design / new chat / fork — picked before typing. */}
-        <div className="mb-1.5 flex items-center gap-1 px-0.5">
-          <ClaudeLogo className="mr-1 size-3.5 shrink-0" />
-          <div className="flex items-center gap-0.5 rounded-lg bg-white/[0.04] p-0.5">
-            {modes.map((m) => {
-              const Icon = m.icon;
-              const active = mode === m.id;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => pickMode(m.id)}
-                  className={cn(
-                    "flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors",
-                    active
-                      ? "bg-white/12 text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <Icon className="size-3" />
-                  {m.label}
-                </button>
-              );
-            })}
-          </div>
-          {thread && (
-            <button
-              type="button"
-              onClick={resetThread}
-              className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-muted-foreground hover:text-foreground"
-              title="Começar de novo"
-            >
-              <RotateCcw className="size-3" />
-              chat #{thread.slice(0, 6)}
-            </button>
-          )}
-          {!thread && selection && (
-            <span className="ml-auto truncate px-1 text-[10px] text-muted-foreground">
-              {selection.kind} {selection.label}
-            </span>
-          )}
-        </div>
+  // Collapsed: a slim glass rail with just the logo to bring the panel back.
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={() => setCollapsed(false)}
+        title="Abrir o chat"
+        className="glass fixed left-3 top-[4.25rem] z-30 flex size-9 items-center justify-center rounded-xl border border-white/10 text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <PanelLeftOpen className="size-4" />
+      </button>
+    );
+  }
 
-        {/* Fork target picker — only when forking a fresh chat. */}
-        {mode === "fork" && !thread && (
-          <div className="mb-1.5 px-0.5">
-            {sessions.length > 0 ? (
-              <Select value={forkId ?? ""} onValueChange={setForkId}>
-                <SelectTrigger className="h-7 w-full gap-1.5 rounded-lg border-white/12 bg-white/[0.04] px-2 text-[11px]">
-                  <GitFork className="size-3.5 shrink-0 text-muted-foreground" />
-                  <SelectValue>
-                    {() =>
-                      forkTarget ? (
-                        <span className="flex items-center gap-1.5">
-                          <span
-                            className={cn(
-                              "size-1.5 shrink-0 rounded-full",
-                              forkTarget.live ? "bg-emerald-400" : "bg-zinc-600",
-                            )}
-                          />
-                          <span className="truncate">{forkTarget.title}</span>
-                          {forkTarget.contextPct != null && (
-                            <span className="shrink-0 text-muted-foreground">
-                              · {forkTarget.contextPct}%
-                            </span>
-                          )}
-                        </span>
-                      ) : (
-                        "escolha a sessão para forkar"
-                      )
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {sessions.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
+  return (
+    <GlassPanel className="fixed bottom-3 left-3 top-[4.25rem] z-30 flex w-80 flex-col rounded-2xl">
+      {/* Header */}
+      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
+        <ClaudeLogo className="size-4 shrink-0" />
+        <span className="text-sm font-medium">Claude Code</span>
+        {thread ? (
+          <button
+            type="button"
+            onClick={resetThread}
+            className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-muted-foreground hover:text-foreground"
+            title="Começar de novo"
+          >
+            <RotateCcw className="size-3" />
+            chat #{thread.slice(0, 6)}
+          </button>
+        ) : (
+          <span className="ml-auto text-[10px] text-muted-foreground">{meta.label}</span>
+        )}
+        <button
+          type="button"
+          onClick={() => setCollapsed(true)}
+          title="Recolher"
+          className="text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <PanelLeftClose className="size-4" />
+        </button>
+      </div>
+
+      {/* Up-front choice: design / new chat / fork — picked before typing. */}
+      <div className="flex flex-wrap gap-1 px-3 pt-2.5">
+        {modes.map((m) => {
+          const Icon = m.icon;
+          const active = mode === m.id;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => pickMode(m.id)}
+              className={cn(
+                "flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] transition-colors",
+                active
+                  ? "bg-white/12 text-foreground"
+                  : "bg-white/[0.04] text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Icon className="size-3" />
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Fork target picker — only when forking a fresh chat. */}
+      {mode === "fork" && !thread && (
+        <div className="px-3 pt-2">
+          {sessions.length > 0 ? (
+            <Select value={forkId ?? ""} onValueChange={setForkId}>
+              <SelectTrigger className="h-7 w-full gap-1.5 rounded-lg border-white/12 bg-white/[0.04] px-2 text-[11px]">
+                <GitFork className="size-3.5 shrink-0 text-muted-foreground" />
+                <SelectValue>
+                  {() =>
+                    forkTarget ? (
                       <span className="flex items-center gap-1.5">
                         <span
                           className={cn(
                             "size-1.5 shrink-0 rounded-full",
-                            s.live ? "bg-emerald-400" : "bg-zinc-600",
+                            forkTarget.live ? "bg-emerald-400" : "bg-zinc-600",
                           )}
                         />
-                        {s.title.slice(0, 40)}
-                        {s.contextPct != null && (
-                          <span className="text-muted-foreground">· ctx {s.contextPct}%</span>
+                        <span className="truncate">{forkTarget.title}</span>
+                        {forkTarget.contextPct != null && (
+                          <span className="shrink-0 text-muted-foreground">
+                            · {forkTarget.contextPct}%
+                          </span>
                         )}
                       </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <span className="text-[11px] text-muted-foreground">
-                Nenhuma sessão do Claude Code aberta neste repositório para forkar.
-              </span>
-            )}
-          </div>
-        )}
+                    ) : (
+                      "escolha a sessão para forkar"
+                    )
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {sessions.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className={cn(
+                          "size-1.5 shrink-0 rounded-full",
+                          s.live ? "bg-emerald-400" : "bg-zinc-600",
+                        )}
+                      />
+                      {s.title.slice(0, 38)}
+                      {s.contextPct != null && (
+                        <span className="text-muted-foreground">· ctx {s.contextPct}%</span>
+                      )}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <span className="text-[11px] text-muted-foreground">
+              Nenhuma sessão do Claude Code aberta neste repositório para forkar.
+            </span>
+          )}
+        </div>
+      )}
 
-        {/* Conversation (chat modes) — the reply lands in Beacon, not the terminal. */}
-        {msgs.length > 0 && (
-          <div className="mb-1.5 max-h-60 space-y-2 overflow-y-auto rounded-lg bg-black/20 p-2 text-xs">
+      {/* Conversation / empty state — the reply lands in Beacon, not the terminal. */}
+      <div ref={scrollRef} className="mt-2 flex-1 space-y-2 overflow-y-auto px-3 text-xs">
+        {mode === "design" ? (
+          <p className="pt-6 text-center text-muted-foreground">
+            O resultado vira um rascunho no canvas. Descreva a mudança e clique em{" "}
+            <span className="text-foreground">Desenhar</span>.
+          </p>
+        ) : msgs.length === 0 ? (
+          <p className="pt-6 text-center text-muted-foreground">
+            {mode === "fork"
+              ? "Forke uma sessão para conversar com o contexto dela. A resposta aparece aqui."
+              : "Comece um novo chat com o Claude Code. A resposta aparece aqui."}
+          </p>
+        ) : (
+          <>
             {msgs.map((m, i) => (
               <div
                 key={i}
@@ -344,12 +383,17 @@ export function CommandBar() {
                 {m.role === "user" ? `› ${m.text}` : m.text}
               </div>
             ))}
-            {busy && <div className="text-[11px] text-muted-foreground">Claude está pensando…</div>}
-          </div>
+            {busy && (
+              <div className="text-[11px] text-muted-foreground">Claude está pensando…</div>
+            )}
+          </>
         )}
+      </div>
 
+      {/* Composer */}
+      <div className="border-t border-white/10 p-2">
         <textarea
-          rows={2}
+          rows={3}
           value={text}
           disabled={forkBlocked}
           onChange={(e) => setText(e.target.value)}
@@ -388,7 +432,7 @@ export function CommandBar() {
             </Button>
           </div>
         </div>
-      </GlassPanel>
-    </div>
+      </div>
+    </GlassPanel>
   );
 }

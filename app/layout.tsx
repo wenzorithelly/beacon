@@ -5,6 +5,7 @@ import "./globals.css";
 import { TopNav } from "@/components/top-nav";
 import { LiveRefresh } from "@/components/live-refresh";
 import { AiContextProvider } from "@/components/ai/ai-context";
+import { MainRegion } from "@/components/ai/main-region";
 import { CommandBar } from "@/components/ai/command-bar";
 import { repoName } from "@/lib/project";
 
@@ -37,7 +38,7 @@ export default function RootLayout({
         <LiveRefresh />
         <AiContextProvider>
           <TopNav repo={repoName()} />
-          <main className="flex flex-1 flex-col">{children}</main>
+          <MainRegion>{children}</MainRegion>
           <Suspense>
             <CommandBar />
           </Suspense>
