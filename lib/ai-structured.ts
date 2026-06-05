@@ -30,6 +30,8 @@ export async function structured(opts: StructuredOpts): Promise<unknown | null> 
       "-p",
       "--tools",
       "", // single-shot transform: answer from the prompt, don't agentically read the repo
+      "--strict-mcp-config", // no --mcp-config ⇒ ZERO MCP servers, so this headless call
+      // can't reach the user's MCP (e.g. Playwright) and open browsers/files.
       "--output-format",
       "json",
       "--append-system-prompt",

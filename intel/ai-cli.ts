@@ -60,6 +60,8 @@ export async function runAiCli(
     "-p",
     "--tools",
     "", // single-shot transform: the prompt already carries the code — no agentic exploration
+    "--strict-mcp-config", // no --mcp-config ⇒ load ZERO MCP servers: this nested headless
+    // claude must never reach the user's MCP (e.g. Playwright) and pop browsers/files.
     "--output-format",
     "json",
     "--append-system-prompt",
