@@ -17,6 +17,7 @@ import "@xyflow/react/dist/style.css";
 
 import { DbTableNode, type DbTableNodeData } from "@/components/graph/db-table-node";
 import { EndpointNode, type EndpointNodeData } from "@/components/graph/endpoint-node";
+import { DbEditContext, type DbEditApi } from "@/components/graph/db-edit-context";
 import { DbDetailSidebar } from "@/components/graph/db-detail-sidebar";
 import { ACCESS_COLOR } from "@/components/graph/db-types";
 import { cn } from "@/lib/utils";
@@ -104,7 +105,9 @@ export function DbMapClient({
 
   const [tableNodes, setTableNodes] = useState(initialTableNodes);
   const [endpointNodes, setEndpointNodes] = useState(initialEndpointNodes);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setTableNodes(initialTableNodes), [initialTableNodes]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setEndpointNodes(initialEndpointNodes), [initialEndpointNodes]);
 
   const onTableNodesChange = useCallback(
@@ -173,7 +176,47 @@ export function DbMapClient({
     });
   }, []);
 
+  // Inline editing of DRAFT tables/endpoints: optimistic local update + no-revalidate save.
+  const dbEdit = useMemo<DbEditApi>(
+    () => ({
+      patchEndpoint: (id, fields, save) => {
+        setEndpointNodes((nds) =>
+          nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...fields } } : n)),
+        );
+        if (save)
+          void fetch(`/api/draft/endpoint/${id}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(fields),
+          });
+      },
+      deleteEndpoint: (id) => {
+        setEndpointNodes((nds) => nds.filter((n) => n.id !== id));
+        void fetch(`/api/draft/endpoint/${id}`, { method: "DELETE" });
+      },
+      patchTable: (id, fields, save) => {
+        setTableNodes((nds) =>
+          nds.map((n) =>
+            n.id === id ? { ...n, data: { ...n.data, ...(fields as Partial<DbTableNodeData>) } } : n,
+          ),
+        );
+        if (save)
+          void fetch(`/api/draft/table/${id}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(fields),
+          });
+      },
+      deleteTable: (id) => {
+        setTableNodes((nds) => nds.filter((n) => n.id !== id));
+        void fetch(`/api/draft/table/${id}`, { method: "DELETE" });
+      },
+    }),
+    [],
+  );
+
   return (
+    <DbEditContext.Provider value={dbEdit}>
     <div className="relative h-[calc(100vh-3.5rem)] w-full">
       <ReactFlow
         nodes={nodes}
@@ -203,6 +246,7 @@ export function DbMapClient({
             node.position.y,
           )
         }
+        deleteKeyCode={null}
         colorMode="dark"
         fitView
         minZoom={0.15}
@@ -255,5 +299,6 @@ export function DbMapClient({
         />
       )}
     </div>
+    </DbEditContext.Provider>
   );
 }

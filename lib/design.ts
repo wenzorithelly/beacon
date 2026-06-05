@@ -209,12 +209,66 @@ export async function persistDraft(graph: DraftGraph, prisma: Prisma = db) {
   }
 }
 
+// ── Manual edits to the draft on /db (no-revalidate; canvas updates optimistically) ──
+
+export async function updateDraftEndpoint(
+  id: string,
+  fields: { method?: string; path?: string; domain?: string | null; description?: string | null },
+  prisma: Prisma = db,
+) {
+  await prisma.endpoint.update({ where: { id }, data: fields });
+}
+
+export async function deleteDraftEndpoint(id: string, prisma: Prisma = db) {
+  await prisma.endpoint.delete({ where: { id } });
+}
+
+interface DraftColumnEdit {
+  name: string;
+  type: string;
+  isPk?: boolean;
+  isFk?: boolean;
+  nullable?: boolean;
+  note?: string | null;
+}
+export async function updateDraftTable(
+  id: string,
+  fields: { name?: string; domain?: string | null; columns?: DraftColumnEdit[] },
+  prisma: Prisma = db,
+) {
+  const { columns, ...rest } = fields;
+  if (Object.keys(rest).length) await prisma.draftTable.update({ where: { id }, data: rest });
+  if (columns) {
+    await prisma.draftColumn.deleteMany({ where: { tableId: id } });
+    for (let i = 0; i < columns.length; i++) {
+      const c = columns[i];
+      await prisma.draftColumn.create({
+        data: {
+          tableId: id,
+          name: c.name,
+          type: c.type,
+          isPk: c.isPk ?? false,
+          isFk: c.isFk ?? false,
+          nullable: c.nullable ?? true,
+          note: c.note ?? null,
+          ord: i,
+        },
+      });
+    }
+  }
+}
+
+export async function deleteDraftTable(id: string, prisma: Prisma = db) {
+  await prisma.draftTable.delete({ where: { id } }); // cascades columns + relations
+}
+
 /** Name-keyed graph — used by the prompt/DBML/SQL formatters. */
 export async function getDraft(prisma: Prisma = db): Promise<DraftGraph> {
   const tables = await prisma.draftTable.findMany({
     include: { columns: { orderBy: { ord: "asc" } } },
   });
   const relations = await prisma.draftRelation.findMany();
+  const draftEndpoints = await prisma.endpoint.findMany({ where: { source: "DRAFT" } });
   const nameById = new Map(tables.map((t) => [t.id, t.name]));
   return {
     tables: tables.map((t) => ({
@@ -236,6 +290,12 @@ export async function getDraft(prisma: Prisma = db): Promise<DraftGraph> {
       toTable: nameById.get(r.toTableId) ?? "",
       toColumn: r.toColumn,
       label: r.label,
+    })),
+    endpoints: draftEndpoints.map((e) => ({
+      method: e.method,
+      path: e.path,
+      domain: e.domain,
+      description: e.description,
     })),
   };
 }
