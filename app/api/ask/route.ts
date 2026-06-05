@@ -15,9 +15,11 @@ export const maxDuration = 800;
 //   - continue (sessionId, fork falsy)   → `--resume <id>`: continues a thread Beacon
 //             itself started (our own headless session — safe to resume directly)
 // The reply comes back to Beacon; it cannot be injected into the user's terminal.
+const PERMISSION_MODES = new Set(["plan", "acceptEdits", "bypassPermissions", "auto", "default"]);
+
 export async function POST(req: Request) {
   try {
-    const { prompt, sessionId, fork } = await req.json();
+    const { prompt, sessionId, fork, permissionMode } = await req.json();
     if (typeof prompt !== "string" || !prompt.trim()) {
       return new Response("prompt required", { status: 400 });
     }
@@ -25,12 +27,20 @@ export async function POST(req: Request) {
       return new Response("Claude Code CLI not found on PATH.", { status: 503 });
     }
 
+    // Plan / bypass / acceptEdits, like Claude Code's permission picker.
+    const perm =
+      typeof permissionMode === "string" &&
+      PERMISSION_MODES.has(permissionMode) &&
+      permissionMode !== "default"
+        ? ["--permission-mode", permissionMode]
+        : [];
+
     const target = typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
     const args = !target
-      ? ["-p", "--output-format", "json"]
+      ? ["-p", "--output-format", "json", ...perm]
       : fork
-        ? ["-p", "--resume", target, "--fork-session", "--output-format", "json"]
-        : ["-p", "--resume", target, "--output-format", "json"];
+        ? ["-p", "--resume", target, "--fork-session", "--output-format", "json", ...perm]
+        : ["-p", "--resume", target, "--output-format", "json", ...perm];
 
     // Run from the repo so transcripts resolve and the assistant has project context.
     const root = repoRoot();

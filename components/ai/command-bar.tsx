@@ -4,6 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUp, ArrowLeft, Plus, Terminal, MessageSquare, PanelLeftClose } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ClaudeLogo } from "@/components/icons/claude-logo";
 import { useAiContext } from "@/components/ai/ai-context";
 import { cn } from "@/lib/utils";
@@ -19,6 +26,39 @@ type Target =
   | { kind: "fork"; id: string; title: string }
   | { kind: "continue"; id: string; title: string };
 
+// Permission modes, mirroring Claude Code's picker → `claude --permission-mode`.
+const PERM_OPTIONS = [
+  { v: "default", l: "Padrão" },
+  { v: "plan", l: "Plano" },
+  { v: "acceptEdits", l: "Aceitar edições" },
+  { v: "bypassPermissions", l: "Bypass" },
+] as const;
+const PERM_LABELS: Record<string, string> = Object.fromEntries(
+  PERM_OPTIONS.map((o) => [o.v, o.l]),
+);
+
+// "claude-opus-4-8[1m]" → "Opus 4.8"; tokens/window → "130k / 1M".
+function modelLabel(model: string | null): string {
+  if (!model) return "";
+  const [fam, ...rest] = model.replace(/^claude-/, "").replace(/\[.*\]$/, "").split("-");
+  const ver = rest.join(".");
+  return fam ? fam[0].toUpperCase() + fam.slice(1) + (ver ? ` ${ver}` : "") : model;
+}
+function kLabel(n: number | null): string {
+  if (n == null) return "";
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M` : `${Math.round(n / 1000)}k`;
+}
+// "Opus 4.8 · 130k / 1M" — model + how much of the context window is used.
+function sessionMeta(s: SessionInfo): string {
+  const parts: string[] = [];
+  const m = modelLabel(s.model);
+  if (m) parts.push(m);
+  if (s.contextTokens != null && s.contextWindow)
+    parts.push(`${kLabel(s.contextTokens)} / ${kLabel(s.contextWindow)}`);
+  else if (s.contextPct != null) parts.push(`${s.contextPct}%`);
+  return parts.join(" · ");
+}
+
 /** Global Claude Code chat, docked on the left: pick/continue a session or start a new one. */
 export function CommandBar() {
   const { collapsed, setCollapsed } = useAiContext();
@@ -30,6 +70,7 @@ export function CommandBar() {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permMode, setPermMode] = useState<string>("default");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Poll the repo's Claude Code sessions (terminals + Beacon's own chats) with state + ctx%.
@@ -90,11 +131,12 @@ export function CommandBar() {
     setError(null);
     setMsgs((m) => [...m, { role: "user", text: prompt }]);
     setText("");
-    const body = thread
+    const body: Record<string, unknown> = thread
       ? { prompt, sessionId: thread } // continue the open thread
       : target.kind === "fork"
         ? { prompt, sessionId: target.id, fork: true } // first message → fork the terminal
         : { prompt }; // brand-new chat
+    if (permMode !== "default") body.permissionMode = permMode;
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
@@ -123,6 +165,7 @@ export function CommandBar() {
       : target.kind === "new"
         ? "Nova sessão"
         : target.title;
+  const activeSession = thread ? (sessions.find((s) => s.id === thread) ?? null) : null;
 
   return (
     <GlassPanel className="fixed bottom-3 left-3 top-[4.25rem] z-30 flex w-80 flex-col rounded-2xl">
@@ -140,12 +183,19 @@ export function CommandBar() {
         ) : (
           <ClaudeLogo className="size-4 shrink-0" />
         )}
-        <span className="truncate text-sm font-medium">{headerTitle}</span>
+        <div className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{headerTitle}</span>
+          {activeSession && sessionMeta(activeSession) && (
+            <span className="block truncate text-[10px] text-muted-foreground">
+              {sessionMeta(activeSession)}
+            </span>
+          )}
+        </div>
         <button
           type="button"
           onClick={() => setCollapsed(true)}
           title="Recolher"
-          className="ml-auto text-muted-foreground transition-colors hover:text-foreground"
+          className="text-muted-foreground transition-colors hover:text-foreground"
         >
           <PanelLeftClose className="size-4" />
         </button>
@@ -187,14 +237,14 @@ export function CommandBar() {
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xs text-foreground">{s.title}</span>
-                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <span className="flex items-center gap-1 truncate text-[10px] text-muted-foreground">
                         {s.kind === "beacon" ? (
-                          <MessageSquare className="size-2.5" />
+                          <MessageSquare className="size-2.5 shrink-0" />
                         ) : (
-                          <Terminal className="size-2.5" />
+                          <Terminal className="size-2.5 shrink-0" />
                         )}
                         {s.kind === "beacon" ? "beacon" : "terminal"}
-                        {s.contextPct != null && <span>· ctx {s.contextPct}%</span>}
+                        {sessionMeta(s) && <span className="truncate">· {sessionMeta(s)}</span>}
                       </span>
                     </span>
                   </button>
@@ -258,9 +308,25 @@ export function CommandBar() {
               className="w-full resize-none bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground"
             />
             <div className="mt-1 flex items-center justify-between gap-2">
-              <span className="px-1 text-[10px] text-muted-foreground">
-                {thread ? `chat #${thread.slice(0, 6)}` : "a resposta volta para o Beacon"}
-              </span>
+              <Select value={permMode} onValueChange={(v) => setPermMode(v ?? "default")}>
+                <SelectTrigger
+                  className={cn(
+                    "h-7 gap-1 rounded-lg border-white/12 bg-white/[0.04] px-2 text-[10px]",
+                    permMode === "plan" && "border-sky-400/40 text-sky-300",
+                    permMode === "bypassPermissions" && "border-amber-400/40 text-amber-300",
+                  )}
+                  title="Modo de permissão (como no Claude Code)"
+                >
+                  <SelectValue>{(v: string) => PERM_LABELS[v] ?? v}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {PERM_OPTIONS.map((o) => (
+                    <SelectItem key={o.v} value={o.v}>
+                      {o.l}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <div className="flex items-center gap-2">
                 {error && <span className="text-[11px] text-red-300">{error}</span>}
                 <Button
