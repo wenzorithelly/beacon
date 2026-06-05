@@ -15,14 +15,14 @@ export function AgentView() {
   const [copied, setCopied] = useState(false);
   const id = selection?.id ?? null;
 
-  function load() {
+  function load(force = false) {
     if (!id) return;
     setBusy(true);
     setEnhanced("");
     fetch("/api/enhance", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ nodeId: id }),
+      body: JSON.stringify({ nodeId: id, force }),
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setEnhanced(d?.enhanced ?? ""))
@@ -77,7 +77,7 @@ export function AgentView() {
           <div className="flex items-center gap-1.5 border-t border-white/10 p-2">
             <button
               type="button"
-              onClick={load}
+              onClick={() => load(true)}
               disabled={busy}
               className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground disabled:opacity-50"
             >

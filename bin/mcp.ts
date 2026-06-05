@@ -6,7 +6,7 @@
  *
  *   { "mcpServers": { "beacon": { "command": "beacon", "args": ["mcp"] } } }
  */
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
@@ -148,6 +148,93 @@ server.registerTool(
   async ({ tables, relations }) => {
     const r = await post("/api/draft", { tables, relations: relations ?? [] });
     return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
+  },
+);
+
+// ── Resources: @-mention Beacon entities in a Claude Code session ──────────────
+// Type `@` in your terminal → these show up (e.g. @beacon:feature://…). Picking a
+// feature/component imports "what the agent sees" (the enhanced prompt) into your message.
+const one = (v: string | string[]) => (Array.isArray(v) ? v[0] : v);
+
+type NodeRow = { id: string; title: string; cluster: string | null; status: string };
+async function listNodes(kind: "features" | "architecture", scheme: string) {
+  const r = (await api(`/api/entities?kind=${kind}`)) as { items: NodeRow[] };
+  return {
+    resources: r.items.map((f) => ({
+      uri: `${scheme}${f.id}`,
+      name: f.title,
+      description: `${f.cluster ?? ""} · ${f.status}`.trim(),
+      mimeType: "text/markdown",
+    })),
+  };
+}
+async function readEnhanced(uri: URL, id: string | string[]) {
+  const r = (await post("/api/enhance", { nodeId: one(id) })) as { enhanced?: string; title?: string };
+  const text = `# ${r.title ?? "Beacon"} — what the agent sees\n\n${r.enhanced || "(sem conteúdo — adicione descrição ao nó)"}`;
+  return { contents: [{ uri: uri.href, mimeType: "text/markdown", text }] };
+}
+
+server.registerResource(
+  "beacon-feature",
+  new ResourceTemplate("beacon://feature/{id}", {
+    list: () => listNodes("features", "beacon://feature/"),
+  }),
+  {
+    title: "Beacon: features",
+    description: "Roadmap features — picking one imports 'what the agent sees' (the enhanced prompt).",
+    mimeType: "text/markdown",
+  },
+  (uri, { id }) => readEnhanced(uri, id),
+);
+
+server.registerResource(
+  "beacon-component",
+  new ResourceTemplate("beacon://component/{id}", {
+    list: () => listNodes("architecture", "beacon://component/"),
+  }),
+  {
+    title: "Beacon: architecture",
+    description: "Architecture components — picking one imports 'what the agent sees'.",
+    mimeType: "text/markdown",
+  },
+  (uri, { id }) => readEnhanced(uri, id),
+);
+
+server.registerResource(
+  "beacon-bug",
+  new ResourceTemplate("beacon://bug/{id}", {
+    list: async () => {
+      const r = (await api("/api/entities?kind=bugs")) as {
+        items: Array<{ id: string; title: string; severity: string; status: string }>;
+      };
+      return {
+        resources: r.items.map((b) => ({
+          uri: `beacon://bug/${b.id}`,
+          name: b.title,
+          description: `${b.severity} · ${b.status}`,
+          mimeType: "text/markdown",
+        })),
+      };
+    },
+  }),
+  { title: "Beacon: bugs", description: "Known issues with severity + file:line.", mimeType: "text/markdown" },
+  async (uri, { id }) => {
+    const r = (await api("/api/entities?kind=bugs")) as {
+      items: Array<{
+        id: string;
+        title: string;
+        severity: string;
+        status: string;
+        detail: string | null;
+        sourceRef: string | null;
+        feature: string | null;
+      }>;
+    };
+    const b = r.items.find((x) => x.id === one(id));
+    const text = b
+      ? `# Bug: ${b.title}\n\n- severity: ${b.severity}\n- status: ${b.status}\n- feature: ${b.feature ?? "—"}\n- source: ${b.sourceRef ?? "—"}\n\n${b.detail ?? ""}`
+      : "(bug not found)";
+    return { contents: [{ uri: uri.href, mimeType: "text/markdown", text }] };
   },
 );
 
