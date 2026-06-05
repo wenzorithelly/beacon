@@ -30,11 +30,11 @@ export function AgentView() {
       .finally(() => setBusy(false));
   }
 
-  // Generate when the selected node changes.
+  // Generate when the selected node changes (a deliberate fetch + loading state).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (collapsed) return null;
 
