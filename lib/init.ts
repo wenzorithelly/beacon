@@ -244,6 +244,14 @@ export async function runInit(): Promise<{
     }
   }
 
+  // Nothing to read → skip the AI passes entirely (no wasted round-trip on an empty repo).
+  if (files.length === 0) {
+    console.log("  (no source files found — nothing to map)");
+    const context = await writeContextFiles().catch(() => [] as string[]);
+    await bumpVersion();
+    return { files: 0, tables: 0, endpoints: 0, components: 0, roadmap: 0, context };
+  }
+
   // 1. Database + endpoints (reuse code intelligence; write straight to the DB).
   let tables = 0;
   let endpoints = 0;

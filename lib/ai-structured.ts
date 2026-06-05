@@ -28,6 +28,8 @@ export async function structured(opts: StructuredOpts): Promise<unknown | null> 
     const args = [
       // No --model: inherit the user's Claude Code default (their "session" model).
       "-p",
+      "--tools",
+      "", // single-shot transform: answer from the prompt, don't agentically read the repo
       "--output-format",
       "json",
       "--append-system-prompt",

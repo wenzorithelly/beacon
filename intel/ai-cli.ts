@@ -58,6 +58,8 @@ export async function runAiCli(
   const args = [
     // No --model: inherit the user's Claude Code default model.
     "-p",
+    "--tools",
+    "", // single-shot transform: the prompt already carries the code — no agentic exploration
     "--output-format",
     "json",
     "--append-system-prompt",
