@@ -89,4 +89,66 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "beacon_entities",
+  {
+    description:
+      "Pull the project's planning data from Beacon so you can ground your work in it: `features` (roadmap items), `architecture` (components/subsystems), `bugs` (known issues with severity + file:line), `tables` (the DB map with columns), `endpoints`. Use this when the user references something 'in Beacon' / 'on the map'.",
+    inputSchema: {
+      kind: z
+        .enum(["features", "architecture", "bugs", "tables", "endpoints"])
+        .describe("which set to fetch"),
+    },
+  },
+  async ({ kind }) => {
+    const r = await api(`/api/entities?kind=${kind}`);
+    return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+  },
+);
+
+server.registerTool(
+  "beacon_draft_table",
+  {
+    description:
+      "Render a DESIGNED database schema as a draft on Beacon's /db canvas (dashed 'preview before implement' tables) — do NOT create migrations. Use after designing tables for a feature so the user can see/accept them. Replaces any existing draft.",
+    inputSchema: {
+      tables: z
+        .array(
+          z.object({
+            name: z.string().describe("real table name"),
+            domain: z.string().optional().describe("short area, e.g. auth/billing"),
+            description: z.string().optional(),
+            columns: z.array(
+              z.object({
+                name: z.string(),
+                type: z.string(),
+                isPk: z.boolean().optional(),
+                isFk: z.boolean().optional(),
+                nullable: z.boolean().optional(),
+                note: z.string().optional(),
+              }),
+            ),
+          }),
+        )
+        .describe("the tables to draft"),
+      relations: z
+        .array(
+          z.object({
+            fromTable: z.string(),
+            fromColumn: z.string(),
+            toTable: z.string(),
+            toColumn: z.string(),
+            label: z.string().optional(),
+          }),
+        )
+        .optional()
+        .describe("foreign-key relationships"),
+    },
+  },
+  async ({ tables, relations }) => {
+    const r = await post("/api/draft", { tables, relations: relations ?? [] });
+    return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
+  },
+);
+
 await server.connect(new StdioServerTransport());
