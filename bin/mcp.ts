@@ -152,88 +152,108 @@ server.registerTool(
 );
 
 // ── Resources: @-mention Beacon entities in a Claude Code session ──────────────
-// Type `@` in your terminal → these show up (e.g. @beacon:feature://…). Picking a
-// feature/component imports "what the agent sees" (the enhanced prompt) into your message.
+// Type `@` in your terminal → these show up. The URI is a readable slug of the name and
+// the description leads with the proper name, so the menu reads cleanly (Claude Code shows
+// "<server>:<uri> - <description>"). Picking a feature/component imports "what the agent
+// sees" (the enhanced prompt); a bug imports its facts.
 const one = (v: string | string[]) => (Array.isArray(v) ? v[0] : v);
+function slug(s: string): string {
+  return (
+    s
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "") // strip accents
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 50) || "item"
+  );
+}
 
-type NodeRow = { id: string; title: string; cluster: string | null; status: string };
-async function listNodes(kind: "features" | "architecture", scheme: string) {
-  const r = (await api(`/api/entities?kind=${kind}`)) as { items: NodeRow[] };
+interface NodeRow {
+  id: string;
+  title: string;
+  cluster: string | null;
+  status: string;
+}
+async function nodeItems(kind: "features" | "architecture"): Promise<NodeRow[]> {
+  return ((await api(`/api/entities?kind=${kind}`)) as { items: NodeRow[] }).items;
+}
+function nodeResources(items: NodeRow[], scheme: string) {
   return {
-    resources: r.items.map((f) => ({
-      uri: `${scheme}${f.id}`,
+    resources: items.map((f) => ({
+      uri: `${scheme}${slug(f.title)}`,
       name: f.title,
-      description: `${f.cluster ?? ""} · ${f.status}`.trim(),
+      description: `${f.title}${f.cluster ? ` · ${f.cluster}` : ""} · ${f.status}`,
       mimeType: "text/markdown",
     })),
   };
 }
-async function readEnhanced(uri: URL, id: string | string[]) {
-  const r = (await post("/api/enhance", { nodeId: one(id) })) as { enhanced?: string; title?: string };
-  const text = `# ${r.title ?? "Beacon"} — what the agent sees\n\n${r.enhanced || "(sem conteúdo — adicione descrição ao nó)"}`;
+async function readNode(uri: URL, s: string | string[], kind: "features" | "architecture") {
+  const f = (await nodeItems(kind)).find((x) => slug(x.title) === one(s));
+  if (!f)
+    return { contents: [{ uri: uri.href, mimeType: "text/markdown", text: "(não encontrado)" }] };
+  const r = (await post("/api/enhance", { nodeId: f.id })) as { enhanced?: string };
+  const text = `# ${f.title} — what the agent sees\n\n${r.enhanced || "(adicione descrição ao nó e edite para gerar)"}`;
   return { contents: [{ uri: uri.href, mimeType: "text/markdown", text }] };
 }
 
 server.registerResource(
   "beacon-feature",
-  new ResourceTemplate("beacon://feature/{id}", {
-    list: () => listNodes("features", "beacon://feature/"),
+  new ResourceTemplate("beacon://feature/{slug}", {
+    list: async () => nodeResources(await nodeItems("features"), "beacon://feature/"),
   }),
   {
     title: "Beacon: features",
     description: "Roadmap features — picking one imports 'what the agent sees' (the enhanced prompt).",
     mimeType: "text/markdown",
   },
-  (uri, { id }) => readEnhanced(uri, id),
+  (uri, { slug: s }) => readNode(uri, s, "features"),
 );
 
 server.registerResource(
   "beacon-component",
-  new ResourceTemplate("beacon://component/{id}", {
-    list: () => listNodes("architecture", "beacon://component/"),
+  new ResourceTemplate("beacon://component/{slug}", {
+    list: async () => nodeResources(await nodeItems("architecture"), "beacon://component/"),
   }),
   {
     title: "Beacon: architecture",
     description: "Architecture components — picking one imports 'what the agent sees'.",
     mimeType: "text/markdown",
   },
-  (uri, { id }) => readEnhanced(uri, id),
+  (uri, { slug: s }) => readNode(uri, s, "architecture"),
 );
 
+interface BugRow {
+  id: string;
+  title: string;
+  severity: string;
+  status: string;
+  detail: string | null;
+  sourceRef: string | null;
+  feature: string | null;
+}
 server.registerResource(
   "beacon-bug",
-  new ResourceTemplate("beacon://bug/{id}", {
+  new ResourceTemplate("beacon://bug/{slug}", {
     list: async () => {
-      const r = (await api("/api/entities?kind=bugs")) as {
-        items: Array<{ id: string; title: string; severity: string; status: string }>;
-      };
+      const items = ((await api("/api/entities?kind=bugs")) as { items: BugRow[] }).items;
       return {
-        resources: r.items.map((b) => ({
-          uri: `beacon://bug/${b.id}`,
+        resources: items.map((b) => ({
+          uri: `beacon://bug/${slug(b.title)}`,
           name: b.title,
-          description: `${b.severity} · ${b.status}`,
+          description: `${b.title} · ${b.severity} · ${b.status}`,
           mimeType: "text/markdown",
         })),
       };
     },
   }),
   { title: "Beacon: bugs", description: "Known issues with severity + file:line.", mimeType: "text/markdown" },
-  async (uri, { id }) => {
-    const r = (await api("/api/entities?kind=bugs")) as {
-      items: Array<{
-        id: string;
-        title: string;
-        severity: string;
-        status: string;
-        detail: string | null;
-        sourceRef: string | null;
-        feature: string | null;
-      }>;
-    };
-    const b = r.items.find((x) => x.id === one(id));
+  async (uri, { slug: s }) => {
+    const items = ((await api("/api/entities?kind=bugs")) as { items: BugRow[] }).items;
+    const b = items.find((x) => slug(x.title) === one(s));
     const text = b
       ? `# Bug: ${b.title}\n\n- severity: ${b.severity}\n- status: ${b.status}\n- feature: ${b.feature ?? "—"}\n- source: ${b.sourceRef ?? "—"}\n\n${b.detail ?? ""}`
-      : "(bug not found)";
+      : "(bug não encontrado)";
     return { contents: [{ uri: uri.href, mimeType: "text/markdown", text }] };
   },
 );
