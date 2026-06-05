@@ -192,9 +192,35 @@ async function readNode(uri: URL, s: string | string[], kind: "features" | "arch
   const f = (await nodeItems(kind)).find((x) => slug(x.title) === one(s));
   if (!f)
     return { contents: [{ uri: uri.href, mimeType: "text/markdown", text: "(não encontrado)" }] };
-  const r = (await post("/api/enhance", { nodeId: f.id })) as { enhanced?: string };
-  const text = `# ${f.title} — what the agent sees\n\n${r.enhanced || "(adicione descrição ao nó e edite para gerar)"}`;
-  return { contents: [{ uri: uri.href, mimeType: "text/markdown", text }] };
+
+  const [enh, tablesRes] = await Promise.all([
+    post("/api/enhance", { nodeId: f.id }) as Promise<{ enhanced?: string }>,
+    api("/api/entities?kind=tables") as Promise<{ items: Array<{ name: string }> }>,
+  ]);
+  const names = (tablesRes.items ?? []).map((t) => t.name);
+
+  const parts = [
+    `# ${f.title} — what the agent sees`,
+    "",
+    enh.enhanced || "(adicione descrição ao nó e edite para gerar)",
+    "",
+    "## Existing DB tables in this project",
+    names.length ? names.join(", ") : "(none yet)",
+  ];
+
+  // Features must be designed (DB + endpoints) and approved before implementation.
+  if (kind === "features") {
+    parts.push(
+      "",
+      "## REQUIRED before implementing this feature",
+      "Beacon is a planning board. Before writing ANY code or migrations for this feature:",
+      "1. Identify the database tables it needs. If ANY are missing from the list above, DESIGN the schema and call the `beacon_draft_table` tool (tables + relations) so the user sees a dashed draft on the /db page and can approve it. Do NOT implement or create migrations until the user approves.",
+      "2. Propose the ENDPOINTS this feature will create — list each as `METHOD /path — tables it touches` — so the user can review, approve, or redesign them.",
+      "3. Wait for the user's approval (they may also edit the draft on /db manually) before you implement anything.",
+    );
+  }
+
+  return { contents: [{ uri: uri.href, mimeType: "text/markdown", text: parts.join("\n") }] };
 }
 
 server.registerResource(
