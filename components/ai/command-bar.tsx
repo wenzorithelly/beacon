@@ -6,7 +6,6 @@ import { ArrowUp } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { Button } from "@/components/ui/button";
 import { ClaudeLogo } from "@/components/icons/claude-logo";
-import { ModelPicker } from "@/components/graph/model-picker";
 import { useAiContext } from "@/components/ai/ai-context";
 
 type Context = "database" | "architecture" | "roadmap" | "other";
@@ -103,7 +102,9 @@ export function CommandBar() {
           className="w-full resize-none bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
         />
         <div className="mt-1 flex items-center justify-between gap-2">
-          <ModelPicker />
+          <span className="flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
+            <ClaudeLogo className="size-3.5" /> Claude Code
+          </span>
           <div className="flex items-center gap-2">
             {status && (
               <span className={status.ok ? "text-[11px] text-sky-300" : "text-[11px] text-red-300"}>

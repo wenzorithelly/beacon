@@ -26,11 +26,10 @@ export async function structured(opts: StructuredOpts): Promise<unknown | null> 
 
   if (provider === "claude-cli") {
     const args = [
+      // No --model: inherit the user's Claude Code default (their "session" model).
       "-p",
       "--output-format",
       "json",
-      "--model",
-      opts.model,
       "--append-system-prompt",
       opts.system,
       "--json-schema",

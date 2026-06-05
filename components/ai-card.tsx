@@ -15,7 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ModelPicker } from "@/components/graph/model-picker";
 import { INTEL_PROVIDERS } from "@/lib/intel-models";
 import { EDITOR_OPTIONS } from "@/lib/editors";
 
@@ -56,15 +55,11 @@ export function AiCard() {
       <CardHeader>
         <CardTitle className="text-base">IA &amp; editor</CardTitle>
         <CardDescription>
-          Modelo/provedor da IA (watcher + designer) e o editor que abre os arquivos de uma
-          feature.
+          A IA usa o modelo padrão do seu Claude Code (assinatura). Aqui você escolhe o provedor
+          e o editor que abre os arquivos de uma feature.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">modelo</span>
-          <ModelPicker />
-        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">provedor</span>
           {provider != null && (

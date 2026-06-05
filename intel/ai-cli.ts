@@ -49,11 +49,10 @@ export async function runAiCli(
   opts: { model: string },
 ): Promise<Snapshot | null> {
   const args = [
+    // No --model: inherit the user's Claude Code default model.
     "-p",
     "--output-format",
     "json",
-    "--model",
-    opts.model,
     "--append-system-prompt",
     SYSTEM,
     "--json-schema",

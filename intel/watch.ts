@@ -19,8 +19,8 @@ const providerLabel =
 
 console.log(`[intel] watching: ${roots.join(", ")}`);
 console.log(
-  `[intel] control=${config.controlUrl} model=${config.llm.model} (default; live via UI dropdown) ` +
-    `provider=${providerLabel} openapi=${config.openapiUrl ?? "none"}`,
+  `[intel] control=${config.controlUrl} provider=${providerLabel} ` +
+    `(uses your Claude Code default model) openapi=${config.openapiUrl ?? "none"}`,
 );
 
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -38,8 +38,7 @@ async function run() {
     const r = await runPipeline(config);
     console.log(
       `[intel] ${r.ok ? "synced" : `FAILED(${r.status})`}: ` +
-        `${r.files} files · ${r.tables} tables · ${r.endpoints} endpoints ` +
-        `[${r.provider} · ${r.model}]`,
+        `${r.files} files · ${r.tables} tables · ${r.endpoints} endpoints [${r.provider}]`,
     );
   } catch (e) {
     console.error("[intel] pipeline error:", e instanceof Error ? e.message : e);

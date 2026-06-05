@@ -122,6 +122,28 @@ function SessionCard({ s }: { s: SessionInfo }) {
           <span className={s.status === "active" ? "text-emerald-300" : ""}>· {s.status}</span>
         )}
       </div>
+
+      {s.contextPct != null && (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">contexto</span>
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
+            <div
+              className={cn(
+                "h-full rounded-full",
+                s.contextPct > 80
+                  ? "bg-red-500/70"
+                  : s.contextPct > 60
+                    ? "bg-amber-500/70"
+                    : "bg-emerald-500/60",
+              )}
+              style={{ width: `${s.contextPct}%` }}
+            />
+          </div>
+          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+            {s.contextPct}%{s.model ? ` · ${s.model.replace("claude-", "")}` : ""}
+          </span>
+        </div>
+      )}
     </GlassPanel>
   );
 }

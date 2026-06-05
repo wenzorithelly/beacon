@@ -31,6 +31,10 @@ export interface SessionInfo {
   lastActivityAt: string;
   mode: string | null;
   live: boolean;
+  model: string | null;
+  contextTokens: number | null;
+  contextWindow: number | null;
+  contextPct: number | null;
   task?: string;
   status?: string;
 }
@@ -143,14 +147,30 @@ export function listProjectSessions(): SessionInfo[] {
       let mode: string | null = null;
       let lastTs: string | null = null;
       let messages: number | null = null;
+      let model: string | null = null;
+      let contextTokens: number | null = null;
       for (const l of tail) {
         if (l.type === "ai-title" && l.aiTitle) title = l.aiTitle;
         if (l.type === "permission-mode" && l.permissionMode) mode = l.permissionMode;
         if (l.timestamp) lastTs = l.timestamp;
         if (l.type === "system" && typeof l.messageCount === "number") messages = l.messageCount;
+        const u = l.type === "assistant" ? l.message?.usage : null;
+        if (u) {
+          contextTokens =
+            (u.input_tokens ?? 0) +
+            (u.cache_creation_input_tokens ?? 0) +
+            (u.cache_read_input_tokens ?? 0);
+          if (l.message?.model) model = l.message.model;
+        }
       }
 
       if (cwd && !cwd.startsWith(root)) continue;
+
+      const contextWindow = model ? (/opus|sonnet/.test(model) ? 1_000_000 : 200_000) : null;
+      const contextPct =
+        contextTokens && contextWindow
+          ? Math.min(100, Math.round((contextTokens / contextWindow) * 100))
+          : null;
 
       const lastActivityAt = lastTs ?? st.mtime.toISOString();
       out.push({
@@ -164,6 +184,10 @@ export function listProjectSessions(): SessionInfo[] {
         lastActivityAt,
         mode,
         live: now - new Date(lastActivityAt).getTime() < LIVE_WINDOW_MS,
+        model,
+        contextTokens,
+        contextWindow,
+        contextPct,
       });
     }
   }
