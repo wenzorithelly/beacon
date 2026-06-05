@@ -19,6 +19,7 @@ import type { SessionInfo } from "@/lib/sessions";
 interface Msg {
   role: "user" | "assistant";
   text: string;
+  mentions?: Mention[];
 }
 // What the composer is talking to. `null` = the picker stage (no chat open yet).
 type Target =
@@ -203,7 +204,11 @@ export function CommandBar() {
     if (!typed || busy || !target) return;
     setBusy(true);
     setError(null);
-    setMsgs((m) => [...m, { role: "user", text: typed }]); // show what the user typed
+    const attached = mentions;
+    setMsgs((m) => [
+      ...m,
+      { role: "user", text: typed, mentions: attached.length ? attached : undefined },
+    ]);
     setText("");
     // Expand the attached mention chips into a context block for Claude.
     const prompt = mentions.length
@@ -358,6 +363,24 @@ export function CommandBar() {
                     )}
                   >
                     {m.role === "user" ? `› ${m.text}` : m.text}
+                    {m.mentions && m.mentions.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {m.mentions.map((mn) => (
+                          <span
+                            key={`${mn.type}:${mn.id}`}
+                            className={cn(
+                              "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]",
+                              MENTION_CHIP[mn.type],
+                            )}
+                          >
+                            <span className="font-semibold uppercase opacity-70">
+                              {MENTION_TYPE[mn.type]}
+                            </span>
+                            <span className="max-w-[11rem] truncate">{mn.label}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
                 {busy && (
