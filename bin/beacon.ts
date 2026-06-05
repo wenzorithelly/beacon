@@ -36,14 +36,22 @@ if (sub === "init") {
 
 // Install Beacon's helpers into a repo: the DB-design skill + the MCP server, so the
 // repo's Claude Code sessions can design schemas onto /db and read Beacon's data.
-async function setupRepo(repo: string) {
+async function setupRepo(repo: string, quiet = false) {
   const { installSkill, ensureMcp } = await import(join(pkgDir, "lib/assets.ts"));
   const skill = installSkill(repo);
   const mcp = ensureMcp(repo);
-  console.log(`\n  ◉ Beacon setup · ${repo}`);
-  console.log(`  ✓ skill:  ${skill}`);
-  console.log(`  ${mcp.added ? "✓ added " : "· kept  "} Beacon MCP in ${mcp.path}`);
-  console.log(`  → in this repo, ask Claude Code to "design the database for <feature>".\n`);
+  if (quiet) {
+    if (mcp.added) {
+      console.log(
+        `[beacon] registered Beacon MCP in ${mcp.path} — restart Claude Code to use @beacon mentions.`,
+      );
+    }
+  } else {
+    console.log(`\n  ◉ Beacon setup · ${repo}`);
+    console.log(`  ✓ skill:  ${skill}`);
+    console.log(`  ${mcp.added ? "✓ added " : "· kept  "} Beacon MCP in ${mcp.path}`);
+    console.log(`  → in this repo, ask Claude Code to "design the database for <feature>".\n`);
+  }
   return { skill, mcp };
 }
 
@@ -173,9 +181,12 @@ async function launchPanel() {
       `bunx prisma db push --url "${dbUrl}" --schema "${join(pkgDir, "prisma/schema.prisma")}"`,
       { cwd: pkgDir, env: { ...process.env, DATABASE_URL: dbUrl }, stdio: "inherit" },
     );
-    await setupRepo(repo); // skill + .mcp.json so Claude Code here can use Beacon
     console.log("[beacon] tip: already have code here? run `beacon init` to map the project.");
   }
+
+  // Always ensure Beacon's Claude Code helpers are installed (idempotent): the skill +
+  // the MCP registration, so @beacon mentions + the design skill work in this repo.
+  await setupRepo(repo, true);
 
   // Register the repo, ensure the shared server + a per-repo watcher, then open the
   // browser straight onto this repo (activate makes it the server's active workspace).

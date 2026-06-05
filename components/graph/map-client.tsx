@@ -126,6 +126,7 @@ export function MapClient({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const createCount = useRef(0);
+  const enhanceTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   // Resync from the server after a mutation (router.refresh sends new props). Syncing
   // external (server) state into React Flow's local state is exactly what an effect is for.
@@ -149,6 +150,22 @@ export function MapClient({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
+      // When you finish editing a node's content, pre-generate "what the agent sees" in
+      // the background (debounced) so the panel + @-mention read it instantly later.
+      if (["title", "role", "plain", "cluster"].some((k) => k in fields)) {
+        const timers = enhanceTimers.current;
+        clearTimeout(timers.get(id));
+        timers.set(
+          id,
+          setTimeout(() => {
+            void fetch("/api/enhance", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ nodeId: id }),
+            });
+          }, 2500),
+        );
+      }
     }
   }, []);
 
