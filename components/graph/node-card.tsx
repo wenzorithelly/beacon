@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { Sparkles, Maximize2, Minimize2, PanelRight } from "lucide-react";
+import { Sparkles, Maximize2, Minimize2, PanelRight, Trash2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -50,9 +51,10 @@ const handleClass = "!h-2 !w-2 !border-0 !bg-zinc-500";
 const noDrag = "nodrag nopan";
 
 export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
-  const { categories, statuses, patch, isExpanded, toggleExpand, openDetailed, editingTitleId } =
+  const { categories, statuses, patch, isExpanded, toggleExpand, openDetailed, removeNode, editingTitleId } =
     useNodeEdit();
   const expanded = isExpanded(id);
+  const [confirmDel, setConfirmDel] = useState(false);
 
   const critical = data.priority === 0;
   const cancelled = data.status === "CANCELLED" || data.status === "DROP";
@@ -237,19 +239,41 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
                 ))}
               </SelectContent>
             </Select>
-            <button
-              type="button"
-              onClick={(e) => {
-                stop(e);
-                openDetailed(id);
-              }}
-              className={cn(
-                noDrag,
-                "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-white/5 hover:text-foreground",
-              )}
-            >
-              <PanelRight className="size-3" /> Detalhes
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={(e) => {
+                  stop(e);
+                  if (confirmDel) removeNode(id);
+                  else setConfirmDel(true);
+                }}
+                onBlur={() => setConfirmDel(false)}
+                title="Apagar nó"
+                className={cn(
+                  noDrag,
+                  "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] transition-colors",
+                  confirmDel
+                    ? "bg-red-500/20 text-red-300"
+                    : "text-muted-foreground hover:bg-white/5 hover:text-red-300",
+                )}
+              >
+                <Trash2 className="size-3" />
+                {confirmDel && "Apagar?"}
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  stop(e);
+                  openDetailed(id);
+                }}
+                className={cn(
+                  noDrag,
+                  "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-white/5 hover:text-foreground",
+                )}
+              >
+                <PanelRight className="size-3" /> Detalhes
+              </button>
+            </div>
           </div>
         </div>
       )}

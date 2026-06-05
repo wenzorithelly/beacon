@@ -13,6 +13,7 @@ export interface NodeEditApi {
   isExpanded: (id: string) => boolean;
   toggleExpand: (id: string) => void;
   openDetailed: (id: string) => void; // the "super detailed" panel (sidebar)
+  removeNode: (id: string) => void; // delete (no revalidate; local + DELETE)
   editingTitleId: string | null; // a freshly-created node to autofocus
 }
 

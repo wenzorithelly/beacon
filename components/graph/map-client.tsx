@@ -176,6 +176,12 @@ export function MapClient({
     setPanelOpen(true);
   }, []);
 
+  const removeNode = useCallback((id: string) => {
+    setNodes((nds) => nds.filter((n) => n.id !== id));
+    setSelectedId((s) => (s === id ? null : s));
+    void fetch(`/api/nodes/${id}`, { method: "DELETE" });
+  }, []);
+
   // "+ Nó" / inline create: drop a node you immediately type into, then drag to place.
   const addNode = useCallback(async () => {
     const off = (createCount.current++ % 8) * 28;
@@ -235,9 +241,10 @@ export function MapClient({
       isExpanded: (id: string) => expandedIds.has(id),
       toggleExpand,
       openDetailed,
+      removeNode,
       editingTitleId,
     }),
-    [view, categories, patch, expandedIds, toggleExpand, openDetailed, editingTitleId],
+    [view, categories, patch, expandedIds, toggleExpand, openDetailed, removeNode, editingTitleId],
   );
 
   // Filters (client-side, instant — never persisted into node state).
