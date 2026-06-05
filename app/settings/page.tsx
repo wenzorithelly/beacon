@@ -1,6 +1,7 @@
 import { listIntegrations } from "@/lib/integrations";
 import { IntegrationCard } from "@/components/integration-card";
 import { AiCard } from "@/components/ai-card";
+import { ContextCard } from "@/components/context-card";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export default async function SettingsPage() {
       </p>
       <div className="mt-6 grid gap-4">
         <AiCard />
+        <ContextCard />
         {integrations.map((row) => (
           <IntegrationCard key={row.key} row={row} />
         ))}

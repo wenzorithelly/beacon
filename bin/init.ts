@@ -46,9 +46,11 @@ console.log(`\n  ◉ Beacon init\n  repo: ${repo}\n  reading + mapping (this use
 const { runInit } = await import(join(pkgDir, "lib/init.ts"));
 const r = await runInit();
 
+const ctx = r.context.map((p) => p.split("/").pop()).join(" + ");
 console.log(
   `\n  ✓ mapped ${r.components} components · ${r.tables} tables · ${r.endpoints} endpoints` +
     ` · ${r.roadmap} roadmap suggestions (from ${r.files} files)\n` +
+    (ctx ? `  ✓ wrote ${ctx} (Claude Code + Cursor read these)\n` : "") +
     `  → run \`beacon\` to open the map.\n`,
 );
 process.exit(0);

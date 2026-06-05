@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { bumpVersion, ingestSnapshot, type Snapshot } from "@/lib/ingest";
 import { structured } from "@/lib/ai-structured";
 import { getAppSettings } from "@/lib/settings";
+import { setProjectMeta } from "@/lib/project-meta";
+import { writeContextFiles } from "@/lib/context-files";
 import { repoRoot } from "@/lib/project";
 import { loadConfig } from "@/intel/config";
 import { scanFiles, type SourceFile } from "@/intel/extractors/files";
@@ -39,6 +41,8 @@ const archSchema = z.object({
       }),
     )
     .default([]),
+  overview: z.string().nullish(),
+  conventions: z.array(z.string()).default([]),
 });
 type Arch = z.infer<typeof archSchema>;
 
@@ -74,6 +78,8 @@ const ARCH_JSON_SCHEMA: Record<string, unknown> = {
         required: ["title"],
       },
     },
+    overview: { type: ["string", "null"] },
+    conventions: { type: "array", items: { type: "string" } },
   },
   required: ["components", "roadmap"],
 };
@@ -88,6 +94,10 @@ Produce a concise architecture map:
 - depends: titles of other components it depends on, derived from the dependency graph (optional).
 
 Also propose "roadmap": 3-6 BROAD, HIGH-LEVEL directions for this project — big-picture themes only (e.g. "Harden auth & security", "Add automated test coverage", "Scale the data layer", "Add observability", "Pay down tech debt"). These are SUGGESTIONS, deliberately vague and strategic — NOT detailed tasks, NOT file-level. Keep each to a short title + one-line "why".
+
+Also provide:
+- overview: one short paragraph — what this project is and its stack — for an AI contributor's context file.
+- conventions: 3-8 concrete conventions/gotchas an AI contributor MUST follow (build/test commands, where code goes, patterns, things easy to get wrong).
 
 Infer the stack from the manifests. Describe only what is actually present. Output ONLY via the structure.`;
 
@@ -219,6 +229,7 @@ export async function runInit(): Promise<{
   endpoints: number;
   components: number;
   roadmap: number;
+  context: string[];
 }> {
   const config = loadConfig();
   const roots = config.roots.map((r) => resolve(config.configDir, r));
@@ -254,19 +265,28 @@ export async function runInit(): Promise<{
     console.error("[init] db extraction failed:", e instanceof Error ? e.message : e);
   }
 
-  // 2. Architecture map + high-level roadmap suggestions.
+  // 2. Architecture map + high-level roadmap suggestions + context files.
   let components = 0;
   let roadmap = 0;
+  let context: string[] = [];
   try {
     const arch = await analyzeArchitecture(files);
     if (arch) {
       components = await persistArchitecture(arch);
       roadmap = await persistRoadmap(arch.roadmap);
+      await setProjectMeta({ overview: arch.overview ?? null, conventions: arch.conventions });
     }
   } catch (e) {
     console.error("[init] architecture analysis failed:", e instanceof Error ? e.message : e);
   }
 
+  // 3. Write AGENTS.md + ensure CLAUDE.md imports it (so Claude Code reads it).
+  try {
+    context = await writeContextFiles();
+  } catch (e) {
+    console.error("[init] context files failed:", e instanceof Error ? e.message : e);
+  }
+
   await bumpVersion();
-  return { files: files.length, tables, endpoints, components, roadmap };
+  return { files: files.length, tables, endpoints, components, roadmap, context };
 }

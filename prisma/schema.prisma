@@ -224,6 +224,14 @@ model AppSetting {
   updatedAt        DateTime @updatedAt
 }
 
+/// AI-written project context (from `beacon init`) used to generate AGENTS.md.
+model ProjectMeta {
+  id          String   @id @default("singleton")
+  overview    String? // one-paragraph project overview
+  conventions String   @default("[]") // JSON array of convention/gotcha strings
+  updatedAt   DateTime @updatedAt
+}
+
 // ── DB Designer: a proposed schema you draft before implementing. Isolated from
 // the real DbTable* (no name collisions) and clearable; persists so it survives the
 // live-refresh SSE. Rendered as a distinct "rascunho" layer on the /db map.
