@@ -16,11 +16,18 @@ const {
   idForPath,
   dbUrlFor,
   dataDirFor,
+  getActiveId,
+  setActiveId,
+  activeWorkspace,
 } = await import("@/lib/workspaces");
 
-afterAll(() => rmSync(HOME, { recursive: true, force: true }));
+afterAll(() => {
+  setActiveId(null);
+  rmSync(HOME, { recursive: true, force: true });
+});
 
 beforeEach(() => {
+  setActiveId(null);
   for (const w of listWorkspaces()) removeWorkspace(w.id);
 });
 
@@ -59,6 +66,17 @@ describe("workspace registry", () => {
     const ws = addWorkspace("/repos/alpha");
     removeWorkspace(ws.id);
     expect(getWorkspace(ws.id)).toBeNull();
+  });
+
+  it("tracks a single active workspace, and clears it when removed", () => {
+    const a = addWorkspace("/repos/alpha");
+    addWorkspace("/repos/beta");
+    setActiveId(a.id);
+    expect(getActiveId()).toBe(a.id);
+    expect(activeWorkspace()?.path).toBe("/repos/alpha");
+    removeWorkspace(a.id); // active removed → falls back to another workspace
+    expect(getActiveId()).not.toBe(a.id);
+    expect(getActiveId()).toBe(idForPath("/repos/beta"));
   });
 });
 

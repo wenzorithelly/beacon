@@ -87,6 +87,38 @@ export function touchWorkspace(id: string, now = new Date().toISOString()): void
 
 export function removeWorkspace(id: string): void {
   writeRegistry(readRegistry().filter((w) => w.id !== id));
+  if (getActiveId() === id) setActiveId(listWorkspaces()[0]?.id ?? null);
+}
+
+// The single active workspace (the user picked "one at a time"): persisted to disk so
+// it survives restarts, cached in memory so db/repoRoot resolve it without I/O per call.
+function activePath(): string {
+  return join(beaconHome(), "active");
+}
+
+let activeCache: string | null | undefined;
+
+export function getActiveId(): string | null {
+  if (activeCache === undefined) {
+    try {
+      activeCache = readFileSync(activePath(), "utf8").trim() || null;
+    } catch {
+      activeCache = null;
+    }
+  }
+  return activeCache;
+}
+
+export function setActiveId(id: string | null): void {
+  activeCache = id;
+  mkdirSync(beaconHome(), { recursive: true });
+  writeFileSync(activePath(), id ?? "");
+}
+
+/** The active workspace record (validated against the registry), or null. */
+export function activeWorkspace(): Workspace | null {
+  const id = getActiveId();
+  return id ? getWorkspace(id) : null;
 }
 
 /** Path stored on disk for a workspace, or null. Lets the data dir resolve a repo. */

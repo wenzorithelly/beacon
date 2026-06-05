@@ -2,14 +2,18 @@ import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { activeWorkspace, dataDirFor } from "@/lib/workspaces";
 
 // Beacon targets whatever repo the CLI was launched in. The CLI passes BEACON_REPO
 // (the repo root) and BEACON_DATA_DIR (the per-repo store). In dev (running the app
-// directly) we fall back to the surrounding git repo / parent dir.
+// directly) we fall back to the surrounding git repo / parent dir. When the server has
+// an active workspace selected, that wins (multi-workspace server).
 
 let cachedRoot: string | null = null;
 
 export function repoRoot(): string {
+  const ws = activeWorkspace();
+  if (ws) return ws.path;
   if (cachedRoot) return cachedRoot;
   if (process.env.BEACON_REPO) return (cachedRoot = process.env.BEACON_REPO);
   try {
@@ -35,5 +39,7 @@ export function repoId(): string {
 }
 
 export function dataDir(): string {
+  const ws = activeWorkspace();
+  if (ws) return dataDirFor(ws.id);
   return process.env.BEACON_DATA_DIR || join(homedir(), ".beacon", repoId());
 }
