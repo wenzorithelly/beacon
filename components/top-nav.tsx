@@ -8,7 +8,6 @@ const LINKS = [
   { href: "/map", label: "Mapa" },
   { href: "/db", label: "Banco" },
   { href: "/health", label: "Saúde" },
-  { href: "/sessions", label: "Sessões" },
   { href: "/list", label: "Lista" },
   { href: "/bugs", label: "Bugs" },
   { href: "/settings", label: "Config" },
