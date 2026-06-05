@@ -12,10 +12,12 @@ import { activeWorkspace, dataDirFor } from "@/lib/workspaces";
 let cachedRoot: string | null = null;
 
 export function repoRoot(): string {
+  // A pinned process (CLI / watcher / init) targets its own repo, ignoring the server's
+  // active workspace. The unpinned daemon follows the active workspace.
+  if (process.env.BEACON_REPO) return process.env.BEACON_REPO;
   const ws = activeWorkspace();
   if (ws) return ws.path;
   if (cachedRoot) return cachedRoot;
-  if (process.env.BEACON_REPO) return (cachedRoot = process.env.BEACON_REPO);
   try {
     const top = execSync("git rev-parse --show-toplevel", {
       cwd: process.cwd(),
@@ -39,7 +41,8 @@ export function repoId(): string {
 }
 
 export function dataDir(): string {
+  if (process.env.BEACON_DATA_DIR) return process.env.BEACON_DATA_DIR;
   const ws = activeWorkspace();
   if (ws) return dataDirFor(ws.id);
-  return process.env.BEACON_DATA_DIR || join(homedir(), ".beacon", repoId());
+  return join(homedir(), ".beacon", repoId());
 }

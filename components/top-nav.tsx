@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useAiContext } from "@/components/ai/ai-context";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
@@ -28,11 +29,13 @@ export function TopNav({ repo }: { repo?: string }) {
       >
         {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
       </button>
-      <Link href="/" className="mr-4 flex items-center gap-2 font-semibold tracking-tight">
+      <Link href="/" className="mr-3 flex items-center gap-2 font-semibold tracking-tight">
         <span className="inline-block size-2.5 rounded-full bg-[var(--accent-2,#ff7a45)]" />
         Beacon
-        {repo && <span className="font-mono text-xs text-muted-foreground">· {repo}</span>}
       </Link>
+      <div className="mr-3">
+        <WorkspaceSwitcher fallback={repo} />
+      </div>
       <nav className="flex items-center gap-1 text-sm">
         {LINKS.map((l) => {
           const active = pathname === l.href || pathname.startsWith(l.href + "/");

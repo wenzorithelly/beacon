@@ -39,7 +39,10 @@ export function getDb(dbUrl: string): Db {
 // One Beacon server serves many repos with a single active workspace at a time. `db`
 // resolves to the active workspace's client (or the env default when none is active),
 // so the whole lib layer keeps using `db` unchanged — no per-call threading.
+// A process pinned to one repo via BEACON_REPO (CLI / watcher / init) always uses its
+// own env DB, so per-repo watchers never write into whatever the server has active.
 function activeDb(): Db {
+  if (process.env.BEACON_REPO) return defaultDb;
   const id = getActiveId();
   return id ? getDb(dbUrlFor(id)) : defaultDb;
 }
