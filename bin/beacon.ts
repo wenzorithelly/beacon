@@ -28,8 +28,23 @@ if (sub === "init") {
   await import(join(pkgDir, "bin/hook.ts"));
 } else if (sub === "stop") {
   stopDaemon();
+} else if (sub === "setup") {
+  await setupRepo(gitToplevel() || cwd);
 } else {
   await launchPanel();
+}
+
+// Install Beacon's helpers into a repo: the DB-design skill + the MCP server, so the
+// repo's Claude Code sessions can design schemas onto /db and read Beacon's data.
+async function setupRepo(repo: string) {
+  const { installSkill, ensureMcp } = await import(join(pkgDir, "lib/assets.ts"));
+  const skill = installSkill(repo);
+  const mcp = ensureMcp(repo);
+  console.log(`\n  ◉ Beacon setup · ${repo}`);
+  console.log(`  ✓ skill:  ${skill}`);
+  console.log(`  ${mcp.added ? "✓ added " : "· kept  "} Beacon MCP in ${mcp.path}`);
+  console.log(`  → in this repo, ask Claude Code to "design the database for <feature>".\n`);
+  return { skill, mcp };
 }
 
 function gitToplevel(): string {
@@ -151,13 +166,14 @@ async function launchPanel() {
   const dbUrl = dbUrlFor(id);
   mkdirSync(data, { recursive: true });
 
-  // First run for this repo: create its database.
+  // First run for this repo: create its database + install Beacon's Claude Code helpers.
   if (!existsSync(join(data, "db.sqlite"))) {
     console.log(`[beacon] first run for ${repo} — creating database…`);
     execSync(
       `bunx prisma db push --url "${dbUrl}" --schema "${join(pkgDir, "prisma/schema.prisma")}"`,
       { cwd: pkgDir, env: { ...process.env, DATABASE_URL: dbUrl }, stdio: "inherit" },
     );
+    await setupRepo(repo); // skill + .mcp.json so Claude Code here can use Beacon
     console.log("[beacon] tip: already have code here? run `beacon init` to map the project.");
   }
 
