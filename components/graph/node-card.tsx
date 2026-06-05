@@ -56,6 +56,14 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
   const expanded = isExpanded(id);
   const [confirmDel, setConfirmDel] = useState(false);
 
+  // Text fields are edited in LOCAL state (seeded from data) and only persisted on blur.
+  // Routing every keystroke through the global map state re-rendered the input mid-edit,
+  // which broke dead-key composition (e.g. ´+a = á). Local state keeps typing intact.
+  const [title, setTitle] = useState(data.title);
+  const [cluster, setCluster] = useState(data.cluster ?? "");
+  const [role, setRole] = useState(data.role ?? "");
+  const [plain, setPlain] = useState(data.plain ?? "");
+
   const critical = data.priority === 0;
   const cancelled = data.status === "CANCELLED" || data.status === "DROP";
   const dimmed = data.status === "DEPRIORITIZED";
@@ -64,14 +72,13 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
   const suggested = data.source === "INIT" && data.view === "ROADMAP";
 
   const save = (fields: Record<string, unknown>) => patch(id, fields, true);
-  const local = (fields: Record<string, unknown>) => patch(id, fields, false);
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
   return (
     <div
       className={cn(
         "rounded-lg border bg-card px-2.5 py-2 text-card-foreground shadow-sm transition",
-        expanded ? "w-72" : data.isChild ? "w-56" : "w-64",
+        expanded ? "w-80" : data.isChild ? "w-56" : "w-64",
         draft
           ? "border-dashed border-sky-400/50 bg-sky-500/[0.06]"
           : suggested
@@ -103,13 +110,16 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
         )}
         <textarea
           rows={1}
-          value={data.title}
+          value={title}
           autoFocus={editingTitleId === id}
           placeholder="Título…"
-          onChange={(e) => local({ title: e.target.value })}
-          onBlur={(e) => {
-            const v = e.target.value.trim();
-            if (v) save({ title: v });
+          onFocus={(e) => {
+            if (editingTitleId === id) e.currentTarget.select();
+          }}
+          onChange={(e) => setTitle(e.target.value)}
+          onBlur={() => {
+            const v = title.trim();
+            if (v && v !== data.title) save({ title: v });
           }}
           onKeyDown={(e) => {
             stop(e);
@@ -157,10 +167,13 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
         )}
         <input
           list={`cats-${id}`}
-          value={data.cluster ?? ""}
+          value={cluster}
           placeholder="categoria"
-          onChange={(e) => local({ cluster: e.target.value })}
-          onBlur={(e) => save({ cluster: e.target.value.trim() || null })}
+          onChange={(e) => setCluster(e.target.value)}
+          onBlur={() => {
+            const v = cluster.trim() || null;
+            if (v !== (data.cluster ?? null)) save({ cluster: v });
+          }}
           onKeyDown={(e) => {
             stop(e);
             if (e.key === "Enter") e.currentTarget.blur();
@@ -199,10 +212,13 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
       {expanded && (
         <div className="mt-2 space-y-2 border-t border-white/10 pt-2">
           <input
-            value={data.role ?? ""}
+            value={role}
             placeholder="Papel (uma linha)"
-            onChange={(e) => local({ role: e.target.value })}
-            onBlur={(e) => save({ role: e.target.value.trim() || null })}
+            onChange={(e) => setRole(e.target.value)}
+            onBlur={() => {
+              const v = role.trim() || null;
+              if (v !== (data.role ?? null)) save({ role: v });
+            }}
             onKeyDown={(e) => {
               stop(e);
               if (e.key === "Enter") e.currentTarget.blur();
@@ -213,15 +229,18 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
             )}
           />
           <textarea
-            rows={3}
-            value={data.plain ?? ""}
+            value={plain}
             placeholder="Descrição…"
-            onChange={(e) => local({ plain: e.target.value })}
-            onBlur={(e) => save({ plain: e.target.value.trim() || null })}
+            onChange={(e) => setPlain(e.target.value)}
+            onBlur={() => {
+              const v = plain.trim() || null;
+              if (v !== (data.plain ?? null)) save({ plain: v });
+            }}
             onKeyDown={stop}
+            rows={3}
             className={cn(
               noDrag,
-              "w-full resize-none rounded bg-white/[0.04] px-1.5 py-1 text-xs outline-none placeholder:text-muted-foreground/50 focus:bg-white/[0.08]",
+              "field-sizing-content max-h-[24rem] min-h-[4.5rem] w-full resize-y rounded bg-white/[0.04] px-1.5 py-1 text-xs outline-none placeholder:text-muted-foreground/50 focus:bg-white/[0.08]",
             )}
           />
           <div className="flex items-center justify-between gap-2">
