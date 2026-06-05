@@ -37,8 +37,9 @@ if (sub === "init") {
 // Install Beacon's helpers into a repo: the DB-design skill + the MCP server, so the
 // repo's Claude Code sessions can design schemas onto /db and read Beacon's data.
 async function setupRepo(repo: string, quiet = false) {
-  const { installSkill, ensureMcp } = await import(join(pkgDir, "lib/assets.ts"));
+  const { installSkill, ensureMcp, ensureWorkflowDoc } = await import(join(pkgDir, "lib/assets.ts"));
   const skill = installSkill(repo);
+  ensureWorkflowDoc(repo);
   const mcp = ensureMcp(repo);
   if (quiet) {
     if (mcp.added) {

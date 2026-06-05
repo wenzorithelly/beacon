@@ -32,6 +32,51 @@ export function installSkill(repo: string): string {
   return path;
 }
 
+const WORKFLOW_MARK_START = "<!-- beacon:workflow:start -->";
+const WORKFLOW_MARK_END = "<!-- beacon:workflow:end -->";
+const WORKFLOW_RULE = `${WORKFLOW_MARK_START}
+## Beacon — design-first workflow
+
+This project uses Beacon (a local planning/visualization panel; run \`beacon\` to open it). When you start work on a FEATURE — whether referenced via an \`@beacon:feature://…\` mention or just described in chat — follow this before writing any code:
+
+1. **Design the data first.** Determine the database tables the feature needs. If any don't exist yet, design the schema and call the \`beacon_draft_table\` MCP tool (tables + relations + endpoints). This renders an **editable draft on the /db page** for the user to review and approve. Do NOT write code or migrations until the user approves.
+2. **Propose the endpoints.** Include the endpoints the feature will add in the same \`beacon_draft_table\` call so they render on /db too, where the user can edit or approve them.
+3. **Wait for approval.** The user may edit the draft on /db manually. Implement only after they approve.
+
+Pull Beacon's planning data anytime with \`beacon_entities\` (features / architecture / bugs / tables / endpoints).
+${WORKFLOW_MARK_END}`;
+
+/**
+ * Ensure the design-first rule lives in <repo>/AGENTS.md (marker block, idempotent),
+ * and that CLAUDE.md @imports AGENTS.md so Claude Code always loads it.
+ */
+export function ensureWorkflowDoc(repo: string): void {
+  const agents = join(repo, "AGENTS.md");
+  let body = "";
+  try {
+    body = readFileSync(agents, "utf8");
+  } catch {
+    /* new file */
+  }
+  const re = new RegExp(`${WORKFLOW_MARK_START}[\\s\\S]*?${WORKFLOW_MARK_END}`);
+  body = re.test(body)
+    ? body.replace(re, WORKFLOW_RULE)
+    : `${body.trim()}\n\n${WORKFLOW_RULE}\n`.trimStart();
+  writeFileSync(agents, body.endsWith("\n") ? body : `${body}\n`);
+
+  // CLAUDE.md must @import AGENTS.md (Claude Code reads CLAUDE.md natively).
+  const claude = join(repo, "CLAUDE.md");
+  let cm = "";
+  try {
+    cm = readFileSync(claude, "utf8");
+  } catch {
+    /* new file */
+  }
+  if (!/@AGENTS\.md/.test(cm)) {
+    writeFileSync(claude, `${cm ? `${cm.trim()}\n\n` : ""}@AGENTS.md\n`);
+  }
+}
+
 /** Ensure <repo>/.mcp.json registers the Beacon MCP server (idempotent). */
 export function ensureMcp(repo: string): { path: string; added: boolean } {
   const path = join(repo, ".mcp.json");
