@@ -63,7 +63,7 @@ export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
   const activeWs = workspaces.find((w) => w.id === active);
 
   return (
-    <Select value={active ?? ""} onValueChange={pick}>
+    <Select value={active ?? ""} onValueChange={(v) => v && pick(v)}>
       <SelectTrigger className="h-7 gap-1.5 rounded-lg border-white/12 bg-white/[0.04] px-2 text-xs">
         <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground" />
         <SelectValue>{() => activeWs?.name ?? "projeto"}</SelectValue>

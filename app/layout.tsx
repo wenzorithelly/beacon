@@ -6,7 +6,7 @@ import { TopNav } from "@/components/top-nav";
 import { LiveRefresh } from "@/components/live-refresh";
 import { AiContextProvider } from "@/components/ai/ai-context";
 import { MainRegion } from "@/components/ai/main-region";
-import { CommandBar } from "@/components/ai/command-bar";
+import { AgentView } from "@/components/ai/agent-view";
 import { repoName } from "@/lib/project";
 
 const geistSans = Geist({
@@ -40,7 +40,7 @@ export default function RootLayout({
           <TopNav repo={repoName()} />
           <MainRegion>{children}</MainRegion>
           <Suspense>
-            <CommandBar />
+            <AgentView />
           </Suspense>
         </AiContextProvider>
       </body>
