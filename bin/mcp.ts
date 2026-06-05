@@ -110,7 +110,7 @@ server.registerTool(
   "beacon_draft_table",
   {
     description:
-      "Render a DESIGNED database schema as a draft on Beacon's /db canvas (dashed 'preview before implement' tables) — do NOT create migrations. Use after designing tables for a feature so the user can see/accept them. Replaces any existing draft.",
+      "Render a DESIGNED database schema + endpoints as a draft on Beacon's /db canvas (dashed 'preview before implement' tables and endpoints) — do NOT create migrations. Use after designing tables/endpoints for a feature so the user can see, edit, and accept them. Replaces any existing draft.",
     inputSchema: {
       tables: z
         .array(
@@ -143,10 +143,25 @@ server.registerTool(
         )
         .optional()
         .describe("foreign-key relationships"),
+      endpoints: z
+        .array(
+          z.object({
+            method: z.string().describe("GET|POST|PUT|PATCH|DELETE"),
+            path: z.string().describe("e.g. /orgs/{id}/members"),
+            domain: z.string().optional(),
+            description: z.string().optional(),
+          }),
+        )
+        .optional()
+        .describe("the endpoints this feature adds (rendered as dashed drafts on /db)"),
     },
   },
-  async ({ tables, relations }) => {
-    const r = await post("/api/draft", { tables, relations: relations ?? [] });
+  async ({ tables, relations, endpoints }) => {
+    const r = await post("/api/draft", {
+      tables,
+      relations: relations ?? [],
+      endpoints: endpoints ?? [],
+    });
     return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
   },
 );

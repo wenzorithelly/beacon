@@ -39,6 +39,16 @@ export const draftSchema = z.object({
       }),
     )
     .default([]),
+  endpoints: z
+    .array(
+      z.object({
+        method: z.string().trim().min(1),
+        path: z.string().trim().min(1),
+        domain: z.string().nullish(),
+        description: z.string().nullish(),
+      }),
+    )
+    .default([]),
 });
 export type DraftGraph = z.infer<typeof draftSchema>;
 
@@ -131,6 +141,7 @@ export async function clearDraft(prisma: Prisma = db) {
   await prisma.draftRelation.deleteMany();
   await prisma.draftColumn.deleteMany();
   await prisma.draftTable.deleteMany();
+  await prisma.endpoint.deleteMany({ where: { source: "DRAFT" } });
 }
 
 export async function persistDraft(graph: DraftGraph, prisma: Prisma = db) {
@@ -172,6 +183,27 @@ export async function persistDraft(graph: DraftGraph, prisma: Prisma = db) {
         fromColumn: r.fromColumn,
         toColumn: r.toColumn,
         label: r.label ?? `${r.fromColumn} → ${r.toTable}.${r.toColumn}`,
+      },
+    });
+  }
+  // Draft endpoints live in the Endpoint table with source=DRAFT (dashed on /db),
+  // laid out below the draft tables. Skip any that already exist for real.
+  const baseY = Math.ceil(g.tables.length / 4) * 240 + 280;
+  for (let i = 0; i < g.endpoints.length; i++) {
+    const e = g.endpoints[i];
+    const exists = await prisma.endpoint
+      .findUnique({ where: { method_path: { method: e.method, path: e.path } } })
+      .catch(() => null);
+    if (exists) continue;
+    await prisma.endpoint.create({
+      data: {
+        method: e.method,
+        path: e.path,
+        domain: e.domain ?? null,
+        description: e.description ?? null,
+        source: "DRAFT",
+        x: (i % 3) * 320 + 40,
+        y: baseY + Math.floor(i / 3) * 120,
       },
     });
   }
