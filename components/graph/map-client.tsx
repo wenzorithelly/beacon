@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   applyEdgeChanges,
@@ -18,15 +18,17 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { PanelRight } from "lucide-react";
+import { PanelRight, Plus } from "lucide-react";
 import { NodeCard, type MapNodeData } from "@/components/graph/node-card";
 import { DetailSidebar } from "@/components/graph/detail-sidebar";
-import { AddNodeButton } from "@/components/graph/add-node-button";
-import { SEVERITY_RANK, STATUS_META } from "@/lib/constants";
+import { NodeEditContext, type NodeEditApi } from "@/components/graph/node-edit-context";
+import { ARCH_STATUSES, ROADMAP_STATUSES, SEVERITY_RANK, STATUS_META } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { useAiContext } from "@/components/ai/ai-context";
 import type { FeatureGraph } from "@/lib/feature-design";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
+
+const PERSIST_FIELDS = new Set(["title", "role", "plain", "cluster", "status", "priority"]);
 
 const nodeTypes = { roadmapNode: NodeCard, archNode: NodeCard };
 
@@ -120,11 +122,123 @@ export function MapClient({
   const [nodes, setNodes] = useState<Node<MapNodeData>[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
+  const createCount = useRef(0);
 
-  // Resync from the server after a mutation (router.refresh sends new props).
+  // Resync from the server after a mutation (router.refresh sends new props). Syncing
+  // external (server) state into React Flow's local state is exactly what an effect is for.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setNodes(initialNodes), [initialNodes]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setEdges(initialEdges), [initialEdges]);
+
+  // Inline edit: update React Flow state optimistically; persist via the no-revalidate
+  // route so the canvas never reflows mid-edit. categories feed the inline picker.
+  const patch = useCallback((id: string, fields: Record<string, unknown>, persist: boolean) => {
+    setNodes((nds) =>
+      nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...fields } } : n)),
+    );
+    if (persist) {
+      const body = Object.fromEntries(
+        Object.entries(fields).filter(([k]) => PERSIST_FIELDS.has(k)),
+      );
+      void fetch(`/api/nodes/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
+  }, []);
+
+  const categories = useMemo(
+    () =>
+      Array.from(
+        new Set(nodes.map((n) => n.data.cluster).filter((c): c is string => !!c)),
+      ).sort(),
+    [nodes],
+  );
+
+  const toggleExpand = useCallback(
+    (id: string) =>
+      setExpandedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
+  );
+
+  const openDetailed = useCallback((id: string) => {
+    setSelectedId(id);
+    setPanelOpen(true);
+  }, []);
+
+  // "+ Nó" / inline create: drop a node you immediately type into, then drag to place.
+  const addNode = useCallback(async () => {
+    const off = (createCount.current++ % 8) * 28;
+    const x = 80 + off;
+    const y = 80 + off;
+    try {
+      const res = await fetch("/api/nodes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          view,
+          title: "Novo nó",
+          status: view === "ARCHITECTURE" ? "REBUILD" : "PENDING",
+          x,
+          y,
+        }),
+      });
+      if (!res.ok) return;
+      const n = await res.json();
+      setNodes((nds) => [
+        ...nds,
+        {
+          id: n.id,
+          type: view === "ROADMAP" ? "roadmapNode" : "archNode",
+          position: { x, y },
+          data: {
+            title: n.title,
+            role: n.role,
+            plain: n.plain,
+            status: n.status,
+            priority: n.priority,
+            cluster: n.cluster,
+            view: n.view,
+            source: n.source,
+            sourceRef: n.sourceRef,
+            isCriterion: false,
+            isChild: n.parentId != null,
+            bugCount: 0,
+            maxSeverity: null,
+          },
+        },
+      ]);
+      setExpandedIds((prev) => new Set(prev).add(n.id));
+      setEditingTitleId(n.id);
+      setSelectedId(n.id);
+    } catch {
+      /* ignore */
+    }
+  }, [view]);
+
+  const editApi: NodeEditApi = useMemo(
+    () => ({
+      view,
+      categories,
+      statuses: view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES,
+      patch,
+      isExpanded: (id: string) => expandedIds.has(id),
+      toggleExpand,
+      openDetailed,
+      editingTitleId,
+    }),
+    [view, categories, patch, expandedIds, toggleExpand, openDetailed, editingTitleId],
+  );
 
   // Filters (client-side, instant — never persisted into node state).
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
@@ -193,6 +307,7 @@ export function MapClient({
     });
 
   return (
+    <NodeEditContext.Provider value={editApi}>
     <div className="relative h-[calc(100vh-3.5rem)] w-full">
       <ReactFlow
         nodes={displayNodes}
@@ -202,7 +317,6 @@ export function MapClient({
         onEdgesChange={onEdgesChange}
         onNodeClick={(_, node) => {
           setSelectedId(node.id);
-          setPanelOpen(true);
           setSelection({
             kind: node.data.view === "ARCHITECTURE" ? "feature" : "tarefa",
             label: node.data.title,
@@ -214,6 +328,7 @@ export function MapClient({
           setSelection(null);
         }}
         onNodeDragStop={(_, node) => persistPosition(node.id, node.position.x, node.position.y)}
+        deleteKeyCode={null}
         colorMode="dark"
         fitView
         minZoom={0.2}
@@ -244,7 +359,12 @@ export function MapClient({
             </Link>
           ))}
           <div className="mx-1 h-4 w-px bg-white/10" />
-          <AddNodeButton view={view} />
+          <button
+            onClick={() => void addNode()}
+            className="flex h-7 items-center gap-1 rounded-md bg-[var(--accent-2,#ff7a45)]/90 px-2 text-xs font-medium text-white transition-colors hover:bg-[var(--accent-2,#ff7a45)]"
+          >
+            <Plus className="size-3.5" /> Nó
+          </button>
         </Panel>
 
         <Panel
@@ -300,5 +420,6 @@ export function MapClient({
         />
       )}
     </div>
+    </NodeEditContext.Provider>
   );
 }

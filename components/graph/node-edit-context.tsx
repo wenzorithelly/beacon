@@ -1,0 +1,25 @@
+"use client";
+
+import { createContext, useContext } from "react";
+
+// Lets a React Flow node edit itself inline without prop-drilling. The map provides the
+// implementation (optimistic local update + a no-revalidate PATCH); the node calls it.
+export interface NodeEditApi {
+  view: "ROADMAP" | "ARCHITECTURE";
+  categories: string[]; // distinct clusters in this view, for the inline picker
+  statuses: readonly string[];
+  /** Update fields. persist=false → local only (mid-typing); persist=true → save. */
+  patch: (id: string, fields: Record<string, unknown>, persist: boolean) => void;
+  isExpanded: (id: string) => boolean;
+  toggleExpand: (id: string) => void;
+  openDetailed: (id: string) => void; // the "super detailed" panel (sidebar)
+  editingTitleId: string | null; // a freshly-created node to autofocus
+}
+
+export const NodeEditContext = createContext<NodeEditApi | null>(null);
+
+export function useNodeEdit(): NodeEditApi {
+  const ctx = useContext(NodeEditContext);
+  if (!ctx) throw new Error("useNodeEdit must be used inside NodeEditContext");
+  return ctx;
+}
