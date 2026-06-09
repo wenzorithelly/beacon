@@ -45,3 +45,13 @@ next-env.d.ts
 # local sqlite databases
 *.db
 *.db-journal
+
+# claude code
+.claude/
+
+# playwright mcp output (screenshots, traces)
+playwright-mcp/
+.playwright-mcp/
+
+# superdesign (local design mockups / exploration)
+.superdesign/
