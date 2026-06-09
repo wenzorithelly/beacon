@@ -1,4 +1,4 @@
-.PHONY: install up down build test test-watch lint db-up db-reset studio db-postgres deploy watch dev
+.PHONY: install up down build test test-watch lint db-up db-reset studio db-postgres deploy watch dev publish
 
 install:    ## install deps
 	bun install
@@ -43,3 +43,14 @@ db-postgres: ## deploy-time: move the Drizzle dialect to postgres for a hosted d
 
 deploy:     ## deploy to Vercel (prod)
 	bunx vercel --prod
+
+publish:    ## republish the `trybeacon` CLI to npm — bumps patch, rebuilds (.next + dist), publishes
+	@# Bump the version (npm won't republish the same one). No git tag/commit — you control commits.
+	npm version $(BUMP) --no-git-tag-version
+	@# `npm publish` runs prepublishOnly (next build + bun build of the CLI) before uploading.
+	@# Needs an npm token with 2FA-bypass in ~/.npmrc, and `make dev` stopped (the build writes .next).
+	npm publish --access public
+	@echo "  ✓ published trybeacon@$$(node -p "require('./package.json').version")"
+
+# Override the bump for `make publish` (default patch): `make publish BUMP=minor`
+BUMP ?= patch

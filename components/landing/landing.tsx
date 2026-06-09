@@ -138,7 +138,7 @@ export function Landing() {
       <span id="top" />
 
       {/* ===== hero ===== */}
-      <section className="flex min-h-screen flex-col items-center px-6 pb-12 pt-28 text-center">
+      <section className="flex min-h-screen flex-col items-center px-6 pb-12 pt-20 text-center">
         <div
           className="w-load glass-soft mb-6 flex items-center gap-2 rounded-full px-3.5 py-1.5"
           style={{ animationDelay: ".12s" }}
