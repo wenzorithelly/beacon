@@ -713,8 +713,8 @@ async function readNode(uri: URL, s: string | string[], kind: "features" | "arch
 
 server.registerResource(
   "beacon-feature",
-  new ResourceTemplate("beacon://feature/{slug}", {
-    list: async () => nodeResources(await nodeItems("features"), "beacon://feature/"),
+  new ResourceTemplate("feature://{slug}", {
+    list: async () => nodeResources(await nodeItems("features"), "feature://"),
   }),
   {
     title: "Beacon: features",
@@ -726,8 +726,8 @@ server.registerResource(
 
 server.registerResource(
   "beacon-component",
-  new ResourceTemplate("beacon://component/{slug}", {
-    list: async () => nodeResources(await nodeItems("architecture"), "beacon://component/"),
+  new ResourceTemplate("component://{slug}", {
+    list: async () => nodeResources(await nodeItems("architecture"), "component://"),
   }),
   {
     title: "Beacon: architecture",
@@ -743,7 +743,7 @@ async function noteItems(): Promise<NoteResourceRow[]> {
 
 server.registerResource(
   "beacon-note",
-  new ResourceTemplate("beacon://note/{slug}", {
+  new ResourceTemplate("note://{slug}", {
     list: async () => noteResourceList(await noteItems()),
   }),
   {

@@ -1,5 +1,6 @@
-/* Landing-only styles for /welcome. Builds on the app's globals.css (.glass, .glass-soft,
-   the --radius scale, Geist fonts) — only the page-specific bits live here. */
+/* Landing-only styles for the public landing page. Builds on the app's globals.css
+   (.glass, .glass-soft, the --radius scale, Geist fonts). Page-specific bits live here:
+   the warm aurora background, reveal animations, and the plan-canvas hero mock (bm-*). */
 
 .welcome {
   position: relative;
@@ -31,38 +32,323 @@
   z-index: 2;
 }
 
-/* helpers */
+/* ── helpers ─────────────────────────────────────────────────────────────── */
 .w-mono { font-family: var(--font-geist-mono), ui-monospace, "SF Mono", monospace; }
 .w-muted { color: var(--muted-foreground); }
 .w-eyebrow { letter-spacing: 0.2em; text-transform: uppercase; font-size: 0.72rem; }
 .w-signal { color: #ff7a45; }
-.w-beam { background: linear-gradient(180deg, rgba(255,122,69,0.45), rgba(255,122,69,0.14) 42%, transparent); }
-.w-accent-line { background: linear-gradient(90deg, transparent, rgba(255,122,69,0.55), transparent); }
+.w-accent-line { background: linear-gradient(90deg, transparent, rgba(255, 122, 69, 0.55), transparent); }
 
-.w-hover { transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.w-hover { transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease; }
 .w-hover:hover {
   transform: translateY(-2px);
   border-color: oklch(1 0 0 / 0.16);
-  box-shadow: 0 26px 70px -20px rgba(0,0,0,0.85), inset 0 1px 0 oklch(1 0 0 / 0.10);
+  box-shadow: 0 26px 70px -20px rgba(0, 0, 0, 0.85), inset 0 1px 0 oklch(1 0 0 / 0.1);
 }
 
 @keyframes w-rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
-.w-load { opacity: 0; animation: w-rise .7s cubic-bezier(.2,.7,.2,1) forwards; }
+.w-load { opacity: 0; animation: w-rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
 
-.w-reveal { opacity: 0; transform: translateY(18px); transition: opacity .6s ease, transform .6s ease; }
+.w-reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.6s ease, transform 0.6s ease; }
 .w-reveal.in { opacity: 1; transform: none; }
 
-@keyframes w-floatcue { 0%,100% { transform: translateY(0); opacity: .5; } 50% { transform: translateY(6px); opacity: 1; } }
+@keyframes w-floatcue { 0%, 100% { transform: translateY(0); opacity: 0.5; } 50% { transform: translateY(6px); opacity: 1; } }
 .w-cue { animation: w-floatcue 2.2s ease-in-out infinite; }
 
-@keyframes w-pulse { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
+@keyframes w-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 .w-live { animation: w-pulse 2s ease-in-out infinite; }
 
-@keyframes w-blink { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+@keyframes w-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 .w-caret { animation: w-blink 1.05s steps(1) infinite; }
 
 .w-scrollbar-none::-webkit-scrollbar { display: none; }
 
+/* ── hero mock: the /plan canvas (bm-*) ─────────────────────────────────────
+   A faithful, non-interactive replica of the product's React Flow surface:
+   draft feature cards (dashed sky), a diffed db table (green "new"), edges,
+   an annotation pin, and the floating verdict bar. */
+
+.bm-window {
+  border-radius: 0.8rem;
+  overflow: hidden;
+  box-shadow:
+    0 30px 80px -24px rgba(0, 0, 0, 0.85),
+    inset 0 1px 0 oklch(1 0 0 / 0.08),
+    0 20px 70px -30px rgba(255, 122, 69, 0.35);
+}
+
+.bm-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+.bm-tab {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.66rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  color: var(--muted-foreground);
+  border: 1px solid transparent;
+}
+.bm-tab.active {
+  color: var(--foreground);
+  border-color: oklch(1 0 0 / 0.12);
+  background: oklch(1 0 0 / 0.06);
+}
+
+.bm-canvas {
+  position: relative;
+  overflow: hidden;
+  /* React Flow style dot grid */
+  background-image: radial-gradient(oklch(1 0 0 / 0.08) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.bm-stage { position: relative; transform-origin: top left; }
+
+/* node entrance: the plan "streaming in" */
+@keyframes bm-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes bm-fade { to { opacity: 1; } }
+@keyframes bm-pop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  70% { opacity: 1; transform: translate(-50%, -50%) scale(1.18); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes bm-draw { to { stroke-dashoffset: 0; } }
+@keyframes bm-barup { to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+/* feature / sub-task cards — mirrors graph/node-card.tsx */
+.bm-node {
+  position: absolute;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--card-foreground);
+  padding: 0.5rem 0.625rem;
+  box-shadow: 0 10px 28px -14px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  animation: bm-in 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+.bm-node-draft {
+  border-style: dashed;
+  border-color: rgba(56, 189, 248, 0.5);
+  background: linear-gradient(rgba(14, 165, 233, 0.07), rgba(14, 165, 233, 0.07)), var(--card);
+}
+.bm-title { font-size: 0.8rem; font-weight: 500; line-height: 1.3; }
+.bm-role { margin-top: 2px; font-size: 0.62rem; line-height: 1.35; color: var(--muted-foreground); }
+.bm-chiprow { display: flex; align-items: center; gap: 5px; margin-top: 7px; }
+
+.chip {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.55rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.chip-sky { color: #7dd3fc; background: rgba(14, 165, 233, 0.15); }
+.chip-violet { color: #c4b5fd; background: rgba(139, 92, 246, 0.15); }
+.chip-amber { color: #fde68a; background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.3); }
+.chip-zinc { color: #d4d4d8; background: rgba(113, 113, 122, 0.15); }
+.chip-green { color: #7bd389; background: rgba(123, 211, 137, 0.14); border-color: rgba(123, 211, 137, 0.35); }
+
+/* db table node — mirrors graph/db-table-node.tsx (diffStatus "added" green) */
+.bm-table {
+  position: absolute;
+  border-radius: 0.45rem;
+  overflow: hidden;
+  border: 1px solid rgba(123, 211, 137, 0.4);
+  background: var(--card);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  box-shadow: 0 10px 28px -14px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  animation: bm-in 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+.bm-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 5px 9px;
+  background: rgba(123, 211, 137, 0.13);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.bm-trow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  font-size: 0.62rem;
+  border-top: 1px solid oklch(1 0 0 / 0.05);
+}
+.bm-trow .t { margin-left: auto; font-size: 0.56rem; color: var(--muted-foreground); }
+
+/* edges + connection dots */
+.bm-edges { position: absolute; inset: 0; pointer-events: none; }
+.bm-edge {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.32);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: bm-draw 0.6s ease forwards;
+}
+.bm-edge-tail { stroke: rgba(255, 122, 69, 0.75); stroke-width: 1.4; }
+.bm-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: var(--background);
+  border: 1.5px solid rgba(255, 255, 255, 0.5);
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  animation: bm-fade 0.4s ease forwards;
+}
+
+/* annotation pin + comment bubble */
+.bm-pin {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #ff7a45;
+  color: oklch(0.18 0 0);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 3px rgba(255, 122, 69, 0.22), 0 0 14px rgba(255, 122, 69, 0.55);
+  opacity: 0;
+  animation: bm-pop 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+.bm-bubble {
+  position: absolute;
+  border-radius: 0.5rem;
+  border: 1px solid oklch(1 0 0 / 0.1);
+  border-left: 2px solid #ff7a45;
+  background: color-mix(in oklab, var(--card) 88%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 7px 10px;
+  box-shadow: 0 14px 40px -16px rgba(0, 0, 0, 0.8);
+  opacity: 0;
+  animation: bm-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+.bm-bubble .lab {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.52rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ff7a45;
+}
+.bm-bubble .txt { margin-top: 2px; font-size: 0.68rem; line-height: 1.45; }
+
+/* floating verdict bar — mirrors plan/plan-bar.tsx */
+.bm-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%) translateY(14px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: color-mix(in oklab, var(--card) 88%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 18px 50px -18px rgba(0, 0, 0, 0.85);
+  opacity: 0;
+  animation: bm-barup 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  white-space: nowrap;
+}
+.bm-bar .ready {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.62rem;
+  color: rgba(110, 231, 183, 0.85);
+}
+.bm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 0.4rem;
+  border: 1px solid transparent;
+}
+.bm-btn-approve { color: #6ee7b7; background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.4); }
+.bm-btn-ghost { color: var(--muted-foreground); }
+
+/* ── loop section connectors ────────────────────────────────────────────── */
+@media (min-width: 768px) {
+  .loop-card { position: relative; }
+  .loop-card:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 2.6rem;
+    right: -2.5rem;
+    width: 2.5rem;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(255, 122, 69, 0.05), rgba(255, 122, 69, 0.6));
+  }
+  .loop-card:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    top: calc(2.6rem - 3.5px);
+    right: -2.5rem;
+    border-left: 6px solid rgba(255, 122, 69, 0.75);
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+  }
+}
+
+/* ── quickstart terminal lines ──────────────────────────────────────────── */
+.ql {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  padding: 0.42rem 0;
+}
+.ql + .ql { border-top: 1px solid oklch(1 0 0 / 0.05); }
+.ql .cmd {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.82rem;
+  overflow-x: auto;
+}
+.ql .cmd::-webkit-scrollbar { display: none; }
+.ql .note {
+  margin-left: auto;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.66rem;
+  color: var(--muted-foreground);
+  text-align: right;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .w-load, .w-reveal, .w-cue, .w-live, .w-caret { animation: none !important; transition: none !important; opacity: 1 !important; transform: none !important; }
+  .w-load, .w-reveal, .w-cue, .w-live, .w-caret,
+  .bm-node, .bm-table, .bm-dot, .bm-pin, .bm-bubble, .bm-bar, .bm-edge {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+  .bm-bar { transform: translateX(-50%) !important; }
+  .bm-pin { transform: translate(-50%, -50%) !important; }
+  .bm-dot { transform: translate(-50%, -50%) !important; }
 }

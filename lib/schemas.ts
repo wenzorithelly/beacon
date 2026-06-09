@@ -20,6 +20,9 @@ export const NODE_STATUS = z.enum([
 export const EDGE_KIND = z.enum(["DEPENDS", "CONTAINS", "RELATES", "REPLACES"]);
 
 export const createNodeSchema = z.object({
+  // Optional client-supplied id so the map can render a card optimistically (with its
+  // final id) before the POST round-trips — no fragile temp-id swap. Absent → DB cuid2.
+  id: z.string().trim().min(1).max(64).optional(),
   view: VIEW,
   title: z.string().trim().min(1).max(200),
   cluster: z.string().trim().max(64).nullish(),

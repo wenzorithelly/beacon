@@ -70,7 +70,7 @@ export async function runPipeline(config: IntelConfig, targetWorkspaceId?: strin
   let codeGraph: { files: number; edges: number; circular: number } | null = null;
   try {
     const roots = config.roots.map((r) => resolve(config.configDir, r));
-    const graph = buildCodeGraph(roots);
+    const graph = await buildCodeGraph(roots);
     const r = await postCodeGraph(config.controlUrl, graph, targetWorkspaceId);
     if (r.ok) {
       codeGraph = {

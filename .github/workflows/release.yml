@@ -1,0 +1,94 @@
+name: Release
+
+# Ship a new version end-to-end from CI: bump → test → publish to npm → tag + GitHub release.
+# The in-app "new version available" banner (components/update-banner.tsx) only fires when a
+# GitHub *release* exists whose tag is newer than the user's installed version, AND the matching
+# version is live on npm (the install command runs `bun add -g trybeacon`). This workflow keeps
+# those two in lockstep: it publishes to npm FIRST, then cuts a release at the SAME version, so a
+# release tag never points at a version users can't actually install.
+#
+# Trigger from the Actions tab, or:  gh workflow run release.yml -f bump=patch
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Semver bump
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+# Push the version-bump commit + tag and create the release with the built-in GITHUB_TOKEN.
+permissions:
+  contents: write
+
+# Never let two releases race (they'd fight over the version + tag).
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Node provides `npm` for version/publish; registry-url wires NODE_AUTH_TOKEN into ~/.npmrc.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Gate the release on a green suite. `bun test` dirties the tracked test.db-* sidecars, but
+      # we only ever stage package.json below, so that working-tree noise never reaches a commit.
+      - name: Test
+        run: bun test
+
+      # Bump package.json WITHOUT touching git (no-git-tag-version) so the dirty tree from tests
+      # can't trip npm's clean-tree check. The printed value (e.g. "v0.1.5") is the release tag.
+      - name: Bump version
+        id: version
+        run: |
+          tag=$(npm version --no-git-tag-version "${{ inputs.bump }}")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag"
+
+      # Publish FIRST. `prepublishOnly` (package.json) runs build:release (next build + CLI bundle).
+      # If this fails, no tag/release is created — so the banner can never point at a missing version.
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Only after npm has the version: commit the bump, tag it, push both to the release branch.
+      - name: Commit, tag and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore(release): ${{ steps.version.outputs.tag }}"
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "HEAD:${{ github.ref_name }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      # The release is what the in-app banner watches (releases/latest ignores drafts/prereleases,
+      # so this must be a full published release).
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ steps.version.outputs.tag }}" --generate-notes --title "${{ steps.version.outputs.tag }}"

@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, join, relative, resolve } from "node:path";
 import {
   allExtensions,
@@ -51,12 +52,41 @@ export interface CodeGraphSnapshot {
   stats?: { read: number; reused: number };
 }
 
+// ── Cooperative time-slicing ────────────────────────────────────────────────
+
+/**
+ * A yielder hands the event loop back when a scan batch has run longer than a budget,
+ * so a cold full-repo extract never blocks a single tick longer than ~budgetMs. The
+ * daemon runs on ONE event loop, so this is what keeps workspace-switch, /plan, and
+ * /api/map responsive (and the plan Approve verdict flowing) while a repo is scanned.
+ */
+type Yielder = () => Promise<void>;
+
+function makeYielder(budgetMs = 5): Yielder {
+  let last = performance.now();
+  return async () => {
+    if (performance.now() - last > budgetMs) {
+      await new Promise<void>((r) => setImmediate(r));
+      last = performance.now();
+    }
+  };
+}
+
+/** No-op yielder for callers that don't need to slice (e.g. small one-shot test calls). */
+const NO_YIELD: Yielder = () => Promise.resolve();
+
 // ── Walk ──────────────────────────────────────────────────────────────────────
 
-function walk(root: string, dir: string, exts: Set<string>, out: string[]) {
+async function walk(
+  root: string,
+  dir: string,
+  exts: Set<string>,
+  out: string[],
+  onYield: Yielder,
+) {
   let entries;
   try {
-    entries = readdirSync(dir, { withFileTypes: true });
+    entries = await readdir(dir, { withFileTypes: true });
   } catch {
     return;
   }
@@ -65,7 +95,7 @@ function walk(root: string, dir: string, exts: Set<string>, out: string[]) {
     if (SKIP_DIRS.has(e.name)) continue;
     const full = join(dir, e.name);
     if (e.isDirectory()) {
-      walk(root, full, exts, out);
+      await walk(root, full, exts, out, onYield);
       continue;
     }
     if (!e.isFile()) continue;
@@ -73,12 +103,13 @@ function walk(root: string, dir: string, exts: Set<string>, out: string[]) {
     if (!exts.has(extname(e.name).toLowerCase())) continue;
     out.push(relative(root, full));
   }
+  await onYield(); // breathe once per directory
 }
 
 /** Walk one root for indexable source files. Returns POSIX, root-relative, sorted. */
-export function scanCodeFiles(root: string): string[] {
+export async function scanCodeFiles(root: string, onYield: Yielder = NO_YIELD): Promise<string[]> {
   const out: string[] = [];
-  walk(root, root, allExtensions(), out);
+  await walk(root, root, allExtensions(), out, onYield);
   return out.map((p) => p.split(/[\\/]/).join("/")).sort();
 }
 
@@ -167,7 +198,11 @@ interface FileMeta {
 }
 
 /** Scan + stat all roots (cheap, no file reads). Resolves the base + ResolveCtx. */
-function scanRoots(rootOrRoots: string | string[], base?: string): { metas: FileMeta[]; ctx: ResolveCtx } {
+async function scanRoots(
+  rootOrRoots: string | string[],
+  base: string | undefined,
+  onYield: Yielder,
+): Promise<{ metas: FileMeta[]; ctx: ResolveCtx }> {
   const roots = (Array.isArray(rootOrRoots) ? rootOrRoots : [rootOrRoots]).map((r) => toPosix(resolve(r)));
   const baseDir = toPosix(base ? resolve(base) : roots.length === 1 ? roots[0] : commonAncestor(roots));
 
@@ -178,16 +213,17 @@ function scanRoots(rootOrRoots: string | string[], base?: string): { metas: File
     for (const a of loadTsAliases(root)) {
       aliases.push({ from: a.from, to: [rootRel, a.to].filter(Boolean).join("/") });
     }
-    for (const rel of scanCodeFiles(root)) {
+    for (const rel of await scanCodeFiles(root, onYield)) {
       const abs = toPosix(join(root, rel));
       const path = toPosix(relative(baseDir, abs));
       if (byPath.has(path)) continue; // overlapping roots — keep first
       try {
-        const st = statSync(abs);
+        const st = await stat(abs);
         byPath.set(path, { path, abs, root: rootRel || null, mtimeMs: st.mtimeMs, size: st.size });
       } catch {
         /* vanished between readdir and stat — skip */
       }
+      await onYield();
     }
   }
 
@@ -197,11 +233,11 @@ function scanRoots(rootOrRoots: string | string[], base?: string): { metas: File
 }
 
 /** Read + extract one file's import specifiers. Giant/unreadable files contribute none. */
-function extractSpecifiers(meta: FileMeta): Set<string> {
+async function extractSpecifiers(meta: FileMeta): Promise<Set<string>> {
   const resolver = resolverForPath(meta.path);
   if (!resolver || meta.size > 200_000) return new Set();
   try {
-    return resolver.specifiers(readFileSync(meta.abs, "utf8"));
+    return resolver.specifiers(await readFile(meta.abs, "utf8"));
   } catch {
     return new Set();
   }
@@ -217,8 +253,9 @@ function extractSpecifiers(meta: FileMeta): Set<string> {
 export function createCodeGraphBuilder(rootOrRoots: string | string[], base?: string) {
   const cache = new Map<string, { mtimeMs: number; size: number; specifiers: Set<string> }>();
 
-  function build(): CodeGraphSnapshot {
-    const { metas, ctx } = scanRoots(rootOrRoots, base);
+  async function build(): Promise<CodeGraphSnapshot> {
+    const onYield = makeYielder(); // one continuous budget clock across scan + extract
+    const { metas, ctx } = await scanRoots(rootOrRoots, base, onYield);
     const present = new Set(metas.map((m) => m.path));
     for (const k of [...cache.keys()]) if (!present.has(k)) cache.delete(k);
 
@@ -226,13 +263,14 @@ export function createCodeGraphBuilder(rootOrRoots: string | string[], base?: st
     let reused = 0;
     const edges: { from: string; to: string }[] = [];
     for (const m of metas) {
+      await onYield();
       const cached = cache.get(m.path);
       let specs: Set<string>;
       if (cached && cached.mtimeMs === m.mtimeMs && cached.size === m.size) {
         specs = cached.specifiers;
         reused++;
       } else {
-        specs = extractSpecifiers(m);
+        specs = await extractSpecifiers(m);
         cache.set(m.path, { mtimeMs: m.mtimeMs, size: m.size, specifiers: specs });
         read++;
       }
@@ -266,6 +304,9 @@ export function createCodeGraphBuilder(rootOrRoots: string | string[], base?: st
  * (back-compat) or many; with many, every path is computed relative to their common
  * base so paths stay unique + readable.
  */
-export function buildCodeGraph(rootOrRoots: string | string[], base?: string): CodeGraphSnapshot {
+export function buildCodeGraph(
+  rootOrRoots: string | string[],
+  base?: string,
+): Promise<CodeGraphSnapshot> {
   return createCodeGraphBuilder(rootOrRoots, base).build();
 }

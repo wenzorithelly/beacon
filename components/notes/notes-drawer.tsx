@@ -25,7 +25,7 @@ function sortNotes(notes: Note[]): Note[] {
 
 // Global slide-out notebook. Cookie-scoped to the browser's active workspace (plain fetches,
 // no x-beacon-workspace header), so the notes match the repo the agent @-mentions. Edits
-// autosave debounced; the same markdown the editor stores is what beacon://note/{slug} serves.
+// autosave debounced; the same markdown the editor stores is what note://{slug} serves.
 export function NotesDrawer() {
   const { open, close } = useNotes();
   const [notes, setNotes] = useState<Note[]>([]);

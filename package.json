@@ -1,6 +1,6 @@
 {
   "name": "trybeacon",
-  "version": "0.1.1",
+  "version": "0.1.7",
   "description": "The visual planning surface for the coding agent in your terminal.",
   "homepage": "https://trybeacon.sh",
   "bin": {
@@ -17,7 +17,7 @@
     "dev": "next dev",
     "build": "next build",
     "build:cli": "bun scripts/build-cli.ts",
-    "build:release": "next build && rm -rf .next/cache .next/dev && bun run build:cli",
+    "build:release": "rm -rf .next && next build --webpack && rm -rf .next/cache && bun run build:cli",
     "prepublishOnly": "bun run build:release",
     "start": "next start",
     "lint": "eslint",
@@ -32,7 +32,6 @@
     "@anthropic-ai/sdk": "^0.100.1",
     "@base-ui/react": "^1.5.0",
     "@hookform/resolvers": "^5.4.0",
-    "@huggingface/transformers": "^4.2.0",
     "@libsql/client": "^0.17.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@neondatabase/serverless": "^1.1.0",

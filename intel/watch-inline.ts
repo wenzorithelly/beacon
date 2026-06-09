@@ -1,6 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
-import chokidar from "chokidar";
 import { createCodeGraphBuilder } from "@/intel/extractors/code-graph";
 import { ingestCodeGraph } from "@/lib/code-graph";
 import { getDb } from "@/lib/db-drizzle";
@@ -59,7 +58,7 @@ export function startWatcherForWorkspace(ws: WatchTarget): { stop: () => Promise
     running = true;
     try {
       await dbReady;
-      const graph = builder.build();
+      const graph = await builder.build();
       const r = await ingestCodeGraph(graph, targetDb);
       console.log(
         `[beacon-inline] code-graph synced (${ws.name}): ${r.files} files / ${r.edges} imports${
@@ -78,23 +77,43 @@ export function startWatcherForWorkspace(ws: WatchTarget): { stop: () => Promise
     debounce = setTimeout(run, 600);
   }
 
-  const watcher = chokidar.watch(roots, {
-    ignored: (p: string) => IGNORE.test(p),
-    ignoreInitial: true,
-    persistent: true,
-  });
+  // Native recursive fs.watch — registers INSTANTLY with no initial tree scan. chokidar's
+  // startup walked the tree to set up per-dir watches, which blocked the daemon's event loop
+  // for hundreds of ms per repo (≈600ms on this repo) — the dominant warm-up stall. On macOS
+  // it's backed by FSEvents (the whole subtree, node_modules included, watched in the kernel
+  // for free; we just FILTER churny paths out of the rebuild trigger). Recursive watching is a
+  // macOS/Windows feature; on Linux `watch(..,{recursive:true})` throws, so we degrade to "no
+  // live graph" rather than fall back to a blocking scanner (intel/watch.ts still uses chokidar
+  // out-of-process, where blocking can't stall the daemon).
+  const watchers: FSWatcher[] = [];
+  for (const root of roots) {
+    try {
+      const w = watch(root, { recursive: true, persistent: true }, (_event, filename) => {
+        // filename is root-relative (or null). Skip events from ignored dirs; otherwise the
+        // incremental rebuild (debounced) re-reads only what actually changed.
+        if (filename && IGNORE.test(`/${filename}`)) return;
+        schedule();
+      });
+      w.on("error", (e) => console.error(`[beacon-inline] watcher error (${ws.name}):`, e));
+      watchers.push(w);
+    } catch (e) {
+      // Recursive fs.watch unavailable (e.g. Linux) — skip the live watch; the graph stays
+      // whatever the last manual sync produced. Never throw out of a watcher start.
+      console.error(
+        `[beacon-inline] live watch unavailable for ${root} (${ws.name}):`,
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
 
-  watcher.on("ready", () => {
-    console.log(`[beacon-inline] watching ${ws.name} (${roots.join(", ")}) — initial extract…`);
-    void run();
-  });
-  watcher.on("all", () => schedule());
-  watcher.on("error", (e) => console.error(`[beacon-inline] watcher error (${ws.name}):`, e));
+  // No "ready" phase with fs.watch (nothing is scanned) — kick off the initial extract now.
+  console.log(`[beacon-inline] watching ${ws.name} (${roots.join(", ")}) — initial extract…`);
+  void run();
 
   return {
     async stop() {
       if (debounce) clearTimeout(debounce);
-      await watcher.close();
+      for (const w of watchers) w.close();
     },
   };
 }

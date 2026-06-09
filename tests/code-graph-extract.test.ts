@@ -16,7 +16,7 @@ function fixture(layout: Record<string, string>): string {
 }
 
 describe("scanCodeFiles", () => {
-  it("walks TS/TSX/JS/JSX and skips junk dirs + .d.ts + dotfiles", () => {
+  it("walks TS/TSX/JS/JSX and skips junk dirs + .d.ts + dotfiles", async () => {
     const root = fixture({
       "app/page.tsx": "",
       "lib/db.ts": "",
@@ -28,7 +28,7 @@ describe("scanCodeFiles", () => {
       "intel/foo.cjs": "",
       "README.md": "",
     });
-    const out = scanCodeFiles(root);
+    const out = await scanCodeFiles(root);
     expect(out).toEqual([
       "app/page.tsx",
       "intel/foo.cjs",
@@ -37,20 +37,20 @@ describe("scanCodeFiles", () => {
     ]);
   });
 
-  it("returns POSIX-style relative paths sorted", () => {
+  it("returns POSIX-style relative paths sorted", async () => {
     const root = fixture({
       "z/file.ts": "",
       "a/b/c.ts": "",
       "m.ts": "",
     });
-    const out = scanCodeFiles(root);
+    const out = await scanCodeFiles(root);
     expect(out).toEqual(["a/b/c.ts", "m.ts", "z/file.ts"]);
     for (const p of out) expect(p).not.toContain("\\");
   });
 });
 
 describe("buildCodeGraph", () => {
-  it("emits one edge per resolved internal import; ignores externals + self-edges", () => {
+  it("emits one edge per resolved internal import; ignores externals + self-edges", async () => {
     const root = fixture({
       "app/page.tsx": `
         import { db } from "../lib/db";
@@ -60,7 +60,7 @@ describe("buildCodeGraph", () => {
       "lib/db.ts": `import { z } from "zod";`,
       "lib/utils.ts": ``,
     });
-    const g = buildCodeGraph(root);
+    const g = await buildCodeGraph(root);
     expect(g.files.map((f) => f.path).sort()).toEqual([
       "app/page.tsx",
       "lib/db.ts",
@@ -73,7 +73,7 @@ describe("buildCodeGraph", () => {
     ]);
   });
 
-  it("dedupes multiple imports of the same target into one edge", () => {
+  it("dedupes multiple imports of the same target into one edge", async () => {
     const root = fixture({
       "a.ts": `
         import { x } from "./b";
@@ -82,29 +82,29 @@ describe("buildCodeGraph", () => {
       `,
       "b.ts": "",
     });
-    const g = buildCodeGraph(root);
+    const g = await buildCodeGraph(root);
     expect(g.edges).toEqual([{ from: "a.ts", to: "b.ts" }]);
   });
 
-  it("handles index re-exports (foo → foo/index)", () => {
+  it("handles index re-exports (foo → foo/index)", async () => {
     const root = fixture({
       "app/page.tsx": `import { x } from "../lib/utils";`,
       "lib/utils/index.ts": ``,
     });
-    const g = buildCodeGraph(root);
+    const g = await buildCodeGraph(root);
     expect(g.edges).toEqual([
       { from: "app/page.tsx", to: "lib/utils/index.ts" },
     ]);
   });
 
-  it("returns empty graph for a repo with no source files", () => {
+  it("returns empty graph for a repo with no source files", async () => {
     const root = fixture({ "README.md": "" });
-    const g = buildCodeGraph(root);
+    const g = await buildCodeGraph(root);
     expect(g.files).toEqual([]);
     expect(g.edges).toEqual([]);
   });
 
-  it("resolves TS path aliases from tsconfig (@/* → repo-relative)", () => {
+  it("resolves TS path aliases from tsconfig (@/* → repo-relative)", async () => {
     const root = fixture({
       "tsconfig.json": JSON.stringify({
         compilerOptions: { paths: { "@/*": ["./*"] } },
@@ -116,7 +116,7 @@ describe("buildCodeGraph", () => {
       "components/top-nav.tsx": ``,
       "lib/db.ts": ``,
     });
-    const g = buildCodeGraph(root);
+    const g = await buildCodeGraph(root);
     const pairs = g.edges.map((e) => `${e.from}→${e.to}`).sort();
     expect(pairs).toEqual([
       "app/layout.tsx→components/top-nav.tsx",
@@ -124,7 +124,7 @@ describe("buildCodeGraph", () => {
     ]);
   });
 
-  it("does NOT mis-resolve bare packages onto similarly-named files", () => {
+  it("does NOT mis-resolve bare packages onto similarly-named files", async () => {
     // Regression: extractImports' fuzzy fallback resolved `from "next"` to
     // `next.config.ts` via a prefix match. The new resolver must not.
     const root = fixture({
@@ -136,11 +136,11 @@ describe("buildCodeGraph", () => {
       "next.config.ts": ``,
       "react.config.ts": ``,
     });
-    const g = buildCodeGraph(root);
+    const g = await buildCodeGraph(root);
     expect(g.edges).toEqual([]);
   });
 
-  it("captures dynamic imports and bare side-effect imports", () => {
+  it("captures dynamic imports and bare side-effect imports", async () => {
     const root = fixture({
       "a.ts": `
         import "./side-effect";
@@ -151,12 +151,12 @@ describe("buildCodeGraph", () => {
       "lazy.ts": "",
       "cjs.ts": "",
     });
-    const g = buildCodeGraph(root);
+    const g = await buildCodeGraph(root);
     const targets = g.edges.map((e) => e.to).sort();
     expect(targets).toEqual(["cjs.ts", "lazy.ts", "side-effect.ts"]);
   });
 
-  it("catches imports buried inside function bodies (no head cap)", () => {
+  it("catches imports buried inside function bodies (no head cap)", async () => {
     // Pad with noise large enough that a 16 KB head cap would miss the require.
     const padding = "// noise line\n".repeat(2000); // ~28 KB
     const root = fixture({
@@ -170,28 +170,28 @@ describe("buildCodeGraph", () => {
       "deep.ts": "",
       "async.ts": "",
     });
-    const g = buildCodeGraph(root);
+    const g = await buildCodeGraph(root);
     const targets = g.edges.map((e) => e.to).sort();
     expect(targets).toEqual(["async.ts", "deep.ts"]);
   });
 
-  it("tags each file with its detected language; single-root files have no root", () => {
+  it("tags each file with its detected language; single-root files have no root", async () => {
     const root = fixture({ "lib/db.ts": "", "api/main.py": "" });
-    const g = buildCodeGraph(root);
+    const g = await buildCodeGraph(root);
     expect(g.files.find((f) => f.path === "lib/db.ts")).toMatchObject({ lang: "ts", root: null });
     expect(g.files.find((f) => f.path === "api/main.py")).toMatchObject({ lang: "py", root: null });
   });
 });
 
 describe("buildCodeGraph — multi-root + polyglot", () => {
-  it("merges multiple roots into base-relative paths with root + lang tags", () => {
+  it("merges multiple roots into base-relative paths with root + lang tags", async () => {
     const base = fixture({
       "apps/web/page.tsx": `import { x } from "./util";`,
       "apps/web/util.ts": ``,
       "services/api/main.py": `from .helper import f`,
       "services/api/helper.py": ``,
     });
-    const g = buildCodeGraph([join(base, "apps/web"), join(base, "services/api")], base);
+    const g = await buildCodeGraph([join(base, "apps/web"), join(base, "services/api")], base);
 
     expect(g.files.map((f) => f.path).sort()).toEqual([
       "apps/web/page.tsx",
@@ -210,12 +210,12 @@ describe("buildCodeGraph — multi-root + polyglot", () => {
     ]);
   });
 
-  it("resolves a cross-root relative import into one merged edge", () => {
+  it("resolves a cross-root relative import into one merged edge", async () => {
     const base = fixture({
       "pkgA/a.ts": `import { c } from "../pkgB/c";`,
       "pkgB/c.ts": ``,
     });
-    const g = buildCodeGraph([join(base, "pkgA"), join(base, "pkgB")], base);
+    const g = await buildCodeGraph([join(base, "pkgA"), join(base, "pkgB")], base);
     expect(g.edges.map((e) => `${e.from}→${e.to}`)).toEqual(["pkgA/a.ts→pkgB/c.ts"]);
   });
 });

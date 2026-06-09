@@ -3,7 +3,6 @@ import { and, count, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
 import { node, nodeFile, edge, appSetting } from "@/lib/drizzle/schema";
 import { bumpVersion } from "@/lib/ingest";
-import { reembedNode } from "@/lib/embeddings";
 import { matchFeature, type Scored } from "@/lib/match";
 import { validateFeatureCreation, validateFront } from "@/lib/feature-rules";
 import { placeWithoutOverlap } from "@/lib/node-placement";
@@ -105,28 +104,36 @@ function deriveParentStatus(childStatuses: string[]): string {
  * status write; idempotent.
  */
 export async function propagateStatusUp(nodeId: string): Promise<void> {
-  const self = await db.query.node.findFirst({
-    where: (t, { eq }) => eq(t.id, nodeId),
-    columns: { parentId: true, view: true },
-  });
-  if (!self?.parentId || self.view !== "ROADMAP") return;
+  // Climb the parent chain iteratively. The `seen` guard means a corrupt parentId CYCLE
+  // (an ancestor pointing back to a descendant) terminates instead of recursing forever —
+  // an unbounded climb here would peg the event loop and hang every request.
+  const seen = new Set<string>();
+  let id = nodeId;
+  while (!seen.has(id)) {
+    seen.add(id);
+    const self = await db.query.node.findFirst({
+      where: (t, { eq }) => eq(t.id, id),
+      columns: { parentId: true, view: true },
+    });
+    if (!self?.parentId || self.view !== "ROADMAP") return;
 
-  const parent = await db.query.node.findFirst({
-    where: (t, { eq }) => eq(t.id, self.parentId!),
-    columns: { id: true, status: true, view: true },
-  });
-  if (!parent || parent.view !== "ROADMAP") return;
-  if (STICKY_PARENT_STATUSES.has(parent.status)) return;
+    const parent = await db.query.node.findFirst({
+      where: (t, { eq }) => eq(t.id, self.parentId!),
+      columns: { id: true, status: true, view: true },
+    });
+    if (!parent || parent.view !== "ROADMAP") return;
+    if (STICKY_PARENT_STATUSES.has(parent.status)) return;
 
-  const siblings = await db.query.node.findMany({
-    where: (t, { eq }) => eq(t.parentId, parent.id),
-    columns: { status: true },
-  });
-  const derived = deriveParentStatus(siblings.map((s) => s.status));
-  if (parent.status === derived) return;
+    const siblings = await db.query.node.findMany({
+      where: (t, { eq }) => eq(t.parentId, parent.id),
+      columns: { status: true },
+    });
+    const derived = deriveParentStatus(siblings.map((s) => s.status));
+    if (parent.status === derived) return;
 
-  await db.update(node).set({ status: derived }).where(eq(node.id, parent.id));
-  await propagateStatusUp(parent.id);
+    await db.update(node).set({ status: derived }).where(eq(node.id, parent.id));
+    id = parent.id; // climb and continue
+  }
 }
 
 /**
@@ -263,7 +270,6 @@ export async function startFeature(input: {
       y: pos.y,
     })
     .returning();
-  await reembedNode(task.id);
   await propagateStatusUp(task.id);
   // A new feature changes the graph structure → re-tidy the board organically so the new card is
   // placed sensibly instead of in a blind row.
@@ -366,7 +372,6 @@ export async function upsertArchitectureComponents(input: unknown[]): Promise<nu
           .insert(nodeFile)
           .values(Array.from(new Set(c.files)).map((path) => ({ nodeId: prior.id, path })));
       }
-      await reembedNode(prior.id);
     } else {
       const d = c.domain.trim() || "—";
       let x = xByDomain.get(d);
@@ -397,7 +402,6 @@ export async function upsertArchitectureComponents(input: unknown[]): Promise<nu
           .values(Array.from(new Set(c.files)).map((path) => ({ nodeId: created.id, path })));
       }
       idByTitle.set(key, created.id);
-      await reembedNode(created.id);
     }
   }
 
@@ -450,7 +454,6 @@ export async function describeFeature(input: {
     .update(node)
     .set({ plain: input.description, status: "DONE" })
     .where(eq(node.id, target.id));
-  await reembedNode(target.id);
   await propagateStatusUp(target.id);
 
   // Record files (idempotent — only adds new ones).

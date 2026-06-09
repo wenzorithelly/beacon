@@ -5,7 +5,7 @@ import { note } from "@/lib/drizzle/schema";
 import { bumpVersion } from "@/lib/ingest";
 
 // Standalone workspace notes. `body` is GFM markdown — the verbatim text the
-// terminal agent reads via the beacon://note/{slug} @-mention. Pure data layer
+// terminal agent reads via the note://{slug} @-mention. Pure data layer
 // (validation + db), free of Next imports so it unit-tests directly. Mirrors the
 // shape of lib/mutations.ts.
 

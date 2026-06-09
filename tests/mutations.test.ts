@@ -32,6 +32,17 @@ describe("createNode", () => {
     expect(child.parentId).toBe(parent.id);
   });
 
+  it("uses a client-supplied id when provided (optimistic create)", async () => {
+    const node = await m.createNode({ view: "ROADMAP", title: "Optimistic", id: "abc123client" });
+    expect(node.id).toBe("abc123client");
+  });
+
+  it("still auto-generates an id when none is supplied", async () => {
+    const node = await m.createNode({ view: "ROADMAP", title: "Auto" });
+    expect(node.id).toBeTruthy();
+    expect(node.id.length).toBeGreaterThan(8);
+  });
+
   it("rejects an invalid view", async () => {
     await expect(
       // @ts-expect-error — deliberately invalid

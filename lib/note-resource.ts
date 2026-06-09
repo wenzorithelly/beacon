@@ -1,6 +1,6 @@
 import { slug } from "@/lib/slug";
 
-// Pure formatting for the beacon://note/{slug} @-mention resource. Kept free of
+// Pure formatting for the note://{slug} @-mention resource. Kept free of
 // fetch/db so it unit-tests directly; bin/mcp.ts wires the /api/notes fetch and
 // passes the rows through these. No AI — the agent reads the note's markdown verbatim.
 
@@ -21,7 +21,7 @@ export function noteSlug(note: { id: string; title: string }): string {
 export function noteResourceList(notes: NoteResourceRow[]) {
   return {
     resources: notes.map((n) => ({
-      uri: `beacon://note/${noteSlug(n)}`,
+      uri: `note://${noteSlug(n)}`,
       name: n.title || "Untitled",
       description: `${n.title || "Untitled"}${n.pinned ? " · pinned" : ""} · note`,
       mimeType: "text/markdown" as const,

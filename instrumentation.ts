@@ -7,9 +7,12 @@
 // Guards:
 //   - NEXT_RUNTIME !== "nodejs" skips Edge runtime entry points (instrumentation
 //     fires once per runtime; the Node entry is the one we want).
-//   - NODE_ENV === "production" skips — we don't want a file watcher in
-//     production deploys (Vercel etc.).
-//   - BEACON_NO_INLINE_WATCH=1 is the explicit escape hatch.
+//   - NODE_ENV === "production" skips BOOT-TIME warming only — prod is "lazy-only":
+//     a repo's watcher warms on demand (workspace activate / freshness check) via
+//     ensureWatcher, which IS enabled in prod now that the extract is non-blocking
+//     (intel/extractors/code-graph.ts time-slices the scan). We just don't eagerly
+//     scan the top-N at startup in prod.
+//   - BEACON_NO_INLINE_WATCH=1 is the explicit escape hatch (disables it everywhere).
 //   - globalThis flag dedupes across HMR / dev-server worker reboots so the
 //     watcher doesn't accumulate multiple chokidar instances.
 

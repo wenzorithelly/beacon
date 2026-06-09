@@ -18,10 +18,10 @@ const NOTES = [
 ];
 
 describe("note @-mention resource", () => {
-  it("lists one beacon://note/ resource per note", () => {
+  it("lists one note:// resource per note", () => {
     const { resources } = noteResourceList(NOTES);
     expect(resources).toHaveLength(3);
-    expect(resources.every((r) => r.uri.startsWith("beacon://note/"))).toBe(true);
+    expect(resources.every((r) => r.uri.startsWith("note://"))).toBe(true);
     expect(resources[0].name).toBe("Auth ideas");
     expect(resources[0].mimeType).toBe("text/markdown");
   });

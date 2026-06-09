@@ -16,16 +16,16 @@ function fixture(layout: Record<string, string>): string {
 }
 
 describe("buildCodeGraph — file metadata", () => {
-  it("includes mtimeMs + size per file (for incremental + staleness)", () => {
+  it("includes mtimeMs + size per file (for incremental + staleness)", async () => {
     const root = fixture({ "a.ts": "xx" });
-    const f = buildCodeGraph(root).files[0];
+    const f = (await buildCodeGraph(root)).files[0];
     expect(typeof f.mtimeMs).toBe("number");
     expect(f.size).toBe(2); // "xx" is 2 bytes
   });
 });
 
 describe("createCodeGraphBuilder — incremental", () => {
-  it("re-reads only changed files across rebuilds", () => {
+  it("re-reads only changed files across rebuilds", async () => {
     const root = fixture({
       "a.ts": `import "./b";`,
       "b.ts": ``,
@@ -33,12 +33,12 @@ describe("createCodeGraphBuilder — incremental", () => {
     });
     const builder = createCodeGraphBuilder(root);
 
-    const first = builder.build();
+    const first = await builder.build();
     expect(first.stats).toMatchObject({ read: 3, reused: 0 });
 
     // Touch only a.ts (change its size so the stat-only cache misses).
     writeFileSync(join(root, "a.ts"), `import "./b"; // changed`);
-    const second = builder.build();
+    const second = await builder.build();
     expect(second.stats).toMatchObject({ read: 1, reused: 2 });
 
     // Graph itself is unchanged (both a and c still import b).
@@ -48,27 +48,27 @@ describe("createCodeGraphBuilder — incremental", () => {
     ]);
   });
 
-  it("re-resolves UNCHANGED importers against newly added files", () => {
+  it("re-resolves UNCHANGED importers against newly added files", async () => {
     // The correctness guarantee: caching extraction (not resolution). Adding b.ts must
     // make a.ts's pre-existing `import "./b"` resolve, even though a.ts wasn't touched.
     const root = fixture({ "a.ts": `import "./b";` });
     const builder = createCodeGraphBuilder(root);
 
-    expect(builder.build().edges).toEqual([]); // b doesn't exist yet
+    expect((await builder.build()).edges).toEqual([]); // b doesn't exist yet
 
     writeFileSync(join(root, "b.ts"), ``);
-    const second = builder.build();
+    const second = await builder.build();
     expect(second.edges).toEqual([{ from: "a.ts", to: "b.ts" }]);
     expect(second.stats).toMatchObject({ read: 1, reused: 1 }); // only b read; a reused
   });
 
-  it("drops vanished files from the graph + cache on rebuild", () => {
+  it("drops vanished files from the graph + cache on rebuild", async () => {
     const root = fixture({ "a.ts": ``, "b.ts": `` });
     const builder = createCodeGraphBuilder(root);
-    builder.build();
+    await builder.build();
 
     rmSync(join(root, "b.ts"));
-    const g = builder.build();
+    const g = await builder.build();
     expect(g.files.map((f) => f.path)).toEqual(["a.ts"]);
   });
 });

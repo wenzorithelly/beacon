@@ -3,7 +3,6 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
 import { node, nodeFile, edge } from "@/lib/drizzle/schema";
 import { bumpVersion, ingestSnapshot, snapshotSchema } from "@/lib/ingest";
-import { reembedNode } from "@/lib/embeddings";
 import { setProjectMeta } from "@/lib/project-meta";
 import { writeContextFiles } from "@/lib/context-files";
 import { layoutArchitectureByDomain } from "@/lib/architecture-layout";
@@ -78,7 +77,6 @@ async function persistArchitecture(components: Component[]): Promise<number> {
       await db.insert(nodeFile).values(paths.map((path) => ({ nodeId: created.id, path })));
     }
     idByTitle.set(c.title.toLowerCase(), created.id);
-    await reembedNode(created.id);
   }
 
   for (const c of components) {
@@ -121,7 +119,6 @@ async function persistRoadmap(roadmap: RoadmapItem[]): Promise<number> {
         y: p.y,
       })
       .returning();
-    await reembedNode(created.id);
   }
   return roadmap.length;
 }

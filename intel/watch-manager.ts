@@ -115,8 +115,18 @@ const manager = createWatcherManager({
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
+// The inline watcher's warm-up scans the repo, but the extract is now time-sliced
+// (intel/extractors/code-graph.ts yields the event loop every ~5ms), so a cold scan no
+// longer blocks the daemon — the lazy-warm paths (workspace activate, the freshness check)
+// are safe to run in prod. Only the explicit escape hatch disables it now; instrumentation.ts
+// separately keeps BOOT-TIME warming off in prod (lazy-only), so warming happens on demand.
+function inlineWatchDisabled(): boolean {
+  return process.env.BEACON_NO_INLINE_WATCH === "1";
+}
+
 /** Boot watchers for the active workspaces and keep reconciling as the registry changes. */
 export function startWorkspaceWatchers(): void {
+  if (inlineWatchDisabled()) return;
   manager.reconcile();
   if (!timer) {
     timer = setInterval(() => manager.reconcile(), 30_000);
@@ -126,6 +136,7 @@ export function startWorkspaceWatchers(): void {
 
 /** Lazily ensure a queried repo has a live watcher (called by the context/blast-radius routes). */
 export function ensureWatcher(id: string): void {
+  if (inlineWatchDisabled()) return;
   manager.ensureWatcher(id);
 }
 

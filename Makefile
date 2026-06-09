@@ -9,8 +9,9 @@ up:         ## run the control app dev server (http://localhost:3000)
 watch:      ## run the live code-intelligence watcher (control app must be up)
 	bun run intel/watch.ts
 
-dev:        ## run control app + intel watcher together (Ctrl-C stops both)
-	@bash -c 'bun run dev & DEV=$$!; trap "kill $$DEV 2>/dev/null" EXIT; sleep 2; bun run intel/watch.ts'
+dev:        ## drop into hot-reload to edit: stops the prod `beacon` daemon, serves :4319 (run `beacon` to return to prod)
+	@beacon stop 2>/dev/null || true
+	@PORT=4319 bash -c 'bun run dev & DEV=$$!; trap "kill $$DEV 2>/dev/null" EXIT; sleep 2; bun run intel/watch.ts'
 
 down:       ## no daemon — stop the dev server with Ctrl-C
 	@echo "No background daemon. Stop the dev server with Ctrl-C."
@@ -44,13 +45,22 @@ db-postgres: ## deploy-time: move the Drizzle dialect to postgres for a hosted d
 deploy:     ## deploy to Vercel (prod)
 	bunx vercel --prod
 
-publish:    ## republish the `trybeacon` CLI to npm — bumps patch, rebuilds (.next + dist), publishes
+publish:    ## ship edits to the prod default: bump + rebuild + publish to npm, then refresh your global `beacon`
 	@# Bump the version (npm won't republish the same one). No git tag/commit — you control commits.
 	npm version $(BUMP) --no-git-tag-version
-	@# `npm publish` runs prepublishOnly (next build + bun build of the CLI) before uploading.
-	@# Needs an npm token with 2FA-bypass in ~/.npmrc, and `make dev` stopped (the build writes .next).
+	@# `npm publish` runs prepublishOnly (next build + bun build of the CLI). Needs a 2FA-bypass npm token in ~/.npmrc.
+	@# Stop `make dev` first — the build writes .next.
 	npm publish --access public
-	@echo "  ✓ published trybeacon@$$(node -p "require('./package.json').version")"
+	@# Refresh the global `beacon` to the just-published version. bun caches registry metadata and
+	@# the registry CDN lags a few seconds, so clear the cache and retry until it resolves.
+	@V=$$(node -p "require('./package.json').version"); \
+	  echo "  ✓ published trybeacon@$$V — refreshing your global beacon…"; \
+	  for i in 1 2 3 4 5 6; do \
+	    bun pm cache rm >/dev/null 2>&1; \
+	    bun add -g trybeacon@$$V >/dev/null 2>&1 && { echo "  ✓ your beacon now runs trybeacon@$$V"; break; }; \
+	    if [ $$i = 6 ]; then echo "  ⚠ publish OK but the global refresh kept lagging — run later: bun pm cache rm && bun add -g trybeacon@$$V"; \
+	    else echo "  …waiting for npm to propagate ($$i/6)"; sleep 5; fi; \
+	  done
 
 # Override the bump for `make publish` (default patch): `make publish BUMP=minor`
 BUMP ?= patch

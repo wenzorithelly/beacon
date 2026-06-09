@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createId } from "@paralleldrive/cuid2";
 import {
   applyEdgeChanges,
   applyNodeChanges,
@@ -298,54 +299,67 @@ export function MapClient({
     void fetch(`/api/nodes/${id}`, { method: "DELETE" });
   }, []);
 
-  // "+ Node" / inline create: drop a node you immediately type into, then drag to place.
-  const addNode = useCallback(async () => {
-    const off = (createCount.current++ % 8) * 28;
-    const x = 80 + off;
-    const y = 80 + off;
-    try {
-      const res = await fetch("/api/nodes", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          view,
-          title: "New node",
-          status: view === "ARCHITECTURE" ? "REBUILD" : "PENDING",
-          x,
-          y,
-        }),
-      });
-      if (!res.ok) return;
-      const n = await res.json();
+  // Drop a fresh node at (x, y) you immediately type into, then drag to place. The card
+  // appears INSTANTLY with its final client-generated id — we never await the POST before
+  // showing it. That round-trip wait is what made "+ Feature" feel laggy and tempted
+  // impatient users into clicking again and creating duplicates. If the write fails we
+  // roll the optimistic card back out. Shared by the "+ Feature" button and drag-to-drop.
+  const createNodeAt = useCallback(
+    async (x: number, y: number) => {
+      const id = createId();
+      const status = view === "ARCHITECTURE" ? "REBUILD" : "PENDING";
       setNodes((nds) => [
         ...nds,
         {
-          id: n.id,
+          id,
           type: view === "ROADMAP" ? "roadmapNode" : "archNode",
           position: { x, y },
           data: {
-            title: n.title,
-            role: n.role,
-            plain: n.plain,
-            status: n.status,
-            priority: n.priority,
-            cluster: n.cluster,
-            view: n.view,
-            source: n.source,
-            sourceRef: n.sourceRef,
+            title: "New node",
+            role: null,
+            plain: null,
+            status,
+            priority: 2,
+            cluster: null,
+            view,
+            source: "MANUAL",
+            sourceRef: null,
             isCriterion: false,
-            isChild: n.parentId != null,
-            parentId: n.parentId ?? null,
+            isChild: false,
+            parentId: null,
           },
         },
       ]);
-      setExpandedIds((prev) => new Set(prev).add(n.id));
-      setEditingTitleId(n.id);
-      setSelectedId(n.id);
-    } catch {
-      /* ignore */
-    }
-  }, [view]);
+      setExpandedIds((prev) => new Set(prev).add(id));
+      setEditingTitleId(id);
+      setSelectedId(id);
+      try {
+        const res = await fetch("/api/nodes", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id, view, title: "New node", status, x, y }),
+        });
+        if (!res.ok) throw new Error("create failed");
+      } catch {
+        // The write never landed — undo the optimistic insert.
+        setNodes((nds) => nds.filter((n) => n.id !== id));
+        setExpandedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        setEditingTitleId((e) => (e === id ? null : e));
+        setSelectedId((s) => (s === id ? null : s));
+      }
+    },
+    [view],
+  );
+
+  // "+ Feature/Component" button: cascade fresh cards down-right so repeated adds don't stack.
+  const addNode = useCallback(() => {
+    const off = (createCount.current++ % 8) * 28;
+    void createNodeAt(80 + off, 80 + off);
+  }, [createNodeAt]);
 
   const editApi: NodeEditApi = useMemo(
     () => ({
@@ -749,7 +763,22 @@ export function MapClient({
 
   return (
     <NodeEditContext.Provider value={editApi}>
-    <div className={cn("relative w-full", embedded ? "h-full" : "h-screen")}>
+    <div
+      className={cn("relative w-full", embedded ? "h-full" : "h-screen")}
+      onDragOver={(e) => {
+        // Allow dropping the "+ Feature/Component" pill anywhere on the board.
+        if (!e.dataTransfer.types.includes("application/beacon-node")) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.getData("application/beacon-node") || !flowRef.current) return;
+        e.preventDefault();
+        // Place the card's top-left where the pill was dropped (screen → flow coords).
+        const { x, y } = flowRef.current.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        void createNodeAt(x, y);
+      }}
+    >
       <ReactFlow
         nodes={displayNodes}
         edges={displayEdges}
@@ -949,9 +978,18 @@ export function MapClient({
           )}
           <div className="glass flex items-center gap-1 rounded-full p-1">
             <button
-              onClick={() => void addNode()}
-              title={view === "ARCHITECTURE" ? "Add component" : "Add feature"}
-              className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-white/[0.06]"
+              onClick={addNode}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("application/beacon-node", view);
+                e.dataTransfer.effectAllowed = "copy";
+              }}
+              title={
+                view === "ARCHITECTURE"
+                  ? "Add component (click, or drag onto the board to place it)"
+                  : "Add feature (click, or drag onto the board to place it)"
+              }
+              className="flex h-8 cursor-grab items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-white/[0.06] active:cursor-grabbing"
             >
                 <Plus className="size-3.5 text-[var(--accent-2,#ff7a45)]" />
               {view === "ARCHITECTURE" ? "Component" : "Feature"}

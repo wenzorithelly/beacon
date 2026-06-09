@@ -71,11 +71,19 @@ export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
     // (router.refresh + any client fetches) is already pinned to this workspace, even
     // before the POST's Set-Cookie lands. The POST also persists it + heals the db.
     document.cookie = `beacon_ws=${id}; Path=/; Max-Age=31536000; SameSite=Lax`;
-    await fetch("/api/workspace", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id }),
-    }).catch(() => {});
+    // Persist + heal in the background, but NEVER block the switch on it: a slow or hung daemon
+    // must not freeze the dropdown (the bug that showed stale data behind an infinite spinner).
+    // We bound the wait, then refresh regardless — the cookie already pins the right workspace,
+    // so the refresh shows the correct data whether or not the POST has come back.
+    await Promise.race([
+      fetch("/api/workspace", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id }),
+        signal: AbortSignal.timeout(8000),
+      }).catch(() => {}),
+      new Promise((res) => setTimeout(res, 2500)),
+    ]);
     router.refresh();
   }
 

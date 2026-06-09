@@ -1,14 +1,7 @@
 import { codeGraphFreshness } from "@/lib/code-graph-freshness";
 import { db, runWithWorkspace } from "@/lib/db-drizzle";
 import { appSetting } from "@/lib/drizzle/schema";
-import { rankByQuery } from "@/lib/embeddings";
 import { workspaceIdFromRequest } from "@/lib/workspaces";
-
-// Cosine threshold below which a vector "match" is considered noise — fall
-// through to the lexical path instead. Calibrated empirically against this
-// workspace: short-title pairs that genuinely match score ~0.20-0.30, while
-// unrelated pairs cluster around 0.05-0.10. The middle band is the cutoff.
-const VECTOR_MIN_SCORE = 0.18;
 
 // One-shot "context for working on this feature" — the answer Claude Code used
 // to need 15-45K tokens of Glob+Read to derive. Resolves a feature reference
@@ -87,22 +80,8 @@ async function resolveFeature(
     });
   }
   if (query) {
-    // Vector path: rank by cosine against any roadmap node that has an embedding.
-    // Falls through to lexical when no node has an embedding yet, when the
-    // embedder fails, or when the top score is below VECTOR_MIN_SCORE (random).
-    const embedded = await db.query.node.findMany({
-      where: (t, { and, eq, isNotNull }) => and(eq(t.view, "ROADMAP"), isNotNull(t.embedding)),
-    });
-    if (embedded.length) {
-      const ranked = await rankByQuery(
-        query,
-        embedded.map((n) => ({ ...n, embedding: n.embedding! })),
-      );
-      if (ranked && ranked.length && ranked[0].score >= VECTOR_MIN_SCORE) {
-        return ranked[0].item;
-      }
-    }
-    // Lexical fallback: split the query into words, OR-match against title + plain.
+    // Lexical match: split the query into words, OR-match against title + plain.
+    // A few dozen short titles per workspace — substring matching is plenty; no ML needed.
     const words = query.split(/\s+/).filter((w) => w.length >= 3);
     if (!words.length) return null;
     return db.query.node.findFirst({

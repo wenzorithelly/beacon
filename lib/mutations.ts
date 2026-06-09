@@ -1,7 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
 import { node, edge, dbTable, endpoint } from "@/lib/drizzle/schema";
-import { reembedNode } from "@/lib/embeddings";
 import { propagateStatusUp } from "@/lib/map-ops";
 import {
   NODE_STATUS,
@@ -17,17 +16,13 @@ import {
 // Pure data mutations (validation + db). Kept free of Next imports so they can be
 // unit-tested directly; the `app/actions/*` wrappers add cache revalidation.
 
-// Semantic-search fields — when any of these change, the row's embedding needs
-// to refresh. Status / position / priority don't affect the vector, so frequent
-// drag-and-status mutations skip the (~50ms) embed.
-const SEMANTIC_FIELDS = new Set(["title", "role", "plain", "cluster"]);
-
 export async function createNode(input: CreateNodeInput) {
   const data = createNodeSchema.parse(input);
   const defaultStatus = data.view === "ARCHITECTURE" ? "REBUILD" : "PENDING";
   const [created] = await db
     .insert(node)
     .values({
+      ...(data.id ? { id: data.id } : {}),
       view: data.view,
       title: data.title,
       cluster: data.cluster ?? null,
@@ -41,7 +36,6 @@ export async function createNode(input: CreateNodeInput) {
       sourceRef: data.sourceRef ?? null,
     })
     .returning();
-  await reembedNode(created.id);
   return created;
 }
 
@@ -74,10 +68,6 @@ export async function createEdge(input: CreateEdgeInput) {
 export async function updateNode(id: string, input: UpdateNodeInput) {
   const data = updateNodeSchema.parse(input);
   const [updated] = await db.update(node).set(data).where(eq(node.id, id)).returning();
-  // Re-embed only when a semantic field actually changed — drag/status updates
-  // happen constantly and don't change the vector.
-  const semanticChanged = Object.keys(data).some((k) => SEMANTIC_FIELDS.has(k));
-  if (semanticChanged) await reembedNode(id);
   // Status changes need to bubble up to parent.
   if (data.status !== undefined) await propagateStatusUp(id);
   return updated;

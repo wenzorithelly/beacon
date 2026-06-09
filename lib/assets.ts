@@ -169,7 +169,7 @@ const WORKFLOW_MARK_END = "<!-- beacon:workflow:end -->";
 const WORKFLOW_RULE = `${WORKFLOW_MARK_START}
 ## Beacon — feature workflow
 
-This project uses Beacon (a local planning/visualization panel; run \`beacon\` to open it). When you start work on a FEATURE — whether referenced via an \`@beacon:feature://…\` mention, an \`@beacon://note/…\` note the user wrote in the Notes panel (treat its checkbox \`- [ ]\` todos as subtasks and order features by their dependencies), or just described in chat — follow these steps in order:
+This project uses Beacon (a local planning/visualization panel; run \`beacon\` to open it). When you start work on a FEATURE — whether referenced via an \`@beacon:feature://…\` mention, an \`@beacon:note://…\` note the user wrote in the Notes panel (treat its checkbox \`- [ ]\` todos as subtasks and order features by their dependencies), or just described in chat — follow these steps in order:
 
 ### 1. Load context FIRST — do NOT Glob/Grep the codebase blind
 
