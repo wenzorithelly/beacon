@@ -20,6 +20,9 @@
 # production
 /build
 
+# bundled CLI (built for publishing by `bun run build:cli`)
+/dist
+
 # misc
 .DS_Store
 *.pem

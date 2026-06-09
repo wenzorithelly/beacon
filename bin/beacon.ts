@@ -8,14 +8,32 @@
 import { execSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const pkgDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+// This file lives at <root>/bin/beacon.ts in the repo, but at <root>/dist/bin/beacon.js in a
+// published build (bun build mirrors the source tree under dist/). So when our parent dir is
+// `dist`, we're the packaged CLI and the package root is one level higher. In packaged mode the
+// daemon runs the PRODUCTION server (`next start`) and Beacon modules load from dist/, not src.
+const selfDir = dirname(fileURLToPath(import.meta.url)); // <root>/bin | <root>/dist/bin
+const PACKAGED = basename(dirname(selfDir)) === "dist";
+const pkgDir = PACKAGED ? dirname(dirname(selfDir)) : dirname(selfDir);
 const cwd = process.cwd();
 const BEACON_HOME = process.env.BEACON_HOME || join(homedir(), ".beacon");
 const SERVER_FILE = join(BEACON_HOME, "server.json");
 const PORT = process.env.PORT || "4319";
+
+// The in-process db provisioner (lib/drizzle/provision) and the spawned server both resolve
+// migrations from here — import.meta.url is unreliable once bundled / inside `.next`.
+if (!process.env.BEACON_MIGRATIONS_DIR) process.env.BEACON_MIGRATIONS_DIR = join(pkgDir, "drizzle");
+
+// Resolve a Beacon module by its source-relative path. Dev runs the TS sources directly; a
+// published build runs the minified bundles under dist/, which mirror the source tree
+// (bin/mcp.ts → dist/bin/mcp.js, lib/assets.ts → dist/lib/assets.js).
+function mod(rel: string): string {
+  if (!PACKAGED) return join(pkgDir, rel);
+  return join(pkgDir, "dist", rel.replace(/\.ts$/, ".js"));
+}
 
 // Subcommands. Anything not listed falls through to `launchPanel()`, which opens the
 // browser-side control panel for the current repo (the everyday `beacon` usage).
@@ -30,23 +48,23 @@ const PORT = process.env.PORT || "4319";
 //   beacon uninstall  — reverse every Beacon artifact (global + per-repo)
 const sub = process.argv[2];
 if (sub === "mcp") {
-  await import(join(pkgDir, "bin/mcp.ts"));
+  await import(mod("bin/mcp.ts"));
 } else if (sub === "hook") {
-  await import(join(pkgDir, "bin/hook.ts"));
+  await import(mod("bin/hook.ts"));
 } else if (sub === "plan") {
-  await import(join(pkgDir, "bin/plan.ts"));
+  await import(mod("bin/plan.ts"));
 } else if (sub === "prompt") {
-  await import(join(pkgDir, "bin/prompt.ts"));
+  await import(mod("bin/prompt.ts"));
 } else if (sub === "stop-hook") {
-  await import(join(pkgDir, "bin/stop-hook.ts"));
+  await import(mod("bin/stop-hook.ts"));
 } else if (sub === "stop") {
   stopDaemon();
 } else if (sub === "setup") {
   await setupRepo(gitToplevel() || cwd);
 } else if (sub === "doctor") {
-  await import(join(pkgDir, "bin/doctor.ts"));
+  await import(mod("bin/doctor.ts"));
 } else if (sub === "uninstall") {
-  await import(join(pkgDir, "bin/uninstall.ts"));
+  await import(mod("bin/uninstall.ts"));
 } else {
   await launchPanel();
 }
@@ -58,9 +76,9 @@ if (sub === "mcp") {
 //   • beacon_* MCP tools — read the map, propose plans, register feature work
 async function setupRepo(repo: string, quiet = false) {
   const { installInitSkill, installRefreshSkill, ensureMcp, ensureWorkflowDoc } = await import(
-    join(pkgDir, "lib/assets.ts")
+    mod("lib/assets.ts")
   );
-  const { selfHealGlobal } = await import(join(pkgDir, "lib/global-install.ts"));
+  const { selfHealGlobal } = await import(mod("lib/global-install.ts"));
   // `beacon setup` is the explicit fix-it command — heal the global ~/.claude/ layer
   // here too so a user running it after a manual cleanup doesn't have to also run
   // bare `beacon` to re-trigger launchPanel's global install.
@@ -133,11 +151,18 @@ function startDaemon(): { pid: number; port: string } {
   mkdirSync(BEACON_HOME, { recursive: true });
   const log = openSync(join(BEACON_HOME, "server.log"), "a");
   // No BEACON_REPO → the server follows the active workspace (multi-workspace mode).
-  const env: NodeJS.ProcessEnv = { ...process.env, PORT, BEACON_NO_OPEN: "1" };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PORT,
+    BEACON_NO_OPEN: "1",
+    BEACON_MIGRATIONS_DIR: join(pkgDir, "drizzle"),
+  };
   delete env.BEACON_REPO;
   delete env.BEACON_DATA_DIR;
   delete env.DATABASE_URL;
-  const child = spawn("bun", ["run", "dev"], {
+  // Packaged: serve the prebuilt `.next` in production (`next start`). Repo: hot-reloading dev.
+  const args = PACKAGED ? ["run", "start"] : ["run", "dev"];
+  const child = spawn("bun", args, {
     cwd: pkgDir,
     env,
     detached: true,
@@ -174,7 +199,7 @@ function openBrowser(url: string) {
 async function launchPanel() {
   const repo = gitToplevel() || cwd;
   const { addWorkspace, idForPath, dataDirFor, ensureWorkspaceDb } = await import(
-    join(pkgDir, "lib/workspaces.ts")
+    mod("lib/workspaces.ts")
   );
   const id = idForPath(repo);
   const data = dataDirFor(id);
@@ -200,7 +225,7 @@ async function launchPanel() {
   // Also install GLOBAL assets in ~/.claude/ — skills + settings.json hooks + CLAUDE.md
   // block — so every Claude Code session on this machine, in every repo, can discover
   // Beacon. Idempotent: prints only what actually changed.
-  const { setupGlobalAssets } = await import(join(pkgDir, "lib/global-install.ts"));
+  const { setupGlobalAssets } = await import(mod("lib/global-install.ts"));
   const g = (await setupGlobalAssets()) as Awaited<
     ReturnType<typeof import("../lib/global-install").setupGlobalAssets>
   >;

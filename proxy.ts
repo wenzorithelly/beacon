@@ -19,7 +19,9 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (PUBLIC) {
-    if (pathname === "/") return NextResponse.next();
+    // `/` is the landing; `/install.sh` is the public install script (served from
+    // public/). Everything else (the local tool's routes + /api) stays hidden.
+    if (pathname === "/" || pathname === "/install.sh") return NextResponse.next();
     return NextResponse.redirect(new URL("/", request.url));
   }
 

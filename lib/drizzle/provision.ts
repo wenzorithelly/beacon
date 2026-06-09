@@ -12,7 +12,10 @@ import { fileURLToPath } from "node:url";
 // request thread on a child process. Async because the libSQL migrator is async.
 
 const PKG_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url)))); // lib/drizzle/ → repo root
-const MIGRATIONS_DIR = join(PKG_ROOT, "drizzle");
+// `import.meta.url` is correct when running the TS source (dev, `bun test`, the CLI), but it
+// points inside `.next`/`dist` once this module is bundled or built. The CLI + the spawned
+// production server therefore pass BEACON_MIGRATIONS_DIR (= <install dir>/drizzle) explicitly.
+const MIGRATIONS_DIR = process.env.BEACON_MIGRATIONS_DIR || join(PKG_ROOT, "drizzle");
 
 // Datetime columns the old Prisma layer stored as TEXT (ISO-8601). The heal flips them to epoch-ms
 // integers (Drizzle's timestamp_ms mode) so reads give real Dates and ORDER BY stays chronological

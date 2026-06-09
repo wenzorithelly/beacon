@@ -1,0 +1,61 @@
+#!/usr/bin/env bun
+/**
+ * Bundle the Beacon CLI for publishing. The terminal-side surface (the `beacon` bin, the MCP
+ * server, the Claude Code hooks, and the asset/workspace helpers they load) is minified into
+ * dist/ with all node_modules left external — so the published tarball ships opaque JS, not the
+ * TS sources, and the platform-specific native deps (e.g. libSQL) are resolved by the user's
+ * own `bun add -g`. The Next app ships separately as the prebuilt `.next` (via `next build`).
+ *
+ * dist/ mirrors the source tree (bin/beacon.ts → dist/bin/beacon.js); bin/beacon.ts resolves
+ * siblings through that same mapping in packaged mode.
+ */
+import { chmodSync, readFileSync } from "node:fs";
+
+// Every module the CLI loads at runtime — the bin entrypoints plus the lib helpers that
+// bin/beacon.ts lazy-imports (they're loaded via computed paths, so the bundler can't follow
+// them; they must each be their own emitted bundle).
+const ENTRYPOINTS = [
+  "bin/beacon.ts",
+  "bin/mcp.ts",
+  "bin/hook.ts",
+  "bin/plan.ts",
+  "bin/prompt.ts",
+  "bin/stop-hook.ts",
+  "bin/doctor.ts",
+  "bin/uninstall.ts",
+  "lib/workspaces.ts",
+  "lib/assets.ts",
+  "lib/global-install.ts",
+];
+
+// Externalize the real node_modules deps (resolved by the user's `bun add -g`), but NOT our own
+// code: a blanket "*" would also externalize the `@/…` tsconfig-alias imports and leave them
+// unresolved at runtime. Listing `dep` + `dep/*` keeps subpath imports (next/server,
+// drizzle-orm/libsql, …) external too. node: builtins are external automatically under target bun.
+const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
+  dependencies?: Record<string, string>;
+};
+const external = Object.keys(pkg.dependencies ?? {}).flatMap((d) => [d, `${d}/*`]);
+
+const result = await Bun.build({
+  entrypoints: ENTRYPOINTS,
+  outdir: "dist",
+  target: "bun",
+  minify: true,
+  external,
+});
+
+if (!result.success) {
+  console.error("[build-cli] bundle failed:");
+  for (const log of result.logs) console.error(log);
+  process.exit(1);
+}
+
+// bun build drops the entry shebang; restore it so the npm/bun bin shim runs the bundle with Bun
+// (it uses bun: APIs + top-level await and would crash under node).
+const beaconBin = "dist/bin/beacon.js";
+const src = await Bun.file(beaconBin).text();
+if (!src.startsWith("#!")) await Bun.write(beaconBin, `#!/usr/bin/env bun\n${src}`);
+chmodSync(beaconBin, 0o755);
+
+console.log(`[build-cli] bundled ${ENTRYPOINTS.length} modules → dist/`);
