@@ -36,8 +36,9 @@ export default function RootLayout({
       className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        {process.env.BEACON_PUBLIC === "1" ? (
-          // Public deploy: bare landing only — no tool chrome, providers, or polling.
+        {process.env.BEACON_PUBLIC === "1" || process.env.VERCEL === "1" ? (
+          // Public deploy (explicit flag, or any Vercel build — VERCEL=1): bare landing
+          // only — no tool chrome, providers, or polling. Local `beacon` never sets VERCEL.
           children
         ) : (
           <>

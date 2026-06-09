@@ -7,10 +7,13 @@ import type { NextRequest } from "next/server";
 //   are already users, so `/` opens the tool directly; the marketing landing is never
 //   shown. Every tool route + /api is served normally.
 //
-//   PUBLIC (BEACON_PUBLIC=1, e.g. a beacon.dev deploy) — ONLY the landing at `/` is
-//   served. The local tool's routes and its /api (which read the developer's own repo
-//   data) are NEVER exposed: everything else redirects back to `/`.
-const PUBLIC = process.env.BEACON_PUBLIC === "1";
+//   PUBLIC (BEACON_PUBLIC=1, OR any Vercel deploy — Vercel sets VERCEL=1 in every
+//   build + runtime env, prod and preview alike, e.g. a beacon.dev deploy) — ONLY the
+//   landing at `/` is served. The local tool's routes and its /api (which read the
+//   developer's own repo data) are NEVER exposed: everything else redirects back to `/`.
+//   The local `beacon` CLI never sets VERCEL, so it stays in LOCAL mode.
+const PUBLIC =
+  process.env.BEACON_PUBLIC === "1" || process.env.VERCEL === "1";
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
