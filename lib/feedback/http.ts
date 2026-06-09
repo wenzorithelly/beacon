@@ -3,8 +3,8 @@
 // feedback handlers (GET/POST/vote + their OPTIONS preflight).
 export const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, x-feedback-token",
 };
 
 export function corsJson(data: unknown, init?: ResponseInit): Response {

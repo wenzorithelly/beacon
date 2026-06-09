@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowBigUp, ArrowBigDown, Loader2, Send } from "lucide-react";
+import { ArrowBigUp, ArrowBigDown, Loader2, Send, Trash2 } from "lucide-react";
 import { SITE_URL } from "@/lib/release";
 
 // The feedback board lives in the local tool, but the data is GLOBAL: every install reads and
 // writes the same hosted Neon DB by calling the deploy's CORS API (SITE_URL). Voting is deduped
-// per-browser in localStorage — we never track who submitted or voted.
+// per-browser in localStorage; deletion is gated on a per-submission token the creator's browser
+// keeps — so you can remove your OWN posts but not anyone else's, with no accounts involved.
 type Feedback = {
   id: string;
   body: string;
@@ -15,14 +16,23 @@ type Feedback = {
   createdAt: string;
 };
 type Votes = Record<string, "up" | "down">;
+type Mine = Record<string, string>; // feedbackId -> delete token (this browser's own posts)
 const VOTES_KEY = "beacon:feedback-votes";
+const MINE_KEY = "beacon:feedback-mine";
 const API = `${SITE_URL}/api/feedback`;
 
-function loadVotes(): Votes {
+function load<T>(key: string): T {
   try {
-    return JSON.parse(localStorage.getItem(VOTES_KEY) || "{}");
+    return JSON.parse(localStorage.getItem(key) || "{}");
   } catch {
-    return {};
+    return {} as T;
+  }
+}
+function save(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* storage blocked — no-op */
   }
 }
 
@@ -32,6 +42,7 @@ export default function FeedbackPage() {
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [votes, setVotes] = useState<Votes>({});
+  const [mine, setMine] = useState<Mine>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -47,7 +58,8 @@ export default function FeedbackPage() {
   }, []);
 
   useEffect(() => {
-    setVotes(loadVotes());
+    setVotes(load<Votes>(VOTES_KEY));
+    setMine(load<Mine>(MINE_KEY));
     refresh();
   }, [refresh]);
 
@@ -62,8 +74,11 @@ export default function FeedbackPage() {
         body: JSON.stringify({ body }),
       });
       if (!res.ok) throw new Error();
-      const { feedback } = await res.json();
+      const { feedback, token } = await res.json();
       setItems((prev) => [feedback, ...(prev ?? [])]);
+      const nextMine = { ...mine, [feedback.id]: token };
+      setMine(nextMine);
+      save(MINE_KEY, nextMine);
       setDraft("");
     } catch {
       setError("Couldn't post your feedback.");
@@ -76,11 +91,7 @@ export default function FeedbackPage() {
     if (votes[id]) return; // one vote per browser
     const next = { ...votes, [id]: dir };
     setVotes(next);
-    try {
-      localStorage.setItem(VOTES_KEY, JSON.stringify(next));
-    } catch {
-      /* storage blocked — vote still registers server-side */
-    }
+    save(VOTES_KEY, next);
     try {
       const res = await fetch(`${API}/${id}/vote`, {
         method: "POST",
@@ -91,15 +102,31 @@ export default function FeedbackPage() {
       const { feedback } = await res.json();
       setItems((prev) => prev?.map((f) => (f.id === id ? feedback : f)) ?? null);
     } catch {
-      // revert the optimistic vote on failure
       const reverted = { ...next };
       delete reverted[id];
       setVotes(reverted);
-      try {
-        localStorage.setItem(VOTES_KEY, JSON.stringify(reverted));
-      } catch {
-        /* no-op */
-      }
+      save(VOTES_KEY, reverted);
+    }
+  };
+
+  const remove = async (id: string) => {
+    const token = mine[id];
+    if (!token) return;
+    const prevItems = items;
+    setItems((prev) => prev?.filter((f) => f.id !== id) ?? null); // optimistic
+    try {
+      const res = await fetch(`${API}/${id}`, {
+        method: "DELETE",
+        headers: { "x-feedback-token": token },
+      });
+      if (!res.ok) throw new Error();
+      const nextMine = { ...mine };
+      delete nextMine[id];
+      setMine(nextMine);
+      save(MINE_KEY, nextMine);
+    } catch {
+      setItems(prevItems); // restore on failure
+      setError("Couldn't delete that feedback.");
     }
   };
 
@@ -109,7 +136,7 @@ export default function FeedbackPage() {
         <h1 className="text-lg font-semibold tracking-tight text-foreground">Feedback</h1>
         <p className="mt-1 text-[13px] text-muted-foreground">
           Tell us what to build or fix. Posts are anonymous and shared with everyone running
-          Beacon — upvote the ones you want most.
+          Beacon — upvote the ones you want most. You can delete your own.
         </p>
       </header>
 
@@ -156,7 +183,8 @@ export default function FeedbackPage() {
       ) : (
         <ul className="flex flex-col gap-2.5">
           {items.map((f) => {
-            const mine = votes[f.id];
+            const mineVote = votes[f.id];
+            const owned = !!mine[f.id];
             const score = f.upvotes - f.downvotes;
             return (
               <li key={f.id} className="glass-soft flex gap-3 rounded-xl p-3">
@@ -164,10 +192,10 @@ export default function FeedbackPage() {
                   <button
                     type="button"
                     onClick={() => vote(f.id, "up")}
-                    disabled={!!mine}
+                    disabled={!!mineVote}
                     aria-label="Upvote"
                     className={`rounded-md p-0.5 transition-colors disabled:cursor-default ${
-                      mine === "up"
+                      mineVote === "up"
                         ? "text-[#ff7a45]"
                         : "text-muted-foreground hover:text-foreground disabled:opacity-40"
                     }`}
@@ -180,10 +208,10 @@ export default function FeedbackPage() {
                   <button
                     type="button"
                     onClick={() => vote(f.id, "down")}
-                    disabled={!!mine}
+                    disabled={!!mineVote}
                     aria-label="Downvote"
                     className={`rounded-md p-0.5 transition-colors disabled:cursor-default ${
-                      mine === "down"
+                      mineVote === "down"
                         ? "text-[#ff7a45]"
                         : "text-muted-foreground hover:text-foreground disabled:opacity-40"
                     }`}
@@ -194,6 +222,17 @@ export default function FeedbackPage() {
                 <p className="min-w-0 flex-1 whitespace-pre-wrap break-words pt-0.5 text-[14px] leading-relaxed text-foreground">
                   {f.body}
                 </p>
+                {owned && (
+                  <button
+                    type="button"
+                    onClick={() => remove(f.id)}
+                    aria-label="Delete your feedback"
+                    title="Delete your feedback"
+                    className="shrink-0 self-start rounded-md p-1 text-muted-foreground/60 transition-colors hover:bg-red-500/15 hover:text-red-300"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                )}
               </li>
             );
           })}

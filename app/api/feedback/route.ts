@@ -16,10 +16,19 @@ export function OPTIONS(): Response {
   return corsPreflight();
 }
 
+// Public shape — never leak deleteToken in the list.
+const publicCols = {
+  id: feedback.id,
+  body: feedback.body,
+  upvotes: feedback.upvotes,
+  downvotes: feedback.downvotes,
+  createdAt: feedback.createdAt,
+};
+
 export async function GET(): Promise<Response> {
   try {
     const rows = await feedbackDb()
-      .select()
+      .select(publicCols)
       .from(feedback)
       .orderBy(desc(sql`${feedback.upvotes} - ${feedback.downvotes}`), desc(feedback.createdAt))
       .limit(500);
@@ -41,7 +50,9 @@ export async function POST(req: Request): Promise<Response> {
   }
   try {
     const [row] = await feedbackDb().insert(feedback).values({ body }).returning();
-    return corsJson({ feedback: row }, { status: 201 });
+    // Hand the creator their delete token (and ONLY them — it never appears in GET).
+    const { deleteToken, ...pub } = row;
+    return corsJson({ feedback: pub, token: deleteToken }, { status: 201 });
   } catch {
     return corsJson({ error: "feedback unavailable" }, { status: 503 });
   }

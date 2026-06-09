@@ -11,6 +11,12 @@ export const feedback = pgTable("Feedback", {
   body: text("body").notNull(),
   upvotes: integer("upvotes").notNull().default(0),
   downvotes: integer("downvotes").notNull().default(0),
+  // Anonymous ownership: a per-submission secret returned ONLY to its creator (and stored in their
+  // browser). Deleting requires it, so the public ids can't be used to grief-delete others' posts.
+  // Never exposed by the list endpoint.
+  deleteToken: text("deleteToken")
+    .notNull()
+    .$defaultFn(() => createId()),
   createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
 });
 
