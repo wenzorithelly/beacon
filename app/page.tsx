@@ -1,5 +1,15 @@
-import { redirect } from "next/navigation";
+import type { Metadata } from "next";
+import { Landing } from "@/components/landing/landing";
 
-export default function Home() {
-  redirect("/map?view=ROADMAP");
+// `/` is the PUBLIC landing page. Locally (the `beacon` CLI), proxy.ts redirects
+// `/` straight to the tool, so users never land here — this only renders on a
+// public deploy (BEACON_PUBLIC=1).
+export const metadata: Metadata = {
+  title: "Beacon — the visual planning surface for the coding agent in your terminal",
+  description:
+    "Propose a feature plan, review it on a canvas instead of a wall of text, and approve with a click. Local, no account, no API key.",
+};
+
+export default function Page() {
+  return <Landing />;
 }

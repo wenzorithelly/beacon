@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { BeaconMark } from "@/components/beacon-mark";
-import "./welcome.css";
+import "./landing.css";
 
 const INSTALL = "curl -fsSL https://beacon.dev/install.sh | sh";
 
@@ -81,7 +81,7 @@ const badgeGlow = {
   boxShadow: "0 0 0 1px var(--border), 0 0 24px -9px rgba(255,122,69,0.75)",
 } as const;
 
-export default function WelcomePage() {
+export function Landing() {
   const rootRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
 
