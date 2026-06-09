@@ -17,8 +17,6 @@ export const NODE_STATUS = z.enum([
   "DROP",
 ]);
 
-export const BUG_STATUS = z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "WONTFIX"]);
-export const SEVERITY = z.enum(["critical", "high", "medium", "low"]);
 export const EDGE_KIND = z.enum(["DEPENDS", "CONTAINS", "RELATES", "REPLACES"]);
 
 export const createNodeSchema = z.object({
@@ -52,21 +50,13 @@ export const positionSchema = z.object({
   y: z.number(),
 });
 
-export const createBugSchema = z.object({
-  title: z.string().trim().min(1).max(200),
-  detail: z.string().trim().max(2000).nullish(),
-  severity: SEVERITY.default("medium"),
-  sourceRef: z.string().trim().max(300).nullish(),
-  nodeId: z.string().nullish(),
+export const createEdgeSchema = z.object({
+  fromId: z.string().min(1),
+  toId: z.string().min(1),
+  kind: z.enum(["DEPENDS", "RELATES", "REPLACES"]).optional(),
+  label: z.string().trim().max(80).nullish(),
+  // Which handle on each card the user dragged from / to (e.g. "sr", "tl").
+  sourceHandle: z.string().trim().max(16).nullish(),
+  targetHandle: z.string().trim().max(16).nullish(),
 });
-export type CreateBugInput = z.input<typeof createBugSchema>;
-
-export const updateBugSchema = z.object({
-  title: z.string().trim().min(1).max(200).optional(),
-  detail: z.string().trim().max(2000).nullish(),
-  severity: SEVERITY.optional(),
-  status: BUG_STATUS.optional(),
-  sourceRef: z.string().trim().max(300).nullish(),
-  nodeId: z.string().nullish(),
-});
-export type UpdateBugInput = z.input<typeof updateBugSchema>;
+export type CreateEdgeInput = z.input<typeof createEdgeSchema>;

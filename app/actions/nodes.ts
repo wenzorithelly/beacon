@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db-drizzle";
+import { node as nodeTable } from "@/lib/drizzle/schema";
 import {
   cancelNode,
   createNode,
@@ -14,8 +16,6 @@ import type { CreateNodeInput, UpdateNodeInput } from "@/lib/schemas";
 
 function revalidate() {
   revalidatePath("/map");
-  revalidatePath("/list");
-  revalidatePath("/bugs");
 }
 
 export async function createNodeAction(input: CreateNodeInput) {
@@ -55,6 +55,6 @@ export async function deleteNodeAction(id: string) {
 
 /** Promote an AI suggestion (source=INIT) into a real, kept node. */
 export async function acceptSuggestionAction(id: string) {
-  await db.node.update({ where: { id }, data: { source: "MANUAL" } });
+  await db.update(nodeTable).set({ source: "MANUAL" }).where(eq(nodeTable.id, id));
   revalidate();
 }

@@ -1,119 +1,149 @@
 import { z } from "zod";
-import { db } from "@/lib/db";
-import { structured } from "@/lib/ai-structured";
-import { getAppSettings } from "@/lib/settings";
+import { and, eq, inArray } from "drizzle-orm";
+import { db, type DB } from "@/lib/db-drizzle";
+import { node, edge } from "@/lib/drizzle/schema";
+import { forceLayoutRoadmap } from "@/lib/roadmap-force-layout";
 
-// Architecture "feature design": describe a capability → AI proposes feature nodes,
-// persisted as DRAFT Nodes (view=ARCHITECTURE, source=DRAFT) so they render on the
-// /map architecture canvas as a draft layer, parallel to the DB drafts.
+// Feature draft schema: top-level roadmap nodes the terminal session pushes via
+// `beacon_propose_plan`. Persisted as DRAFT Nodes (view=ROADMAP, source=DRAFT) so they
+// render on the /map roadmap canvas as a draft layer, parallel to the /db draft.
 
-type Prisma = typeof db;
+type Prisma = DB;
+
+export const featureItemSchema = z
+        .object({
+          title: z.string().trim().min(1),
+          role: z.string().nullish(),
+          plain: z.string().nullish(),
+          cluster: z.string().nullish(),
+          // The agent + UI both call the category "category", and "domain" is the adjacent word
+          // it reaches for — accept all three and normalize to `cluster` below so a plan written
+          // with `category` (the natural choice) isn't dropped on the floor.
+          category: z.string().nullish(),
+          domain: z.string().nullish(),
+          // Any number is accepted and CLAMPED to 0..3 below — the agent's scale (often 1..4 or
+          // 1..5) shouldn't drop the feature. Kept nullish for parse tolerance; the propose-plan
+          // flow REQUIRES it via validateProposedFeatures (lib/feature-rules) before persisting.
+          priority: z.number().nullish(),
+          // Titles of other features in THIS plan that must ship first. Resolved into DEPENDS
+          // edges so the board shows the dependency chain instead of disconnected cards. It's a
+          // transport array only — never stored as a DB scalar list (it becomes Edge rows).
+          dependsOn: z.array(z.string()).nullish(),
+        })
+        // Normalize the category aliases (`category`/`domain` → `cluster`) and clamp priority into
+        // Beacon's P0..P3 range so a slightly-off plan still lands on the board instead of being
+        // dropped wholesale.
+        .transform(({ category, domain, priority, ...f }) => ({
+          ...f,
+          cluster: f.cluster ?? category ?? domain ?? null,
+          priority: priority == null ? null : Math.max(0, Math.min(3, Math.round(priority))),
+        }));
 
 export const featureSchema = z.object({
-  features: z
-    .array(
-      z.object({
-        title: z.string().trim().min(1),
-        role: z.string().nullish(),
-        plain: z.string().nullish(),
-        cluster: z.string().nullish(),
-      }),
-    )
-    .default([]),
+  features: z.array(featureItemSchema).default([]),
 });
 export type FeatureGraph = z.infer<typeof featureSchema>;
 
-const FEATURE_JSON_SCHEMA: Record<string, unknown> = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    features: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          title: { type: "string" },
-          role: { type: ["string", "null"] },
-          plain: { type: ["string", "null"] },
-          cluster: { type: ["string", "null"] },
-        },
-        required: ["title"],
-      },
-    },
-  },
-  required: ["features"],
-};
-
-const SYSTEM = `You design product/architecture features for the current software project. Infer its domain and stack from the provided context.
-
-Given a plain-language description, propose a small, focused set of feature nodes:
-- title: short feature name
-- role: one-line technical role
-- plain: one plain-language sentence on what it does for the user
-- cluster: a short uppercase domain when obvious (AUTH, SEARCH, FIRMS, BILLING, STORAGE, AI, MONITORING…)
-
-Design only what the description implies — don't invent unrelated features. Output ONLY via the structure.`;
-
-export async function generateFeatures(
-  description: string,
-  contextHint?: string,
-): Promise<FeatureGraph | null> {
-  const settings = await getAppSettings();
-  const prompt = [
-    contextHint ? `Contexto atual: ${contextHint}.` : "",
-    `Projete as features para:\n\n${description}`,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-  const raw = await structured({
-    system: SYSTEM,
-    prompt,
-    schema: FEATURE_JSON_SCHEMA,
-    model: settings.intelModel,
-    provider: settings.intelProvider,
-  });
-  if (!raw) return null;
-  return featureSchema.parse(raw);
-}
-
 export async function clearFeatureDraft(prisma: Prisma = db) {
-  await prisma.node.deleteMany({ where: { source: "DRAFT", view: "ARCHITECTURE" } });
+  await prisma.delete(node).where(and(eq(node.source, "DRAFT"), eq(node.view, "ROADMAP")));
 }
 
 export async function persistFeatureDraft(graph: FeatureGraph, prisma: Prisma = db) {
   const g = featureSchema.parse(graph);
   await clearFeatureDraft(prisma);
-  for (let i = 0; i < g.features.length; i++) {
-    const f = g.features[i];
-    await prisma.node.create({
-      data: {
-        view: "ARCHITECTURE",
+
+  // Place the proposal below any existing roadmap cards so it doesn't overlap them.
+  const top = await prisma.query.node.findFirst({
+    where: (t, { eq }) => eq(t.view, "ROADMAP"),
+    orderBy: (t, { desc }) => desc(t.y),
+  });
+  const baseY = (top?.y ?? 0) + 200;
+
+  // Lay the draft out as an organic 2D graph (d3-force) so dependency-linked features cluster and
+  // independent ones spread across the width — instead of a blind horizontal row. dependsOn titles
+  // become edges; the layout keys off titles since the node ids don't exist yet.
+  const titleSet = new Set(g.features.map((f) => f.title.trim()));
+  const layoutNodes = g.features.map((f) => ({ id: f.title.trim() }));
+  const layoutEdges = g.features.flatMap((f) =>
+    (f.dependsOn ?? [])
+      .map((d) => d.trim())
+      .filter((d) => titleSet.has(d) && d !== f.title.trim())
+      .map((d) => ({ fromId: f.title.trim(), toId: d })),
+  );
+  const pos = forceLayoutRoadmap(layoutNodes, layoutEdges);
+
+  const idByTitle = new Map<string, string>();
+  for (const f of g.features) {
+    const p = pos.get(f.title.trim()) ?? { x: 0, y: 0 };
+    const [created] = await prisma
+      .insert(node)
+      .values({
+        view: "ROADMAP",
         source: "DRAFT",
-        status: "REBUILD",
+        status: "PENDING",
         title: f.title,
         role: f.role ?? null,
         plain: f.plain ?? null,
         cluster: f.cluster ?? null,
-        // a clear draft band above the existing architecture nodes
-        x: i * 300,
-        y: -340,
-      },
-    });
+        priority: f.priority ?? 2,
+        x: p.x,
+        y: p.y + baseY,
+      })
+      .returning();
+    idByTitle.set(f.title.trim(), created.id);
+  }
+
+  // Auto-connect: turn each feature's `dependsOn` titles into DEPENDS edges so the proposal
+  // renders as a connected dependency chain on /plan and /map instead of loose cards. Skip
+  // unresolved titles + self-references; idempotent on the unique [fromId,toId,kind]. These
+  // edges cascade-delete with the draft nodes on the next clearFeatureDraft, so re-proposing
+  // is clean with no orphan edges.
+  for (const f of g.features) {
+    const fromId = idByTitle.get(f.title.trim());
+    if (!fromId || !f.dependsOn) continue;
+    for (const depTitle of f.dependsOn) {
+      const toId = idByTitle.get(depTitle.trim());
+      if (!toId || toId === fromId) continue;
+      const exists = await prisma.query.edge.findFirst({
+        where: (t, { and, eq }) =>
+          and(eq(t.fromId, fromId), eq(t.toId, toId), eq(t.kind, "DEPENDS")),
+      });
+      if (!exists) await prisma.insert(edge).values({ fromId, toId, kind: "DEPENDS" });
+    }
   }
 }
 
 export async function getFeatureDraft(prisma: Prisma = db): Promise<FeatureGraph> {
-  const nodes = await prisma.node.findMany({
-    where: { source: "DRAFT", view: "ARCHITECTURE" },
-    orderBy: { createdAt: "asc" },
+  const nodes = await prisma.query.node.findMany({
+    where: (t, { and, eq }) => and(eq(t.source, "DRAFT"), eq(t.view, "ROADMAP")),
+    orderBy: (t, { asc }) => asc(t.createdAt),
   });
+  // Reconstruct each feature's dependsOn (by title) from the DEPENDS edges among the draft
+  // nodes, so a re-read / re-propose round-trips the dependency chain.
+  const ids = nodes.map((n) => n.id);
+  const edges = ids.length
+    ? await prisma.query.edge.findMany({
+        where: (t, { and, eq }) =>
+          and(eq(t.kind, "DEPENDS"), inArray(t.fromId, ids), inArray(t.toId, ids)),
+      })
+    : [];
+  const titleById = new Map(nodes.map((n) => [n.id, n.title]));
+  const depsByFrom = new Map<string, string[]>();
+  for (const e of edges) {
+    const toTitle = titleById.get(e.toId);
+    if (!toTitle) continue;
+    const arr = depsByFrom.get(e.fromId) ?? [];
+    arr.push(toTitle);
+    depsByFrom.set(e.fromId, arr);
+  }
   return {
     features: nodes.map((n) => ({
       title: n.title,
       role: n.role,
       plain: n.plain,
       cluster: n.cluster,
+      priority: n.priority,
+      dependsOn: depsByFrom.get(n.id),
     })),
   };
 }

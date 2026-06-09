@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { createId } from "@paralleldrive/cuid2";
 
-// Beacon data layer (Drizzle + bun:sqlite). Generated from the live schema via `drizzle-kit pull`,
+// Beacon data layer (Drizzle over libSQL). Generated from the live schema via `drizzle-kit pull`,
 // then corrected to PROPER column types instead of carrying over Prisma's storage choices:
 //   • Timestamps  → integer({ mode: "timestamp_ms" }) — real `Date` objects, compact epoch storage,
 //     correct chronological ordering (Prisma stored these as TEXT ISO strings).

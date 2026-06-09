@@ -26,11 +26,11 @@ export function ContextCard() {
       const d = await r.json();
       setStatus(
         d.files?.length
-          ? `Atualizado: ${d.files.map((p: string) => p.split("/").pop()).join(" + ")}`
-          : "Nada para atualizar",
+          ? `Updated: ${d.files.map((p: string) => p.split("/").pop()).join(" + ")}`
+          : "Nothing to update",
       );
     } catch {
-      setStatus("Falhou");
+      setStatus("Failed");
     } finally {
       setBusy(false);
     }
@@ -39,16 +39,16 @@ export function ContextCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Contexto para a IA</CardTitle>
+        <CardTitle className="text-base">Context for the AI</CardTitle>
         <CardDescription>
-          Gera <span className="font-mono">AGENTS.md</span> (lido por Cursor/Codex/Aider) e garante
-          que o <span className="font-mono">CLAUDE.md</span> o importe (Claude Code lê o CLAUDE.md),
-          a partir do mapa atual.
+          Generates <span className="font-mono">AGENTS.md</span> (read by Cursor/Codex/Aider) and
+          makes sure <span className="font-mono">CLAUDE.md</span> imports it (Claude Code reads
+          CLAUDE.md), from the current map.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-3">
         <Button size="sm" disabled={busy} onClick={regen}>
-          {busy ? "Gerando…" : "Atualizar AGENTS.md + CLAUDE.md"}
+          {busy ? "Generating…" : "Update AGENTS.md + CLAUDE.md"}
         </Button>
         {status && <span className="text-xs text-muted-foreground">{status}</span>}
       </CardContent>

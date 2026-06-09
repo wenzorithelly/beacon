@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { TopNav } from "@/components/top-nav";
 import { LiveRefresh } from "@/components/live-refresh";
-import { AiContextProvider } from "@/components/ai/ai-context";
 import { MainRegion } from "@/components/ai/main-region";
-import { AgentView } from "@/components/ai/agent-view";
+import { PlanProvider } from "@/components/plan/plan-context";
+import { PlanBar } from "@/components/plan/plan-bar";
+import { NotesProvider } from "@/components/notes/notes-context";
+import { NotesDrawer } from "@/components/notes/notes-drawer";
 import { repoName } from "@/lib/project";
 
 const geistSans = Geist({
@@ -31,18 +32,26 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="pt-BR"
+      lang="en"
       className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <LiveRefresh />
-        <AiContextProvider>
-          <TopNav repo={repoName()} />
-          <MainRegion>{children}</MainRegion>
-          <Suspense>
-            <AgentView />
-          </Suspense>
-        </AiContextProvider>
+        {process.env.BEACON_PUBLIC === "1" ? (
+          // Public deploy: bare landing only — no tool chrome, providers, or polling.
+          children
+        ) : (
+          <>
+            <LiveRefresh />
+            <NotesProvider>
+              <PlanProvider>
+                <TopNav repo={repoName()} />
+                <MainRegion>{children}</MainRegion>
+                <PlanBar />
+              </PlanProvider>
+              <NotesDrawer />
+            </NotesProvider>
+          </>
+        )}
       </body>
     </html>
   );

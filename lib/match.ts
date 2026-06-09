@@ -3,6 +3,9 @@
 // (handles stems/typos/substrings), with confidence tiers so we only auto-flag on a
 // high-confidence unambiguous match and otherwise return candidates to disambiguate.
 
+// Filler words stripped before matching. The Portuguese set is intentional and functional —
+// it lets the matcher line up feature titles written in Portuguese (e.g. juriscan), NOT leftover
+// UI cruft, so don't "clean it up" as part of an English-only pass.
 const STOP = new Set([
   // English filler
   "a", "an", "the", "of", "for", "to", "and", "or", "in", "on", "with", "via", "by",

@@ -44,9 +44,9 @@ function findConfig(explicit?: string): string | null {
   const chosen = explicit ?? process.env.INTEL_CONFIG;
   if (chosen) return isAbsolute(chosen) ? chosen : resolve(process.cwd(), chosen);
   // Beacon mode (launched in an arbitrary repo): derive everything from the repo,
-  // never pick up an unrelated juriscan.config.json sitting next to the tool.
+  // never pick up an unrelated beacon.config.json sitting next to the tool.
   if (process.env.BEACON_REPO) return null;
-  for (const c of ["../juriscan.config.json", "./juriscan.config.json"]) {
+  for (const c of ["../beacon.config.json", "./beacon.config.json"]) {
     const p = resolve(process.cwd(), c);
     if (existsSync(p)) return p;
   }

@@ -84,11 +84,13 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  /* Softer than near-black — a comfortable dark gray for long reading (the /plan panel etc.).
+     card/popover/sidebar bumped in step so they still sit visibly above the background. */
+  --background: oklch(0.205 0 0);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: oklch(0.255 0 0);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
+  --popover: oklch(0.255 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
@@ -107,7 +109,7 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
+  --sidebar: oklch(0.255 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
@@ -123,7 +125,9 @@
   }
   body {
     @apply text-foreground;
-    background-color: #08080b;
+    /* Fallback only — the visible surface is `bg-background` (var(--background)) on <body> and
+       the panels, so the dark-theme --background below is what actually controls the gray. */
+    background-color: var(--background);
     /* layered ambient glow (warm brand top-left, cool violet right, soft base) */
     background-image:
       radial-gradient(55rem 38rem at 8% -12%, oklch(0.72 0.15 70 / 0.12), transparent 60%),
@@ -141,11 +145,13 @@
      Frost + tint + specular edge highlight + layered depth shadow. The richer
      sheen/noise layers live in the <GlassPanel> component (components/ui/glass-panel). */
   .glass {
+    /* Mostly-opaque tint (was 34%) + a stronger blur so panel content reads cleanly instead
+       of the canvas/text behind bleeding through. */
     background:
       linear-gradient(180deg, oklch(1 0 0 / 0.04), oklch(1 0 0 / 0.015)),
-      color-mix(in oklab, var(--card) 34%, transparent);
-    backdrop-filter: blur(30px) saturate(190%);
-    -webkit-backdrop-filter: blur(30px) saturate(190%);
+      color-mix(in oklab, var(--card) 88%, transparent);
+    backdrop-filter: blur(44px) saturate(180%);
+    -webkit-backdrop-filter: blur(44px) saturate(180%);
     border: 1px solid oklch(1 0 0 / 0.1);
     box-shadow:
       0 20px 60px -18px rgba(0, 0, 0, 0.82),
@@ -153,9 +159,9 @@
   }
   /* Lighter variant for inline toolbars/chips. */
   .glass-soft {
-    background: oklch(1 0 0 / 0.05);
-    backdrop-filter: blur(16px) saturate(150%);
-    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    background: color-mix(in oklab, var(--card) 80%, transparent);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
     border: 1px solid oklch(1 0 0 / 0.08);
   }
 }
@@ -172,9 +178,128 @@
   border-radius: 9999px;
 }
 
+/* Notes editor (Tiptap ProseMirror) content — Tailwind v4's base resets list markers,
+   so re-declare them here, plus flatten task lists into a checkbox + content row. */
+.note-prose:focus {
+  outline: none;
+}
+.note-prose > * + * {
+  margin-top: 0.5rem;
+}
+.note-prose ul,
+.note-prose ol {
+  padding-left: 1.25rem;
+}
+.note-prose ul {
+  list-style: disc;
+}
+.note-prose ol {
+  list-style: decimal;
+}
+.note-prose h1 {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+.note-prose h2 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+.note-prose h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.note-prose strong {
+  font-weight: 600;
+}
+.note-prose em {
+  font-style: italic;
+}
+.note-prose code {
+  background: oklch(1 0 0 / 0.06);
+  border-radius: 4px;
+  padding: 0 0.25rem;
+  font-family: var(--font-geist-mono);
+  font-size: 0.85em;
+}
+.note-prose ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+.note-prose ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.note-prose ul[data-type="taskList"] li > label {
+  margin-top: 0.15rem;
+  user-select: none;
+}
+.note-prose ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.note-prose ul[data-type="taskList"] input[type="checkbox"] {
+  cursor: pointer;
+}
+
+/* Figma-style connection dots: invisible until the node is hovered/selected or a
+   connection drag is in progress (so the user sees where to drop). Targets every
+   node type (NodeCard, DbTableNode, EndpointNode) via React Flow's shared
+   `.react-flow__handle` class — see components/graph/handles.tsx for the ring. */
+.react-flow__handle {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.react-flow__node:hover .react-flow__handle,
+.react-flow__node.selected .react-flow__handle,
+.react-flow__handle.connecting,
+.react-flow__handle.connectingfrom,
+.react-flow__handle.valid,
+.react-flow.connecting .react-flow__handle {
+  opacity: 1;
+}
+
+/* FigJam-style edges: hovering an edge gives it a pointer cursor + slightly thicker
+   stroke so it's clearly clickable; selected gets stronger emphasis. Click to select,
+   Backspace/Delete to remove. */
+.react-flow__edge {
+  cursor: pointer;
+}
+/* Default React Flow edges are 1px, which reads as a hairline on the dark canvas. A 1.6px
+   base keeps every connection (roadmap, DB, files) legible; hover/selected still thicken. */
+.react-flow__edge-path {
+  stroke-width: 1.6px;
+}
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 2.5px;
+  filter: brightness(1.25);
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 2.5px;
+  filter: brightness(1.35) drop-shadow(0 0 4px currentColor);
+}
+
 /* Let the ambient background show through the React Flow canvas. */
 .react-flow,
 .react-flow__pane,
 .react-flow__renderer {
   background: transparent !important;
+}
+
+/* Touched-Files overlay: a one-shot pulse on the file the agent JUST edited so the live
+   "edit front" draws the eye, then settles to its static recency glow (2 iterations, not
+   infinite — motion that pops without becoming a distraction). */
+@keyframes touch-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 9px rgba(45, 212, 191, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0);
+  }
+}
+.animate-touch-pulse {
+  animation: touch-pulse 1.4s ease-out 2;
 }

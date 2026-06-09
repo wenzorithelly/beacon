@@ -1,8 +1,9 @@
+import { pinned } from "@/lib/api-workspace";
 import { touchFiles } from "@/lib/map-ops";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
+export const POST = pinned(async (req: Request) => {
   try {
     const body = await req.json();
     if (!Array.isArray(body.files)) {
@@ -21,4 +22,4 @@ export async function POST(req: Request) {
       status: 500,
     });
   }
-}
+});

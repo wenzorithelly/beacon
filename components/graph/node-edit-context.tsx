@@ -15,6 +15,9 @@ export interface NodeEditApi {
   openDetailed: (id: string) => void; // the "super detailed" panel (sidebar)
   removeNode: (id: string) => void; // delete (no revalidate; local + DELETE)
   editingTitleId: string | null; // a freshly-created node to autofocus
+  /** Ask the agent a question scoped to this node — opens the plan's ask composer pre-targeted
+      to it. Only provided on the /plan board (the feedback loop); absent on /map. */
+  onAskAgent?: (target: string) => void;
 }
 
 export const NodeEditContext = createContext<NodeEditApi | null>(null);

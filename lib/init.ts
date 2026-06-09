@@ -1,181 +1,67 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
 import { z } from "zod";
-import { db } from "@/lib/db";
-import { bumpVersion, ingestSnapshot, type Snapshot } from "@/lib/ingest";
-import { structured } from "@/lib/ai-structured";
-import { getAppSettings } from "@/lib/settings";
+import { and, eq, inArray } from "drizzle-orm";
+import { db } from "@/lib/db-drizzle";
+import { node, nodeFile, edge } from "@/lib/drizzle/schema";
+import { bumpVersion, ingestSnapshot, snapshotSchema } from "@/lib/ingest";
+import { reembedNode } from "@/lib/embeddings";
 import { setProjectMeta } from "@/lib/project-meta";
 import { writeContextFiles } from "@/lib/context-files";
-import { repoRoot } from "@/lib/project";
-import { loadConfig } from "@/intel/config";
-import { scanFiles, type SourceFile } from "@/intel/extractors/files";
-import { fetchOpenApi } from "@/intel/extractors/openapi";
-import { extractImports, importGraphText } from "@/intel/extractors/imports";
-import { extractGraph } from "@/intel/extract";
-import { mergeSnapshot } from "@/intel/merge";
+import { layoutArchitectureByDomain } from "@/lib/architecture-layout";
+import { forceLayoutRoadmap } from "@/lib/roadmap-force-layout";
 
-// `beacon init`: read an existing repo, understand it, and map its architecture +
-// database. Reuses the code-intelligence extraction for the DB/endpoints, and adds an
-// AI architecture pass that turns the repo (tree + manifests + source) into a graph of
-// components grouped by domain, each linked to its key files.
+// Beacon's repo-mapping (formerly the `beacon init` CLI). The CLI used to spawn
+// a separate Claude/Anthropic process to read the repo and produce structured
+// JSON; that's now done by the user's OWN Claude Code session via the
+// `/beacon-init` skill, which POSTs the analysis here. Same persistence path —
+// only the source of the analysis changed (cheaper, full project context).
 
-const archSchema = z.object({
-  components: z
-    .array(
-      z.object({
-        title: z.string().trim().min(1),
-        domain: z.string().trim().min(1),
-        role: z.string().nullish(),
-        plain: z.string().nullish(),
-        files: z.array(z.string()).default([]),
-        depends: z.array(z.string()).default([]),
-      }),
-    )
-    .default([]),
-  roadmap: z
-    .array(
-      z.object({
-        title: z.string().trim().min(1),
-        why: z.string().nullish(),
-      }),
-    )
-    .default([]),
+const componentSchema = z.object({
+  title: z.string().trim().min(1),
+  domain: z.string().trim().min(1),
+  role: z.string().nullish(),
+  plain: z.string().nullish(),
+  files: z.array(z.string()).default([]),
+  depends: z.array(z.string()).default([]),
+});
+
+const roadmapItemSchema = z.object({
+  title: z.string().trim().min(1),
+  why: z.string().nullish(),
+  // Category (cluster) + priority so refresh-created roadmap items aren't dropped on the board
+  // without a category, same as feature plans. Accept `cluster` as an alias for `category`.
+  category: z.string().nullish(),
+  cluster: z.string().nullish(),
+  priority: z.number().int().min(0).max(3).nullish(),
+});
+
+export const initInputSchema = z.object({
   overview: z.string().nullish(),
   conventions: z.array(z.string()).default([]),
+  components: z.array(componentSchema).default([]),
+  roadmap: z.array(roadmapItemSchema).default([]),
+  // Optional DB extraction in the same call — same shape as the snapshot ingest.
+  snapshot: snapshotSchema.optional(),
 });
-type Arch = z.infer<typeof archSchema>;
 
-const ARCH_JSON_SCHEMA: Record<string, unknown> = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    components: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          title: { type: "string" },
-          domain: { type: "string" },
-          role: { type: ["string", "null"] },
-          plain: { type: ["string", "null"] },
-          files: { type: "array", items: { type: "string" } },
-          depends: { type: "array", items: { type: "string" } },
-        },
-        required: ["title", "domain"],
-      },
-    },
-    roadmap: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          title: { type: "string" },
-          why: { type: ["string", "null"] },
-        },
-        required: ["title"],
-      },
-    },
-    overview: { type: ["string", "null"] },
-    conventions: { type: "array", items: { type: "string" } },
-  },
-  required: ["components", "roadmap"],
-};
+export type InitAnalysis = z.input<typeof initInputSchema>;
+type Component = z.infer<typeof componentSchema>;
+type RoadmapItem = z.infer<typeof roadmapItemSchema>;
 
-const ARCH_SYSTEM = `You are a software architect mapping an EXISTING codebase from the repository context provided (file tree, manifests/README, a MODULE DEPENDENCY GRAPH, and source samples).
-
-Produce a concise architecture map:
-- components: the main building blocks (services, modules, subsystems, features) — aim for ~8-25, not every file. USE THE DEPENDENCY GRAPH to draw sharper boundaries: files that import each other heavily usually belong to the same component; the external packages a file uses hint at its role.
-- domain: a short UPPERCASE area each belongs to (e.g. AUTH, API, DATA, UI, JOBS, BILLING, SEARCH, INFRA…).
-- role: one-line technical role. plain: one plain-language sentence.
-- files: the few key repo-relative files that implement it (so they can be linked on the map).
-- depends: titles of other components it depends on, derived from the dependency graph (optional).
-
-Also propose "roadmap": 3-6 BROAD, HIGH-LEVEL directions for this project — big-picture themes only (e.g. "Harden auth & security", "Add automated test coverage", "Scale the data layer", "Add observability", "Pay down tech debt"). These are SUGGESTIONS, deliberately vague and strategic — NOT detailed tasks, NOT file-level. Keep each to a short title + one-line "why".
-
-Also provide:
-- overview: one short paragraph — what this project is and its stack — for an AI contributor's context file.
-- conventions: 3-8 concrete conventions/gotchas an AI contributor MUST follow (build/test commands, where code goes, patterns, things easy to get wrong).
-
-Infer the stack from the manifests. Describe only what is actually present. Output ONLY via the structure.`;
-
-const MANIFESTS = [
-  "README.md",
-  "README",
-  "package.json",
-  "pyproject.toml",
-  "requirements.txt",
-  "go.mod",
-  "Cargo.toml",
-  "pom.xml",
-  "composer.json",
-  "Gemfile",
-];
-
-function readManifests(root: string): string {
-  const out: string[] = [];
-  for (const m of MANIFESTS) {
-    const p = join(root, m);
-    if (existsSync(p)) {
-      try {
-        out.push(`### ${m}\n${readFileSync(p, "utf8").slice(0, 2500)}`);
-      } catch {
-        /* skip */
-      }
-    }
-  }
-  return out.join("\n\n") || "(no manifests found)";
-}
-
-function fileTree(files: SourceFile[], max = 400): string {
-  return files
-    .map((f) => f.path)
-    .sort()
-    .slice(0, max)
-    .join("\n");
-}
-
-export async function analyzeArchitecture(files: SourceFile[]): Promise<Arch | null> {
-  const settings = await getAppSettings();
-  const root = repoRoot();
-  const sample = files
-    .slice(0, 40)
-    .map((f) => `// ${f.path}\n${f.content.slice(0, 1200)}`)
-    .join("\n\n");
-  const graph = importGraphText(extractImports(files));
-  const prompt = [
-    `Repository: ${root}`,
-    `## File tree\n${fileTree(files)}`,
-    `## Manifests / README\n${readManifests(root)}`,
-    `## Module dependency graph (file -> internal imports | external pkgs)\n${graph || "(none detected)"}`,
-    `## Source samples\n${sample}`,
-  ].join("\n\n");
-
-  const raw = await structured({
-    system: ARCH_SYSTEM,
-    prompt,
-    schema: ARCH_JSON_SCHEMA,
-    model: settings.intelModel,
-    provider: settings.intelProvider,
-  });
-  return raw ? archSchema.parse(raw) : null;
-}
-
-export async function persistArchitecture(arch: Arch): Promise<number> {
+async function persistArchitecture(components: Component[]): Promise<number> {
   // Idempotent: replace a previous init-derived architecture.
-  await db.node.deleteMany({ where: { view: "ARCHITECTURE", source: "INIT" } });
+  await db.delete(node).where(and(eq(node.view, "ARCHITECTURE"), eq(node.source, "INIT")));
 
-  const domains = Array.from(new Set(arch.components.map((c) => c.domain)));
   const idByTitle = new Map<string, string>();
 
-  for (const c of arch.components) {
-    const lane = domains.indexOf(c.domain);
-    const inLane = arch.components.filter((x) => x.domain === c.domain);
-    const idx = inLane.indexOf(c);
-    const node = await db.node.create({
-      data: {
+  // Group by domain into a wrapped grid so related components sit together (vs one long row).
+  const wrapped = components.map((c) => ({ domain: c.domain, c }));
+  const pos = layoutArchitectureByDomain(wrapped);
+  for (const w of wrapped) {
+    const c = w.c;
+    const at = pos.get(w) ?? { x: 0, y: 0 };
+    const [created] = await db
+      .insert(node)
+      .values({
         view: "ARCHITECTURE",
         source: "INIT",
         cluster: c.domain,
@@ -183,112 +69,154 @@ export async function persistArchitecture(arch: Arch): Promise<number> {
         role: c.role ?? null,
         plain: c.plain ?? null,
         status: "KEEP",
-        x: lane * 320,
-        y: idx * 150,
-        files: { create: Array.from(new Set(c.files)).map((path) => ({ path })) },
-      },
-    });
-    idByTitle.set(c.title.toLowerCase(), node.id);
+        x: at.x,
+        y: at.y,
+      })
+      .returning();
+    const paths = Array.from(new Set(c.files));
+    if (paths.length) {
+      await db.insert(nodeFile).values(paths.map((path) => ({ nodeId: created.id, path })));
+    }
+    idByTitle.set(c.title.toLowerCase(), created.id);
+    await reembedNode(created.id);
   }
 
-  for (const c of arch.components) {
+  for (const c of components) {
     const fromId = idByTitle.get(c.title.toLowerCase());
     for (const dep of c.depends ?? []) {
       const toId = idByTitle.get(dep.toLowerCase());
       if (fromId && toId && fromId !== toId) {
-        await db.edge.create({ data: { fromId, toId, kind: "DEPENDS" } }).catch(() => {});
+        await db
+          .insert(edge)
+          .values({ fromId, toId, kind: "DEPENDS" })
+          .catch(() => {});
       }
     }
   }
-  return arch.components.length;
+  return components.length;
 }
 
-/** Persist the broad, high-level roadmap suggestions as ROADMAP fronts (source=INIT). */
-export async function persistRoadmap(roadmap: Arch["roadmap"]): Promise<number> {
-  await db.node.deleteMany({ where: { view: "ROADMAP", source: "INIT" } });
+async function persistRoadmap(roadmap: RoadmapItem[]): Promise<number> {
+  await db.delete(node).where(and(eq(node.view, "ROADMAP"), eq(node.source, "INIT")));
+  // Roadmap items carry no dependency edges, so the force layout spreads them organically across
+  // the board's width instead of one long horizontal row off the screen.
+  const pos = forceLayoutRoadmap(
+    roadmap.map((_, i) => ({ id: String(i) })),
+    [],
+  );
   for (let i = 0; i < roadmap.length; i++) {
     const r = roadmap[i];
-    await db.node.create({
-      data: {
+    const p = pos.get(String(i)) ?? { x: 0, y: 0 };
+    const [created] = await db
+      .insert(node)
+      .values({
         view: "ROADMAP",
         source: "INIT",
         title: r.title,
         plain: r.why ?? null,
+        cluster: r.category ?? r.cluster ?? null,
+        priority: r.priority ?? 2,
         status: "PENDING",
-        x: i * 320,
-        y: 0,
-      },
-    });
+        x: p.x,
+        y: p.y,
+      })
+      .returning();
+    await reembedNode(created.id);
   }
   return roadmap.length;
 }
 
-export async function runInit(): Promise<{
-  files: number;
-  tables: number;
-  endpoints: number;
+// Collapse ROADMAP features that share a title (case-insensitive) to ONE node. Re-proposing a
+// feature that already exists used to leave a second node next to the original (a DONE original +
+// a re-approved PENDING copy). Keep the richest node — DONE status > most attached files > has a
+// category — fold the others' files in and backfill any missing category/priority/description
+// from them, then delete the rest. Runs on /beacon-refresh so the map self-heals. DRAFT nodes
+// (a plan under review) are left untouched.
+const STATUS_RANK: Record<string, number> = { DONE: 3, IN_PROGRESS: 2, PARTIAL: 2, BLOCKED: 1, PENDING: 0 };
+
+export async function dedupeRoadmapByTitle(): Promise<number> {
+  const nodes = await db.query.node.findMany({
+    where: (t, { and, eq, ne }) => and(eq(t.view, "ROADMAP"), ne(t.source, "DRAFT")),
+    with: { files: { columns: { path: true } } },
+    orderBy: (t, { asc }) => asc(t.createdAt), // ties → keep the oldest
+  });
+  const groups = new Map<string, typeof nodes>();
+  for (const n of nodes) {
+    const key = n.title.trim().toLowerCase();
+    const arr = groups.get(key);
+    if (arr) arr.push(n);
+    else groups.set(key, [n]);
+  }
+
+  let removed = 0;
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const score = (n: (typeof nodes)[number]) =>
+      (STATUS_RANK[n.status] ?? 0) * 1000 + n.files.length * 10 + (n.cluster ? 1 : 0);
+    const keeper = group.reduce((best, n) => (score(n) > score(best) ? n : best), group[0]);
+    const dropped = group.filter((n) => n.id !== keeper.id);
+
+    const have = new Set(keeper.files.map((f) => f.path));
+    const addPaths: string[] = [];
+    let cluster = keeper.cluster;
+    let plain = keeper.plain;
+    let role = keeper.role;
+    let priority = keeper.priority;
+    for (const d of dropped) {
+      for (const f of d.files) if (!have.has(f.path)) { have.add(f.path); addPaths.push(f.path); }
+      cluster ??= d.cluster;
+      plain ??= d.plain;
+      role ??= d.role;
+      if (d.priority != null && (priority == null || d.priority < priority)) priority = d.priority; // keep the most urgent
+    }
+    await db.update(node).set({ cluster, plain, role, priority }).where(eq(node.id, keeper.id));
+    if (addPaths.length) {
+      await db.insert(nodeFile).values(addPaths.map((path) => ({ nodeId: keeper.id, path })));
+    }
+    await db.delete(node).where(inArray(node.id, dropped.map((d) => d.id)));
+    removed += dropped.length;
+  }
+  return removed;
+}
+
+/**
+ * Persist a /beacon-init analysis prepared by the user's Claude Code session.
+ * Side-effects: architecture nodes/edges, roadmap fronts, project meta, AGENTS.md
+ * regen, sync version bump. No AI calls happen here.
+ */
+export async function runInitFromAnalysis(input: unknown): Promise<{
   components: number;
   roadmap: number;
+  deduped: number;
+  tables: number;
+  endpoints: number;
   context: string[];
 }> {
-  const config = loadConfig();
-  const roots = config.roots.map((r) => resolve(config.configDir, r));
-  const seen = new Set<string>();
-  const files: SourceFile[] = [];
-  for (const root of roots) {
-    for (const f of scanFiles(root, { maxFiles: config.llm.maxFiles, maxBytes: config.llm.maxBytes })) {
-      if (!seen.has(f.path)) {
-        seen.add(f.path);
-        files.push(f);
-      }
-    }
-  }
+  const parsed = initInputSchema.parse(input);
 
-  // Nothing to read → skip the AI passes entirely (no wasted round-trip on an empty repo).
-  if (files.length === 0) {
-    console.log("  (no source files found — nothing to map)");
-    const context = await writeContextFiles().catch(() => [] as string[]);
-    await bumpVersion();
-    return { files: 0, tables: 0, endpoints: 0, components: 0, roadmap: 0, context };
-  }
-
-  // 1. Database + endpoints (reuse code intelligence; write straight to the DB).
   let tables = 0;
   let endpoints = 0;
-  try {
-    const facts = await fetchOpenApi(config.openapiUrl);
-    const { snapshot } = await extractGraph(files, facts, config);
-    const base: Snapshot = snapshot ?? {
-      tables: [],
-      relations: [],
-      endpoints: facts.map((e) => ({ ...e, uses: [] })),
-    };
-    const merged = mergeSnapshot(base, facts);
-    if ((merged.tables?.length ?? 0) + (merged.endpoints?.length ?? 0) > 0) {
-      const res = await ingestSnapshot(merged);
-      tables = res.tables;
-      endpoints = res.endpoints;
+  if (parsed.snapshot) {
+    try {
+      const r = await ingestSnapshot(parsed.snapshot);
+      tables = r.tables;
+      endpoints = r.endpoints;
+    } catch (e) {
+      console.error("[init] snapshot ingest failed:", e instanceof Error ? e.message : e);
     }
-  } catch (e) {
-    console.error("[init] db extraction failed:", e instanceof Error ? e.message : e);
   }
 
-  // 2. Architecture map + high-level roadmap suggestions + context files.
-  let components = 0;
-  let roadmap = 0;
+  const components = await persistArchitecture(parsed.components);
+  const roadmap = await persistRoadmap(parsed.roadmap);
+  // Refresh self-heals duplicate features: collapse any same-title roadmap nodes (e.g. a DONE
+  // feature + a re-approved PENDING copy) into one.
+  const deduped = await dedupeRoadmapByTitle();
+  await setProjectMeta({
+    overview: parsed.overview ?? null,
+    conventions: parsed.conventions,
+  });
+
   let context: string[] = [];
-  try {
-    const arch = await analyzeArchitecture(files);
-    if (arch) {
-      components = await persistArchitecture(arch);
-      roadmap = await persistRoadmap(arch.roadmap);
-      await setProjectMeta({ overview: arch.overview ?? null, conventions: arch.conventions });
-    }
-  } catch (e) {
-    console.error("[init] architecture analysis failed:", e instanceof Error ? e.message : e);
-  }
-
-  // 3. Write AGENTS.md + ensure CLAUDE.md imports it (so Claude Code reads it).
   try {
     context = await writeContextFiles();
   } catch (e) {
@@ -296,5 +224,5 @@ export async function runInit(): Promise<{
   }
 
   await bumpVersion();
-  return { files: files.length, tables, endpoints, components, roadmap, context };
+  return { components, roadmap, deduped, tables, endpoints, context };
 }

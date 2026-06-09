@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db-drizzle";
 import { repoName, repoRoot } from "@/lib/project";
 import { getProjectMeta } from "@/lib/project-meta";
 
@@ -46,16 +46,18 @@ export async function buildContext(): Promise<string> {
     conventions = [];
   }
 
-  const arch = await db.node.findMany({
-    where: { view: "ARCHITECTURE" },
-    include: { files: { select: { path: true } } },
-    orderBy: { cluster: "asc" },
+  const arch = await db.query.node.findMany({
+    where: (t, { eq }) => eq(t.view, "ARCHITECTURE"),
+    with: { files: { columns: { path: true } } },
+    orderBy: (t, { asc }) => asc(t.cluster),
   });
-  const tables = await db.dbTable.findMany({
-    include: { columns: { orderBy: { ord: "asc" } } },
-    orderBy: { name: "asc" },
+  const tables = await db.query.dbTable.findMany({
+    with: { columns: { orderBy: (c, { asc }) => asc(c.ord) } },
+    orderBy: (t, { asc }) => asc(t.name),
   });
-  const endpoints = await db.endpoint.findMany({ orderBy: [{ domain: "asc" }, { path: "asc" }] });
+  const endpoints = await db.query.endpoint.findMany({
+    orderBy: (t, { asc }) => [asc(t.domain), asc(t.path)],
+  });
   const cmds = deriveCommands(repoRoot());
 
   const lines: string[] = [`## Project: ${repoName()}`];

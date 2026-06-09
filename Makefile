@@ -1,4 +1,4 @@
-.PHONY: install up down build test test-watch lint db-up db-reset seed studio db-postgres deploy watch dev
+.PHONY: install up down build test test-watch lint db-up db-reset studio db-postgres deploy watch dev
 
 install:    ## install deps
 	bun install
@@ -15,7 +15,7 @@ dev:        ## run control app + intel watcher together (Ctrl-C stops both)
 down:       ## no daemon — stop the dev server with Ctrl-C
 	@echo "No background daemon. Stop the dev server with Ctrl-C."
 
-build:      ## production build (generates prisma client first)
+build:      ## production build
 	bun run build
 
 test:       ## run the test suite once (bun test — native, no Vite)
@@ -27,22 +27,19 @@ test-watch: ## run tests in watch mode
 lint:       ## lint
 	bun run lint
 
-db-up:      ## create/apply a dev migration
-	bunx prisma migrate dev
+db-up:      ## generate a migration from lib/drizzle/schema.ts (runtime applies it per workspace)
+	bun run db:generate
 
-db-reset:   ## drop + re-migrate + seed (local only)
-	bunx prisma migrate reset --force
+db-reset:   ## drop + re-provision the local dev db (local only)
+	rm -f dev.db dev.db-wal dev.db-shm && bun lib/drizzle/provision.ts file:./dev.db
 
-seed:       ## seed the database from prisma/seed.ts
-	bun run db:seed
+studio:     ## open Drizzle Studio
+	bun run db:studio
 
-studio:     ## open Prisma Studio
-	bunx prisma studio
-
-db-postgres: ## deploy-time: set provider=postgresql + Neon DATABASE_URL, then run this
-	@echo "1) set datasource provider to postgresql in prisma/schema.prisma"
-	@echo "2) swap lib/db.ts adapter to @prisma/adapter-neon (or -pg)"
-	@echo "3) set DATABASE_URL to the Neon URL, then: bunx prisma migrate deploy"
+db-postgres: ## deploy-time: move the Drizzle dialect to postgres for a hosted db
+	@echo "1) set dialect: 'postgresql' in drizzle.config.ts and point lib/db.ts at a pg driver"
+	@echo "2) set DATABASE_URL to the hosted (e.g. Neon) URL"
+	@echo "3) regenerate + apply migrations: bun run db:generate && bunx drizzle-kit migrate"
 
 deploy:     ## deploy to Vercel (prod)
-	bunx prisma migrate deploy && bunx vercel --prod
+	bunx vercel --prod

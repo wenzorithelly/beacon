@@ -44,11 +44,11 @@ export function DangerCard() {
   return (
     <Card className="border-red-500/30">
       <CardHeader>
-        <CardTitle className="text-base text-red-400">Zona de perigo</CardTitle>
+        <CardTitle className="text-base text-red-400">Danger zone</CardTitle>
         <CardDescription>
-          Apaga todos os dados do projeto — mapa, bugs, banco, rascunhos, integrações e o
-          resumo gerado — deixando o painel do zero. Suas preferências (provedor e editor)
-          são mantidas. Não dá para desfazer.
+          Erases all project data — the map, the database, drafts, the code graph and the
+          generated summary — leaving the panel empty. Your preferences (provider and
+          editor) are kept. This cannot be undone.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex items-center gap-3">
@@ -58,28 +58,28 @@ export function DangerCard() {
             disabled={busy}
           >
             <Trash2 className="size-4" />
-            {busy ? "Apagando…" : "Apagar todos os dados"}
+            {busy ? "Erasing…" : "Erase all data"}
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Apagar todos os dados?</AlertDialogTitle>
+              <AlertDialogTitle>Erase all data?</AlertDialogTitle>
               <AlertDialogDescription>
-                Isto remove permanentemente o mapa, bugs, o banco, rascunhos, integrações e o
-                resumo do projeto. Esta ação não pode ser desfeita.
+                This permanently removes the map, the database, drafts, the code graph and the
+                project summary. This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 onClick={reset}
                 className="bg-red-600 text-white hover:bg-red-500"
               >
-                Sim, apagar tudo
+                Yes, erase everything
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        {done && <span className="text-xs text-red-300">✓ dados apagados</span>}
+        {done && <span className="text-xs text-red-300">✓ data erased</span>}
       </CardContent>
     </Card>
   );

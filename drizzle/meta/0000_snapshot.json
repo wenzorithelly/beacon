@@ -1,147 +1,1220 @@
 {
-  "id": "00000000-0000-0000-0000-000000000000",
-  "prevId": "",
   "version": "6",
   "dialect": "sqlite",
+  "id": "fa511fac-e8fc-48a8-befa-aff99e22b892",
+  "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
+    "AppSetting": {
+      "name": "AppSetting",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'singleton'"
+        },
+        "intelModel": {
+          "name": "intelModel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'claude-haiku-4-5'"
+        },
+        "intelProvider": {
+          "name": "intelProvider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'auto'"
+        },
+        "editor": {
+          "name": "editor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'auto'"
+        },
+        "currentFeatureId": {
+          "name": "currentFeatureId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "CodeFile": {
+      "name": "CodeFile",
+      "columns": {
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "root": {
+          "name": "root",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "lang": {
+          "name": "lang",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "x": {
+          "name": "x",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "y": {
+          "name": "y",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "mtimeMs": {
+          "name": "mtimeMs",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "size": {
+          "name": "size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "inDegree": {
+          "name": "inDegree",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "outDegree": {
+          "name": "outDegree",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "CodeFileEdge": {
+      "name": "CodeFileEdge",
+      "columns": {
+        "fromPath": {
+          "name": "fromPath",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "toPath": {
+          "name": "toPath",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "circular": {
+          "name": "circular",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        }
+      },
+      "indexes": {
+        "CodeFileEdge_circular_idx": {
+          "name": "CodeFileEdge_circular_idx",
+          "columns": [
+            "circular"
+          ],
+          "isUnique": false
+        },
+        "CodeFileEdge_toPath_idx": {
+          "name": "CodeFileEdge_toPath_idx",
+          "columns": [
+            "toPath"
+          ],
+          "isUnique": false
+        },
+        "CodeFileEdge_fromPath_idx": {
+          "name": "CodeFileEdge_fromPath_idx",
+          "columns": [
+            "fromPath"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "CodeFileEdge_fromPath_CodeFile_path_fk": {
+          "name": "CodeFileEdge_fromPath_CodeFile_path_fk",
+          "tableFrom": "CodeFileEdge",
+          "tableTo": "CodeFile",
+          "columnsFrom": [
+            "fromPath"
+          ],
+          "columnsTo": [
+            "path"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "CodeFileEdge_toPath_CodeFile_path_fk": {
+          "name": "CodeFileEdge_toPath_CodeFile_path_fk",
+          "tableFrom": "CodeFileEdge",
+          "tableTo": "CodeFile",
+          "columnsFrom": [
+            "toPath"
+          ],
+          "columnsTo": [
+            "path"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "CodeFileEdge_fromPath_toPath_pk": {
+          "columns": [
+            "fromPath",
+            "toPath"
+          ],
+          "name": "CodeFileEdge_fromPath_toPath_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "DbColumn": {
+      "name": "DbColumn",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tableId": {
+          "name": "tableId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "isPk": {
+          "name": "isPk",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "isFk": {
+          "name": "isFk",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "nullable": {
+          "name": "nullable",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ord": {
+          "name": "ord",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "DbColumn_tableId_name_key": {
+          "name": "DbColumn_tableId_name_key",
+          "columns": [
+            "tableId",
+            "name"
+          ],
+          "isUnique": true
+        },
+        "DbColumn_tableId_idx": {
+          "name": "DbColumn_tableId_idx",
+          "columns": [
+            "tableId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "DbColumn_tableId_DbTable_id_fk": {
+          "name": "DbColumn_tableId_DbTable_id_fk",
+          "tableFrom": "DbColumn",
+          "tableTo": "DbTable",
+          "columnsFrom": [
+            "tableId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "DbRelation": {
+      "name": "DbRelation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fromTableId": {
+          "name": "fromTableId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "toTableId": {
+          "name": "toTableId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fromColumn": {
+          "name": "fromColumn",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "toColumn": {
+          "name": "toColumn",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "DbRelation_toTableId_idx": {
+          "name": "DbRelation_toTableId_idx",
+          "columns": [
+            "toTableId"
+          ],
+          "isUnique": false
+        },
+        "DbRelation_fromTableId_idx": {
+          "name": "DbRelation_fromTableId_idx",
+          "columns": [
+            "fromTableId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "DbRelation_fromTableId_DbTable_id_fk": {
+          "name": "DbRelation_fromTableId_DbTable_id_fk",
+          "tableFrom": "DbRelation",
+          "tableTo": "DbTable",
+          "columnsFrom": [
+            "fromTableId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "DbRelation_toTableId_DbTable_id_fk": {
+          "name": "DbRelation_toTableId_DbTable_id_fk",
+          "tableFrom": "DbRelation",
+          "tableTo": "DbTable",
+          "columnsFrom": [
+            "toTableId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "DbTable": {
+      "name": "DbTable",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "domain": {
+          "name": "domain",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'MANUAL'"
+        },
+        "x": {
+          "name": "x",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "y": {
+          "name": "y",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "DbTable_domain_idx": {
+          "name": "DbTable_domain_idx",
+          "columns": [
+            "domain"
+          ],
+          "isUnique": false
+        },
+        "DbTable_name_key": {
+          "name": "DbTable_name_key",
+          "columns": [
+            "name"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "DraftColumn": {
+      "name": "DraftColumn",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tableId": {
+          "name": "tableId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "isPk": {
+          "name": "isPk",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "isFk": {
+          "name": "isFk",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "nullable": {
+          "name": "nullable",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ord": {
+          "name": "ord",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "DraftColumn_tableId_idx": {
+          "name": "DraftColumn_tableId_idx",
+          "columns": [
+            "tableId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "DraftColumn_tableId_DraftTable_id_fk": {
+          "name": "DraftColumn_tableId_DraftTable_id_fk",
+          "tableFrom": "DraftColumn",
+          "tableTo": "DraftTable",
+          "columnsFrom": [
+            "tableId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "DraftRelation": {
+      "name": "DraftRelation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fromTableId": {
+          "name": "fromTableId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "toTableId": {
+          "name": "toTableId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fromColumn": {
+          "name": "fromColumn",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "toColumn": {
+          "name": "toColumn",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "DraftRelation_toTableId_idx": {
+          "name": "DraftRelation_toTableId_idx",
+          "columns": [
+            "toTableId"
+          ],
+          "isUnique": false
+        },
+        "DraftRelation_fromTableId_idx": {
+          "name": "DraftRelation_fromTableId_idx",
+          "columns": [
+            "fromTableId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "DraftRelation_fromTableId_DraftTable_id_fk": {
+          "name": "DraftRelation_fromTableId_DraftTable_id_fk",
+          "tableFrom": "DraftRelation",
+          "tableTo": "DraftTable",
+          "columnsFrom": [
+            "fromTableId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "DraftRelation_toTableId_DraftTable_id_fk": {
+          "name": "DraftRelation_toTableId_DraftTable_id_fk",
+          "tableFrom": "DraftRelation",
+          "tableTo": "DraftTable",
+          "columnsFrom": [
+            "toTableId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "DraftTable": {
+      "name": "DraftTable",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "domain": {
+          "name": "domain",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "x": {
+          "name": "x",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "y": {
+          "name": "y",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "DraftTable_name_key": {
+          "name": "DraftTable_name_key",
+          "columns": [
+            "name"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "Edge": {
+      "name": "Edge",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fromId": {
+          "name": "fromId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "toId": {
+          "name": "toId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'DEPENDS'"
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sourceHandle": {
+          "name": "sourceHandle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "targetHandle": {
+          "name": "targetHandle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "Edge_fromId_toId_kind_key": {
+          "name": "Edge_fromId_toId_kind_key",
+          "columns": [
+            "fromId",
+            "toId",
+            "kind"
+          ],
+          "isUnique": true
+        },
+        "Edge_toId_idx": {
+          "name": "Edge_toId_idx",
+          "columns": [
+            "toId"
+          ],
+          "isUnique": false
+        },
+        "Edge_fromId_idx": {
+          "name": "Edge_fromId_idx",
+          "columns": [
+            "fromId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "Edge_fromId_Node_id_fk": {
+          "name": "Edge_fromId_Node_id_fk",
+          "tableFrom": "Edge",
+          "tableTo": "Node",
+          "columnsFrom": [
+            "fromId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "Edge_toId_Node_id_fk": {
+          "name": "Edge_toId_Node_id_fk",
+          "tableFrom": "Edge",
+          "tableTo": "Node",
+          "columnsFrom": [
+            "toId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "Endpoint": {
+      "name": "Endpoint",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "method": {
+          "name": "method",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "domain": {
+          "name": "domain",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'MANUAL'"
+        },
+        "x": {
+          "name": "x",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "y": {
+          "name": "y",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "Endpoint_method_path_key": {
+          "name": "Endpoint_method_path_key",
+          "columns": [
+            "method",
+            "path"
+          ],
+          "isUnique": true
+        },
+        "Endpoint_domain_idx": {
+          "name": "Endpoint_domain_idx",
+          "columns": [
+            "domain"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "EndpointTable": {
+      "name": "EndpointTable",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "endpointId": {
+          "name": "endpointId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tableId": {
+          "name": "tableId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "access": {
+          "name": "access",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'read'"
+        }
+      },
+      "indexes": {
+        "EndpointTable_endpointId_tableId_key": {
+          "name": "EndpointTable_endpointId_tableId_key",
+          "columns": [
+            "endpointId",
+            "tableId"
+          ],
+          "isUnique": true
+        },
+        "EndpointTable_tableId_idx": {
+          "name": "EndpointTable_tableId_idx",
+          "columns": [
+            "tableId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "EndpointTable_endpointId_Endpoint_id_fk": {
+          "name": "EndpointTable_endpointId_Endpoint_id_fk",
+          "tableFrom": "EndpointTable",
+          "tableTo": "Endpoint",
+          "columnsFrom": [
+            "endpointId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "EndpointTable_tableId_DbTable_id_fk": {
+          "name": "EndpointTable_tableId_DbTable_id_fk",
+          "tableFrom": "EndpointTable",
+          "tableTo": "DbTable",
+          "columnsFrom": [
+            "tableId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "Node": {
       "name": "Node",
       "columns": {
         "id": {
-          "autoincrement": false,
           "name": "id",
           "type": "text",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "view": {
-          "autoincrement": false,
           "name": "view",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "cluster": {
-          "autoincrement": false,
           "name": "cluster",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "title": {
-          "autoincrement": false,
           "name": "title",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "role": {
-          "autoincrement": false,
           "name": "role",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "plain": {
-          "autoincrement": false,
           "name": "plain",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "status": {
-          "default": "'PENDING'",
-          "autoincrement": false,
           "name": "status",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'PENDING'"
         },
         "priority": {
-          "default": 2,
-          "autoincrement": false,
           "name": "priority",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false,
+          "default": 2
         },
         "progress": {
-          "default": 0,
-          "autoincrement": false,
           "name": "progress",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "x": {
-          "default": 0,
-          "autoincrement": false,
           "name": "x",
           "type": "real",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "y": {
-          "default": 0,
-          "autoincrement": false,
           "name": "y",
           "type": "real",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "sourceRef": {
-          "autoincrement": false,
           "name": "sourceRef",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "externalId": {
-          "autoincrement": false,
           "name": "externalId",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "source": {
-          "default": "'MANUAL'",
-          "autoincrement": false,
           "name": "source",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'MANUAL'"
         },
         "parentId": {
-          "autoincrement": false,
           "name": "parentId",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "createdAt": {
-          "default": "(CURRENT_TIMESTAMP)",
-          "autoincrement": false,
           "name": "createdAt",
-          "type": "numeric",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "updatedAt": {
-          "autoincrement": false,
           "name": "updatedAt",
-          "type": "numeric",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "embedding": {
-          "autoincrement": false,
           "name": "embedding",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         }
       },
-      "compositePrimaryKeys": {},
       "indexes": {
         "Node_cluster_idx": {
           "name": "Node_cluster_idx",
@@ -180,6 +1253,7 @@
           "onUpdate": "cascade"
         }
       },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -187,28 +1261,27 @@
       "name": "NodeFile",
       "columns": {
         "id": {
-          "autoincrement": false,
           "name": "id",
           "type": "text",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "nodeId": {
-          "autoincrement": false,
           "name": "nodeId",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "path": {
-          "autoincrement": false,
           "name": "path",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         }
       },
-      "compositePrimaryKeys": {},
       "indexes": {
         "NodeFile_nodeId_path_key": {
           "name": "NodeFile_nodeId_path_key",
@@ -241,1030 +1314,7 @@
           "onUpdate": "cascade"
         }
       },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "Tag": {
-      "name": "Tag",
-      "columns": {
-        "id": {
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "label": {
-          "autoincrement": false,
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "color": {
-          "autoincrement": false,
-          "name": "color",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
       "compositePrimaryKeys": {},
-      "indexes": {
-        "Tag_label_key": {
-          "name": "Tag_label_key",
-          "columns": [
-            "label"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "Edge": {
-      "name": "Edge",
-      "columns": {
-        "id": {
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "fromId": {
-          "autoincrement": false,
-          "name": "fromId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "toId": {
-          "autoincrement": false,
-          "name": "toId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "default": "'DEPENDS'",
-          "autoincrement": false,
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label": {
-          "autoincrement": false,
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sourceHandle": {
-          "autoincrement": false,
-          "name": "sourceHandle",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "targetHandle": {
-          "autoincrement": false,
-          "name": "targetHandle",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "compositePrimaryKeys": {},
-      "indexes": {
-        "Edge_fromId_toId_kind_key": {
-          "name": "Edge_fromId_toId_kind_key",
-          "columns": [
-            "fromId",
-            "toId",
-            "kind"
-          ],
-          "isUnique": true
-        },
-        "Edge_toId_idx": {
-          "name": "Edge_toId_idx",
-          "columns": [
-            "toId"
-          ],
-          "isUnique": false
-        },
-        "Edge_fromId_idx": {
-          "name": "Edge_fromId_idx",
-          "columns": [
-            "fromId"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "Edge_toId_Node_id_fk": {
-          "name": "Edge_toId_Node_id_fk",
-          "tableFrom": "Edge",
-          "tableTo": "Node",
-          "columnsFrom": [
-            "toId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        },
-        "Edge_fromId_Node_id_fk": {
-          "name": "Edge_fromId_Node_id_fk",
-          "tableFrom": "Edge",
-          "tableTo": "Node",
-          "columnsFrom": [
-            "fromId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "DbTable": {
-      "name": "DbTable",
-      "columns": {
-        "id": {
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "name": {
-          "autoincrement": false,
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "domain": {
-          "autoincrement": false,
-          "name": "domain",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "description": {
-          "autoincrement": false,
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source": {
-          "default": "'MANUAL'",
-          "autoincrement": false,
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "x": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "x",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "y": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "y",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "createdAt": {
-          "default": "(CURRENT_TIMESTAMP)",
-          "autoincrement": false,
-          "name": "createdAt",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updatedAt": {
-          "autoincrement": false,
-          "name": "updatedAt",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "compositePrimaryKeys": {},
-      "indexes": {
-        "DbTable_domain_idx": {
-          "name": "DbTable_domain_idx",
-          "columns": [
-            "domain"
-          ],
-          "isUnique": false
-        },
-        "DbTable_name_key": {
-          "name": "DbTable_name_key",
-          "columns": [
-            "name"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "DbColumn": {
-      "name": "DbColumn",
-      "columns": {
-        "id": {
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "tableId": {
-          "autoincrement": false,
-          "name": "tableId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "autoincrement": false,
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "type": {
-          "autoincrement": false,
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "isPk": {
-          "default": false,
-          "autoincrement": false,
-          "name": "isPk",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "isFk": {
-          "default": false,
-          "autoincrement": false,
-          "name": "isFk",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "nullable": {
-          "default": true,
-          "autoincrement": false,
-          "name": "nullable",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "note": {
-          "autoincrement": false,
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ord": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "ord",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "compositePrimaryKeys": {},
-      "indexes": {
-        "DbColumn_tableId_name_key": {
-          "name": "DbColumn_tableId_name_key",
-          "columns": [
-            "tableId",
-            "name"
-          ],
-          "isUnique": true
-        },
-        "DbColumn_tableId_idx": {
-          "name": "DbColumn_tableId_idx",
-          "columns": [
-            "tableId"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "DbColumn_tableId_DbTable_id_fk": {
-          "name": "DbColumn_tableId_DbTable_id_fk",
-          "tableFrom": "DbColumn",
-          "tableTo": "DbTable",
-          "columnsFrom": [
-            "tableId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "DbRelation": {
-      "name": "DbRelation",
-      "columns": {
-        "id": {
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "fromTableId": {
-          "autoincrement": false,
-          "name": "fromTableId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "toTableId": {
-          "autoincrement": false,
-          "name": "toTableId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "fromColumn": {
-          "autoincrement": false,
-          "name": "fromColumn",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "toColumn": {
-          "autoincrement": false,
-          "name": "toColumn",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label": {
-          "autoincrement": false,
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "compositePrimaryKeys": {},
-      "indexes": {
-        "DbRelation_toTableId_idx": {
-          "name": "DbRelation_toTableId_idx",
-          "columns": [
-            "toTableId"
-          ],
-          "isUnique": false
-        },
-        "DbRelation_fromTableId_idx": {
-          "name": "DbRelation_fromTableId_idx",
-          "columns": [
-            "fromTableId"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "DbRelation_toTableId_DbTable_id_fk": {
-          "name": "DbRelation_toTableId_DbTable_id_fk",
-          "tableFrom": "DbRelation",
-          "tableTo": "DbTable",
-          "columnsFrom": [
-            "toTableId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        },
-        "DbRelation_fromTableId_DbTable_id_fk": {
-          "name": "DbRelation_fromTableId_DbTable_id_fk",
-          "tableFrom": "DbRelation",
-          "tableTo": "DbTable",
-          "columnsFrom": [
-            "fromTableId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "Endpoint": {
-      "name": "Endpoint",
-      "columns": {
-        "id": {
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "method": {
-          "autoincrement": false,
-          "name": "method",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "path": {
-          "autoincrement": false,
-          "name": "path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "domain": {
-          "autoincrement": false,
-          "name": "domain",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "description": {
-          "autoincrement": false,
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source": {
-          "default": "'MANUAL'",
-          "autoincrement": false,
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "x": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "x",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "y": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "y",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "createdAt": {
-          "default": "(CURRENT_TIMESTAMP)",
-          "autoincrement": false,
-          "name": "createdAt",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updatedAt": {
-          "autoincrement": false,
-          "name": "updatedAt",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "compositePrimaryKeys": {},
-      "indexes": {
-        "Endpoint_method_path_key": {
-          "name": "Endpoint_method_path_key",
-          "columns": [
-            "method",
-            "path"
-          ],
-          "isUnique": true
-        },
-        "Endpoint_domain_idx": {
-          "name": "Endpoint_domain_idx",
-          "columns": [
-            "domain"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "EndpointTable": {
-      "name": "EndpointTable",
-      "columns": {
-        "id": {
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "endpointId": {
-          "autoincrement": false,
-          "name": "endpointId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "tableId": {
-          "autoincrement": false,
-          "name": "tableId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "access": {
-          "default": "'read'",
-          "autoincrement": false,
-          "name": "access",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "compositePrimaryKeys": {},
-      "indexes": {
-        "EndpointTable_endpointId_tableId_key": {
-          "name": "EndpointTable_endpointId_tableId_key",
-          "columns": [
-            "endpointId",
-            "tableId"
-          ],
-          "isUnique": true
-        },
-        "EndpointTable_tableId_idx": {
-          "name": "EndpointTable_tableId_idx",
-          "columns": [
-            "tableId"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "EndpointTable_tableId_DbTable_id_fk": {
-          "name": "EndpointTable_tableId_DbTable_id_fk",
-          "tableFrom": "EndpointTable",
-          "tableTo": "DbTable",
-          "columnsFrom": [
-            "tableId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        },
-        "EndpointTable_endpointId_Endpoint_id_fk": {
-          "name": "EndpointTable_endpointId_Endpoint_id_fk",
-          "tableFrom": "EndpointTable",
-          "tableTo": "Endpoint",
-          "columnsFrom": [
-            "endpointId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "SyncState": {
-      "name": "SyncState",
-      "columns": {
-        "id": {
-          "default": "'singleton'",
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "version": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updatedAt": {
-          "autoincrement": false,
-          "name": "updatedAt",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "codeGraphSyncedAt": {
-          "autoincrement": false,
-          "name": "codeGraphSyncedAt",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "compositePrimaryKeys": {},
-      "indexes": {},
-      "foreignKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "AppSetting": {
-      "name": "AppSetting",
-      "columns": {
-        "id": {
-          "default": "'singleton'",
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "intelModel": {
-          "default": "'claude-haiku-4-5'",
-          "autoincrement": false,
-          "name": "intelModel",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "intelProvider": {
-          "default": "'auto'",
-          "autoincrement": false,
-          "name": "intelProvider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "editor": {
-          "default": "'auto'",
-          "autoincrement": false,
-          "name": "editor",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "currentFeatureId": {
-          "autoincrement": false,
-          "name": "currentFeatureId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updatedAt": {
-          "autoincrement": false,
-          "name": "updatedAt",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "compositePrimaryKeys": {},
-      "indexes": {},
-      "foreignKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "ProjectMeta": {
-      "name": "ProjectMeta",
-      "columns": {
-        "id": {
-          "default": "'singleton'",
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "overview": {
-          "autoincrement": false,
-          "name": "overview",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "conventions": {
-          "default": "'[]'",
-          "autoincrement": false,
-          "name": "conventions",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updatedAt": {
-          "autoincrement": false,
-          "name": "updatedAt",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "compositePrimaryKeys": {},
-      "indexes": {},
-      "foreignKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "DraftTable": {
-      "name": "DraftTable",
-      "columns": {
-        "id": {
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "name": {
-          "autoincrement": false,
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "domain": {
-          "autoincrement": false,
-          "name": "domain",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "description": {
-          "autoincrement": false,
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "x": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "x",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "y": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "y",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "createdAt": {
-          "default": "(CURRENT_TIMESTAMP)",
-          "autoincrement": false,
-          "name": "createdAt",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "compositePrimaryKeys": {},
-      "indexes": {
-        "DraftTable_name_key": {
-          "name": "DraftTable_name_key",
-          "columns": [
-            "name"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "DraftColumn": {
-      "name": "DraftColumn",
-      "columns": {
-        "id": {
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "tableId": {
-          "autoincrement": false,
-          "name": "tableId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "autoincrement": false,
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "type": {
-          "autoincrement": false,
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "isPk": {
-          "default": false,
-          "autoincrement": false,
-          "name": "isPk",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "isFk": {
-          "default": false,
-          "autoincrement": false,
-          "name": "isFk",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "nullable": {
-          "default": true,
-          "autoincrement": false,
-          "name": "nullable",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "note": {
-          "autoincrement": false,
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ord": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "ord",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "compositePrimaryKeys": {},
-      "indexes": {
-        "DraftColumn_tableId_idx": {
-          "name": "DraftColumn_tableId_idx",
-          "columns": [
-            "tableId"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "DraftColumn_tableId_DraftTable_id_fk": {
-          "name": "DraftColumn_tableId_DraftTable_id_fk",
-          "tableFrom": "DraftColumn",
-          "tableTo": "DraftTable",
-          "columnsFrom": [
-            "tableId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "DraftRelation": {
-      "name": "DraftRelation",
-      "columns": {
-        "id": {
-          "autoincrement": false,
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "fromTableId": {
-          "autoincrement": false,
-          "name": "fromTableId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "toTableId": {
-          "autoincrement": false,
-          "name": "toTableId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "fromColumn": {
-          "autoincrement": false,
-          "name": "fromColumn",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "toColumn": {
-          "autoincrement": false,
-          "name": "toColumn",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label": {
-          "autoincrement": false,
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "compositePrimaryKeys": {},
-      "indexes": {
-        "DraftRelation_toTableId_idx": {
-          "name": "DraftRelation_toTableId_idx",
-          "columns": [
-            "toTableId"
-          ],
-          "isUnique": false
-        },
-        "DraftRelation_fromTableId_idx": {
-          "name": "DraftRelation_fromTableId_idx",
-          "columns": [
-            "fromTableId"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "DraftRelation_toTableId_DraftTable_id_fk": {
-          "name": "DraftRelation_toTableId_DraftTable_id_fk",
-          "tableFrom": "DraftRelation",
-          "tableTo": "DraftTable",
-          "columnsFrom": [
-            "toTableId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        },
-        "DraftRelation_fromTableId_DraftTable_id_fk": {
-          "name": "DraftRelation_fromTableId_DraftTable_id_fk",
-          "tableFrom": "DraftRelation",
-          "tableTo": "DraftTable",
-          "columnsFrom": [
-            "fromTableId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -1272,29 +1322,21 @@
       "name": "_NodeTags",
       "columns": {
         "A": {
-          "autoincrement": false,
           "name": "A",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "B": {
-          "autoincrement": false,
           "name": "B",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         }
       },
-      "compositePrimaryKeys": {},
       "indexes": {
-        "_NodeTags_B_index": {
-          "name": "_NodeTags_B_index",
-          "columns": [
-            "B"
-          ],
-          "isUnique": false
-        },
         "_NodeTags_AB_unique": {
           "name": "_NodeTags_AB_unique",
           "columns": [
@@ -1302,22 +1344,16 @@
             "B"
           ],
           "isUnique": true
+        },
+        "_NodeTags_B_index": {
+          "name": "_NodeTags_B_index",
+          "columns": [
+            "B"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
-        "_NodeTags_B_Tag_id_fk": {
-          "name": "_NodeTags_B_Tag_id_fk",
-          "tableFrom": "_NodeTags",
-          "tableTo": "Tag",
-          "columnsFrom": [
-            "B"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        },
         "_NodeTags_A_Node_id_fk": {
           "name": "_NodeTags_A_Node_id_fk",
           "tableFrom": "_NodeTags",
@@ -1330,181 +1366,22 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "cascade"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "CodeFileEdge": {
-      "name": "CodeFileEdge",
-      "columns": {
-        "fromPath": {
-          "autoincrement": false,
-          "name": "fromPath",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
         },
-        "toPath": {
-          "autoincrement": false,
-          "name": "toPath",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "circular": {
-          "default": false,
-          "autoincrement": false,
-          "name": "circular",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "compositePrimaryKeys": {
-        "CodeFileEdge_fromPath_toPath_pk": {
-          "columns": [
-            "fromPath",
-            "toPath"
-          ],
-          "name": "CodeFileEdge_fromPath_toPath_pk"
-        }
-      },
-      "indexes": {
-        "CodeFileEdge_circular_idx": {
-          "name": "CodeFileEdge_circular_idx",
-          "columns": [
-            "circular"
-          ],
-          "isUnique": false
-        },
-        "CodeFileEdge_toPath_idx": {
-          "name": "CodeFileEdge_toPath_idx",
-          "columns": [
-            "toPath"
-          ],
-          "isUnique": false
-        },
-        "CodeFileEdge_fromPath_idx": {
-          "name": "CodeFileEdge_fromPath_idx",
-          "columns": [
-            "fromPath"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "CodeFileEdge_toPath_CodeFile_path_fk": {
-          "name": "CodeFileEdge_toPath_CodeFile_path_fk",
-          "tableFrom": "CodeFileEdge",
-          "tableTo": "CodeFile",
+        "_NodeTags_B_Tag_id_fk": {
+          "name": "_NodeTags_B_Tag_id_fk",
+          "tableFrom": "_NodeTags",
+          "tableTo": "Tag",
           "columnsFrom": [
-            "toPath"
+            "B"
           ],
           "columnsTo": [
-            "path"
+            "id"
           ],
           "onDelete": "cascade",
           "onUpdate": "cascade"
-        },
-        "CodeFileEdge_fromPath_CodeFile_path_fk": {
-          "name": "CodeFileEdge_fromPath_CodeFile_path_fk",
-          "tableFrom": "CodeFileEdge",
-          "tableTo": "CodeFile",
-          "columnsFrom": [
-            "fromPath"
-          ],
-          "columnsTo": [
-            "path"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "CodeFile": {
-      "name": "CodeFile",
-      "columns": {
-        "path": {
-          "autoincrement": false,
-          "name": "path",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "root": {
-          "autoincrement": false,
-          "name": "root",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "lang": {
-          "autoincrement": false,
-          "name": "lang",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "x": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "x",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "y": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "y",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "mtimeMs": {
-          "autoincrement": false,
-          "name": "mtimeMs",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "size": {
-          "autoincrement": false,
-          "name": "size",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "inDegree": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "inDegree",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "outDegree": {
-          "default": 0,
-          "autoincrement": false,
-          "name": "outDegree",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updatedAt": {
-          "autoincrement": false,
-          "name": "updatedAt",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
         }
       },
       "compositePrimaryKeys": {},
-      "indexes": {},
-      "foreignKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -1512,61 +1389,59 @@
       "name": "Note",
       "columns": {
         "id": {
-          "autoincrement": false,
           "name": "id",
           "type": "text",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "title": {
-          "default": "'Untitled'",
-          "autoincrement": false,
           "name": "title",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'Untitled'"
         },
         "body": {
-          "default": "''",
-          "autoincrement": false,
           "name": "body",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
         },
         "ord": {
-          "default": 0,
-          "autoincrement": false,
           "name": "ord",
           "type": "real",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "pinned": {
-          "default": false,
-          "autoincrement": false,
           "name": "pinned",
-          "type": "numeric",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "createdAt": {
-          "default": "(CURRENT_TIMESTAMP)",
-          "autoincrement": false,
           "name": "createdAt",
-          "type": "numeric",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "updatedAt": {
-          "autoincrement": false,
           "name": "updatedAt",
-          "type": "numeric",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         }
       },
-      "compositePrimaryKeys": {},
       "indexes": {
         "Note_updatedAt_idx": {
           "name": "Note_updatedAt_idx",
@@ -1577,6 +1452,126 @@
         }
       },
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "ProjectMeta": {
+      "name": "ProjectMeta",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'singleton'"
+        },
+        "overview": {
+          "name": "overview",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "conventions": {
+          "name": "conventions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "SyncState": {
+      "name": "SyncState",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'singleton'"
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "codeGraphSyncedAt": {
+          "name": "codeGraphSyncedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "Tag": {
+      "name": "Tag",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "color": {
+          "name": "color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "Tag_label_key": {
+          "name": "Tag_label_key",
+          "columns": [
+            "label"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     }
@@ -1587,5 +1582,8 @@
     "schemas": {},
     "tables": {},
     "columns": {}
+  },
+  "internal": {
+    "indexes": {}
   }
 }

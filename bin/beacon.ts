@@ -17,28 +17,56 @@ const BEACON_HOME = process.env.BEACON_HOME || join(homedir(), ".beacon");
 const SERVER_FILE = join(BEACON_HOME, "server.json");
 const PORT = process.env.PORT || "4319";
 
-// Subcommands: `beacon init` (map an existing repo) / `beacon mcp` (MCP server) /
-// `beacon hook` (PostToolUse reporter) / `beacon stop` (stop the daemon).
+// Subcommands. Anything not listed falls through to `launchPanel()`, which opens the
+// browser-side control panel for the current repo (the everyday `beacon` usage).
+//   beacon mcp        — MCP stdio server (Claude Code spawns this via .mcp.json)
+//   beacon hook       — PostToolUse hook handler (reports edits to the active feature)
+//   beacon plan       — PermissionRequest hook handler (pipes ExitPlanMode → /plan)
+//   beacon prompt     — UserPromptSubmit hook handler (nudges the feature loop)
+//   beacon stop-hook  — Stop hook handler (nudges prose plan-approval → present on /plan)
+//   beacon stop       — stop the shared daemon
+//   beacon setup      — (re-)install per-repo skills + .mcp.json in CWD
+//   beacon doctor     — audit install state (global hooks/skills + this repo's wiring)
+//   beacon uninstall  — reverse every Beacon artifact (global + per-repo)
 const sub = process.argv[2];
-if (sub === "init") {
-  await import(join(pkgDir, "bin/init.ts"));
-} else if (sub === "mcp") {
+if (sub === "mcp") {
   await import(join(pkgDir, "bin/mcp.ts"));
 } else if (sub === "hook") {
   await import(join(pkgDir, "bin/hook.ts"));
+} else if (sub === "plan") {
+  await import(join(pkgDir, "bin/plan.ts"));
+} else if (sub === "prompt") {
+  await import(join(pkgDir, "bin/prompt.ts"));
+} else if (sub === "stop-hook") {
+  await import(join(pkgDir, "bin/stop-hook.ts"));
 } else if (sub === "stop") {
   stopDaemon();
 } else if (sub === "setup") {
   await setupRepo(gitToplevel() || cwd);
+} else if (sub === "doctor") {
+  await import(join(pkgDir, "bin/doctor.ts"));
+} else if (sub === "uninstall") {
+  await import(join(pkgDir, "bin/uninstall.ts"));
 } else {
   await launchPanel();
 }
 
-// Install Beacon's helpers into a repo: the DB-design skill + the MCP server, so the
-// repo's Claude Code sessions can design schemas onto /db and read Beacon's data.
+// Install Beacon's helpers into a repo: skills + the MCP server registration.
+// The user's Claude Code sessions then have:
+//   • /beacon-init — read this repo and map it into Beacon (replaces the old `beacon init` CLI)
+//   • /beacon-db-design — design schema for a feature and preview on /db
+//   • beacon_* MCP tools — read the map, propose plans, register feature work
 async function setupRepo(repo: string, quiet = false) {
-  const { installSkill, ensureMcp, ensureWorkflowDoc } = await import(join(pkgDir, "lib/assets.ts"));
-  const skill = installSkill(repo);
+  const { installInitSkill, installRefreshSkill, ensureMcp, ensureWorkflowDoc } = await import(
+    join(pkgDir, "lib/assets.ts")
+  );
+  const { selfHealGlobal } = await import(join(pkgDir, "lib/global-install.ts"));
+  // `beacon setup` is the explicit fix-it command — heal the global ~/.claude/ layer
+  // here too so a user running it after a manual cleanup doesn't have to also run
+  // bare `beacon` to re-trigger launchPanel's global install.
+  await selfHealGlobal();
+  const initSkill = installInitSkill(repo);
+  const refreshSkill = installRefreshSkill(repo);
   ensureWorkflowDoc(repo);
   const mcp = ensureMcp(repo);
   if (quiet) {
@@ -49,11 +77,12 @@ async function setupRepo(repo: string, quiet = false) {
     }
   } else {
     console.log(`\n  ◉ Beacon setup · ${repo}`);
-    console.log(`  ✓ skill:  ${skill}`);
+    console.log(`  ✓ skill:  ${initSkill}`);
+    console.log(`  ✓ skill:  ${refreshSkill}`);
     console.log(`  ${mcp.added ? "✓ added " : "· kept  "} Beacon MCP in ${mcp.path}`);
-    console.log(`  → in this repo, ask Claude Code to "design the database for <feature>".\n`);
+    console.log(`  → in this repo, run /beacon-init in Claude Code to map the repo.\n`);
   }
-  return { skill, mcp };
+  return { initSkill, refreshSkill, mcp };
 }
 
 function gitToplevel(): string {
@@ -104,7 +133,7 @@ function startDaemon(): { pid: number; port: string } {
   mkdirSync(BEACON_HOME, { recursive: true });
   const log = openSync(join(BEACON_HOME, "server.log"), "a");
   // No BEACON_REPO → the server follows the active workspace (multi-workspace mode).
-  const env = { ...process.env, PORT, BEACON_NO_OPEN: "1" };
+  const env: NodeJS.ProcessEnv = { ...process.env, PORT, BEACON_NO_OPEN: "1" };
   delete env.BEACON_REPO;
   delete env.BEACON_DATA_DIR;
   delete env.DATABASE_URL;
@@ -132,29 +161,6 @@ async function ensureDaemon(): Promise<string> {
   return port;
 }
 
-// One watcher per repo, tracked by a pidfile in the repo's data dir.
-function ensureWatcher(repo: string, data: string, dbUrl: string, port: string) {
-  const pidFile = join(data, "watcher.pid");
-  const prev = readJson<{ pid: number }>(pidFile);
-  if (prev && isAlive(prev.pid)) return;
-  const log = openSync(join(data, "watcher.log"), "a");
-  const env = {
-    ...process.env,
-    BEACON_REPO: repo,
-    BEACON_DATA_DIR: data,
-    DATABASE_URL: dbUrl,
-    PORT: port,
-  };
-  const child = spawn("bun", ["run", "intel/watch.ts"], {
-    cwd: pkgDir,
-    env,
-    detached: true,
-    stdio: ["ignore", log, log],
-  });
-  child.unref();
-  writeFileSync(pidFile, JSON.stringify({ pid: child.pid ?? 0 }));
-}
-
 function openBrowser(url: string) {
   if (process.env.BEACON_NO_OPEN) return;
   const opener = platform() === "darwin" ? "open" : platform() === "win32" ? "start" : "xdg-open";
@@ -167,33 +173,50 @@ function openBrowser(url: string) {
 
 async function launchPanel() {
   const repo = gitToplevel() || cwd;
-  const { addWorkspace, idForPath, dataDirFor, dbUrlFor } = await import(
+  const { addWorkspace, idForPath, dataDirFor, ensureWorkspaceDb } = await import(
     join(pkgDir, "lib/workspaces.ts")
   );
   const id = idForPath(repo);
   const data = dataDirFor(id);
-  const dbUrl = dbUrlFor(id);
-  mkdirSync(data, { recursive: true });
 
-  // First run for this repo: create its database + install Beacon's Claude Code helpers.
-  if (!existsSync(join(data, "db.sqlite"))) {
-    console.log(`[beacon] first run for ${repo} — creating database…`);
-    execSync(
-      `bunx prisma db push --url "${dbUrl}" --schema "${join(pkgDir, "prisma/schema.prisma")}"`,
-      { cwd: pkgDir, env: { ...process.env, DATABASE_URL: dbUrl }, stdio: "inherit" },
+  // First run for this repo: create its database (in-process via libSQL — see
+  // lib/drizzle/provision) + install Beacon's Claude Code helpers.
+  const firstRun = !existsSync(join(data, "db.sqlite"));
+  if (firstRun) console.log(`[beacon] first run for ${repo} — creating database…`);
+  const provisioned = await ensureWorkspaceDb(id);
+  if (!provisioned.ok) {
+    console.error(`[beacon] failed to provision database: ${provisioned.error}`);
+  }
+  if (firstRun) {
+    console.log(
+      "[beacon] tip: already have code here? run `/beacon-init` in Claude Code to map the project.",
     );
-    console.log("[beacon] tip: already have code here? run `beacon init` to map the project.");
   }
 
   // Always ensure Beacon's Claude Code helpers are installed (idempotent): the skill +
   // the MCP registration, so @beacon mentions + the design skill work in this repo.
   await setupRepo(repo, true);
 
-  // Register the repo, ensure the shared server + a per-repo watcher, then open the
-  // browser straight onto this repo (activate makes it the server's active workspace).
+  // Also install GLOBAL assets in ~/.claude/ — skills + settings.json hooks + CLAUDE.md
+  // block — so every Claude Code session on this machine, in every repo, can discover
+  // Beacon. Idempotent: prints only what actually changed.
+  const { setupGlobalAssets } = await import(join(pkgDir, "lib/global-install.ts"));
+  const g = (await setupGlobalAssets()) as Awaited<
+    ReturnType<typeof import("../lib/global-install").setupGlobalAssets>
+  >;
+  const globalChanges: string[] = [];
+  if (g.skillsAdded.length) globalChanges.push(`skills ${g.skillsAdded.join(", ")}`);
+  if (g.hooksAdded) globalChanges.push(`${g.hooksAdded} Claude Code hook${g.hooksAdded === 1 ? "" : "s"}`);
+  if (g.claudeMdBlockTouched) globalChanges.push("global CLAUDE.md block");
+  if (globalChanges.length)
+    console.log(`[beacon] wired into ~/.claude/: ${globalChanges.join(" + ")}.`);
+
+  // Register the repo, ensure the shared server, then open the browser straight onto this
+  // repo (activate makes it the server's active workspace). The intel pipeline is MANUAL —
+  // the user triggers it from Settings → "Sync code map" when they want fresh data.
   addWorkspace(repo);
   const port = await ensureDaemon();
-  ensureWatcher(repo, data, dbUrl, port);
+  void data;
   const activate = `http://localhost:${port}/api/workspace/activate?id=${id}&redirect=/map`;
 
   console.log(

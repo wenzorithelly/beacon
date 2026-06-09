@@ -1,14 +1,23 @@
 import { beforeEach, describe, expect, it } from "bun:test";
+import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
+import {
+  endpointTable,
+  endpoint,
+  dbRelation,
+  dbColumn,
+  dbTable,
+  syncState,
+} from "@/lib/drizzle/schema";
 import { getVersion, ingestSnapshot, type Snapshot } from "@/lib/ingest";
 
 async function resetDbDesign() {
-  await db.endpointTable.deleteMany();
-  await db.endpoint.deleteMany();
-  await db.dbRelation.deleteMany();
-  await db.dbColumn.deleteMany();
-  await db.dbTable.deleteMany();
-  await db.syncState.deleteMany();
+  await db.delete(endpointTable);
+  await db.delete(endpoint);
+  await db.delete(dbRelation);
+  await db.delete(dbColumn);
+  await db.delete(dbTable);
+  await db.delete(syncState);
 }
 
 beforeEach(resetDbDesign);
@@ -50,15 +59,18 @@ describe("ingestSnapshot", () => {
     const r = await ingestSnapshot(SNAP);
     expect(r).toMatchObject({ tables: 2, relations: 1, endpoints: 1, version: 1 });
 
-    const firms = await db.dbTable.findUnique({
-      where: { name: "firms" },
-      include: { columns: true, fksIn: true },
+    const firms = await db.query.dbTable.findFirst({
+      where: (t, { eq }) => eq(t.name, "firms"),
+      with: { columns: true, fksIn: true },
     });
     expect(firms!.source).toBe("INTROSPECTION");
     expect(firms!.columns).toHaveLength(2);
     expect(firms!.fksIn).toHaveLength(1);
 
-    const ep = await db.endpoint.findFirst({ where: { path: "/auth/register" }, include: { tables: true } });
+    const ep = await db.query.endpoint.findFirst({
+      where: (t, { eq }) => eq(t.path, "/auth/register"),
+      with: { tables: true },
+    });
     expect(ep!.source).toBe("INTROSPECTION");
     expect(ep!.tables).toHaveLength(2);
   });
@@ -67,36 +79,45 @@ describe("ingestSnapshot", () => {
     await ingestSnapshot(SNAP);
     await ingestSnapshot({ ...SNAP, tables: SNAP.tables!.filter((t) => t.name !== "users") });
 
-    expect(await db.dbTable.findUnique({ where: { name: "users" } })).toBeNull();
-    expect(await db.dbTable.findUnique({ where: { name: "firms" } })).not.toBeNull();
+    expect(
+      await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "users") }),
+    ).toBeUndefined();
+    expect(
+      await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "firms") }),
+    ).not.toBeUndefined();
   });
 
   it("preserves manually-set positions across re-ingest", async () => {
     await ingestSnapshot(SNAP);
-    await db.dbTable.update({ where: { name: "firms" }, data: { x: 999, y: 888 } });
+    await db.update(dbTable).set({ x: 999, y: 888 }).where(eq(dbTable.name, "firms"));
     await ingestSnapshot(SNAP);
-    const firms = await db.dbTable.findUnique({ where: { name: "firms" } });
+    const firms = await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "firms") });
     expect(firms!.x).toBe(999);
     expect(firms!.y).toBe(888);
   });
 
   it("never touches manual (hand-authored) entities", async () => {
-    await db.dbTable.create({ data: { name: "manual_table", source: "MANUAL" } });
+    await db.insert(dbTable).values({ name: "manual_table", source: "MANUAL" });
     await ingestSnapshot(SNAP);
-    const manual = await db.dbTable.findUnique({ where: { name: "manual_table" } });
-    expect(manual).not.toBeNull();
+    const manual = await db.query.dbTable.findFirst({
+      where: (t, { eq }) => eq(t.name, "manual_table"),
+    });
+    expect(manual).not.toBeUndefined();
     expect(manual!.source).toBe("MANUAL");
   });
 
   it("can link a usage to a manual table by name", async () => {
-    await db.dbTable.create({ data: { name: "legacy_audit", source: "MANUAL" } });
+    await db.insert(dbTable).values({ name: "legacy_audit", source: "MANUAL" });
     await ingestSnapshot({
       tables: [{ name: "events", columns: [{ name: "id", type: "UUID", isPk: true }] }],
       endpoints: [
         { method: "GET", path: "/events", uses: [{ table: "legacy_audit", access: "read" }] },
       ],
     });
-    const ep = await db.endpoint.findFirst({ where: { path: "/events" }, include: { tables: { include: { table: true } } } });
+    const ep = await db.query.endpoint.findFirst({
+      where: (t, { eq }) => eq(t.path, "/events"),
+      with: { tables: { with: { table: true } } },
+    });
     expect(ep!.tables.map((t) => t.table.name)).toContain("legacy_audit");
   });
 
@@ -105,5 +126,38 @@ describe("ingestSnapshot", () => {
     await ingestSnapshot(SNAP);
     await ingestSnapshot(SNAP);
     expect(await getVersion()).toBe(2);
+  });
+
+  it("self-heals an overlapping /db layout — no manual relayout button required", async () => {
+    // Seed three INTROSPECTION tables stacked on top of each other at the origin —
+    // exactly the broken state a pre-fix beacon db ended up in.
+    await db.insert(dbTable).values([
+      { name: "firms", source: "INTROSPECTION", x: 0, y: 0 },
+      { name: "users", source: "INTROSPECTION", x: 0, y: 0 },
+      { name: "audits", source: "INTROSPECTION", x: 0, y: 0 },
+    ]);
+    await db.insert(endpoint).values([
+      { method: "GET", path: "/a", source: "INTROSPECTION", x: -460, y: 100 },
+      { method: "GET", path: "/b", source: "INTROSPECTION", x: -460, y: 100 },
+    ]);
+
+    await ingestSnapshot({
+      tables: [
+        { name: "firms", columns: [{ name: "id", type: "UUID", isPk: true }] },
+        { name: "users", columns: [{ name: "id", type: "UUID", isPk: true }] },
+        { name: "audits", columns: [{ name: "id", type: "UUID", isPk: true }] },
+      ],
+      endpoints: [
+        { method: "GET", path: "/a", uses: [] },
+        { method: "GET", path: "/b", uses: [] },
+      ],
+    });
+
+    const tables = await db.query.dbTable.findMany();
+    const tableKeys = new Set(tables.map((t) => `${t.x}:${t.y}`));
+    expect(tableKeys.size).toBe(tables.length); // every table at a distinct slot
+    const eps = await db.query.endpoint.findMany();
+    const epKeys = new Set(eps.map((e) => `${e.x}:${e.y}`));
+    expect(epKeys.size).toBe(eps.length);
   });
 });

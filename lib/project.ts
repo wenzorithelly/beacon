@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { activeWorkspace, dataDirFor } from "@/lib/workspaces";
+import { activeWorkspace, dataDirFor, getPinnedWorkspaceId, getWorkspace } from "@/lib/workspaces";
 
 // Beacon targets whatever repo the CLI was launched in. The CLI passes BEACON_REPO
 // (the repo root) and BEACON_DATA_DIR (the per-repo store). In dev (running the app
@@ -15,6 +15,13 @@ export function repoRoot(): string {
   // A pinned process (CLI / watcher / init) targets its own repo, ignoring the server's
   // active workspace. The unpinned daemon follows the active workspace.
   if (process.env.BEACON_REPO) return process.env.BEACON_REPO;
+  // A per-request pin (runWithWorkspace, set by MCP routes) wins over the active
+  // workspace so AGENTS.md is written into the agent's repo, not the dropdown's.
+  const pinnedId = getPinnedWorkspaceId();
+  if (pinnedId) {
+    const pinned = getWorkspace(pinnedId);
+    if (pinned) return pinned.path;
+  }
   const ws = activeWorkspace();
   if (ws) return ws.path;
   if (cachedRoot) return cachedRoot;
@@ -42,6 +49,10 @@ export function repoId(): string {
 
 export function dataDir(): string {
   if (process.env.BEACON_DATA_DIR) return process.env.BEACON_DATA_DIR;
+  // Honor a per-request pin (MCP routes) so the disk-backed draft/plan store lands in
+  // the agent's repo dir, not the browser's active one.
+  const pinnedId = getPinnedWorkspaceId();
+  if (pinnedId && getWorkspace(pinnedId)) return dataDirFor(pinnedId);
   const ws = activeWorkspace();
   if (ws) return dataDirFor(ws.id);
   return join(homedir(), ".beacon", repoId());

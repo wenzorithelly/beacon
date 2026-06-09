@@ -1,8 +1,9 @@
+import { pinned } from "@/lib/api-workspace";
 import { finishFeature } from "@/lib/map-ops";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
+export const POST = pinned(async (req: Request) => {
   try {
     const body = await req.json();
     if (typeof body.id !== "string" && (typeof body.title !== "string" || !body.title.trim())) {
@@ -19,4 +20,4 @@ export async function POST(req: Request) {
       status: 500,
     });
   }
-}
+});

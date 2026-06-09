@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { matchFeature, similarity } from "@/lib/match";
 
+// Portuguese on purpose: this exercises the matcher's accent-folding + Portuguese stop-word
+// stripping (lib/match.ts), which is a functional capability for matching Portuguese feature
+// titles — not stray UI text. Keep the Portuguese here.
 const FEATURES = [
   { id: "1", title: "Notificações por WhatsApp" },
   { id: "2", title: "Busca semântica de precedentes" },

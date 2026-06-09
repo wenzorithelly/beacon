@@ -4,8 +4,8 @@ import { loadConfig } from "@/intel/config";
 import { runPipeline } from "@/intel/pipeline";
 import { resolveProvider } from "@/intel/extract";
 
-// CLI entry: `bun run intel/watch.ts` (or `make watch`). Watches the Juriscan
-// source and keeps the control app's DB-design map live as you code.
+// CLI entry: `bun run intel/watch.ts` (or `make watch`). Watches the repo's
+// source and keeps Beacon's DB-design + code-graph maps live as you code.
 
 const config = loadConfig();
 const roots = config.roots.map((r) => resolve(config.configDir, r));
@@ -36,9 +36,11 @@ async function run() {
   running = true;
   try {
     const r = await runPipeline(config);
+    const cyc = r.codeCircular > 0 ? ` (${r.codeCircular} circular)` : "";
     console.log(
       `[intel] ${r.ok ? "synced" : `FAILED(${r.status})`}: ` +
-        `${r.files} files · ${r.tables} tables · ${r.endpoints} endpoints [${r.provider}]`,
+        `${r.files} files · ${r.tables} tables · ${r.endpoints} endpoints · ` +
+        `${r.codeFiles} code-files / ${r.codeEdges} imports${cyc} [${r.provider}]`,
     );
   } catch (e) {
     console.error("[intel] pipeline error:", e instanceof Error ? e.message : e);

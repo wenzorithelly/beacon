@@ -1,0 +1,330 @@
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+// Global Beacon install/audit/remove primitives. Owns the bits that live in the user's
+// ~/.claude/ home — not per-repo and not per-workspace. The CLI's first-run + the
+// `beacon doctor` / `beacon uninstall` subcommands all call into here, so the
+// install/inspect/remove logic lives in one place and uninstall can't fall out of sync
+// with install. Node-builtins only (this gets dynamic-imported from bin/beacon.ts and
+// must work without the Next runtime).
+
+// Bun's os.homedir() does NOT respect mid-process changes to process.env.HOME, which
+// the tests rely on for isolation. Read HOME directly so tests can rebase ~/.claude/
+// onto a tmpdir safely.
+function userHome(): string {
+  return process.env.HOME || process.env.USERPROFILE || homedir();
+}
+const CLAUDE_DIR = () => join(userHome(), ".claude");
+const SKILLS_DIR = () => join(CLAUDE_DIR(), "skills");
+const SETTINGS_FILE = () => join(CLAUDE_DIR(), "settings.json");
+const CLAUDE_MD = () => join(CLAUDE_DIR(), "CLAUDE.md");
+
+const CLAUDE_MD_START = "<!-- beacon:global:start -->";
+const CLAUDE_MD_END = "<!-- beacon:global:end -->";
+
+export const GLOBAL_SKILLS = ["beacon-init", "beacon-refresh", "beacon-plan"] as const;
+export type GlobalSkillName = (typeof GLOBAL_SKILLS)[number];
+
+export const GLOBAL_HOOKS = [
+  {
+    event: "PostToolUse" as const,
+    matcher: "Edit|Write|MultiEdit",
+    command: "beacon hook",
+    description: "Report file edits to Beacon's active feature so the map stays fresh.",
+  },
+  {
+    event: "PermissionRequest" as const,
+    matcher: "ExitPlanMode",
+    command: "beacon plan",
+    description: "Pipe the agent's plan markdown into Beacon's /plan canvas for review.",
+  },
+  {
+    event: "UserPromptSubmit" as const,
+    matcher: "*",
+    command: "beacon prompt",
+    description:
+      "On feature-y prompts in a Beacon-wired repo, remind the agent to run the context→propose→describe loop (no-op otherwise).",
+  },
+  {
+    event: "Stop" as const,
+    matcher: "*",
+    command: "beacon stop-hook",
+    description:
+      "When the agent ends a turn asking for plan approval in prose (instead of presenting it), nudge it to present the plan on Beacon's /plan canvas. Bounded by stop_hook_active — at most one nudge.",
+  },
+];
+
+// Block injected into ~/.claude/CLAUDE.md so EVERY Claude Code session — including the
+// ones in repos that have never seen Beacon — knows the tool exists and how to wire it.
+// Kept intentionally short: triggers + the one-command fix when something isn't wired.
+export const GLOBAL_CLAUDE_MD_BLOCK = `## Beacon (visual planning panel)
+
+This machine has Beacon installed — a local visual planning surface for the terminal-side
+agent. Beacon proposes feature plans (roadmap features + DB schema + endpoints) via MCP,
+the user reviews on a canvas at /plan, and feedback flows back as the next round.
+
+**When to invoke**
+- User asks to "plan a feature" / "design a schema" → if the \`beacon_propose_plan\`
+  MCP tool is available, design the plan and call it. If it is NOT available, the panel
+  isn't wired in this repo — run \`beacon\` here once, then retry.
+- User asks to "set up Beacon" / "map this repo" → invoke the \`beacon-init\` skill.
+- User asks to "refresh Beacon" / "update the map" / "bring Beacon up to date" → invoke
+  the \`beacon-refresh\` skill. Re-surveys the repo and updates init-derived nodes while
+  preserving anything the user added by hand.
+- Run \`beacon doctor\` to audit what's wired (global hooks, repo's .mcp.json, AGENTS.md block).
+
+**The plan feedback loop**
+\`beacon_propose_plan\` BLOCKS until the user clicks Approve / Discard / submits feedback.
+Feedback bundles inline annotations on the markdown PLUS any edits the user made directly
+on the /map and /db boards (added features, attached subtasks, edited columns, new
+endpoints). Treat board edits as the user's revision intent — re-propose matching them
+verbatim. Do NOT implement until the tool returns approval.`;
+
+// ── Skills ──────────────────────────────────────────────────────────────────
+
+export function installGlobalSkill(name: string, body: string): string {
+  const dir = join(SKILLS_DIR(), name);
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, "SKILL.md");
+  writeFileSync(path, body);
+  return path;
+}
+
+export function isGlobalSkillInstalled(name: string): boolean {
+  return existsSync(join(SKILLS_DIR(), name, "SKILL.md"));
+}
+
+export function removeGlobalSkill(name: string): boolean {
+  const dir = join(SKILLS_DIR(), name);
+  if (!existsSync(dir)) return false;
+  rmSync(dir, { recursive: true, force: true });
+  return true;
+}
+
+// ── Hooks (~/.claude/settings.json) ─────────────────────────────────────────
+
+type HookCommand = { type: "command"; command: string };
+type HookMatcher = { matcher: string; hooks: HookCommand[] };
+interface Settings {
+  hooks?: Partial<Record<string, HookMatcher[]>>;
+  [k: string]: unknown;
+}
+
+function readSettings(): Settings {
+  try {
+    return JSON.parse(readFileSync(SETTINGS_FILE(), "utf8")) as Settings;
+  } catch {
+    return {};
+  }
+}
+
+function writeSettings(s: Settings): void {
+  mkdirSync(CLAUDE_DIR(), { recursive: true });
+  writeFileSync(SETTINGS_FILE(), JSON.stringify(s, null, 2) + "\n");
+}
+
+export interface HookSpec {
+  event: string;
+  matcher: string;
+  command: string;
+}
+
+/** Returns true if the hook was added; false if it was already present (no-op). */
+export function ensureGlobalHook(spec: HookSpec): boolean {
+  const s = readSettings();
+  s.hooks = s.hooks ?? {};
+  s.hooks[spec.event] = s.hooks[spec.event] ?? [];
+  const arr = s.hooks[spec.event]!;
+  const already = arr.some((m) =>
+    m.matcher === spec.matcher &&
+    m.hooks?.some((h) => h.command === spec.command),
+  );
+  if (already) return false;
+  arr.push({ matcher: spec.matcher, hooks: [{ type: "command", command: spec.command }] });
+  writeSettings(s);
+  return true;
+}
+
+export function hasGlobalHook(spec: Pick<HookSpec, "event" | "command">): boolean {
+  const s = readSettings();
+  const arr = s.hooks?.[spec.event] ?? [];
+  return arr.some((m) => m.hooks?.some((h) => h.command === spec.command));
+}
+
+/** Removes hook entries whose command matches. Returns true if anything was removed. */
+export function removeGlobalHook(spec: Pick<HookSpec, "event" | "command">): boolean {
+  const s = readSettings();
+  const arr = s.hooks?.[spec.event];
+  if (!arr) return false;
+  let changed = false;
+  const filtered = arr
+    .map((m) => {
+      const before = m.hooks?.length ?? 0;
+      const after = (m.hooks ?? []).filter((h) => h.command !== spec.command);
+      if (after.length !== before) changed = true;
+      return { ...m, hooks: after };
+    })
+    .filter((m) => (m.hooks ?? []).length > 0);
+  if (!changed) return false;
+  if (filtered.length) s.hooks![spec.event] = filtered;
+  else delete s.hooks![spec.event];
+  if (s.hooks && Object.keys(s.hooks).length === 0) delete s.hooks;
+  writeSettings(s);
+  return true;
+}
+
+// ── CLAUDE.md global block ──────────────────────────────────────────────────
+
+export function ensureGlobalClaudeMdBlock(body: string): void {
+  const block = `${CLAUDE_MD_START}\n${body.trim()}\n${CLAUDE_MD_END}`;
+  let md = "";
+  try {
+    md = readFileSync(CLAUDE_MD(), "utf8");
+  } catch {
+    /* new file */
+  }
+  const re = new RegExp(`${CLAUDE_MD_START}[\\s\\S]*?${CLAUDE_MD_END}`);
+  md = re.test(md)
+    ? md.replace(re, block)
+    : md.trim()
+      ? `${md.trim()}\n\n${block}\n`
+      : `${block}\n`;
+  mkdirSync(CLAUDE_DIR(), { recursive: true });
+  writeFileSync(CLAUDE_MD(), md.endsWith("\n") ? md : `${md}\n`);
+}
+
+export function hasGlobalClaudeMdBlock(): boolean {
+  try {
+    return readFileSync(CLAUDE_MD(), "utf8").includes(CLAUDE_MD_START);
+  } catch {
+    return false;
+  }
+}
+
+export function removeGlobalClaudeMdBlock(): boolean {
+  let md = "";
+  try {
+    md = readFileSync(CLAUDE_MD(), "utf8");
+  } catch {
+    return false;
+  }
+  const re = new RegExp(`${CLAUDE_MD_START}[\\s\\S]*?${CLAUDE_MD_END}\\n?`);
+  if (!re.test(md)) return false;
+  const out = md.replace(re, "").replace(/\n{3,}/g, "\n\n").trimStart();
+  writeFileSync(CLAUDE_MD(), out);
+  return true;
+}
+
+// ── Audit ───────────────────────────────────────────────────────────────────
+
+export interface GlobalAudit {
+  homeExists: boolean;
+  skills: Record<string, boolean>;
+  hooks: Record<string, boolean>;
+  claudeMdBlock: boolean;
+}
+
+export function auditGlobal(): GlobalAudit {
+  const skills: Record<string, boolean> = {};
+  for (const s of GLOBAL_SKILLS) skills[s] = isGlobalSkillInstalled(s);
+  const hooks: Record<string, boolean> = {};
+  for (const h of GLOBAL_HOOKS) hooks[h.event] = hasGlobalHook({ event: h.event, command: h.command });
+  return {
+    homeExists: existsSync(CLAUDE_DIR()),
+    skills,
+    hooks,
+    claudeMdBlock: hasGlobalClaudeMdBlock(),
+  };
+}
+
+// ── Bulk setup (used on every `beacon` run; idempotent) ─────────────────────
+
+export interface SetupResult {
+  skillsAdded: string[];
+  hooksAdded: number;
+  claudeMdBlockTouched: boolean;
+}
+
+/**
+ * Install every global Beacon asset (skills, settings.json hooks, CLAUDE.md block).
+ * Idempotent — safe to call on every `beacon` invocation. Skill bodies come from
+ * lib/assets.ts (same content used in the per-repo install) so there's a single source
+ * of truth. Returns counts of what actually changed for the CLI to print.
+ */
+export async function setupGlobalAssets(): Promise<SetupResult> {
+  const { INIT_SKILL, REFRESH_SKILL, PLAN_SKILL } = await import("@/lib/assets");
+  const skillBodies: Record<GlobalSkillName, string> = {
+    "beacon-init": INIT_SKILL,
+    "beacon-refresh": REFRESH_SKILL,
+    "beacon-plan": PLAN_SKILL,
+  };
+  const skillsAdded: string[] = [];
+  for (const name of GLOBAL_SKILLS) {
+    if (!isGlobalSkillInstalled(name)) skillsAdded.push(name);
+    installGlobalSkill(name, skillBodies[name]);
+  }
+  let hooksAdded = 0;
+  for (const h of GLOBAL_HOOKS)
+    if (ensureGlobalHook({ event: h.event, matcher: h.matcher, command: h.command })) hooksAdded++;
+  const blockPresent = hasGlobalClaudeMdBlock();
+  ensureGlobalClaudeMdBlock(GLOBAL_CLAUDE_MD_BLOCK);
+  return { skillsAdded, hooksAdded, claudeMdBlockTouched: !blockPresent };
+}
+
+// ── Self-heal (called from every `beacon` entry point) ─────────────────────
+
+export interface SelfHealResult extends SetupResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Re-apply every global Beacon asset, swallowing errors so a bad ~/.claude
+ * never breaks the actual subcommand. Safe to call from `beacon mcp` (must not
+ * write to stdout — stdout is the MCP protocol channel; this only writes to
+ * disk), from the PostToolUse/PermissionRequest hook entry points, and from
+ * `beacon setup`. Idempotent: a second call returns zero counts.
+ *
+ * The first time a user runs `beacon` anywhere this populates ~/.claude. From
+ * then on, every Claude Code session that spawns `beacon mcp` (via .mcp.json)
+ * re-applies the global layer, so accidental cleanups + machine migrations
+ * heal automatically without the user having to re-run `beacon` in each repo.
+ */
+export async function selfHealGlobal(): Promise<SelfHealResult> {
+  try {
+    const r = await setupGlobalAssets();
+    return { ok: true, ...r };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+      skillsAdded: [],
+      hooksAdded: 0,
+      claudeMdBlockTouched: false,
+    };
+  }
+}
+
+// ── Bulk remove (used by `beacon uninstall`) ────────────────────────────────
+
+export interface RemoveResult {
+  skillsRemoved: string[];
+  hooksRemoved: number;
+  claudeMdBlockRemoved: boolean;
+}
+
+export function removeBeaconArtifacts(): RemoveResult {
+  const skillsRemoved: string[] = [];
+  for (const s of GLOBAL_SKILLS) if (removeGlobalSkill(s)) skillsRemoved.push(s);
+  let hooksRemoved = 0;
+  for (const h of GLOBAL_HOOKS) if (removeGlobalHook(h)) hooksRemoved++;
+  const claudeMdBlockRemoved = removeGlobalClaudeMdBlock();
+  return { skillsRemoved, hooksRemoved, claudeMdBlockRemoved };
+}

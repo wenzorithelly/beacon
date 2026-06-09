@@ -2,11 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, X } from "lucide-react";
+import { MessageSquarePlus, Sparkles, X } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
-import { FeatureDraftActions } from "@/components/graph/feature-draft-actions";
-import type { FeatureGraph } from "@/lib/feature-design";
-import { SeverityBadge } from "@/components/badges";
+import { MarkdownView } from "@/components/plan/markdown-view";
 import {
   ARCH_STATUSES,
   ROADMAP_STATUSES,
@@ -40,50 +38,135 @@ import {
   deprioritizeAction,
   setStatusAction,
 } from "@/app/actions/nodes";
+import { cn } from "@/lib/utils";
 import type { MapNodePayload } from "@/components/graph/types";
+import type { ReactNode } from "react";
+
+export type SidebarTab = "details" | "comments";
 
 export function DetailSidebar({
   view,
   selected,
   allNodes,
-  featureDraft,
   onClose,
+  // When commentsContent is provided the panel renders a tab strip and switches
+  // between Details and Comments. plan-workspace passes this in on /plan.
+  commentsContent,
+  commentsCount = 0,
+  activeTab,
+  onTabChange,
+  onAddComment,
+  topOffset,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   selected: MapNodePayload | null;
   allNodes: MapNodePayload[];
-  featureDraft: FeatureGraph;
   onClose: () => void;
+  commentsContent?: ReactNode;
+  commentsCount?: number;
+  activeTab?: SidebarTab;
+  onTabChange?: (tab: SidebarTab) => void;
+  /** On /plan: leave a comment anchored to the selected node (excerpt = its title). When set, a
+      "Comment on this …" button shows on the Details tab. */
+  onAddComment?: (excerpt: string) => void;
+  /** Top inset of the panel (overrides the default top-3) — used in /plan to clear
+      the floating Plan pill. */
+  topOffset?: number;
 }) {
+  const tabbed = !!commentsContent;
+  const tab: SidebarTab = activeTab ?? "details";
   return (
-    <GlassPanel className="absolute bottom-3 right-3 top-3 z-10 flex w-80 flex-col rounded-2xl">
-      <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2.5">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Detalhes
-        </span>
-        <button
-          onClick={onClose}
-          title="Fechar painel"
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
-        >
-          <X className="size-4" />
-        </button>
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        {featureDraft.features.length > 0 && (
-          <div className="border-b border-white/10 p-3.5">
-            <FeatureDraftActions featureDraft={featureDraft} />
+    <GlassPanel
+      className="absolute bottom-3 right-3 z-10 flex w-80 flex-col rounded-2xl"
+      style={{ top: topOffset ?? 12 }}
+    >
+      {tabbed ? (
+        <div className="flex items-center justify-between border-b border-white/10 px-1 py-1">
+          <div className="flex items-center gap-0.5">
+            <TabBtn active={tab === "details"} onClick={() => onTabChange?.("details")}>
+              Details
+            </TabBtn>
+            <TabBtn active={tab === "comments"} onClick={() => onTabChange?.("comments")}>
+              Comments
+              {commentsCount > 0 && (
+                <span className="ml-1 rounded-full bg-white/10 px-1 text-[9px] font-semibold leading-4">
+                  {commentsCount}
+                </span>
+              )}
+            </TabBtn>
           </div>
-        )}
-        <div className="p-4">
-          {selected ? (
-            <NodeDetail key={selected.id} node={selected} view={view} />
+          <button
+            onClick={onClose}
+            title="Close panel"
+            className="mr-1 rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Details
+          </span>
+          <button
+            onClick={onClose}
+            title="Close panel"
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="p-3">
+          {tab === "comments" && tabbed ? (
+            commentsContent
+          ) : selected ? (
+            <>
+              {onAddComment && (
+                <button
+                  type="button"
+                  onClick={() => onAddComment(selected.title)}
+                  className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                >
+                  <MessageSquarePlus className="size-3.5" />
+                  Comment on this {view === "ARCHITECTURE" ? "component" : "feature"}
+                </button>
+              )}
+              <NodeDetail key={selected.id} node={selected} view={view} />
+            </>
           ) : (
             <Overview view={view} nodes={allNodes} />
           )}
         </div>
       </div>
     </GlassPanel>
+  );
+}
+
+function TabBtn({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+        active
+          ? "bg-white/10 text-foreground"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -100,7 +183,6 @@ function NodeDetail({
   const [subOpen, setSubOpen] = useState(false);
 
   const statuses = view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES;
-  const openBugs = node.bugs.filter((b) => b.status !== "RESOLVED");
 
   const run = (fn: () => Promise<unknown>) =>
     startTransition(async () => {
@@ -114,7 +196,7 @@ function NodeDetail({
         <div className="text-xs uppercase tracking-wide text-muted-foreground">
           {clusterLabel(node.cluster)}
           {node.priority === 0 && (
-            <span className="ml-2 text-[#ff7a90]">· caminho crítico</span>
+            <span className="ml-2 text-[#ff7a90]">· critical path</span>
           )}
         </div>
         <h2 className="mt-1 text-lg font-semibold leading-tight">{node.title}</h2>
@@ -123,11 +205,11 @@ function NodeDetail({
       {node.source === "INIT" && (
         <div className="rounded-lg border border-violet-400/30 bg-violet-500/[0.06] p-2.5">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-violet-300">
-            <Sparkles className="size-3.5" /> Sugestão da IA
+            <Sparkles className="size-3.5" /> AI suggestion
           </div>
           <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-            Direção sugerida ao mapear o repositório. Aceite para virar uma frente sua, ou
-            dispense.
+            Suggested direction surfaced when mapping the repo. Accept to turn it into your
+            own feature, or dismiss.
           </p>
           <div className="mt-2 flex gap-1.5">
             <Button
@@ -136,7 +218,7 @@ function NodeDetail({
               disabled={pending}
               onClick={() => run(() => acceptSuggestionAction(node.id))}
             >
-              Aceitar
+              Accept
             </Button>
             <Button
               size="sm"
@@ -145,7 +227,7 @@ function NodeDetail({
               disabled={pending}
               onClick={() => run(() => deleteNodeAction(node.id))}
             >
-              Dispensar
+              Dismiss
             </Button>
           </div>
         </div>
@@ -155,7 +237,7 @@ function NodeDetail({
         <span className="text-xs text-muted-foreground">Status</span>
         <Select
           value={node.status}
-          onValueChange={(v) => run(() => setStatusAction(node.id, v))}
+          onValueChange={(v) => v != null && run(() => setStatusAction(node.id, v))}
         >
           <SelectTrigger className="h-8" disabled={pending}>
             <SelectValue>{(v: string) => STATUS_META[v]?.label ?? v}</SelectValue>
@@ -170,8 +252,11 @@ function NodeDetail({
         </Select>
       </div>
 
-      {node.role && <p className="text-sm text-foreground/90">{node.role}</p>}
-      {node.plain && <p className="text-sm text-muted-foreground">{node.plain}</p>}
+      {node.plain && (
+        <div className="rounded-md border border-white/5 bg-card/40 px-2.5 py-2 text-sm">
+          <MarkdownView markdown={node.plain} variant="compact" className="text-[12.5px]" />
+        </div>
+      )}
       {node.sourceRef && (
         <div className="rounded-md border border-border bg-card px-2 py-1.5 font-mono text-xs text-muted-foreground">
           {node.sourceRef}
@@ -181,7 +266,7 @@ function NodeDetail({
       {node.files.length > 0 && (
         <div>
           <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Arquivos ({node.files.length})
+            Files ({node.files.length})
           </h3>
           <ul className="space-y-0.5">
             {node.files.map((f) => (
@@ -190,7 +275,7 @@ function NodeDetail({
                   onClick={() =>
                     fetch(`/api/open?path=${encodeURIComponent(f)}`).catch(() => {})
                   }
-                  title={`Abrir ${f} no editor`}
+                  title={`Open ${f} in editor`}
                   className="block w-full truncate rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
                 >
                   {f}
@@ -204,10 +289,10 @@ function NodeDetail({
       {/* actions */}
       <div className="flex flex-wrap gap-1.5 pt-1">
         <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
-          Editar
+          Edit
         </Button>
         <Button size="sm" variant="outline" onClick={() => setSubOpen(true)}>
-          + Subnó
+          + Sub-node
         </Button>
         <Button
           size="sm"
@@ -215,7 +300,7 @@ function NodeDetail({
           disabled={pending}
           onClick={() => run(() => cancelAction(node.id))}
         >
-          Cancelar
+          Cancel
         </Button>
         <Button
           size="sm"
@@ -223,60 +308,34 @@ function NodeDetail({
           disabled={pending}
           onClick={() => run(() => deprioritizeAction(node.id))}
         >
-          Despriorizar
+          Deprioritize
         </Button>
         <AlertDialog>
           <AlertDialogTrigger
             render={
               <Button size="sm" variant="outline" className="text-red-300">
-                Excluir
+                Delete
               </Button>
             }
           />
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Excluir “{node.title}”?</AlertDialogTitle>
+              <AlertDialogTitle>Delete “{node.title}”?</AlertDialogTitle>
               <AlertDialogDescription>
-                Isto remove o nó e todos os seus subnós. Não pode ser desfeito.
+                This removes the node and all its sub-nodes. It can’t be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => run(() => deleteNodeAction(node.id))}
               >
-                Excluir
+                Delete
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
       </div>
-
-      {openBugs.length > 0 && (
-        <div className="pt-1">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Bugs ({openBugs.length})
-          </h3>
-          <ul className="space-y-2">
-            {openBugs.map((bug) => (
-              <li
-                key={bug.id}
-                className="rounded-md border border-border bg-card p-2 text-sm"
-              >
-                <div className="mb-1">
-                  <SeverityBadge severity={bug.severity} />
-                </div>
-                <div className="font-medium leading-snug">{bug.title}</div>
-                {bug.sourceRef && (
-                  <div className="mt-1 font-mono text-[10px] text-muted-foreground/70">
-                    {bug.sourceRef}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {editOpen && (
         <NodeFormDialog
@@ -284,7 +343,7 @@ function NodeDetail({
           onOpenChange={setEditOpen}
           mode="edit"
           view={view}
-          heading="Editar nó"
+          heading="Edit node"
           nodeId={node.id}
           defaults={{
             title: node.title,
@@ -301,7 +360,7 @@ function NodeDetail({
           onOpenChange={setSubOpen}
           mode="create"
           view={view}
-          heading="Novo subnó"
+          heading="New sub-node"
           parentId={node.id}
           position={{ x: node.x, y: node.y + 120 }}
           defaults={{ cluster: node.cluster }}
@@ -319,46 +378,22 @@ function Overview({
   nodes: MapNodePayload[];
 }) {
   const critical = nodes.filter((n) => n.priority === 0).length;
-  const openBugs = nodes.reduce(
-    (n, node) => n + node.bugs.filter((b) => b.status !== "RESOLVED").length,
-    0,
-  );
-  const topBugs = nodes
-    .flatMap((n) => n.bugs)
-    .filter((b) => b.status !== "RESOLVED" && b.severity === "critical");
 
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-sm font-semibold">
-          {view === "ROADMAP" ? "Roadmap de produção" : "Arquitetura de referência"}
+          {view === "ROADMAP" ? "Roadmap" : "Architecture"}
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Clique em um nó para ver detalhes e ações. Arraste para reorganizar — as
-          posições são salvas.
+          Click a node for details and actions. Drag to rearrange — positions are saved.
         </p>
       </div>
 
-      <dl className="grid grid-cols-3 gap-2 text-center">
-        <Stat label="nós" value={nodes.length} />
-        <Stat label="críticos" value={critical} />
-        <Stat label="bugs" value={openBugs} />
+      <dl className="grid grid-cols-2 gap-2 text-center">
+        <Stat label="nodes" value={nodes.length} />
+        <Stat label="critical" value={critical} />
       </dl>
-
-      {topBugs.length > 0 && (
-        <div>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Issues críticos
-          </h3>
-          <ul className="space-y-1.5">
-            {topBugs.map((b) => (
-              <li key={b.id} className="text-sm">
-                <span className="text-[#ff7a90]">•</span> {b.title}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }
@@ -373,3 +408,4 @@ function Stat({ label, value }: { label: string; value: number }) {
     </div>
   );
 }
+

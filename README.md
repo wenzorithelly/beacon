@@ -1,109 +1,94 @@
-# Juriscan Control
+# Beacon
 
-A personal admin tool — an interactive **completion mental-map** for managing the
-from-scratch rebuild of Juriscan (a Brazilian legal-precedent search SaaS). It
-answers, at a glance: *what is the state of the app, what is going to be built, and
-where are the current bugs.*
+Beacon is the **visual planning surface for the coding agent in your terminal**.
+
+You already have a Claude Code session running — that session is the brain. Beacon is its
+**eyes and hands**: the place where the agent proposes a feature plan (roadmap features +
+database schema + endpoints), you review it on a canvas instead of as a wall of text, give
+scoped structured feedback, and approve or discard with a click. Beacon does **not** embed
+a chatbot and does **not** generate plans on its own.
+
+## How the loop closes
+
+1. You ask the agent to plan a feature in your terminal session.
+2. The agent calls the MCP tool `beacon_propose_plan`. The tool **blocks** waiting for your
+   verdict.
+3. Beacon renders the plan on `/plan` — a split screen with a native annotation panel on the
+   left and the roadmap + database canvases tabbed on the right.
+4. You review, annotate inline, optionally edit the `/map` and `/db` boards directly, then
+   click **Submit feedback**, **Approve plan**, or **Discard**.
+5. The verdict (plus any feedback) returns to the terminal session. On approve, the schema +
+   roadmap drafts are persisted and the plan is archived to `/plan` history.
 
 ## Views
 
-- **/map** — the production-reform roadmap (emergency + 4 fronts + Definition of Done)
-  and a planned-architecture inventory, as two interactive React Flow graphs. Drag,
-  add/edit nodes and subnodes, change status, cancel, deprioritize, delete; per-node
-  bug badges; status + "só com bugs" filters. Positions persist.
-- **/db** — the proposed **Juriscan v2 database design** (FastAPI + SQLAlchemy +
-  Alembic): tables with columns (PK/FK markers, types), FK relationships, and which
-  API endpoints touch which tables (toggleable). Click a table to see its columns,
-  FKs in/out, and the endpoints that use it.
-- **/list** — roadmap + architecture as cards (shareable, accessible fallback).
-- **/bugs** — the confirmed issues table with severity, linked front, and `file:line`.
+- **/plan** — the review surface: annotation panel + roadmap/database canvases + plan history.
+- **/map** — the roadmap (features → sub-tasks → dependencies) and the architecture inventory,
+  as interactive React Flow graphs. A **files** tab renders the live import graph.
+- **/db** — the database design: tables (columns, PK/FK markers), FK relationships, and which
+  endpoints touch which tables — with a distinct **draft** layer for proposed schema.
+- **/settings** — intel model/provider/editor choices, code-map sync, and the danger zone.
 
 ## Stack
 
 - Next.js 16 (App Router, React 19, Turbopack) · TypeScript · Tailwind v4
-- **Watermelon UI** (shadcn-compatible registry) for static components; **base-ui**
-  shadcn components for the overlay primitives (Dialog/AlertDialog/Select) — the
-  Watermelon overlays rely on a `render` prop the latest `radix-ui` (1.4.3) ignores.
-- React Flow (`@xyflow/react`) for the maps
-- **Prisma 7** + **libSQL** driver adapter over SQLite (better-sqlite3's native addon
-  doesn't load under Bun — libSQL does). Bun for package management + runtime.
-- **`bun test`** (native — no Vite) for tests
+- ShadCN + **base-ui** primitives; React Flow (`@xyflow/react`) for the maps
+- **Drizzle ORM** over **`bun:sqlite`** (Bun's built-in SQLite — no native addon, no driver
+  adapter). The DB is local-only, one file per workspace under `~/.beacon/<id>/`.
+- **Bun** for package management, runtime, and tests (`bun test` — native, no Vite)
 
-## Develop
+## Install & run
+
+Beacon ships as a CLI. Run it inside any repo:
+
+```bash
+beacon            # registers the repo, ensures the shared server, opens the panel
+beacon doctor     # audit what's wired (global hooks, repo .mcp.json, AGENTS.md block)
+beacon stop       # stop the shared background server
+```
+
+One shared Beacon server (daemon) serves every repo you open; each repo keeps its own data in
+`~/.beacon/<id>/` (override the root with `BEACON_HOME`). On first run in a repo, run
+`/beacon-init` in your Claude Code session to map the project's architecture, schema, and
+roadmap into Beacon.
+
+### Local development of Beacon itself
 
 ```bash
 make install     # bun install
-make db-up        # apply migrations (creates dev.db)
-make seed         # seed roadmap, architecture, bugs, and the v2 DB design
-make up           # next dev → http://localhost:3000
-make test         # bun test (data layer, seed integrity, mutations, db design, ingest, intel…)
-make studio       # prisma studio
+make dev         # next dev + the intel watcher together
+make test        # bun test (data layer, mutations, ingest, plan loop, code graph, intel…)
+make studio      # drizzle studio
 ```
 
-> Prisma 7 note: after changing the schema, run `bunx prisma generate` and restart
-> the dev server (the client singleton is cached in-process).
+> Schema note: edit `lib/drizzle/schema.ts`, then `bun run db:generate` (drizzle-kit) to add a
+> migration and restart the dev server. Existing local DBs self-heal on open (lib/drizzle/provision).
 
 ## Live code-intelligence daemon (`intel/`)
 
-As you write the Juriscan backend (any language), a watcher keeps the `/db` map in
-sync — tables, FK relationships, and which endpoints touch which tables — updating
-live as you save.
+As you write code (any language), a watcher keeps the `/db` and **files** maps in sync —
+tables, FK relationships, endpoint↔table usage, and the import graph — updating live as you
+save. It reads an optional `beacon.config.json` at the repo root (`roots[]`, `openapiUrl?`,
+`controlUrl?`, `llm`), or derives everything from the repo when run via the CLI.
 
 ```bash
-make up      # terminal 1: the control app
+make up      # terminal 1: the panel server
 make watch   # terminal 2: the watcher  (or `make dev` to run both)
 ```
 
-It reads `juriscan.config.json` at the repo root (`juriscan_v2/`):
+On each save: debounced watcher → gather source files + the framework's OpenAPI spec + the
+import graph → **the agent reads the code** and emits a structured graph (tables/columns/FKs +
+endpoint↔table usage) → `POST /api/ingest` upserts it (preserving your manual nodes + hand-
+placed positions) → SSE refreshes the open map. Introspected nodes show a green "live" dot.
 
-```json
-{
-  "roots": ["backend", "web"],
-  "openapiUrl": "http://localhost:8000/openapi.json",
-  "controlUrl": "http://localhost:3000",
-  "llm": { "provider": "auto", "model": "claude-haiku-4-5" }
-}
-```
+**Provider — no API key needed.** `provider: "auto"` (default) runs extraction through the
+**Claude Code CLI in headless mode** using your Claude Code subscription. Force it with
+`"claude-cli"`, or set `"api"` + `ANTHROPIC_API_KEY` to use the Anthropic API instead. With
+neither, the daemon still ingests endpoints from OpenAPI (deterministic-only).
 
-How it works: on each save, [`watchexec`-style] debounced watcher → gather source
-files + the framework's OpenAPI spec → **Claude reads the code** and emits a
-structured graph (tables/columns/FKs + endpoint↔table usage) → `POST /api/ingest`
-upserts it (preserving your manual nodes + hand-placed positions) → SSE refreshes the
-open map. Introspected nodes show a green "live" dot.
+## Deploy
 
-**Provider — no API key needed.** `provider: "auto"` (default) runs the extraction
-through the **Claude Code CLI in headless mode**, using your **Claude Code
-subscription** (`claude -p --json-schema …`). Force it with `"claude-cli"`, or set
-`"api"` + `ANTHROPIC_API_KEY` to use the Anthropic API instead. With neither, the
-daemon still ingests endpoints from OpenAPI (deterministic-only).
-
-**Model.** Defaults to `claude-haiku-4-5` since this runs on every save — bump to
-`claude-sonnet-4-6` / `claude-opus-4-8` if extraction misses things.
-
-The control app stays ahead of the rebuild: it works empty (you watch the schema take
-shape from your first model) and degrades gracefully when the DB/server aren't up yet.
-
-## Deploy (Vercel + Neon Postgres)
-
-The schema is Postgres-portable (no enums, no scalar lists). To deploy:
-
-1. Provision **Neon Postgres** (Vercel Marketplace → Storage). Set `DATABASE_URL`
-   (pooled) and `DIRECT_URL` (unpooled, for migrations) in Vercel project env.
-2. In `prisma/schema.prisma`, set `datasource.provider = "postgresql"`.
-3. In `lib/db.ts`, swap the adapter to Postgres:
-   `bun add @prisma/adapter-pg pg` and use `new PrismaPg({ connectionString: process.env.DATABASE_URL })`
-   (or `@prisma/adapter-neon` for the serverless driver).
-4. Generate fresh Postgres migrations against Neon: `bunx prisma migrate deploy`.
-5. Seed once: `make seed` (or a protected route) against the Neon URL.
-6. `bunx vercel --prod` (build runs `prisma generate && next build`).
-
-The build already runs `prisma generate` (see `package.json` → `build`).
-
-## Deferred hooks (data model is ready)
-
-- **Codebase introspection** → upsert `Node`s with `source='INTROSPECTION'`, real
-  `sourceRef`/`externalId`. Both map views already render `sourceRef`.
-- **Sentry** → a future adapter upserts `Bug`s on `@@index([source, externalId])`
-  with `source='SENTRY'`. The bugs view already renders them.
-- **SQLAlchemy/FastAPI introspection** → upsert `DbTable`/`DbColumn`/`DbRelation`/
-  `Endpoint`/`EndpointTable` from the real backend once it exists.
+Beacon is local-first: every user's boards live in per-workspace SQLite on their own machine,
+so there is **no production database**. A hosted deployment is just the static app + (optionally)
+read-only shared-board snapshots persisted to a blob/KV store — no Postgres, no migrations to run
+against a server.

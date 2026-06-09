@@ -1,13 +1,13 @@
-import { db } from "@/lib/db";
+import { db, type DB } from "@/lib/db-drizzle";
+import { appSetting } from "@/lib/drizzle/schema";
 
-type Prisma = typeof db;
-
-export async function getAppSettings(prisma: Prisma = db) {
-  return prisma.appSetting.upsert({
-    where: { id: "singleton" },
-    create: { id: "singleton" },
-    update: {},
-  });
+export async function getAppSettings(prisma: DB = db) {
+  const [row] = await prisma
+    .insert(appSetting)
+    .values({ id: "singleton" })
+    .onConflictDoUpdate({ target: appSetting.id, set: { id: "singleton" } })
+    .returning();
+  return row;
 }
 
 export async function setAppSettings(
@@ -17,11 +17,12 @@ export async function setAppSettings(
     editor?: string;
     currentFeatureId?: string | null;
   },
-  prisma: Prisma = db,
+  prisma: DB = db,
 ) {
-  return prisma.appSetting.upsert({
-    where: { id: "singleton" },
-    create: { id: "singleton", ...data },
-    update: data,
-  });
+  const [row] = await prisma
+    .insert(appSetting)
+    .values({ id: "singleton", ...data })
+    .onConflictDoUpdate({ target: appSetting.id, set: data })
+    .returning();
+  return row;
 }

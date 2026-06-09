@@ -1,12 +1,6 @@
 // Serializable payload passed from the server map page to the client canvas.
 
-export interface BugPayload {
-  id: string;
-  title: string;
-  severity: string;
-  status: string;
-  sourceRef: string | null;
-}
+import type { FeatureSignals } from "@/lib/feature-signals";
 
 export interface MapNodePayload {
   id: string;
@@ -23,8 +17,9 @@ export interface MapNodePayload {
   sourceRef: string | null;
   parentId: string | null;
   isCriterion: boolean;
-  bugs: BugPayload[];
   files: string[];
+  // Deterministic rollup signals (untested file count, auth-touch) for the card badges.
+  signals?: FeatureSignals;
 }
 
 export interface MapEdgePayload {
@@ -33,4 +28,6 @@ export interface MapEdgePayload {
   toId: string;
   kind: string;
   label: string | null;
+  sourceHandle: string | null;
+  targetHandle: string | null;
 }

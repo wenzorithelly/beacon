@@ -27,7 +27,14 @@ export function mergeSnapshot(ai: Snapshot, endpointFacts: EndpointFact[]): Snap
 
   // keep AI-found endpoints the server doesn't expose yet (e.g. just written)
   for (const e of ai.endpoints ?? []) {
-    if (!factKeys.has(key(e.method, e.path))) merged.push(e);
+    if (!factKeys.has(key(e.method, e.path)))
+      merged.push({
+        method: e.method,
+        path: e.path,
+        domain: e.domain ?? null,
+        description: e.description ?? null,
+        uses: e.uses ?? [],
+      });
   }
 
   return { ...ai, endpoints: merged };

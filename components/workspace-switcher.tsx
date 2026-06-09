@@ -10,11 +10,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 interface Ws {
   id: string;
   name: string;
   path: string;
+}
+
+// Compact, readable location for a repo: collapse $HOME to `~`, drop the repo's own folder
+// (it's already shown as the name above), and middle-ellipsize anything deeper so the line
+// stays short. e.g. /Users/me/Desktop/beacon → "~/Desktop"; …/work/api/api → "~/…/work/api".
+function repoLocation(path: string, name: string): string {
+  const parts = path
+    .replace(/^\/(Users|home)\/[^/]+/, "~")
+    .split("/")
+    .filter(Boolean);
+  if (parts[parts.length - 1] === name) parts.pop(); // redundant with the name
+  const compact =
+    parts.length > 3 ? [parts[0], "…", parts[parts.length - 1]] : parts;
+  return compact.join("/") || "~";
 }
 
 // Nav switcher for the single active workspace. One server, many repos; picking one
@@ -52,6 +67,10 @@ export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
 
   async function pick(id: string) {
     setActive(id);
+    // Set the durable per-browser selection cookie up front so the very next request
+    // (router.refresh + any client fetches) is already pinned to this workspace, even
+    // before the POST's Set-Cookie lands. The POST also persists it + heals the db.
+    document.cookie = `beacon_ws=${id}; Path=/; Max-Age=31536000; SameSite=Lax`;
     await fetch("/api/workspace", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -64,19 +83,53 @@ export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
 
   return (
     <Select value={active ?? ""} onValueChange={(v) => v && pick(v)}>
-      <SelectTrigger className="h-7 gap-1.5 rounded-lg border-white/12 bg-white/[0.04] px-2 text-xs">
+      <SelectTrigger className="h-7 gap-1.5 rounded-lg border-white/12 bg-white/[0.04] px-2 text-xs font-medium transition-colors hover:bg-white/[0.07]">
         <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground" />
-        <SelectValue>{() => activeWs?.name ?? "projeto"}</SelectValue>
+        <SelectValue>{() => activeWs?.name ?? "Project"}</SelectValue>
       </SelectTrigger>
-      <SelectContent>
-        {workspaces.map((w) => (
-          <SelectItem key={w.id} value={w.id}>
-            <span className="flex flex-col">
-              <span>{w.name}</span>
-              <span className="font-mono text-[10px] text-muted-foreground">{w.path}</span>
-            </span>
-          </SelectItem>
-        ))}
+      <SelectContent
+        align="start"
+        alignItemWithTrigger={false}
+        sideOffset={6}
+        className="min-w-[250px] border border-white/10 bg-popover/95 p-1.5 backdrop-blur-xl"
+      >
+        <p className="px-2 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+          Workspace
+        </p>
+        {workspaces.map((w) => {
+          const isActive = w.id === active;
+          return (
+            <SelectItem
+              key={w.id}
+              value={w.id}
+              className={cn(
+                "gap-2.5 rounded-lg py-1.5 pr-8 pl-1.5 transition-colors",
+                isActive && "bg-white/[0.05]",
+              )}
+            >
+              <span className="flex items-center gap-2.5">
+                <span
+                  className={cn(
+                    "flex size-7 shrink-0 items-center justify-center rounded-md border",
+                    isActive
+                      ? "border-sky-400/30 bg-sky-400/10 text-sky-300"
+                      : "border-white/10 bg-white/[0.03] text-muted-foreground",
+                  )}
+                >
+                  <FolderGit2 className="size-3.5" />
+                </span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate text-[13px] font-medium leading-tight text-foreground">
+                    {w.name}
+                  </span>
+                  <span className="truncate font-mono text-[10px] leading-tight text-muted-foreground">
+                    {repoLocation(w.path, w.name)}
+                  </span>
+                </span>
+              </span>
+            </SelectItem>
+          );
+        })}
       </SelectContent>
     </Select>
   );

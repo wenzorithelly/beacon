@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { db } from "@/lib/db";
+import { node } from "@/lib/drizzle/schema";
 import * as m from "@/lib/mutations";
 import { resetDb } from "./helpers";
 
@@ -70,7 +71,7 @@ describe("status transitions", () => {
     const node = await m.createNode({ view: "ROADMAP", title: "T" });
     const after = await m.cancelNode(node.id);
     expect(after.status).toBe("CANCELLED");
-    expect(await db.node.findUnique({ where: { id: node.id } })).not.toBeNull();
+    expect(await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, node.id) })).not.toBeUndefined();
   });
 });
 
@@ -79,7 +80,7 @@ describe("deleteNode", () => {
     const parent = await m.createNode({ view: "ROADMAP", title: "P" });
     const child = await m.createNode({ view: "ROADMAP", title: "C", parentId: parent.id });
     await m.deleteNode(parent.id);
-    expect(await db.node.findUnique({ where: { id: child.id } })).toBeNull();
+    expect(await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, child.id) })).toBeUndefined();
   });
 });
 
@@ -92,18 +93,3 @@ describe("updateNodePosition", () => {
   });
 });
 
-describe("bugs", () => {
-  it("creates a bug with default severity and resolves it", async () => {
-    const bug = await m.createBug({ title: "Some issue" });
-    expect(bug.severity).toBe("medium");
-    expect(bug.status).toBe("OPEN");
-    expect((await m.setBugStatus(bug.id, "RESOLVED")).status).toBe("RESOLVED");
-  });
-
-  it("links and unlinks a bug to a node", async () => {
-    const node = await m.createNode({ view: "ROADMAP", title: "Front" });
-    const bug = await m.createBug({ title: "Issue", nodeId: node.id });
-    expect(bug.nodeId).toBe(node.id);
-    expect((await m.linkBugToNode(bug.id, null)).nodeId).toBeNull();
-  });
-});

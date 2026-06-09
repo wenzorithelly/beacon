@@ -1,17 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
-  applyNodeChanges,
   Background,
+  ConnectionMode,
   Controls,
   MarkerType,
   MiniMap,
   Panel,
   ReactFlow,
+  useNodesState,
+  type Connection,
   type Edge,
   type Node,
-  type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -19,50 +21,369 @@ import { DbTableNode, type DbTableNodeData } from "@/components/graph/db-table-n
 import { EndpointNode, type EndpointNodeData } from "@/components/graph/endpoint-node";
 import { DbEditContext, type DbEditApi } from "@/components/graph/db-edit-context";
 import { DbDetailSidebar } from "@/components/graph/db-detail-sidebar";
-import { ACCESS_COLOR } from "@/components/graph/db-types";
+import { ACCESS_COLOR, neighborIds } from "@/components/graph/db-types";
+import {
+  CanvasPopover,
+  Chip,
+  PopoverSection,
+} from "@/components/graph/canvas-popover";
+import { CanvasTabs } from "@/components/graph/canvas-tabs";
+import { accessForMethod } from "@/lib/access";
+import { diffDraftTables, diffDraftEndpoints, type NodeDiff } from "@/lib/db-diff";
 import { cn } from "@/lib/utils";
 import type {
   DbRelationPayload,
+  DbSelection,
   DbTablePayload,
+  DraftDoc,
   EndpointPayload,
 } from "@/components/graph/db-types";
-import { PanelRight } from "lucide-react";
-import { useAiContext } from "@/components/ai/ai-context";
 import type { DraftGraph } from "@/lib/design";
+import {
+  Check,
+  HelpCircle,
+  PanelRight,
+  Redo2,
+  SlidersHorizontal,
+  Trash2,
+  Undo2,
+} from "lucide-react";
+
+// Re-export so existing call sites keep working while the canonical home is db-types.
+export type { DbSelection };
+
+import { DeletableEdge } from "@/components/graph/deletable-edge";
 
 const nodeTypes = { dbTable: DbTableNode, endpoint: EndpointNode };
+const edgeTypes = { deletable: DeletableEdge };
+const STORAGE_KEY = "beacon:db-draft";
+const EMPTY_DOC: DraftDoc = {
+  proposedAt: 0,
+  status: "pending",
+  tables: [],
+  relations: [],
+  endpoints: [],
+};
 
-export type DbSelection = { id: string; kind: "table" | "endpoint" } | null;
+type DbNode = Node<DbTableNodeData> | Node<EndpointNodeData>;
+// `rev` bumps on EVERY history change (incl. boot/adopt resets) and drives render rebuilds.
+// `edited` is true only after a genuine USER edit — boot/new-proposal resets clear it — so the
+// parent's "Submit feedback / disable Approve" signal never fires from merely opening the board.
+type History = { past: DraftDoc[]; present: DraftDoc; future: DraftDoc[]; rev: number; edited: boolean };
+
+// ── doc → render payloads (draft tables/endpoints are just payloads with source "DRAFT") ──
+function draftTablePayloads(doc: DraftDoc): DbTablePayload[] {
+  return doc.tables.map((t) => ({
+    id: t.id,
+    name: t.name,
+    domain: t.domain,
+    description: t.description,
+    source: "DRAFT",
+    x: t.x,
+    y: t.y,
+    columns: t.columns,
+  }));
+}
+function draftEndpointPayloads(doc: DraftDoc): EndpointPayload[] {
+  return doc.endpoints.map((e) => ({
+    id: e.id,
+    method: e.method,
+    path: e.path,
+    domain: e.domain,
+    description: e.description,
+    source: "DRAFT",
+    x: e.x,
+    y: e.y,
+    tables: e.links.map((l) => ({ tableId: l.tableId, access: l.access })),
+  }));
+}
+// Name-keyed view for the "Copiar" prompt/DBML/SQL formatters.
+function docToDraftGraph(doc: DraftDoc): DraftGraph {
+  const nameById = new Map(doc.tables.map((t) => [t.id, t.name]));
+  return {
+    tables: doc.tables.map((t) => ({
+      name: t.name,
+      domain: t.domain,
+      description: t.description,
+      columns: t.columns.map((c) => ({
+        name: c.name,
+        type: c.type,
+        isPk: c.isPk,
+        isFk: c.isFk,
+        nullable: c.nullable,
+        note: c.note,
+      })),
+    })),
+    relations: doc.relations.flatMap((r) => {
+      const fromTable = nameById.get(r.fromTableId);
+      const toTable = nameById.get(r.toTableId);
+      return fromTable && toTable
+        ? [{ fromTable, fromColumn: r.fromColumn, toTable, toColumn: r.toColumn, label: r.label }]
+        : [];
+    }),
+    endpoints: doc.endpoints.map((e) => ({
+      method: e.method,
+      path: e.path,
+      domain: e.domain,
+      description: e.description,
+      uses: e.links.flatMap((l) => {
+        const table = nameById.get(l.tableId);
+        return table ? [{ table, access: l.access }] : [];
+      }),
+    })),
+  };
+}
+
+export interface DbMapClientHandle {
+  open: () => void;
+  close: () => void;
+  /** Open the side panel directly on the Comments tab (used by the 💬 toolbar button). */
+  openComments: () => void;
+}
 
 export function DbMapClient({
   tables,
   relations,
   endpoints,
-  draftGraph,
+  draft,
+  workspaceId,
+  embedded = false,
+  draftRef,
+  onEdit,
+  controlRef,
+  commentsContent,
+  commentsCount = 0,
+  onAddComment,
 }: {
   tables: DbTablePayload[];
   relations: DbRelationPayload[];
   endpoints: EndpointPayload[];
-  draftGraph: DraftGraph;
+  draft: DraftDoc | null;
+  workspaceId: string;
+  // When true (embedded inside /plan), fill the parent box instead of 100vh, and skip the
+  // canvas top-center tab strip so it doesn't compete with the outer page's tabs.
+  embedded?: boolean;
+  // Exposes the live edited DraftDoc to a parent (the /plan workspace) so the Submit
+  // Feedback flow can ship the user's current canvas edits back to the agent.
+  draftRef?: React.MutableRefObject<DraftDoc | null>;
+  // Fired the first time the user edits the canvas (rev > 0 → has edits). Lets the
+  // parent enable Submit feedback when only DB edits exist (no text annotations).
+  onEdit?: () => void;
+  // /plan review wiring (mirrors MapClient): imperative handle to open the panel, the Comments
+  // tab content + count, and a callback to comment on the selected table/endpoint.
+  controlRef?: React.MutableRefObject<DbMapClientHandle | null>;
+  commentsContent?: React.ReactNode;
+  commentsCount?: number;
+  onAddComment?: (excerpt: string) => void;
 }) {
+  const router = useRouter();
   const [showEndpoints, setShowEndpoints] = useState(true);
   const [selected, setSelected] = useState<DbSelection>(null);
-  const [panelOpen, setPanelOpen] = useState(true);
-  const { setSelection } = useAiContext();
+  // Edge selection focuses just the two endpoints of the clicked line; exclusive
+  // with node selection (clicking either clears the other).
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelTab, setPanelTab] = useState<"details" | "comments">("details");
+  const [busy, setBusy] = useState(false);
+
+  // Imperative handle so the /plan toolbar's 💬 button can open this board's Comments tab.
+  useEffect(() => {
+    if (!controlRef) return;
+    controlRef.current = {
+      open: () => {
+        setPanelOpen(true);
+        setPanelTab("details");
+      },
+      close: () => {
+        setPanelOpen(false);
+        setPanelTab("details");
+      },
+      openComments: () => {
+        setPanelOpen(true);
+        setPanelTab("comments");
+      },
+    };
+    return () => {
+      if (controlRef) controlRef.current = null;
+    };
+  }, [controlRef]);
+  // Multi-select filters — empty set means "show all" for that dimension.
+  const [domainFilter, setDomainFilter] = useState<Set<string>>(new Set());
+  const [sourceFilter, setSourceFilter] = useState<Set<string>>(new Set());
+  const [methodFilter, setMethodFilter] = useState<Set<string>>(new Set());
+
+  // ── The draft document, held locally with an undo/redo history ──
+  const [history, setHistory] = useState<History>(() => ({
+    past: [],
+    present: draft ?? EMPTY_DOC,
+    future: [],
+    rev: 0,
+    edited: false,
+  }));
+  const present = history.present;
+
+  const commit = useCallback((producer: (d: DraftDoc) => DraftDoc) => {
+    setHistory((h) => {
+      const next = producer(h.present);
+      if (next === h.present) return h;
+      return { past: [...h.past, h.present].slice(-100), present: next, future: [], rev: h.rev + 1, edited: true };
+    });
+  }, []);
+  const silent = useCallback((producer: (d: DraftDoc) => DraftDoc) => {
+    setHistory((h) => {
+      const next = producer(h.present);
+      if (next === h.present) return h;
+      return { ...h, present: next };
+    });
+  }, []);
+  const undo = useCallback(
+    () =>
+      setHistory((h) =>
+        h.past.length
+          ? {
+              past: h.past.slice(0, -1),
+              present: h.past[h.past.length - 1],
+              future: [h.present, ...h.future],
+              rev: h.rev + 1,
+              edited: true,
+            }
+          : h,
+      ),
+    [],
+  );
+  const redo = useCallback(
+    () =>
+      setHistory((h) =>
+        h.future.length
+          ? {
+              past: [...h.past, h.present],
+              present: h.future[0],
+              future: h.future.slice(1),
+              rev: h.rev + 1,
+              edited: true,
+            }
+          : h,
+      ),
+    [],
+  );
+  const reset = useCallback(
+    (doc: DraftDoc) => setHistory((h) => ({ past: [], present: doc, future: [], rev: h.rev + 1, edited: false })),
+    [],
+  );
+
+  // Boot from localStorage (preferring saved edits for the SAME proposal); afterwards adopt a
+  // genuinely new server proposal, or clear when the server draft is gone (approved elsewhere).
+  const bootedRef = useRef(false);
+  const serverProposedAt = draft?.proposedAt ?? 0;
+  useEffect(() => {
+    let next: DraftDoc | null = null;
+    if (!bootedRef.current) {
+      bootedRef.current = true;
+      let fromStorage: DraftDoc | null = null;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw) as { workspaceId: string; doc: DraftDoc };
+          // Restore saved edits ONLY for THIS proposal: same workspace AND same proposedAt as the
+          // server's current draft. A features-only plan has no server draft (`draft` is null), so
+          // there is nothing to match — loading a leftover draft from an unrelated past proposal
+          // would dump stale tables onto a plan that proposed none (and trip the "edited" signal).
+          if (
+            saved.workspaceId === workspaceId &&
+            saved.doc &&
+            draft &&
+            saved.doc.proposedAt === draft.proposedAt
+          )
+            fromStorage = saved.doc;
+        }
+      } catch {
+        /* ignore corrupt storage */
+      }
+      next = fromStorage ?? draft ?? null;
+    } else if (draft && draft.proposedAt !== present.proposedAt) {
+      next = draft;
+    } else if (!draft && (present.tables.length > 0 || present.endpoints.length > 0)) {
+      next = EMPTY_DOC;
+    }
+    if (next) reset(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverProposedAt]);
+
+  // Persist edits so a reload doesn't lose the working draft.
+  useEffect(() => {
+    try {
+      if (present.tables.length > 0 || present.endpoints.length > 0)
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ workspaceId, doc: present }));
+      else localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [present, workspaceId]);
+
+  // Mirror the live edited doc into the parent's ref so /plan's Submit Feedback can ship
+  // the user's actual canvas edits — not the original proposal.
+  useEffect(() => {
+    if (draftRef) draftRef.current = present;
+  }, [draftRef, present]);
+
+  // Tell the parent "the user has edited" once, on the first GENUINE edit (commit/undo/redo) —
+  // NOT on the boot/adopt reset that merely loads the proposal into the board. Gating on
+  // `history.edited` (false after any reset) is what keeps Approve enabled when the user only
+  // opened the Database tab to look; a real table/column/endpoint edit still enables Submit
+  // feedback even with no text annotations yet.
+  const editedSignaledRef = useRef(false);
+  useEffect(() => {
+    if (history.edited && !editedSignaledRef.current) {
+      editedSignaledRef.current = true;
+      onEdit?.();
+    }
+  }, [history.edited, onEdit]);
+
+  // ── Combined (real + draft) render data ──
+  const draftTables = useMemo(() => draftTablePayloads(present), [present]);
+  const draftEndpoints = useMemo(() => draftEndpointPayloads(present), [present]);
+  const allTables = useMemo(() => [...tables, ...draftTables], [tables, draftTables]);
+  const allEndpoints = useMemo(() => [...endpoints, ...draftEndpoints], [endpoints, draftEndpoints]);
+
+  // Plan-vs-Repo diff: tag each DRAFT node added/modified/unchanged vs. the persisted schema so
+  // the canvas can glow it. REVIEW-ONLY — computed only when embedded in /plan; the permanent
+  // /map Database tab stays the committed truth (drafts still show, just without diff coloring).
+  const emptyDiff = useMemo(() => new Map<string, NodeDiff>(), []);
+  const tableDiffs = useMemo(
+    () => (embedded ? diffDraftTables(tables, draftTables) : emptyDiff),
+    [embedded, tables, draftTables, emptyDiff],
+  );
+  const endpointDiffs = useMemo(
+    () => (embedded ? diffDraftEndpoints(endpoints, draftEndpoints) : emptyDiff),
+    [embedded, endpoints, draftEndpoints, emptyDiff],
+  );
+  const allRelations = useMemo<DbRelationPayload[]>(
+    () => [
+      ...relations,
+      ...present.relations.map((r) => ({
+        id: r.id,
+        fromTableId: r.fromTableId,
+        toTableId: r.toTableId,
+        fromColumn: r.fromColumn,
+        toColumn: r.toColumn,
+        label: r.label,
+      })),
+    ],
+    [relations, present.relations],
+  );
 
   const usageCount = useMemo(() => {
     const m = new Map<string, number>();
-    for (const e of endpoints)
-      for (const u of e.tables) m.set(u.tableId, (m.get(u.tableId) ?? 0) + 1);
+    for (const e of allEndpoints) for (const u of e.tables) m.set(u.tableId, (m.get(u.tableId) ?? 0) + 1);
     return m;
-  }, [endpoints]);
+  }, [allEndpoints]);
 
   const posX = useMemo(() => {
     const m = new Map<string, number>();
-    tables.forEach((t) => m.set(t.id, t.x));
-    endpoints.forEach((e) => m.set(e.id, e.x));
+    allTables.forEach((t) => m.set(t.id, t.x));
+    allEndpoints.forEach((e) => m.set(e.id, e.x));
     return m;
-  }, [tables, endpoints]);
+  }, [allTables, allEndpoints]);
 
   const sides = useCallback(
     (src: string, tgt: string) => {
@@ -75,72 +396,103 @@ export function DbMapClient({
     [posX],
   );
 
-  const initialTableNodes = useMemo<Node<DbTableNodeData>[]>(
-    () =>
-      tables.map((t) => ({
-        id: t.id,
-        type: "dbTable",
-        position: { x: t.x, y: t.y },
-        data: {
-          name: t.name,
-          domain: t.domain,
-          columns: t.columns,
-          usageCount: usageCount.get(t.id) ?? 0,
-          source: t.source,
-        },
-      })),
-    [tables, usageCount],
+  // ── React-Flow-owned node list (for smooth dragging), rebuilt from the doc on change ──
+  const draftIds = useMemo(
+    () => new Set([...present.tables.map((t) => t.id), ...present.endpoints.map((e) => e.id)]),
+    [present],
+  );
+  const realTableIds = useMemo(() => new Set(tables.map((t) => t.id)), [tables]);
+
+  const buildNodes = useCallback((): DbNode[] => {
+    const tableNodes: Node<DbTableNodeData>[] = allTables.map((t) => ({
+      id: t.id,
+      type: "dbTable",
+      position: { x: t.x, y: t.y },
+      data: {
+        name: t.name,
+        domain: t.domain,
+        columns: t.columns,
+        usageCount: usageCount.get(t.id) ?? 0,
+        source: t.source,
+        rev: history.rev,
+        diffStatus: tableDiffs.get(t.id)?.status,
+        diffChanges: tableDiffs.get(t.id)?.changes,
+      },
+    }));
+    const endpointNodes: Node<EndpointNodeData>[] = allEndpoints.map((e) => ({
+      id: e.id,
+      type: "endpoint",
+      position: { x: e.x, y: e.y },
+      data: {
+        method: e.method,
+        path: e.path,
+        domain: e.domain,
+        source: e.source,
+        rev: history.rev,
+        diffStatus: endpointDiffs.get(e.id)?.status,
+        diffChanges: endpointDiffs.get(e.id)?.changes,
+      },
+    }));
+    return [...tableNodes, ...endpointNodes];
+  }, [allTables, allEndpoints, usageCount, history.rev, tableDiffs, endpointDiffs]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<DbNode>(buildNodes());
+  useEffect(() => {
+    setNodes((prev) => {
+      const pos = new Map(prev.map((n) => [n.id, n.position]));
+      return buildNodes().map((n) => ({ ...n, position: pos.get(n.id) ?? n.position }));
+    });
+  }, [buildNodes, setNodes]);
+
+  const persistReal = useCallback((kind: string, id: string, x: number, y: number) => {
+    void fetch(`/api/db/position`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind, id, x, y }),
+    });
+  }, []);
+
+  const onNodeDragStop = useCallback(
+    (_e: unknown, node: Node) => {
+      const { x, y } = node.position;
+      if (draftIds.has(node.id)) {
+        // Position lives in the draft doc, but moving a node isn't an undoable edit.
+        silent((doc) => {
+          if (doc.tables.some((t) => t.id === node.id))
+            return { ...doc, tables: doc.tables.map((t) => (t.id === node.id ? { ...t, x, y } : t)) };
+          if (doc.endpoints.some((e) => e.id === node.id))
+            return {
+              ...doc,
+              endpoints: doc.endpoints.map((e) => (e.id === node.id ? { ...e, x, y } : e)),
+            };
+          return doc;
+        });
+      } else {
+        persistReal(node.type === "endpoint" ? "endpoint" : "table", node.id, x, y);
+      }
+    },
+    [draftIds, silent, persistReal],
   );
 
-  const initialEndpointNodes = useMemo<Node<EndpointNodeData>[]>(
-    () =>
-      endpoints.map((e) => ({
-        id: e.id,
-        type: "endpoint",
-        position: { x: e.x, y: e.y },
-        data: { method: e.method, path: e.path, domain: e.domain, source: e.source },
-      })),
-    [endpoints],
-  );
-
-  const [tableNodes, setTableNodes] = useState(initialTableNodes);
-  const [endpointNodes, setEndpointNodes] = useState(initialEndpointNodes);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setTableNodes(initialTableNodes), [initialTableNodes]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setEndpointNodes(initialEndpointNodes), [initialEndpointNodes]);
-
-  const onTableNodesChange = useCallback(
-    (c: NodeChange<Node<DbTableNodeData>>[]) =>
-      setTableNodes((nds) => applyNodeChanges(c, nds)),
-    [],
-  );
-  const onEndpointNodesChange = useCallback(
-    (c: NodeChange<Node<EndpointNodeData>>[]) =>
-      setEndpointNodes((nds) => applyNodeChanges(c, nds)),
-    [],
-  );
-
+  // ── Edges (real + draft FKs and endpoint→table links) ──
   const fkEdges = useMemo<Edge[]>(
     () =>
-      relations.map((r) => ({
+      allRelations.map((r) => ({
         id: `fk-${r.id}`,
         source: r.fromTableId,
         target: r.toTableId,
         ...sides(r.fromTableId, r.toTableId),
-        type: "smoothstep",
+        type: "deletable",
         label: r.label ?? undefined,
         markerEnd: { type: MarkerType.ArrowClosed, color: "#6b6b6b" },
         style: { stroke: "#6b6b6b" },
-        labelStyle: { fill: "#cfcfcf", fontSize: 10 },
-        labelBgStyle: { fill: "#161616" },
       })),
-    [relations, sides],
+    [allRelations, sides],
   );
 
   const usageEdges = useMemo<Edge[]>(
     () =>
-      endpoints.flatMap((e) =>
+      allEndpoints.flatMap((e) =>
         e.tables.map((u) => {
           const color = ACCESS_COLOR[u.access] ?? "#5a5a5a";
           return {
@@ -154,151 +506,578 @@ export function DbMapClient({
           } as Edge;
         }),
       ),
-    [endpoints, sides],
+    [allEndpoints, sides],
   );
 
-  const nodes = showEndpoints ? [...tableNodes, ...endpointNodes] : tableNodes;
-  const edges = showEndpoints ? [...fkEdges, ...usageEdges] : fkEdges;
-
-  const onNodesChange = useCallback(
-    (changes: NodeChange<Node>[]) => {
-      onTableNodesChange(changes as NodeChange<Node<DbTableNodeData>>[]);
-      onEndpointNodesChange(changes as NodeChange<Node<EndpointNodeData>>[]);
-    },
-    [onTableNodesChange, onEndpointNodesChange],
+  const baseEdges = useMemo(
+    () => (showEndpoints ? [...fkEdges, ...usageEdges] : fkEdges),
+    [fkEdges, usageEdges, showEndpoints],
   );
 
-  const persist = useCallback((kind: string, id: string, x: number, y: number) => {
-    void fetch(`/api/db/position`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind, id, x, y }),
+  // Click-to-highlight: selecting a NODE focuses 1-hop neighbours; selecting an
+  // EDGE focuses just the two endpoints the line connects. Either fades the rest.
+  const focusIds = useMemo(() => {
+    if (selectedEdgeId) {
+      const e = baseEdges.find((x) => x.id === selectedEdgeId);
+      return e ? new Set([e.source, e.target]) : null;
+    }
+    return selected ? neighborIds(selected.id, baseEdges) : null;
+  }, [selected, selectedEdgeId, baseEdges]);
+
+  // Filter-driven hidden set. Tables fail on domain or source mismatch; endpoints fail
+  // on method or source mismatch. Edges touching a hidden node are hidden too.
+  const tableMeta = useMemo(
+    () => new Map(allTables.map((t) => [t.id, { domain: t.domain, source: t.source }])),
+    [allTables],
+  );
+  const endpointMeta = useMemo(
+    () => new Map(allEndpoints.map((e) => [e.id, { method: e.method, source: e.source }])),
+    [allEndpoints],
+  );
+  const hiddenIds = useMemo(() => {
+    const out = new Set<string>();
+    if (!showEndpoints) for (const id of endpointMeta.keys()) out.add(id);
+    for (const [id, meta] of tableMeta) {
+      if (domainFilter.size && (!meta.domain || !domainFilter.has(meta.domain))) out.add(id);
+      if (sourceFilter.size && !sourceFilter.has(meta.source)) out.add(id);
+    }
+    for (const [id, meta] of endpointMeta) {
+      if (methodFilter.size && !methodFilter.has(meta.method)) out.add(id);
+      if (sourceFilter.size && !sourceFilter.has(meta.source)) out.add(id);
+    }
+    return out;
+  }, [showEndpoints, tableMeta, endpointMeta, domainFilter, sourceFilter, methodFilter]);
+
+  // Highlight is for edges — nodes only mildly fade so they're clearly readable as context
+  // (otherwise users read "faded" as "missing endpoints"). Edges fade hard since lines were
+  // the clutter we wanted to cut.
+  const displayNodes = useMemo(() => {
+    return nodes.map((n) => {
+      const hidden = hiddenIds.has(n.id);
+      if (!focusIds) return hidden ? { ...n, hidden } : n;
+      return {
+        ...n,
+        hidden,
+        style: { ...n.style, opacity: focusIds.has(n.id) ? 1 : 0.45, transition: "opacity 120ms" },
+      };
     });
+  }, [nodes, hiddenIds, focusIds]);
+
+  const displayEdges = useMemo(() => {
+    return baseEdges.map((e) => {
+      const hidden = hiddenIds.has(e.source) || hiddenIds.has(e.target);
+      if (!selected && !selectedEdgeId) return hidden ? { ...e, hidden } : e;
+      const on = selectedEdgeId
+        ? e.id === selectedEdgeId
+        : selected
+          ? e.source === selected.id || e.target === selected.id
+          : false;
+      return on
+        ? { ...e, hidden, zIndex: 20, style: { ...e.style, opacity: 1, strokeWidth: 2.5 } }
+        : {
+            ...e,
+            hidden,
+            selectable: false,
+            label: undefined,
+            markerEnd: undefined,
+            style: { ...e.style, opacity: 0.08 },
+          };
+    });
+  }, [baseEdges, selected, selectedEdgeId, hiddenIds]);
+
+  const domainsPresent = useMemo(
+    () =>
+      Array.from(
+        new Set(allTables.map((t) => t.domain).filter((d): d is string => !!d)),
+      ).sort(),
+    [allTables],
+  );
+  const sourcesPresent = useMemo(
+    () =>
+      Array.from(
+        new Set([...allTables.map((t) => t.source), ...allEndpoints.map((e) => e.source)]),
+      ).sort(),
+    [allTables, allEndpoints],
+  );
+  const methodsPresent = useMemo(
+    () => Array.from(new Set(allEndpoints.map((e) => e.method))).sort(),
+    [allEndpoints],
+  );
+
+  function toggleIn<T>(value: T, set: React.Dispatch<React.SetStateAction<Set<T>>>) {
+    set((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
+
+  const activeFilterCount =
+    (showEndpoints ? 0 : 1) + domainFilter.size + sourceFilter.size + methodFilter.size;
+  const clearFilters = useCallback(() => {
+    setShowEndpoints(true);
+    setDomainFilter(new Set());
+    setSourceFilter(new Set());
+    setMethodFilter(new Set());
   }, []);
 
-  // Inline editing of DRAFT tables/endpoints: optimistic local update + no-revalidate save.
+  // ── Drawing a connection: endpoint→table = usage link; draft-table→table = FK ──
+  const onConnect = useCallback(
+    (c: Connection) => {
+      const { source, target } = c;
+      if (!source || !target || source === target) return;
+      commit((doc) => {
+        const targetIsTable = doc.tables.some((t) => t.id === target) || realTableIds.has(target);
+        if (!targetIsTable) return doc;
+        const ep = doc.endpoints.find((e) => e.id === source);
+        if (ep) {
+          if (ep.links.some((l) => l.tableId === target)) return doc;
+          return {
+            ...doc,
+            endpoints: doc.endpoints.map((e) =>
+              e.id === source
+                ? { ...e, links: [...e.links, { tableId: target, access: accessForMethod(e.method) }] }
+                : e,
+            ),
+          };
+        }
+        const srcTbl = doc.tables.find((t) => t.id === source);
+        if (srcTbl) {
+          if (doc.relations.some((r) => r.fromTableId === source && r.toTableId === target))
+            return doc;
+          return {
+            ...doc,
+            relations: [
+              ...doc.relations,
+              {
+                id: crypto.randomUUID(),
+                fromTableId: source,
+                toTableId: target,
+                fromColumn: "fk",
+                toColumn: "id",
+                label: null,
+              },
+            ],
+          };
+        }
+        return doc;
+      });
+    },
+    [commit, realTableIds],
+  );
+
+  // ── Inline edits from draft nodes (local, undoable) ──
   const dbEdit = useMemo<DbEditApi>(
     () => ({
-      patchEndpoint: (id, fields, save) => {
-        setEndpointNodes((nds) =>
-          nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...fields } } : n)),
-        );
-        if (save)
-          void fetch(`/api/draft/endpoint/${id}`, {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(fields),
-          });
-      },
-      deleteEndpoint: (id) => {
-        setEndpointNodes((nds) => nds.filter((n) => n.id !== id));
-        void fetch(`/api/draft/endpoint/${id}`, { method: "DELETE" });
-      },
-      patchTable: (id, fields, save) => {
-        setTableNodes((nds) =>
-          nds.map((n) =>
-            n.id === id ? { ...n, data: { ...n.data, ...(fields as Partial<DbTableNodeData>) } } : n,
-          ),
-        );
-        if (save)
-          void fetch(`/api/draft/table/${id}`, {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(fields),
-          });
-      },
-      deleteTable: (id) => {
-        setTableNodes((nds) => nds.filter((n) => n.id !== id));
-        void fetch(`/api/draft/table/${id}`, { method: "DELETE" });
+      patchEndpoint: (id, fields) =>
+        commit((doc) => ({
+          ...doc,
+          endpoints: doc.endpoints.map((e) => (e.id === id ? { ...e, ...fields } : e)),
+        })),
+      deleteEndpoint: (id) =>
+        commit((doc) => ({ ...doc, endpoints: doc.endpoints.filter((e) => e.id !== id) })),
+      patchTable: (id, fields) =>
+        commit((doc) => ({
+          ...doc,
+          tables: doc.tables.map((t) => (t.id === id ? { ...t, ...fields } : t)),
+        })),
+      deleteTable: (id) =>
+        commit((doc) => ({
+          ...doc,
+          tables: doc.tables.filter((t) => t.id !== id),
+          relations: doc.relations.filter((r) => r.fromTableId !== id && r.toTableId !== id),
+          endpoints: doc.endpoints.map((e) => ({
+            ...e,
+            links: e.links.filter((l) => l.tableId !== id),
+          })),
+        })),
+      deleteRealEndpoint: (id) => {
+        void fetch(`/api/endpoints/${id}`, { method: "DELETE" }).then((r) => {
+          if (r.ok) router.refresh();
+        });
       },
     }),
-    [],
+    [commit, router],
   );
+
+  // ── Keyboard undo/redo (ignored while typing in a node field) ──
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const t = e.target as HTMLElement | null;
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      const k = e.key.toLowerCase();
+      if (k === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+      } else if (k === "y") {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
+
+  // ── Approve (persist to real schema + signal Claude) / Discard ──
+  const approve = useCallback(async () => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/draft/approve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(present),
+      });
+      if (res.ok) {
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+        } catch {
+          /* ignore */
+        }
+        reset(EMPTY_DOC);
+        router.refresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [present, reset, router]);
+
+  const discard = useCallback(async () => {
+    setBusy(true);
+    try {
+      await fetch("/api/draft", { method: "DELETE" });
+    } catch {
+      /* ignore */
+    }
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    reset(EMPTY_DOC);
+    router.refresh();
+    setBusy(false);
+  }, [reset, router]);
+
+  const draftGraph = useMemo(() => docToDraftGraph(present), [present]);
+  const hasDraft = present.tables.length > 0 || present.endpoints.length > 0;
+  const canUndo = history.past.length > 0;
+  const canRedo = history.future.length > 0;
 
   return (
     <DbEditContext.Provider value={dbEdit}>
-    <div className="relative h-[calc(100vh-3.5rem)] w-full">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onNodeClick={(_, node) => {
-          const kind = node.type === "endpoint" ? "endpoint" : "table";
-          setSelected({ id: node.id, kind });
-          setPanelOpen(true);
-          const d = node.data as { name?: string; method?: string; path?: string };
-          setSelection({
-            kind: kind === "endpoint" ? "endpoint" : "tabela",
-            label: kind === "endpoint" ? `${d.method} ${d.path}` : (d.name ?? "tabela"),
-            id: node.id,
-          });
-        }}
-        onPaneClick={() => {
-          setSelected(null);
-          setSelection(null);
-        }}
-        onNodeDragStop={(_, node) =>
-          persist(
-            node.type === "endpoint" ? "endpoint" : "table",
-            node.id,
-            node.position.x,
-            node.position.y,
-          )
-        }
-        deleteKeyCode={null}
-        colorMode="dark"
-        fitView
-        minZoom={0.15}
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background gap={22} color="#2a2a32" />
-        <Controls className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur" />
-        <MiniMap
-          pannable
-          zoomable
-          className="!rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
-          nodeColor="#555"
-        />
+      <div className={cn("relative w-full", embedded ? "h-full" : "h-screen")}>
+        <ReactFlow
+          nodes={displayNodes}
+          edges={displayEdges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          connectionMode={ConnectionMode.Loose}
+          connectionLineStyle={{
+            stroke: "var(--accent-2,#ff7a45)",
+            strokeWidth: 1.5,
+            strokeDasharray: "4 4",
+          }}
+          onNodesChange={onNodesChange}
+          onConnect={onConnect}
+          onNodeClick={(_, node) => {
+            const kind = node.type === "endpoint" ? "endpoint" : "table";
+            setSelected({ id: node.id, kind });
+            setSelectedEdgeId(null);
+            setPanelOpen(true);
+            setPanelTab("details"); // selecting a node always lands on Details
+          }}
+          onEdgeClick={(_, edge) => {
+            setSelectedEdgeId(edge.id);
+            setSelected(null);
+          }}
+          onPaneClick={() => {
+            setSelected(null);
+            setSelectedEdgeId(null);
+          }}
+          onNodeDragStop={onNodeDragStop}
+          onEdgesDelete={(removed) => {
+            // FK relations carry id prefix `fk-`; endpoint→table usage links use `u-`.
+            // Usage links live inside the doc — let onNodesChange's selection handle it
+            // since the user usually deletes via the endpoint node UI. Real FK relations
+            // get persisted deletion.
+            for (const e of removed) {
+              if (e.id.startsWith("fk-")) {
+                const realId = e.id.slice(3);
+                void fetch(`/api/db/relations/${realId}`, { method: "DELETE" });
+              }
+            }
+          }}
+          onNodesDelete={(removed) => {
+            for (const n of removed) {
+              // draft tables/endpoints are managed by the local doc + undo history; skip
+              // here so the user uses the in-card delete button for those.
+              if (draftIds.has(n.id)) continue;
+              if (n.type === "endpoint") {
+                void fetch(`/api/endpoints/${n.id}`, { method: "DELETE" });
+              } else if (n.type === "dbTable") {
+                void fetch(`/api/db/tables/${n.id}`, { method: "DELETE" });
+              }
+            }
+          }}
+          deleteKeyCode={["Backspace", "Delete"]}
+          colorMode="dark"
+          fitView
+          minZoom={0.15}
+          // Scroll pans the board; hold ⌘/Ctrl while scrolling to zoom (trackpad pinch still zooms).
+          panOnScroll
+          zoomActivationKeyCode={["Meta", "Control"]}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background gap={22} color="#2a2a32" />
+          <Controls
+            position="bottom-right"
+            className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
+          />
+          {!embedded && (
+            <MiniMap
+              pannable
+              zoomable
+              position="bottom-left"
+              style={{ width: 140, height: 90 }}
+              className="!rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
+              nodeColor="#555"
+            />
+          )}
 
-        <Panel position="top-left" className="glass flex items-center gap-2 rounded-xl p-1.5">
-          <span className="px-1 text-xs font-semibold">Banco de dados</span>
-          <button
-            onClick={() => setShowEndpoints((s) => !s)}
+          {!embedded && (
+            <Panel position="top-center" className="glass rounded-full px-1 py-0.5">
+              <CanvasTabs
+                active="DATABASE"
+                tabs={[
+                  { value: "ROADMAP", label: "Roadmap", href: "/map?view=ROADMAP" },
+                  { value: "ARCHITECTURE", label: "Architecture", href: "/map?view=ARCHITECTURE" },
+                  { value: "FILES", label: "Files", href: "/map?view=FILES" },
+                  { value: "DATABASE", label: "Database", href: "/map?view=DATABASE" },
+                ]}
+              />
+            </Panel>
+          )}
+
+          <Panel
+            position="top-right"
             className={cn(
-              "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
-              showEndpoints
-                ? "border-sky-500/40 bg-sky-500/15 text-sky-300"
-                : "border-white/10 text-muted-foreground hover:text-foreground",
+              "flex items-center gap-1 transition-[margin] duration-200",
+              panelOpen && "!mr-[332px]",
+              embedded && "hidden",
             )}
           >
-            endpoints
-          </button>
-        </Panel>
-
-        {!panelOpen && (
-          <Panel position="top-right">
-            <button
-              onClick={() => setPanelOpen(true)}
-              className="glass flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            <CanvasPopover
+              title="Filters"
+              trigger={(open, toggle) => (
+                <button
+                  type="button"
+                  onClick={toggle}
+                  title="Filters"
+                  className={cn(
+                    "glass relative flex size-8 items-center justify-center rounded-lg transition-colors",
+                    open || activeFilterCount > 0
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <SlidersHorizontal className="size-4" />
+                  {activeFilterCount > 0 && (
+                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--accent-2,#ff7a45)] px-1 text-[9px] font-semibold text-white">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </button>
+              )}
             >
-              <PanelRight className="size-4" /> painel
-            </button>
-          </Panel>
-        )}
-      </ReactFlow>
+              <PopoverSection title="Show">
+                <Chip tone="accent" on={showEndpoints} onClick={() => setShowEndpoints((s) => !s)}>
+                  endpoints
+                </Chip>
+              </PopoverSection>
+              {domainsPresent.length > 0 && (
+                <PopoverSection title="Domain">
+                  {domainsPresent.map((d) => (
+                    <Chip
+                      key={d}
+                      on={domainFilter.has(d)}
+                      onClick={() => toggleIn(d, setDomainFilter)}
+                    >
+                      {d}
+                    </Chip>
+                  ))}
+                </PopoverSection>
+              )}
+              {methodsPresent.length > 0 && (
+                <PopoverSection title="Method">
+                  {methodsPresent.map((m) => (
+                    <Chip
+                      key={m}
+                      on={methodFilter.has(m)}
+                      onClick={() => toggleIn(m, setMethodFilter)}
+                    >
+                      {m}
+                    </Chip>
+                  ))}
+                </PopoverSection>
+              )}
+              {sourcesPresent.length > 0 && (
+                <PopoverSection title="Source">
+                  {sourcesPresent.map((s) => (
+                    <Chip
+                      key={s}
+                      on={sourceFilter.has(s)}
+                      onClick={() => toggleIn(s, setSourceFilter)}
+                    >
+                      {s.toLowerCase()}
+                    </Chip>
+                  ))}
+                </PopoverSection>
+              )}
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="mt-1 w-full rounded-md border border-white/10 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+                >
+                  clear filters
+                </button>
+              )}
+            </CanvasPopover>
 
-      {panelOpen && (
-        <DbDetailSidebar
-          selected={selected}
-          tables={tables}
-          relations={relations}
-          endpoints={endpoints}
-          draftGraph={draftGraph}
-          onClose={() => setPanelOpen(false)}
-        />
-      )}
-    </div>
+            <CanvasPopover
+              title="Legend"
+              trigger={(open, toggle) => (
+                <button
+                  type="button"
+                  onClick={toggle}
+                  title="Legend"
+                  className={cn(
+                    "glass flex size-8 items-center justify-center rounded-lg transition-colors",
+                    open ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <HelpCircle className="size-4" />
+                </button>
+              )}
+            >
+              <ul className="space-y-1.5 text-[10.5px] text-muted-foreground">
+                <li className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="inline-block h-px w-6 bg-[#6b6b6b]"
+                  />
+                  <span>foreign key · drag from a table handle</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="inline-block h-0 w-6 border-t border-dashed"
+                    style={{ borderColor: "#4ea1ff" }}
+                  />
+                  <span>endpoint read · GET / POST / etc</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="inline-block h-0 w-6 border-t border-dashed"
+                    style={{ borderColor: "#ffb86b" }}
+                  />
+                  <span>endpoint write</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="inline-block rounded border border-dashed border-sky-400/50 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-sky-300">
+                    draft
+                  </span>
+                  <span>agent-proposed · approve to persist</span>
+                </li>
+              </ul>
+            </CanvasPopover>
+
+            {!panelOpen && (
+              <button
+                onClick={() => setPanelOpen(true)}
+                title="Show panel"
+                className="glass flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <PanelRight className="size-4" />
+              </button>
+            )}
+          </Panel>
+
+          {hasDraft && (
+            <Panel
+              position="bottom-center"
+              className="glass flex items-center gap-1 rounded-xl p-1.5"
+            >
+              <button
+                onClick={undo}
+                disabled={!canUndo}
+                title="Undo (⌘Z)"
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+              >
+                <Undo2 className="size-3.5" /> undo
+              </button>
+              <button
+                onClick={redo}
+                disabled={!canRedo}
+                title="Redo (⇧⌘Z)"
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+              >
+                <Redo2 className="size-3.5" /> redo
+              </button>
+              {/* In /plan the top plan bar owns the verdict (Approve / Discard) and any DB-design
+                  comments flow back as plan feedback — that's the intended flow — so the
+                  draft-level verdict buttons are redundant there. Keep them only on the
+                  standalone /map board, where there's no plan bar. undo/redo stay in both. */}
+              {!embedded && (
+                <>
+                  <span className="mx-1 h-4 w-px bg-white/10" />
+                  <button
+                    onClick={discard}
+                    disabled={busy}
+                    title="Discard draft"
+                    className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:opacity-40"
+                  >
+                    <Trash2 className="size-3.5" /> discard
+                  </button>
+                  <button
+                    onClick={approve}
+                    disabled={busy}
+                    title="Approve and persist to the schema"
+                    className="flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 transition-colors hover:bg-emerald-500/25 disabled:opacity-40"
+                  >
+                    <Check className="size-3.5" /> approve draft
+                  </button>
+                </>
+              )}
+            </Panel>
+          )}
+
+        </ReactFlow>
+
+        {panelOpen && (
+          <DbDetailSidebar
+            selected={selected}
+            tables={allTables}
+            relations={allRelations}
+            endpoints={allEndpoints}
+            draftGraph={draftGraph}
+            onClose={() => {
+              setPanelOpen(false);
+              setPanelTab("details");
+            }}
+            commentsContent={commentsContent}
+            commentsCount={commentsCount}
+            activeTab={panelTab}
+            onTabChange={setPanelTab}
+            onAddComment={onAddComment}
+            topOffset={embedded ? 64 : undefined}
+          />
+        )}
+      </div>
     </DbEditContext.Provider>
   );
 }

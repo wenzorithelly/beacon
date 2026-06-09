@@ -24,6 +24,7 @@ import { createNodeAction, updateNodeAction } from "@/app/actions/nodes";
 import { ARCH_STATUSES, ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
 
 type Mode = "create" | "edit";
+type NodeStatus = (typeof ROADMAP_STATUSES)[number] | (typeof ARCH_STATUSES)[number];
 
 export interface NodeFormDialogProps {
   open: boolean;
@@ -59,8 +60,8 @@ export function NodeFormDialog({
   const [role, setRole] = useState(defaults?.role ?? "");
   const [plain, setPlain] = useState(defaults?.plain ?? "");
   const [cluster, setCluster] = useState(defaults?.cluster ?? "");
-  const [status, setStatus] = useState(
-    defaults?.status ?? (view === "ARCHITECTURE" ? "REBUILD" : "PENDING"),
+  const [status, setStatus] = useState<NodeStatus>(
+    (defaults?.status as NodeStatus) ?? (view === "ARCHITECTURE" ? "REBUILD" : "PENDING"),
   );
   const [saving, setSaving] = useState(false);
 
@@ -106,7 +107,7 @@ export function NodeFormDialog({
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="nf-title">Título</Label>
+            <Label htmlFor="nf-title">Title</Label>
             <Input
               id="nf-title"
               value={title}
@@ -115,11 +116,11 @@ export function NodeFormDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="nf-role">Papel (uma linha)</Label>
+            <Label htmlFor="nf-role">Role (one line)</Label>
             <Input id="nf-role" value={role} onChange={(e) => setRole(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="nf-plain">Descrição</Label>
+            <Label htmlFor="nf-plain">Description</Label>
             <Textarea
               id="nf-plain"
               rows={3}
@@ -130,7 +131,7 @@ export function NodeFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Status</Label>
-              <Select value={status} onValueChange={setStatus}>
+              <Select value={status} onValueChange={(v) => v != null && setStatus(v as NodeStatus)}>
                 <SelectTrigger>
                   <SelectValue>{(v: string) => STATUS_META[v]?.label ?? v}</SelectValue>
                 </SelectTrigger>
@@ -155,10 +156,10 @@ export function NodeFormDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancelar
+            Cancel
           </Button>
           <Button onClick={submit} disabled={saving || !title.trim()}>
-            {saving ? "Salvando…" : "Salvar"}
+            {saving ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>
