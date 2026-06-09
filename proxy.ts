@@ -19,9 +19,17 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (PUBLIC) {
-    // `/` is the landing; `/install.sh` is the public install script (served from
-    // public/). Everything else (the local tool's routes + /api) stays hidden.
-    if (pathname === "/" || pathname === "/install.sh") return NextResponse.next();
+    // `/` is the landing; `/install.sh` is the public install script (served from public/);
+    // `/api/feedback*` is the global feedback board API every distributed install calls
+    // cross-origin. Everything else (the local tool's routes + the rest of /api, which read
+    // the developer's own repo data) stays hidden and redirects back to `/`.
+    if (
+      pathname === "/" ||
+      pathname === "/install.sh" ||
+      pathname.startsWith("/api/feedback")
+    ) {
+      return NextResponse.next();
+    }
     return NextResponse.redirect(new URL("/", request.url));
   }
 
