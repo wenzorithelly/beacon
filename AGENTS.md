@@ -7,7 +7,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 <!-- beacon:start -->
 ## Project: beacon
 
-Beacon is a local visual planning surface for a terminal-side coding agent (Claude Code): the agent proposes a feature plan — roadmap features + database schema + endpoints — the user reviews it on a split-screen /plan canvas with inline annotations and direct board edits, and a structured verdict flows back to the terminal session. It is NOT a chatbot and does not generate plans on its own. The stack is Next.js 16 (App Router, React 19, Tailwind v4), ShadCN + base-ui primitives, React Flow (@xyflow/react) for the maps, and Prisma 7 over a libSQL driver adapter (SQLite in dev, Postgres-portable for prod), all run with Bun (package manager, runtime, and `bun test`). It ships as a CLI (`beacon`) that runs one shared multi-workspace daemon serving every repo you open, an MCP server (`beacon mcp`) that exposes the agent-facing tools, Claude Code hooks that bridge ExitPlanMode → /plan and report edits, and a live code-intelligence daemon (`intel/`) that keeps the maps in sync with the real repository (import graph, tables, endpoints).
+Beacon is a local visual planning surface for a terminal-side coding agent (Claude Code): the agent proposes a feature plan — roadmap features + database schema + endpoints — the user reviews it on a split-screen /plan canvas with inline annotations and direct board edits, and a structured verdict flows back to the terminal session. It is NOT a chatbot and does not generate plans on its own. The stack is Next.js 16 (App Router, React 19, Tailwind v4), ShadCN + base-ui primitives, React Flow (@xyflow/react) for the maps, and Drizzle ORM over libSQL (SQLite in dev, Postgres-portable for prod), all run with Bun (package manager, runtime, and `bun test`). It ships as a CLI (`beacon`) that runs one shared multi-workspace daemon serving every repo you open, an MCP server (`beacon mcp`) that exposes the agent-facing tools, Claude Code hooks that bridge ExitPlanMode → /plan and report edits, and a live code-intelligence daemon (`intel/`) that keeps the maps in sync with the real repository (import graph, tables, endpoints).
 
 ### Commands
 - dev: `make dev`
@@ -65,6 +65,7 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - `Edge`: id, fromId, toId, kind, label, sourceHandle, targetHandle
 - `Endpoint`: id, method, path, domain, description, source, x, y
 - `EndpointTable`: id, endpointId, tableId, access
+- `Feedback`: id, body, upvotes, downvotes, createdAt
 - `Node`: id, view, cluster, title, role, plain, status, priority, progress, x, y, source
 - `NodeFile`: id, nodeId, path
 - `Note`: id, title, body, ord, pinned, createdAt, updatedAt
@@ -87,6 +88,9 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - POST /api/draft
 - POST /api/draft/approve
 - GET /api/draft/status
+- GET /api/feedback
+- POST /api/feedback
+- POST /api/feedback/[id]/vote
 - POST /api/architecture/sync
 - POST /api/init
 - POST /api/code-graph
@@ -110,18 +114,19 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - POST /api/notes
 - PATCH /api/notes/{id}
 - DELETE /api/notes/{id}
-- GET /api/plan
-- GET /api/plan/annotations
-- POST /api/plan/approve
 
 ### Conventions & gotchas
 - This is Next.js 16 App Router with breaking changes — read node_modules/next/dist/docs/ before relying on memory; APIs and conventions differ from older App Router.
 - Bun for everything: package management, runtime, and tests (`bun test` / `make test`) — never npm/yarn, no Jest, no Vite.
-- Prisma 7 needs a runtime driver adapter — libSQL is used because better-sqlite3's native addon won't load under Bun. After any schema change run `bunx prisma generate` and restart the dev server (the client singleton is cached in-process).
-- Never instantiate the Prisma client directly — import `db` from lib/db.ts; it resolves the active or request-pinned workspace. API routes serving MCP requests MUST wrap their handler in runWithWorkspace(workspaceIdFromRequest(req), …) so writes hit the agent's repo, not the browser-selected one.
-- Keep the schema Postgres-portable: no Prisma enums (use String + Zod unions) and no scalar lists (model arrays as related rows) — SQLite can't store arrays.
+- Drizzle ORM over libSQL is the data layer (libSQL is pure JS, so the SAME driver loads under both the Next server runtime AND Bun). After editing lib/drizzle/schema.ts, run `bun run db:generate` to emit a migration into drizzle/; the runtime applies pending migrations to EVERY per-workspace SQLite db in-process via lib/drizzle/provision (no `prisma generate`, no out-of-process spawn).
+- Never construct the Drizzle/libSQL client directly — import `db` from lib/db.ts; it resolves the active or request-pinned workspace. Browser data routes wrap their handler in `pinned()`; agent/watcher routes pin via `runWithWorkspace(resolveRequestWorkspaceId(req), …)` so writes hit the agent's repo, not the browser-selected one — and an MCP request self-registers + provisions its repo on demand.
+- Keep the schema Postgres-portable: no enum columns (use text + Zod unions) and no scalar-array columns (model arrays as related rows) — SQLite can't store arrays.
 - All agent-facing text (MCP tool returns, context bundles, AGENTS.md) is in English; the UI never says "Claude" — refer to it as "the agent" or "your terminal session".
 - The AGENTS.md project block lives between <!-- beacon:start --> and <!-- beacon:end --> and is regenerated by lib/context-files.ts from ProjectMeta + the architecture/db nodes — edit outside the markers; CLAUDE.md @imports AGENTS.md.
+- TDD on non-trivial changes; tests live in tests/ and run via `bun test`. Multi-workspace data lives under ~/.beacon/<id>/ (overridable with BEACON_HOME), not in the repo.
+
+_Maintained by Beacon — edit outside the markers; this block is regenerated._
+<!-- beacon:end --> and is regenerated by lib/context-files.ts from ProjectMeta + the architecture/db nodes — edit outside the markers; CLAUDE.md @imports AGENTS.md.
 - TDD on non-trivial changes; tests live in tests/ and run via `bun test`. Multi-workspace data lives under ~/.beacon/<id>/ (overridable with BEACON_HOME), not in the repo.
 
 _Maintained by Beacon — edit outside the markers; this block is regenerated._
