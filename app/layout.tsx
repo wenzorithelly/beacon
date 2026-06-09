@@ -8,7 +8,9 @@ import { PlanProvider } from "@/components/plan/plan-context";
 import { PlanBar } from "@/components/plan/plan-bar";
 import { NotesProvider } from "@/components/notes/notes-context";
 import { NotesDrawer } from "@/components/notes/notes-drawer";
+import { UpdateBanner } from "@/components/update-banner";
 import { repoName } from "@/lib/project";
+import { appVersion } from "@/lib/app-version";
 
 const geistSans = Geist({
   variable: "--font-sans",
@@ -51,6 +53,7 @@ export default function RootLayout({
               </PlanProvider>
               <NotesDrawer />
             </NotesProvider>
+            <UpdateBanner currentVersion={appVersion()} />
           </>
         )}
       </body>

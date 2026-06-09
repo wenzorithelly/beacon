@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { BeaconMark } from "@/components/beacon-mark";
+import { INSTALL_COMMAND } from "@/lib/release";
 import "./landing.css";
 
-const INSTALL = "curl -fsSL https://trybeacon.sh/install.sh | sh";
+const INSTALL = INSTALL_COMMAND;
 
 const STEPS: { n: string; title: string; body: React.ReactNode; cmd?: React.ReactNode }[] = [
   {
