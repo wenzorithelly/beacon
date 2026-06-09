@@ -19,7 +19,17 @@ export { runWithWorkspace } from "@/lib/workspaces";
 const fullSchema = { ...schema, ...relations };
 export type DB = LibSQLDatabase<typeof fullSchema>;
 
-const DEFAULT_URL = process.env.DATABASE_URL ?? "file:./dev.db";
+// libSQL only speaks file: / libsql: / ws(s): / http(s): (Turso) / :memory: URLs. On a hosted
+// deploy a Neon (or Vercel-Postgres) integration injects a Postgres DATABASE_URL
+// (postgresql://…&channel_binding=require) that libSQL rejects at connect — and the per-workspace
+// SQLite isn't used on the public deploy anyway (tool routes redirect to the landing). So only
+// honor DATABASE_URL when it's a libSQL-compatible scheme; otherwise fall back to a local file.
+function libsqlDefaultUrl(): string {
+  const u = process.env.DATABASE_URL;
+  if (u && /^(file:|libsql:|wss?:|https?:|:memory:)/i.test(u)) return u;
+  return "file:./dev.db";
+}
+const DEFAULT_URL = libsqlDefaultUrl();
 
 function createDbClient(dbUrl: string): DB {
   const client = createClient({ url: dbUrl });
