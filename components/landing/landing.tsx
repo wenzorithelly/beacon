@@ -127,7 +127,7 @@ export function Landing() {
               <a href="#start" className="transition-colors hover:text-foreground">
                 How it works
               </a>
-              <a href="#" className="transition-colors hover:text-foreground">
+              <a href="/docs" className="transition-colors hover:text-foreground">
                 Docs
               </a>
             </nav>
@@ -286,7 +286,7 @@ export function Landing() {
               </div>
             </div>
             <nav className="flex items-center gap-6 text-sm w-muted">
-              <a href="#" className="transition-colors hover:text-foreground">Docs</a>
+              <a href="/docs" className="transition-colors hover:text-foreground">Docs</a>
               <a href="#" className="transition-colors hover:text-foreground">Changelog</a>
             </nav>
             <p className="w-mono w-muted text-[0.72rem]">
