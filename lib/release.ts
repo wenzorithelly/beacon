@@ -9,10 +9,12 @@ export const REPO_SLUG = "wenzorithelly/beacon";
 export const GITHUB_LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO_SLUG}/releases/latest`;
 
 // The canonical hosted site — serves the landing, /install.sh, and the feedback API the
-// distributed tool calls cross-origin. Override per-deploy with NEXT_PUBLIC_BEACON_SITE_URL;
-// defaults to the brand domain (must be attached to the Vercel project for prod to resolve).
+// distributed tool calls cross-origin. MUST be the host that serves directly (no redirect):
+// the apex trybeacon.sh 308-redirects to www, and a 308 on a CORS preflight fails the cross-origin
+// POST (browsers don't follow redirects on preflight), so the feedback host is the www canonical.
+// Override per-deploy with NEXT_PUBLIC_BEACON_SITE_URL.
 export const SITE_URL = (
-  process.env.NEXT_PUBLIC_BEACON_SITE_URL ?? "https://trybeacon.sh"
+  process.env.NEXT_PUBLIC_BEACON_SITE_URL ?? "https://www.trybeacon.sh"
 ).replace(/\/$/, "");
 
 // The one install/update command shown on the landing AND copied by the update banner.
