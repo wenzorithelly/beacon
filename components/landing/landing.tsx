@@ -277,7 +277,7 @@ export function Landing() {
       <span id="top" />
 
       {/* ===== hero ===== */}
-      <section className="px-6 pb-16 pt-32">
+      <section className="px-6 pb-16 pt-20 md:pt-24">
         <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1fr_1.1fr]">
           <div className="min-w-0">
             <div
