@@ -279,7 +279,7 @@ export function Landing() {
       {/* ===== hero ===== */}
       <section className="px-6 pb-16 pt-32">
         <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1fr_1.1fr]">
-          <div>
+          <div className="min-w-0">
             <div
               className="w-load glass-soft mb-6 inline-flex items-center gap-2 rounded-full px-3.5 py-1.5"
               style={{ animationDelay: ".12s" }}
@@ -305,7 +305,7 @@ export function Landing() {
 
             <div className="w-load mt-8" style={{ animationDelay: ".34s" }}>
               <div className="glass flex max-w-lg items-center gap-3 rounded-lg py-2.5 pl-4 pr-2">
-                <code className="w-mono w-scrollbar-none flex-1 overflow-x-auto whitespace-nowrap text-[0.85rem]">
+                <code className="w-mono w-scrollbar-none min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[0.85rem]">
                   <span className="w-signal select-none">$</span>
                   <span className="ml-2">{INSTALL}</span>
                   <span className="w-caret ml-1 inline-block h-3.5 w-1.5 align-middle" style={{ background: "#ff7a45" }} />
@@ -318,14 +318,14 @@ export function Landing() {
             </div>
           </div>
 
-          <div className="w-load" style={{ animationDelay: ".3s" }}>
+          <div className="w-load min-w-0" style={{ animationDelay: ".3s" }}>
             <PlanCanvasMock />
           </div>
         </div>
 
         <a
           href="#how"
-          className="w-load mx-auto mt-20 flex w-fit flex-col items-center gap-2 w-muted transition-colors hover:text-foreground"
+          className="w-load mx-auto mt-12 flex w-fit flex-col items-center gap-2 w-muted transition-colors hover:text-foreground md:mt-20"
           style={{ animationDelay: ".6s" }}
         >
           <span className="w-mono w-eyebrow">The loop</span>
@@ -336,7 +336,7 @@ export function Landing() {
       </section>
 
       {/* ===== the loop ===== */}
-      <section id="how" className="px-6 py-24">
+      <section id="how" className="px-6 py-16 md:py-24">
         <div className="mx-auto max-w-5xl">
           <div className="w-reveal mb-14 text-center">
             <p className="w-mono w-eyebrow w-signal mb-4">The loop</p>
@@ -386,7 +386,7 @@ export function Landing() {
       </section>
 
       {/* ===== quickstart ===== */}
-      <section id="quickstart" className="px-6 py-24">
+      <section id="quickstart" className="px-6 py-16 md:py-24">
         <div className="mx-auto max-w-3xl">
           <div className="w-reveal mb-12 text-center">
             <p className="w-mono w-eyebrow w-signal mb-4">Quickstart</p>

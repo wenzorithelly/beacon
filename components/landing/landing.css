@@ -105,7 +105,9 @@
   background-image: radial-gradient(oklch(1 0 0 / 0.08) 1px, transparent 1px);
   background-size: 22px 22px;
 }
-.bm-stage { position: relative; transform-origin: top left; }
+/* Absolutely positioned so the fixed 620px design width never contributes to the
+   page's intrinsic width (which blew out the hero grid column on mobile). */
+.bm-stage { position: absolute; top: 0; left: 0; transform-origin: top left; }
 
 /* node entrance: the plan "streaming in" */
 @keyframes bm-in {
