@@ -254,10 +254,6 @@ async function extractSpecifiers(meta: FileMeta): Promise<Set<string>> {
   try {
     const content = await readFile(meta.abs, "utf8");
     if (hasOverlongLine(content)) return new Set();
-    if (process.env.BEACON_CG_TRACE) {
-      const { writeFileSync } = await import("node:fs");
-      writeFileSync("/tmp/cg-last.txt", `PATH:${meta.abs}\nLANG:${resolverForPath(meta.path)?.id}\n---\n${content}`);
-    }
     return resolver.specifiers(content);
   } catch {
     return new Set();

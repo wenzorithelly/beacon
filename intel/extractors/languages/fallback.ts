@@ -26,9 +26,7 @@ const PATTERNS = [
 function specifiers(content: string): Set<string> {
   const out = new Set<string>();
   for (const re of PATTERNS) {
-    re.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(content))) {
+    for (const m of content.matchAll(re)) {
       const s = m[1].trim();
       if (s) out.add(s);
     }

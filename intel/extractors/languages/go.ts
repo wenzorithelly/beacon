@@ -15,14 +15,9 @@ const QUOTED = /"([^"]+)"/g;
 
 function specifiers(content: string): Set<string> {
   const out = new Set<string>();
-  SINGLE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = SINGLE.exec(content))) out.add(m[1]);
-  BLOCK.lastIndex = 0;
-  while ((m = BLOCK.exec(content))) {
-    QUOTED.lastIndex = 0;
-    let q: RegExpExecArray | null;
-    while ((q = QUOTED.exec(m[1]))) out.add(q[1]);
+  for (const m of content.matchAll(SINGLE)) out.add(m[1]);
+  for (const m of content.matchAll(BLOCK)) {
+    for (const q of m[1].matchAll(QUOTED)) out.add(q[1]);
   }
   return out;
 }

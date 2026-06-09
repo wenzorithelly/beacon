@@ -25,15 +25,12 @@ function probe(base: string, fileSet: Set<string>): string[] {
 function specifiers(content: string): Set<string> {
   const out = new Set<string>();
   // from ... import
-  PATTERNS[0].lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = PATTERNS[0].exec(content))) {
+  for (const m of content.matchAll(PATTERNS[0])) {
     const s = m[1].trim();
     if (s) out.add(s);
   }
   // import a.b, c.d  → split the comma list
-  PATTERNS[1].lastIndex = 0;
-  while ((m = PATTERNS[1].exec(content))) {
+  for (const m of content.matchAll(PATTERNS[1])) {
     for (const tok of m[1].split(/\s*,\s*/)) {
       const t = tok.trim().split(/\s+as\s+/)[0].trim();
       if (t) out.add(t);

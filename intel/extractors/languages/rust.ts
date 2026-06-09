@@ -32,11 +32,8 @@ const ROOT_FILES = new Set(["mod.rs", "lib.rs", "main.rs"]);
 
 function specifiers(content: string): Set<string> {
   const out = new Set<string>();
-  MOD.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = MOD.exec(content))) out.add(`./${m[1]}`);
-  USE.lastIndex = 0;
-  while ((m = USE.exec(content))) {
+  for (const m of content.matchAll(MOD)) out.add(`./${m[1]}`);
+  for (const m of content.matchAll(USE)) {
     const n = normalizeUse(m[1]);
     if (n) out.add(n);
   }

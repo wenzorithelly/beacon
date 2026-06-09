@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
 import {
   allExtensions,
@@ -5,6 +7,23 @@ import {
   resolverForPath,
   type ResolveCtx,
 } from "@/intel/extractors/languages";
+
+describe("resolver sources: no stateful regex exec loops", () => {
+  // The prod bundler (Turbopack/SWC) may inline a module-level regex referenced via
+  // array indexing into each use site. A `while ((m = RE.exec(s)))` loop then evaluates
+  // a FRESH regex literal per iteration — lastIndex never advances and the loop spins
+  // forever, freezing the daemon's event loop at 100% CPU (this wedged prod on the
+  // first .py file containing `from … import`). `matchAll` is immune: it is called
+  // once and clones the regex internally, so object identity stops mattering.
+  it("language resolvers iterate matches with matchAll, never exec", () => {
+    const dir = join(import.meta.dir, "../intel/extractors/languages");
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith(".ts")) continue;
+      const src = readFileSync(join(dir, f), "utf8");
+      expect(src.includes(".exec("), `${f} uses .exec( — use matchAll (see comment above)`).toBe(false);
+    }
+  });
+});
 
 // Minimal ctx builder for resolver unit tests.
 function ctx(files: string[], extra: Partial<ResolveCtx> = {}): ResolveCtx {

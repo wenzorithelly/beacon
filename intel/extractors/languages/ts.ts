@@ -39,9 +39,7 @@ function probe(repoRel: string, fileSet: Set<string>): string | null {
 function specifiers(content: string): Set<string> {
   const out = new Set<string>();
   for (const re of IMPORT_PATTERNS) {
-    re.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(content))) out.add(m[1]);
+    for (const m of content.matchAll(re)) out.add(m[1]);
   }
   return out;
 }
