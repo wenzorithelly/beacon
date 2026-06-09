@@ -110,11 +110,13 @@ function PlanCanvasMock() {
         <span className="h-3 w-3 rounded-full" style={{ background: "oklch(1 0 0 / .16)" }} />
         <span className="bm-tab active ml-2">Roadmap</span>
         <span className="bm-tab">Database</span>
-        <span className="w-mono ml-auto text-[0.66rem] w-muted">/plan · review</span>
+        <span className="w-mono ml-auto hidden text-[0.66rem] w-muted min-[400px]:block">/plan · review</span>
       </div>
 
       {/* dotted canvas; everything inside is positioned on the fixed stage */}
-      <div className="bm-canvas" ref={wrapRef} style={{ height: STAGE_H * scale }}>
+      {/* aspect-ratio keeps the height correct even before the ResizeObserver fires,
+          so there's no layout flash on mobile where the stage scales well below 1. */}
+      <div className="bm-canvas" ref={wrapRef} style={{ aspectRatio: `${STAGE_W} / ${STAGE_H}` }}>
         <div className="bm-stage" style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})` }}>
           {/* edges */}
           <svg className="bm-edges" width={STAGE_W} height={STAGE_H} viewBox={`0 0 ${STAGE_W} ${STAGE_H}`} aria-hidden>
@@ -302,7 +304,7 @@ export function Landing() {
             </p>
 
             <div className="w-load mt-8" style={{ animationDelay: ".34s" }}>
-              <div className="glass flex max-w-md items-center gap-3 rounded-lg py-2.5 pl-4 pr-2">
+              <div className="glass flex max-w-lg items-center gap-3 rounded-lg py-2.5 pl-4 pr-2">
                 <code className="w-mono w-scrollbar-none flex-1 overflow-x-auto whitespace-nowrap text-[0.85rem]">
                   <span className="w-signal select-none">$</span>
                   <span className="ml-2">{INSTALL}</span>

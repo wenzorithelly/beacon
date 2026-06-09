@@ -1,7 +1,12 @@
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
-import { createCodeGraphBuilder } from "@/intel/extractors/code-graph";
-import { ingestCodeGraph } from "@/lib/code-graph";
+import { createIncrementalCodeGraph } from "@/intel/extractors/code-graph";
+import {
+  applyCodeGraphPatch,
+  ingestCodeGraph,
+  resolveGraph,
+  type ResolvedGraph,
+} from "@/lib/code-graph";
 import { getDb } from "@/lib/db-drizzle";
 import { dbUrlFor, ensureWorkspaceDb } from "@/lib/workspaces";
 
@@ -44,9 +49,13 @@ export function startWatcherForWorkspace(ws: WatchTarget): { stop: () => Promise
   const dbReady = ensureWorkspaceDb(ws.id);
   const targetDb = getDb(dbUrlFor(ws.id));
 
-  // One builder for the watcher's lifetime — its specifier cache makes each tick
-  // incremental (only changed files are re-read). Base = repo path → repo-relative paths.
-  const builder = createCodeGraphBuilder(roots, ws.path);
+  // Event-driven incremental graph: seed() walks ONCE; thereafter each change re-reads only
+  // the one file that changed (mtime-gated) and we persist a MINIMAL DB diff — no re-walk and
+  // no full re-ingest per save. `prev` is the stored representation (mirrors the DB).
+  const graph = createIncrementalCodeGraph(roots, ws.path);
+  let prev: ResolvedGraph | null = null; // null → (re)seed needed
+  let needsReseed = false; // set when an event arrives without a filename (unknown change)
+  const pending = new Set<string>(); // absolute paths reported changed since the last run
   let debounce: ReturnType<typeof setTimeout> | null = null;
   let running = false;
 
@@ -58,10 +67,33 @@ export function startWatcherForWorkspace(ws: WatchTarget): { stop: () => Promise
     running = true;
     try {
       await dbReady;
-      const graph = await builder.build();
-      const r = await ingestCodeGraph(graph, targetDb);
+      if (needsReseed) {
+        prev = null;
+        needsReseed = false;
+      }
+      if (prev === null) {
+        // Full seed: the one tree walk + a full ingest (correct even if the DB already has rows).
+        const snap = await graph.seed();
+        const r = await ingestCodeGraph(snap, targetDb);
+        prev = resolveGraph(snap);
+        console.log(
+          `[beacon-inline] code-graph synced (${ws.name}): ${r.files} files / ${r.edges} imports${
+            r.circular > 0 ? ` (${r.circular} circular)` : ""
+          }`,
+        );
+        return;
+      }
+      // Incremental: re-read only the files that changed, then persist a minimal diff.
+      const changed = [...pending];
+      pending.clear();
+      let touched = false;
+      for (const abs of changed) if (await graph.applyChange(abs)) touched = true;
+      if (!touched) return; // every event was a no-op (unchanged mtime / ignored path)
+      const next = resolveGraph(graph.snapshot());
+      const r = await applyCodeGraphPatch(prev, next, targetDb);
+      prev = next;
       console.log(
-        `[beacon-inline] code-graph synced (${ws.name}): ${r.files} files / ${r.edges} imports${
+        `[beacon-inline] code-graph updated (${ws.name}): ${r.files} files / ${r.edges} imports${
           r.circular > 0 ? ` (${r.circular} circular)` : ""
         }`,
       );
@@ -89,9 +121,16 @@ export function startWatcherForWorkspace(ws: WatchTarget): { stop: () => Promise
   for (const root of roots) {
     try {
       const w = watch(root, { recursive: true, persistent: true }, (_event, filename) => {
-        // filename is root-relative (or null). Skip events from ignored dirs; otherwise the
-        // incremental rebuild (debounced) re-reads only what actually changed.
-        if (filename && IGNORE.test(`/${filename}`)) return;
+        // filename is root-relative (or null on some platforms). Record the exact path that
+        // changed so the run re-reads ONLY that file; a missing filename forces a full reseed.
+        if (!filename) {
+          needsReseed = true;
+          schedule();
+          return;
+        }
+        const rel = String(filename);
+        if (IGNORE.test(`/${rel}`)) return; // skip churny dirs (node_modules, .git, …)
+        pending.add(join(root, rel));
         schedule();
       });
       w.on("error", (e) => console.error(`[beacon-inline] watcher error (${ws.name}):`, e));

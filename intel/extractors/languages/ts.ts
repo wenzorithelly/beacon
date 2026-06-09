@@ -9,7 +9,10 @@ import type { Alias, LanguageResolver, ResolveCtx } from "./types";
 export const TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
 const IMPORT_PATTERNS = [
-  /(?:^|[\n;])\s*(?:import|export)[^'"`\n]*?from\s*['"]([^'"`]+)['"]/g,
+  // The between-keyword-and-`from` span is bounded ({0,4000}) so a pathological single
+  // line (e.g. a minified bundle) can't trigger catastrophic regex backtracking — real
+  // `import … from` statements are far shorter than that.
+  /(?:^|[\n;])\s*(?:import|export)[^'"`\n]{0,4000}?from\s*['"]([^'"`]+)['"]/g,
   /(?:^|[\n;])\s*import\s*['"]([^'"`]+)['"]/g, // bare side-effect import
   /\brequire\(\s*['"]([^'"`]+)['"]\s*\)/g,
   /\bimport\(\s*['"]([^'"`]+)['"]\s*\)/g,

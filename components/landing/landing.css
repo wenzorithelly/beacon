@@ -328,6 +328,8 @@
 .ql .cmd {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 0.82rem;
+  white-space: nowrap;
+  max-width: 100%;
   overflow-x: auto;
 }
 .ql .cmd::-webkit-scrollbar { display: none; }

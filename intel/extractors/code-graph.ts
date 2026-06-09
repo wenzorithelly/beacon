@@ -232,12 +232,29 @@ async function scanRoots(
   return { metas, ctx: { fileSet: new Set(byPath.keys()), tsAliases: aliases, goModulePath } };
 }
 
-/** Read + extract one file's import specifiers. Giant/unreadable files contribute none. */
+// A single line longer than this is a minified/generated artifact, not hand-written source:
+// it has no meaningful imports to graph AND is the classic trigger for pathological
+// (catastrophic-backtracking) regex extraction. Skipping it keeps the watcher safe + light.
+const MAX_LINE = 50_000;
+function hasOverlongLine(s: string): boolean {
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s.charCodeAt(i) === 10) {
+      if (i - start > MAX_LINE) return true;
+      start = i + 1;
+    }
+  }
+  return s.length - start > MAX_LINE;
+}
+
+/** Read + extract one file's import specifiers. Giant/unreadable/minified files contribute none. */
 async function extractSpecifiers(meta: FileMeta): Promise<Set<string>> {
   const resolver = resolverForPath(meta.path);
   if (!resolver || meta.size > 200_000) return new Set();
   try {
-    return resolver.specifiers(await readFile(meta.abs, "utf8"));
+    const content = await readFile(meta.abs, "utf8");
+    if (hasOverlongLine(content)) return new Set();
+    return resolver.specifiers(content);
   } catch {
     return new Set();
   }
@@ -309,4 +326,148 @@ export function buildCodeGraph(
   base?: string,
 ): Promise<CodeGraphSnapshot> {
   return createCodeGraphBuilder(rootOrRoots, base).build();
+}
+
+// ── Incremental, event-driven graph ───────────────────────────────────────────
+
+/**
+ * Event-driven incremental code graph. `seed()` does the ONE full walk; after that the
+ * watcher feeds it single changed paths via `applyChange()`, which re-reads only that one
+ * file (stat-gated by mtime+size — no-op if unchanged) and never re-walks the tree. The
+ * stored representation (per-file specifiers) lives in memory; `snapshot()` re-resolves
+ * edges from it cheaply (no disk I/O). Non-source / ignored / vanished paths are handled
+ * without ever reading them, so transient build artifacts can't drag the watcher in.
+ */
+export function createIncrementalCodeGraph(rootOrRoots: string | string[], base?: string) {
+  const roots = (Array.isArray(rootOrRoots) ? rootOrRoots : [rootOrRoots]).map((r) => toPosix(resolve(r)));
+  const baseDir = toPosix(base ? resolve(base) : roots.length === 1 ? roots[0] : commonAncestor(roots));
+
+  const metaByPath = new Map<string, FileMeta>();
+  const specsByPath = new Map<string, Set<string>>();
+  let aliases: Alias[] = [];
+  let goModulePath: string | null = null;
+
+  function loadConfig(): void {
+    aliases = [];
+    for (const root of roots) {
+      const rootRel = toPosix(relative(baseDir, root));
+      for (const a of loadTsAliases(root)) {
+        aliases.push({ from: a.from, to: [rootRel, a.to].filter(Boolean).join("/") });
+      }
+    }
+    goModulePath = roots.map(loadGoModule).find(Boolean) ?? loadGoModule(baseDir);
+  }
+
+  /** Matches walk()/scanCodeFiles() filtering: dotfiles, skip-dirs, .d.ts, non-source ext. */
+  function isIgnoredRel(rel: string): boolean {
+    const segs = rel.split("/");
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i];
+      if (!s || s.startsWith(".")) return true;
+      if (i < segs.length - 1 && SKIP_DIRS.has(s)) return true;
+    }
+    const name = segs[segs.length - 1];
+    if (name.endsWith(".d.ts")) return true;
+    return !allExtensions().has(extname(name).toLowerCase());
+  }
+
+  /** Map an absolute path under a root to its base-relative meta — or null if not indexable. */
+  function locate(abs: string): { path: string; root: string | null } | null {
+    const a = toPosix(resolve(abs));
+    for (const root of roots) {
+      if (a === root || a.startsWith(`${root}/`)) {
+        const rel = a.slice(root.length).replace(/^\/+/, "");
+        if (isIgnoredRel(rel)) return null;
+        return { path: toPosix(relative(baseDir, a)), root: toPosix(relative(baseDir, root)) || null };
+      }
+    }
+    return null;
+  }
+
+  /** Resolve the current in-memory model into a snapshot (cheap — no disk reads). */
+  function snapshot(): CodeGraphSnapshot {
+    const ctx: ResolveCtx = { fileSet: new Set(metaByPath.keys()), tsAliases: aliases, goModulePath };
+    const metas = [...metaByPath.values()].sort((a, b) => a.path.localeCompare(b.path));
+    const edges: { from: string; to: string }[] = [];
+    for (const m of metas) {
+      const resolver = resolverForPath(m.path);
+      if (!resolver) continue;
+      const specs = specsByPath.get(m.path) ?? new Set();
+      const seen = new Set<string>();
+      for (const spec of specs) {
+        for (const hit of resolver.resolve(spec, m.path, ctx)) {
+          if (!hit || hit === m.path || seen.has(hit)) continue;
+          seen.add(hit);
+          edges.push({ from: m.path, to: hit });
+        }
+      }
+    }
+    const files: CodeGraphFile[] = metas.map((m) => ({
+      path: m.path,
+      lang: detectLang(m.path),
+      root: m.root,
+      mtimeMs: m.mtimeMs,
+      size: m.size,
+    }));
+    return { files, edges };
+  }
+
+  /** Full initial walk + extract — the only tree scan. Time-sliced like build(). */
+  async function seed(): Promise<CodeGraphSnapshot> {
+    const onYield = makeYielder();
+    const { metas, ctx } = await scanRoots(rootOrRoots, base, onYield);
+    metaByPath.clear();
+    specsByPath.clear();
+    for (const m of metas) {
+      await onYield();
+      metaByPath.set(m.path, m);
+      specsByPath.set(m.path, await extractSpecifiers(m));
+    }
+    aliases = ctx.tsAliases ?? [];
+    goModulePath = ctx.goModulePath ?? null;
+    return snapshot();
+  }
+
+  /**
+   * Apply a single filesystem change. Returns true if the in-memory model changed (so the
+   * caller should re-snapshot + persist). Re-reads at most ONE file; a tsconfig/go.mod edit
+   * reloads aliases; a vanished/ignored path is handled without any read.
+   */
+  async function applyChange(abs: string): Promise<boolean> {
+    const a = toPosix(resolve(abs));
+    if (!roots.some((root) => a === root || a.startsWith(`${root}/`))) return false;
+
+    const name = a.split("/").pop() ?? "";
+    if (name === "tsconfig.json" || name === "go.mod") {
+      const dir = a.slice(0, a.length - name.length - 1);
+      if (roots.includes(dir)) {
+        loadConfig();
+        return true; // alias/module changes can re-resolve existing specifiers
+      }
+      return false;
+    }
+
+    const info = locate(abs);
+    if (!info) return false; // not an indexable source file → ignore without reading
+
+    let st;
+    try {
+      st = await stat(a);
+    } catch {
+      // vanished
+      const had = metaByPath.delete(info.path);
+      specsByPath.delete(info.path);
+      return had;
+    }
+
+    const prev = metaByPath.get(info.path);
+    if (prev && prev.mtimeMs === st.mtimeMs && prev.size === st.size) return false; // mtime gate
+
+    const meta: FileMeta = { path: info.path, abs: a, root: info.root, mtimeMs: st.mtimeMs, size: st.size };
+    metaByPath.set(info.path, meta);
+    specsByPath.set(info.path, await extractSpecifiers(meta));
+    return true;
+  }
+
+  return { seed, applyChange, snapshot };
 }
