@@ -258,9 +258,14 @@ export function AnnotationPanel({
       const res = await fetch("/api/plan/annotations", {
         method: "POST",
         headers: { "content-type": "application/json", ...wsHeaders(currentPlanWs()) },
-        body: JSON.stringify({ annotations, globalComment, ...extra }),
+        // `round` lets the server refuse a submit from a tab still showing an older
+        // round (the agent re-proposed meanwhile) instead of poisoning the new one.
+        body: JSON.stringify({ annotations, globalComment, round, ...extra }),
       });
       if (res.ok) setSubmitted(true);
+      // Stale round: this page is showing an outdated plan — reload to pick up the
+      // current round rather than leaving the user editing feedback that can't land.
+      else if (res.status === 409) window.location.reload();
     } finally {
       setSubmitting(false);
     }

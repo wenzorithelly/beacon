@@ -186,18 +186,20 @@ describe("Submit feedback bundles board edits (DB diff + feature changes) into t
     expect(feedback).toContain("added feature **User-added feature**");
   });
 
-  it("returns an empty feedback when nothing was annotated and nothing changed on the boards", async () => {
+  it("REJECTS a submit when nothing was annotated and nothing changed on the boards", async () => {
+    // This used to "succeed" as submitted=true with feedback="" — a state the verdict
+    // resolver ignores (it requires submitted && feedback), so the agent blocked forever
+    // and the panel stayed gated. An empty submit is now a 400 and writes nothing.
     await planPost(reqJson("http://test/api/plan", planA));
-    await annotationsPost(
+    const res = await annotationsPost(
       reqJson("http://test/api/plan/annotations", { annotations: [] }),
     );
+    expect(res.status).toBe(400);
     const { feedback, submitted } = (await (await annotationsGet(emptyReq())).json()) as {
       feedback: string;
       submitted: boolean;
     };
-    // The submit succeeded but there's literally nothing to hand back — the MCP polling
-    // loop must NOT treat this as a verdict.
-    expect(submitted).toBe(true);
+    expect(submitted).toBe(false);
     expect(feedback).toBe("");
   });
 });
@@ -311,5 +313,75 @@ describe("POST /api/plan re-processes a same-plan resume when the board failed t
     expect((await res.json()).resumed).toBe(true);
     const ann = (await (await annotationsGet(emptyReq())).json()) as { globalComment: string };
     expect(ann.globalComment).toBe("looks good but rename");
+  });
+});
+
+// ── Submit hardening: a submit that says NOTHING must never poison the round ─────────────
+// Field incident (2026-06-10): a stale tab submitted onto a freshly re-proposed round with
+// zero comments and no board diff → the store held submitted=true with feedback="" — a state
+// the verdict resolver ignores (it requires submitted && feedback), so the agent blocked
+// forever and the panel stayed gated ("Clear to approve") with nothing to clear.
+describe("POST /api/plan/annotations rejects empty + stale submits", () => {
+  beforeEach(async () => {
+    await annotationsDelete(emptyReq());
+    await planDelete(emptyReq());
+  });
+
+  it("400s a submit whose feedback renders empty, leaving the store unsubmitted", async () => {
+    await planPost(reqJson("http://test/api/plan", planA));
+    const res = await annotationsPost(
+      reqJson("http://test/api/plan/annotations", { annotations: [], globalComment: "" }),
+    );
+    expect(res.status).toBe(400);
+    const ann = (await (await annotationsGet(emptyReq())).json()) as { submitted: boolean };
+    expect(ann.submitted).toBe(false);
+  });
+
+  it("accepts a submit with real content (comment / question / note)", async () => {
+    await planPost(reqJson("http://test/api/plan", planA));
+    const res = await annotationsPost(
+      reqJson("http://test/api/plan/annotations", {
+        annotations: [{ id: "a1", excerpt: "pr_orgs", comment: "rename to organizations" }],
+        globalComment: "",
+      }),
+    );
+    expect(res.status).toBe(200);
+    const ann = (await (await annotationsGet(emptyReq())).json()) as {
+      submitted: boolean;
+      feedback: string;
+    };
+    expect(ann.submitted).toBe(true);
+    expect(ann.feedback).toContain("rename to organizations");
+  });
+
+  it("409s a submit stamped with a stale round (the plan was re-proposed since)", async () => {
+    await planPost(reqJson("http://test/api/plan", planA));
+    const meta1 = (await (
+      await import("@/lib/plan-meta")
+    ).readPlanMeta())!;
+    await planPost(reqJson("http://test/api/plan", planB)); // new round
+    const res = await annotationsPost(
+      reqJson("http://test/api/plan/annotations", {
+        annotations: [{ id: "a1", excerpt: "pr_orgs", comment: "stale tab comment" }],
+        round: meta1.proposedAt,
+      }),
+    );
+    expect(res.status).toBe(409);
+    const ann = (await (await annotationsGet(emptyReq())).json()) as { submitted: boolean };
+    expect(ann.submitted).toBe(false);
+  });
+
+  it("GET heals an already-poisoned store (submitted=true with empty feedback)", async () => {
+    const { writeStoredAnnotations } = await import("@/lib/plan-annotations-store");
+    writeStoredAnnotations({
+      annotations: [],
+      globalComment: "",
+      submitted: true,
+      submittedAt: Date.now(),
+      boardEdits: "",
+      questions: [],
+    });
+    const ann = (await (await annotationsGet(emptyReq())).json()) as { submitted: boolean };
+    expect(ann.submitted).toBe(false);
   });
 });

@@ -86,6 +86,10 @@ const bodySchema = z.object({
   draft: clientDraftSchema,
   // "Explain This Node" — per-node questions bundled into the feedback (plan-loop piggyback).
   questions: z.array(z.object({ target: z.string(), question: z.string() })).optional(),
+  // The round (plan meta proposedAt) the client was looking at when it submitted. Lets the
+  // server refuse a submit from a tab still showing an older round (the agent re-proposed
+  // meanwhile) instead of stamping stale feedback onto the new round.
+  round: z.number().optional(),
 });
 
 // Walk the DRAFT roadmap layer + every child of those drafts so the agent sees the
@@ -129,12 +133,18 @@ async function collectBoardEdits(currentDoc: DraftDoc | null): Promise<string> {
 export async function GET(req: Request) {
   return runWithWorkspace(workspaceIdFromRequest(req), async () => {
     const s = readStoredAnnotations();
+    // Heal a poisoned store: submitted=true whose feedback renders empty is a state the
+    // verdict resolver ignores (it requires submitted && feedback), so reporting it as
+    // submitted would gate the panel forever with nothing to act on. POST now rejects
+    // such submits; this covers stores written before that guard existed.
+    const feedback = s.submitted ? renderAnnotationFeedback(s) : "";
+    const submitted = s.submitted && !!feedback.trim();
     return Response.json({
       annotations: s.annotations,
       globalComment: s.globalComment,
-      submitted: s.submitted,
-      submittedAt: s.submittedAt,
-      feedback: s.submitted ? renderAnnotationFeedback(s) : "",
+      submitted,
+      submittedAt: submitted ? s.submittedAt : undefined,
+      feedback: submitted ? feedback : "",
     });
   });
 }
@@ -161,18 +171,37 @@ export async function PUT(req: Request) {
 export async function POST(req: Request) {
   const body = bodySchema.parse(await req.json());
   return runWithWorkspace(workspaceIdFromRequest(req), async () => {
+    // Stale-round guard: the agent re-proposed since this tab rendered — refuse to stamp
+    // the old round's feedback onto the new round. The client reloads on 409.
+    const meta = readPlanMeta();
+    if (typeof body.round === "number" && (meta?.proposedAt ?? 0) > 0 && body.round !== meta!.proposedAt) {
+      return Response.json(
+        { error: "stale round — the plan was re-proposed since this page loaded" },
+        { status: 409 },
+      );
+    }
     // Cast: the wire schema accepts any string for `status` to be forgiving, but a draft
     // posted from /db is always in the DraftDoc union (pending|approved|discarded).
     const draft = (body.draft ?? null) as DraftDoc | null;
     const boardEdits = await collectBoardEdits(draft);
-    writeStoredAnnotations({
+    const candidate = {
       annotations: body.annotations,
       globalComment: body.globalComment ?? "",
-      submitted: true,
+      submitted: true as const,
       submittedAt: Date.now(),
       boardEdits,
       questions: body.questions ?? [],
-    });
+    };
+    // A submit that says NOTHING (no comments/deletions, no note, no questions, no board
+    // diff) must not be written: submitted=true with empty feedback is invisible to the
+    // verdict resolver, so it would gate the panel forever without ever resolving.
+    if (!renderAnnotationFeedback(candidate).trim()) {
+      return Response.json(
+        { error: "nothing to submit — add a comment, note, question, or board edit first" },
+        { status: 400 },
+      );
+    }
+    writeStoredAnnotations(candidate);
     return Response.json({ ok: true, boardEdits });
   });
 }

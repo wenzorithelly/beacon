@@ -148,10 +148,13 @@ export function PlanWorkspace({
   useEffect(() => {
     questionsRef.current = questions;
   }, [questions]);
-  // A new plan round (re-present) resets the feedback surface — clear pending questions too.
+  // A new plan round (re-present) resets the feedback surface — pending questions AND the
+  // board-edited flag. Leaving hasBoardEdits true across rounds kept Approve gated ("Clear
+  // to approve") on a fresh round the user had nothing pending on.
   useEffect(() => {
     setQuestions([]);
     setAskOpen(false);
+    setHasBoardEdits(false);
   }, [status.proposedAt]);
   // Heartbeat so the ExitPlanMode hook knows a /plan tab is already open for this workspace and
   // lets it refresh in place — PlanProvider's poll swaps in the revised plan — instead of
