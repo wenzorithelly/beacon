@@ -183,8 +183,10 @@ export async function ingestSnapshot(
       .onConflictDoUpdate({
         target: dbTable.name,
         set: {
-          domain: t.domain ?? null,
-          description: t.description ?? null,
+          // A deterministic code scan knows names+columns only; domain/description are
+          // curated (agent survey / plan) — never null them when the snapshot omits them.
+          ...(t.domain != null ? { domain: t.domain } : {}),
+          ...(t.description != null ? { description: t.description } : {}),
           source: "INTROSPECTION",
         },
       })
@@ -285,8 +287,9 @@ export async function ingestSnapshot(
       .onConflictDoUpdate({
         target: [endpoint.method, endpoint.path],
         set: {
-          domain: e.domain ?? null,
-          description: e.description ?? null,
+          // Same rule as tables: a route scan knows method+path; keep curated fields.
+          ...(e.domain != null ? { domain: e.domain } : {}),
+          ...(e.description != null ? { description: e.description } : {}),
           source: "INTROSPECTION",
         },
       })

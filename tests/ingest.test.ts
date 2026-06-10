@@ -98,6 +98,24 @@ describe("ingestSnapshot", () => {
     expect(firms!.y).toBe(888);
   });
 
+  it("keeps curated domain/description when a re-scan omits them", async () => {
+    // The agent survey assigns domains; the deterministic watcher extract knows only
+    // names+columns. A watcher pass must not null the curated fields (that collapses
+    // the whole board into one null-domain block).
+    await ingestSnapshot({
+      tables: [{ name: "firms", domain: "firms", columns: [{ name: "id", type: "UUID", isPk: true }] }],
+      endpoints: [{ method: "POST", path: "/auth/register", domain: "AUTH", uses: [] }],
+    });
+    await ingestSnapshot({
+      tables: [{ name: "firms", columns: [{ name: "id", type: "UUID", isPk: true }] }],
+      endpoints: [{ method: "POST", path: "/auth/register", uses: [] }],
+    }, db, { partial: true });
+    const firms = await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "firms") });
+    expect(firms!.domain).toBe("firms");
+    const ep = await db.query.endpoint.findFirst({ where: (t, { eq }) => eq(t.path, "/auth/register") });
+    expect(ep!.domain).toBe("AUTH");
+  });
+
   it("never treats an empty section as 'delete everything' — even in full mode", async () => {
     // The standalone watcher posts `tables: []` (no model extraction) and, with no OpenAPI,
     // `endpoints: []`. A full-mode ingest of that used to WIPE every INTROSPECTION row of the
