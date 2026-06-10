@@ -58,6 +58,31 @@ describe("lastAssistantText", () => {
     expect(lastAssistantText(JSON.stringify({ type: "user", message: { role: "user", content: "x" } }))).toBe("");
     expect(lastAssistantText("")).toBe("");
   });
+
+  it("reads Codex session rollouts (payload wrapper + output_text blocks)", () => {
+    const jsonl = [
+      JSON.stringify({
+        timestamp: "2026-06-10T12:00:00Z",
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "plan it" }] },
+      }),
+      JSON.stringify({
+        timestamp: "2026-06-10T12:00:05Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Here is the plan.\n\nShall I proceed?" }],
+        },
+      }),
+    ].join("\n");
+    expect(lastAssistantText(jsonl)).toBe("Here is the plan.\n\nShall I proceed?");
+  });
+
+  it("yields '' (never nudges) on an unrecognized transcript shape", () => {
+    const jsonl = JSON.stringify({ kind: "turn", data: { text: "Shall I proceed?" } });
+    expect(lastAssistantText(jsonl)).toBe("");
+  });
 });
 
 describe("closingText", () => {

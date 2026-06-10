@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 /**
- * Beacon Stop hook. Claude Code runs this when the agent finishes a turn. If the agent ended by
- * asking the user — in prose — to approve a plan or decide how to proceed (instead of presenting
- * it through Beacon), we BLOCK the stop and feed back an instruction to present the plan via the
- * `beacon_present_plan` MCP tool, so it opens on /plan for review. This closes the gap where, in
- * auto/normal mode, the agent never calls ExitPlanMode and Beacon's plan loop never triggers.
+ * Beacon Stop hook. The agent's CLI (Claude Code or Codex) runs this when the agent finishes a
+ * turn. If the agent ended by asking the user — in prose — to approve a plan or decide how to
+ * proceed (instead of presenting it through Beacon), we BLOCK the stop and feed back an
+ * instruction to present the plan via the `beacon_present_plan` MCP tool, so it opens on /plan
+ * for review. This closes the gap where the agent never triggers Beacon's plan loop — Claude
+ * Code in auto/normal mode (no ExitPlanMode), and Codex always (it has no ExitPlanMode at all).
  *
  * Best-effort + bounded: honors `stop_hook_active` (so it nudges at most once per stuck point,
  * never an infinite loop) and never throws — a hook error must never trap the session.

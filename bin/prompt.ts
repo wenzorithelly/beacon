@@ -74,7 +74,7 @@ const looksLikeFeatureWork =
 if (!prompt || !looksLikeFeatureWork || !beaconWired(cwd)) silent();
 
 const additionalContext = [
-  "[Beacon] This looks like feature work. Follow Beacon's loop IN ORDER — do not jump straight to Glob/Grep/Read:",
+  "[Beacon] This looks like feature work. Follow Beacon's loop IN ORDER — do not start blind codebase searches:",
   "1. Call beacon_context_for_feature({ id | title | query }) FIRST. It returns the attached files, 1-hop import blast radius, the domain's endpoints + tables + FK relations, sibling components, and conventions — and marks the feature active. That replaces the discovery phase.",
   "2. Design data before code: if the feature needs tables that don't exist yet, call beacon_propose_plan (tables + relations + endpoints) and WAIT for approval on /plan before writing migrations or code.",
   "3. When done, call beacon_describe_feature with the files you touched + a short markdown summary so the map and AGENTS.md stay accurate.",

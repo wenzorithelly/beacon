@@ -29,25 +29,32 @@ export function looksLikePlanApprovalRequest(text: string): boolean {
   return APPROVAL_PATTERNS.some((re) => re.test(text));
 }
 
-// A single transcript JSONL line (Claude Code writes one JSON object per line). We only read the
-// few fields we need and tolerate anything else (the format may evolve / a tail read can start
-// mid-line). Both `{ type, message:{ role, content } }` and a flat `{ role, content }` are handled.
+// A single transcript JSONL line. We only read the few fields we need and tolerate anything else
+// (the format may evolve / a tail read can start mid-line). Handled shapes:
+//   • Claude Code: `{ type, message:{ role, content } }` and flat `{ role, content }`, with
+//     content as a string or `{type:"text", text}` blocks.
+//   • Codex session rollouts (~/.codex/sessions/**.jsonl): `{ type:"response_item",
+//     payload:{ type:"message", role, content:[{type:"output_text", text}] } }`.
+// An unrecognized shape yields "" — the Stop hook then simply never nudges (safe no-op).
 interface ContentBlock {
   type?: string;
   text?: string;
 }
-interface TranscriptLine {
-  type?: string;
+interface TranscriptMessage {
   role?: string;
   content?: string | ContentBlock[];
-  message?: { role?: string; content?: string | ContentBlock[] };
+}
+interface TranscriptLine extends TranscriptMessage {
+  type?: string;
+  message?: TranscriptMessage;
+  payload?: TranscriptMessage;
 }
 
 function textOf(content: string | ContentBlock[] | undefined): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
-      .filter((b) => b?.type === "text" && typeof b.text === "string")
+      .filter((b) => (b?.type === "text" || b?.type === "output_text") && typeof b.text === "string")
       .map((b) => b.text as string)
       .join("\n")
       .trim();
@@ -68,7 +75,7 @@ export function lastAssistantText(jsonl: string): string {
     } catch {
       continue;
     }
-    const msg = obj.message ?? obj;
+    const msg = obj.message ?? obj.payload ?? obj;
     const role = msg.role ?? obj.type;
     if (role !== "assistant") continue;
     return textOf(msg.content);
