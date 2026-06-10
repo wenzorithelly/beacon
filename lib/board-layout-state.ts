@@ -16,9 +16,11 @@ import { writeJsonAtomic } from "@/lib/atomic-write";
 export type BoardKey = "roadmap" | "architecture" | "db";
 
 export const BOARD_ALGO_VERSIONS: Record<BoardKey, string> = {
-  roadmap: "grouped-1",
+  // grouped-2: aspect-targeted lane columns (wide lanes instead of 4-col towers).
+  roadmap: "grouped-2",
   architecture: "arch-layered-1",
-  db: "db-dock-1",
+  // db-dock-2: aspect-targeted domain columns + specificity dock tie-break.
+  db: "db-dock-2",
 };
 
 interface BoardEntry {

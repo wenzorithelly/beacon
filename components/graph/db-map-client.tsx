@@ -37,7 +37,7 @@ import {
 import { CanvasTabs } from "@/components/graph/canvas-tabs";
 import { accessForMethod } from "@/lib/access";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
-import { primaryTableFor, UNATTACHED_GROUP } from "@/lib/db-board-layout";
+import { assignEndpointDocks, UNATTACHED_GROUP } from "@/lib/db-board-layout";
 import { GroupRegions } from "@/components/graph/group-regions";
 import { LodReporter } from "@/components/graph/use-zoom-lod";
 import type { Lod } from "@/lib/zoom-lod";
@@ -808,14 +808,21 @@ export function DbMapClient({
   // wraps the whole cluster. Unattached endpoints get their own region. Tracks live drags via
   // the stateful node list.
   const endpointRegionGroup = useMemo(() => {
-    const nameById = new Map(allTables.map((t) => [t.id, t.name]));
     const domainById = new Map(allTables.map((t) => [t.id, (t.domain ?? "").trim() || "—"]));
+    // Same assignment the layout uses (specificity tie-break) — an endpoint's region must
+    // wrap the table it's actually docked under.
+    const docks = assignEndpointDocks(
+      allTables,
+      allEndpoints.map((e) => ({
+        id: e.id,
+        method: e.method,
+        path: e.path,
+        uses: e.tables.map((u) => ({ tableId: u.tableId })),
+      })),
+    );
     return new Map(
       allEndpoints.map((e) => {
-        const pid = primaryTableFor(
-          { id: e.id, method: e.method, path: e.path, uses: e.tables.map((u) => ({ tableId: u.tableId })) },
-          nameById,
-        );
+        const pid = docks.get(e.id);
         return [e.id, pid ? domainById.get(pid)! : UNATTACHED_GROUP] as const;
       }),
     );
@@ -1147,6 +1154,33 @@ export function DbMapClient({
               className="!rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
               nodeColor="#555"
             />
+          )}
+
+          {/* Explicit reorganize — same full arrange as the toolbar icon, but where the other
+              boards put their Arrange/Group-by pills, so it's discoverable on demand. */}
+          {!embedded && (
+            <Panel position="bottom-center" className="!mb-4">
+              <div className="glass flex items-center gap-1 rounded-full p-1">
+                <button
+                  type="button"
+                  disabled={busy}
+                  title="Re-arrange the board — domain clusters with endpoints docked under their tables"
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await fetch("/api/db/arrange", { method: "POST" });
+                      router.refresh();
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-40"
+                >
+                  <LayoutGrid className="size-3.5" />
+                  {busy ? "Arranging…" : "Arrange"}
+                </button>
+              </div>
+            </Panel>
           )}
 
           {!embedded && (

@@ -71,8 +71,8 @@ export function layoutRoadmap(
   const childIndent = opts.childIndent ?? ROADMAP_CHILD_INDENT;
   const laneGap = opts.laneGap ?? 56;
   const bandGap = opts.bandGap ?? 110;
-  const maxCols = opts.maxCols ?? 4;
-  const maxBandW = opts.maxBandW ?? colW * 6;
+  const maxCols = opts.maxCols ?? 10;
+  const maxBandW = opts.maxBandW ?? colW * 8;
 
   const ids = new Set(nodes.map((n) => n.id));
   // A node is top-level if it has no parent, or its parent isn't on this board (orphan).
@@ -104,9 +104,12 @@ export function layoutRoadmap(
 
   for (const k of laneKeys) {
     const feats = byLane.get(k)!;
-    // Squareish block: ~√n columns, capped. Then masonry-pack feature-stacks (a feature plus
-    // its sub-tasks) into those columns, always dropping the next stack into the shortest one.
-    const cols = Math.max(1, Math.min(maxCols, Math.ceil(Math.sqrt(feats.length))));
+    // Aspect-targeted column count: pick cols so the lane block comes out ~2× wider than
+    // tall (screens are wide — a capped-at-4 lane turned a 50-card Done group into a tower
+    // the user had to scroll vertically forever). Row count includes each feature's
+    // sub-task stack, since those consume the same column.
+    const totalRows = feats.reduce((s, p) => s + 1 + (childrenByParent.get(p.id)?.length ?? 0), 0);
+    const cols = Math.max(1, Math.min(maxCols, feats.length, Math.round(Math.sqrt(0.85 * totalRows)) || 1));
     const laneW = cols * colW;
 
     // Wrap this lane block to a new band if it would overflow the current one.

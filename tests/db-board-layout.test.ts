@@ -1,11 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import {
+  assignEndpointDocks,
   computeDbBoardLayout,
   estimateTableHeight,
   nextEndpointDock,
   nextTableSlot,
   primaryTableFor,
   EP_ROW_H,
+  TABLE_COL_WIDTH,
   type DockEndpoint,
   type DockTable,
 } from "@/lib/db-board-layout";
@@ -43,6 +45,34 @@ describe("primaryTableFor", () => {
   it("returns null with no resolvable uses", () => {
     expect(primaryTableFor(ep("e", "/x", []), names)).toBeNull();
     expect(primaryTableFor(ep("e", "/x", ["ghost"]), names)).toBeNull();
+  });
+});
+
+describe("assignEndpointDocks (specificity tie-break)", () => {
+  it("a tie goes to the more SPECIFIC table (fewer board-wide usages), not the alphabetical hub", () => {
+    const tables = [t("t1", "AppSetting", "—"), t("t2", "Node", "—"), t("t3", "Tag", "—")];
+    // AppSetting is a hub: every endpoint touches it once. Each endpoint also touches its
+    // real table once — the tie must resolve to the real table, or the hub piles up a
+    // 20-endpoint dock (the vertical-scroll bug).
+    const eps = [
+      ep("e1", "/nodes", ["t1", "t2"]),
+      ep("e2", "/nodes/x", ["t1", "t2"]),
+      ep("e3", "/tags", ["t1", "t3"]),
+    ];
+    const docks = assignEndpointDocks(tables, eps);
+    expect(docks.get("e1")).toBe("t2");
+    expect(docks.get("e2")).toBe("t2");
+    expect(docks.get("e3")).toBe("t3");
+  });
+
+  it("still prefers the most-used table outright, and nulls unresolvable endpoints", () => {
+    const tables = [t("t1", "Alpha", "A"), t("t2", "Beta", "A")];
+    const docks = assignEndpointDocks(tables, [
+      ep("e1", "/x", ["t2", "t2", "t1"]),
+      ep("e2", "/loose", []),
+    ]);
+    expect(docks.get("e1")).toBe("t2");
+    expect(docks.get("e2")).toBeNull();
   });
 });
 
@@ -126,6 +156,23 @@ describe("computeDbBoardLayout", () => {
     for (const x of tables) expect(a.tables.get(x.id)).toEqual(b.tables.get(x.id));
     for (const e of endpoints) expect(a.endpoints.get(e.id)).toEqual(b.endpoints.get(e.id));
   });
+
+  it("a big domain spreads WIDE (aspect-targeted columns, not a 4-column tower)", () => {
+    // 24 tables in one domain, each with a few docked endpoints — the real-board shape that
+    // produced a 4-column tower needing endless vertical scroll.
+    const many = Array.from({ length: 24 }, (_, i) =>
+      t(`t${i}`, `Table${String(i).padStart(2, "0")}`, null, 6),
+    );
+    const eps = Array.from({ length: 24 }, (_, i) => ep(`e${i}`, `/api/x${i}`, [`t${i}`]));
+    const layout = computeDbBoardLayout(many, eps);
+    const xs = new Set([...layout.tables.values()].map((p) => p.x));
+    expect(xs.size).toBeGreaterThan(4); // wider than the old cap
+    // Wide-screen shape: the block is at least as wide as it is tall.
+    const positions = many.map((x) => layout.tables.get(x.id)!);
+    const w = Math.max(...positions.map((p) => p.x)) + TABLE_COL_WIDTH;
+    const h = Math.max(...positions.map((p) => p.y + estimateTableHeight(6)));
+    expect(w).toBeGreaterThanOrEqual(h);
+  });
 });
 
 describe("incremental slots (ingest-time placement)", () => {
@@ -158,14 +205,14 @@ describe("incremental slots (ingest-time placement)", () => {
     const existing = [
       { ...ep("e1", "/a", ["t1"]), x: 100, y: 50 + estimateTableHeight(4) + 10 },
     ];
-    const slot = nextEndpointDock(ep("e2", "/b", ["t1"]), tables, existing, names);
+    const slot = nextEndpointDock(ep("e2", "/b", ["t1"]), tables, existing);
     expect(slot.x).toBe(100);
     expect(slot.y).toBe(existing[0].y + EP_ROW_H);
   });
 
   it("nextEndpointDock parks an unattached endpoint below everything", () => {
     const tables = [{ ...t("t1", "Alpha", "AUTH", 4), x: 0, y: 0 }];
-    const slot = nextEndpointDock(ep("e9", "/loose", []), tables, [], names);
+    const slot = nextEndpointDock(ep("e9", "/loose", []), tables, []);
     expect(slot.y).toBeGreaterThan(estimateTableHeight(4));
   });
 });
