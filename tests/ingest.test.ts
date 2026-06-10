@@ -7,6 +7,7 @@ import {
   dbRelation,
   dbColumn,
   dbTable,
+  node,
   syncState,
 } from "@/lib/drizzle/schema";
 import { getVersion, ingestSnapshot, type Snapshot } from "@/lib/ingest";
@@ -18,6 +19,7 @@ async function resetDbDesign() {
   await db.delete(dbColumn);
   await db.delete(dbTable);
   await db.delete(syncState);
+  await db.delete(node).where(eq(node.view, "ROADMAP"));
 }
 
 beforeEach(resetDbDesign);
@@ -96,18 +98,28 @@ describe("ingestSnapshot", () => {
     expect(firms!.y).toBe(888);
   });
 
-  it("never touches manual (hand-authored) entities", async () => {
+  it("keeps planned (MANUAL) entities only while their plan is being implemented", async () => {
+    // Active plan → its planned table survives the scan.
+    await db
+      .insert(node)
+      .values({ view: "ROADMAP", title: "Planned work", status: "PENDING", planId: "p-live" });
+    await db.insert(dbTable).values({ name: "planned_table", source: "MANUAL", planId: "p-live" });
+    // No lineage → a leftover from before plan lineage existed; the scan prunes it.
     await db.insert(dbTable).values({ name: "manual_table", source: "MANUAL" });
     await ingestSnapshot(SNAP);
-    const manual = await db.query.dbTable.findFirst({
-      where: (t, { eq }) => eq(t.name, "manual_table"),
-    });
-    expect(manual).not.toBeUndefined();
-    expect(manual!.source).toBe("MANUAL");
+    expect(
+      await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "planned_table") }),
+    ).toBeTruthy();
+    expect(
+      await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "manual_table") }),
+    ).toBeFalsy();
   });
 
-  it("can link a usage to a manual table by name", async () => {
-    await db.insert(dbTable).values({ name: "legacy_audit", source: "MANUAL" });
+  it("can link a usage to a planned table of an active plan by name", async () => {
+    await db
+      .insert(node)
+      .values({ view: "ROADMAP", title: "Audit plan", status: "IN_PROGRESS", planId: "p-audit" });
+    await db.insert(dbTable).values({ name: "legacy_audit", source: "MANUAL", planId: "p-audit" });
     await ingestSnapshot({
       tables: [{ name: "events", columns: [{ name: "id", type: "UUID", isPk: true }] }],
       endpoints: [

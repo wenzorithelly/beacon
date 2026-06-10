@@ -4,6 +4,7 @@ import { db, type DB } from "@/lib/db-drizzle";
 import { dbTable, dbColumn, dbRelation, endpoint, endpointTable, syncState } from "@/lib/drizzle/schema";
 import { endpointsOverlap } from "@/lib/endpoint-layout";
 import { reconcilePlannedEndpoints } from "@/lib/endpoint-reconcile";
+import { prunePlannedEntities } from "@/lib/plan-lineage";
 import { tablesOverlap } from "@/lib/table-layout";
 import { nextEndpointDock, nextTableSlot } from "@/lib/db-board-layout";
 import { arrangeDbBoard } from "@/lib/board-arrange";
@@ -306,8 +307,11 @@ export async function ingestSnapshot(
     }
   }
 
-  // Collapse planned endpoints that this scan just proved are implemented in code.
+  // Collapse planned endpoints that this scan just proved are implemented in code, then
+  // drop planned entities that belong to no plan still being implemented — the board shows
+  // code reality plus active plans, nothing else.
   await reconcilePlannedEndpoints(prisma);
+  await prunePlannedEntities(prisma);
 
   // Self-heal layout: if any pair of tables or endpoints overlaps after the upserts
   // (a stale layout from before the docked scheme, or a hand-placement that drifted

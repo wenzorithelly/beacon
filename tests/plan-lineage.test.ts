@@ -11,6 +11,9 @@ import { db } from "@/lib/db";
 import { dbTable, endpoint, node } from "@/lib/drizzle/schema";
 import { approvePlan } from "@/lib/plan-resolve";
 import { listHistory } from "@/lib/plan-history";
+import { prunePlannedEntities } from "@/lib/plan-lineage";
+import { ingestSnapshot } from "@/lib/ingest";
+import { describeFeature } from "@/lib/map-ops";
 
 // Lineage: every entity an approved plan creates carries the plan's id, so the board can
 // tell "planned as part of an active plan" from "leftover of a shipped one" — and prune
@@ -80,5 +83,92 @@ describe("plan lineage stamping", () => {
     }))!.planId;
     expect(second).toBeTruthy();
     expect(second).not.toBe(first);
+  });
+});
+
+// Wenzo's invariant: the /db board shows ONLY tables truly in the code, plus the planned
+// tables of plans currently being implemented. Everything else is pruned.
+describe("prunePlannedEntities", () => {
+  beforeEach(async () => {
+    await db.delete(node).where(eq(node.view, "ROADMAP"));
+    await db.delete(endpoint);
+    await db.delete(dbTable);
+  });
+
+  const table = (name: string, source: string, planId: string | null) =>
+    db.insert(dbTable).values({ name, source, planId });
+  const ep = (path: string, source: string, planId: string | null) =>
+    db.insert(endpoint).values({ method: "GET", path, source, planId });
+  const feature = (planId: string, status: string) =>
+    db.insert(node).values({ view: "ROADMAP", title: `f-${planId}-${status}`, status, planId });
+
+  it("keeps planned rows while ANY of their plan's features is unsettled", async () => {
+    await feature("p1", "DONE");
+    await feature("p1", "PENDING");
+    await table("planned_active", "MANUAL", "p1");
+    await ep("/planned-active", "MANUAL", "p1");
+    await prunePlannedEntities();
+    expect(await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "planned_active") })).toBeTruthy();
+    expect(await db.query.endpoint.findFirst({ where: (t, { eq }) => eq(t.path, "/planned-active") })).toBeTruthy();
+  });
+
+  it("prunes planned rows once every feature of their plan settled", async () => {
+    await feature("p1", "DONE");
+    await feature("p1", "CANCELLED");
+    await table("planned_shipped", "MANUAL", "p1");
+    await ep("/planned-shipped", "MANUAL", "p1");
+    const out = await prunePlannedEntities();
+    expect(out).toEqual({ tables: 1, endpoints: 1 });
+    expect(await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "planned_shipped") })).toBeFalsy();
+    expect(await db.query.endpoint.findFirst({ where: (t, { eq }) => eq(t.path, "/planned-shipped") })).toBeFalsy();
+  });
+
+  it("prunes planned rows with no lineage at all (legacy phantoms)", async () => {
+    await table("legacy_phantom", "MANUAL", null);
+    await ep("/legacy-phantom", "MANUAL", null);
+    await prunePlannedEntities();
+    expect(await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "legacy_phantom") })).toBeFalsy();
+    expect(await db.query.endpoint.findFirst({ where: (t, { eq }) => eq(t.path, "/legacy-phantom") })).toBeFalsy();
+  });
+
+  it("never touches code-derived (INTROSPECTION) rows", async () => {
+    await feature("p1", "DONE");
+    await table("real_no_lineage", "INTROSPECTION", null);
+    await table("real_flipped", "INTROSPECTION", "p1");
+    await prunePlannedEntities();
+    expect(await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "real_no_lineage") })).toBeTruthy();
+    expect(await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "real_flipped") })).toBeTruthy();
+  });
+
+  it("treats a plan with zero roadmap nodes as active (DB-only plans are not auto-pruned)", async () => {
+    await table("db_only_plan_table", "MANUAL", "p-db-only");
+    await prunePlannedEntities();
+    expect(
+      await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "db_only_plan_table") }),
+    ).toBeTruthy();
+  });
+
+  it("runs at the tail of every code ingest", async () => {
+    await table("stale_from_old_plan", "MANUAL", null);
+    await ingestSnapshot({
+      tables: [{ name: "real_table", columns: [{ name: "id", type: "UUID", isPk: true }] }],
+      endpoints: [],
+    });
+    expect(
+      await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "stale_from_old_plan") }),
+    ).toBeFalsy();
+    expect(
+      await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "real_table") }),
+    ).toBeTruthy();
+  });
+
+  it("runs when a feature registers Done, so the board cleans up immediately", async () => {
+    const [f] = await db
+      .insert(node)
+      .values({ view: "ROADMAP", title: "Ship the thing", status: "IN_PROGRESS", planId: "p9" })
+      .returning({ id: node.id });
+    await table("planned_p9", "MANUAL", "p9");
+    await describeFeature({ id: f.id, description: "Shipped." });
+    expect(await db.query.dbTable.findFirst({ where: (t, { eq }) => eq(t.name, "planned_p9") })).toBeFalsy();
   });
 });

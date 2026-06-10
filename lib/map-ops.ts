@@ -3,6 +3,7 @@ import { and, count, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
 import { node, nodeFile, edge, appSetting, bugFlag } from "@/lib/drizzle/schema";
 import { bumpVersion } from "@/lib/ingest";
+import { prunePlannedEntities } from "@/lib/plan-lineage";
 import { matchFeature, type Scored } from "@/lib/match";
 import { validateFeatureCreation, validateFront } from "@/lib/feature-rules";
 import { placeInGroup, placeWithoutOverlap } from "@/lib/node-placement";
@@ -370,6 +371,8 @@ export async function finishFeature(input: {
   const finish = async (id: string) => {
     const cascade = await cascadeCompletionDown(id);
     await setStatus(id, "DONE");
+    // The feature shipped — drop planned tables/endpoints of plans no longer in flight.
+    await prunePlannedEntities();
     return {
       ok: true as const,
       id,
@@ -565,6 +568,8 @@ export async function describeFeature(input: {
   // Done is asserted for the whole feature — finish its unfinished sub-tasks too.
   const cascade = await cascadeCompletionDown(target.id);
   await propagateStatusUp(target.id);
+  // The feature shipped — drop planned tables/endpoints of plans no longer in flight.
+  await prunePlannedEntities();
 
   // Record files (idempotent — only adds new ones).
   if (input.files?.length) {
