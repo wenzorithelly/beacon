@@ -7,14 +7,14 @@ process.env.BEACON_DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-layout-"));
 
 import { db } from "@/lib/db";
 import { endpointTable, endpoint, dbColumn, dbRelation, dbTable } from "@/lib/drizzle/schema";
-import { relayoutEndpoints, computeDraftOriginY } from "@/lib/endpoint-layout";
+import { computeDraftOriginY, endpointsOverlap } from "@/lib/endpoint-layout";
 import { graphToDoc } from "@/lib/draft-store";
 import type { DraftGraph } from "@/lib/design";
 
 const ep = (method: string, path: string, y: number) =>
   db.insert(endpoint).values({ method, path, source: "INTROSPECTION", x: -460, y });
 
-describe("relayoutEndpoints (un-stack overlapping endpoint nodes)", () => {
+describe("endpoint layout helpers", () => {
   beforeEach(async () => {
     await db.delete(endpointTable);
     await db.delete(endpoint);
@@ -23,22 +23,20 @@ describe("relayoutEndpoints (un-stack overlapping endpoint nodes)", () => {
     await db.delete(dbTable);
   });
 
-  it("re-spreads endpoints stacked at the same y into the grid", async () => {
-    await ep("GET", "/lay/a", 100); // 3 stacked at y=100
-    await ep("POST", "/lay/b", 100);
-    await ep("DELETE", "/lay/c", 100);
-    await ep("GET", "/lay/d", 220); // a fourth at y=220
-
-    const moved = await relayoutEndpoints();
-    expect(moved).toBeGreaterThanOrEqual(3);
-
-    const eps = await db.query.endpoint.findMany();
-    const seen = new Set(eps.map((e) => `${e.x}:${e.y}`));
-    expect(seen.size).toBe(eps.length); // no two endpoints share a cell
-    for (const e of eps) {
-      expect(e.y).toBeGreaterThanOrEqual(0);
-      expect(e.x).toBeLessThan(0); // still left of the table gutter
-    }
+  it("endpointsOverlap flags stacked pills and passes a clean grid", () => {
+    expect(
+      endpointsOverlap([
+        { x: 0, y: 100 },
+        { x: 10, y: 110 },
+      ]),
+    ).toBe(true);
+    expect(
+      endpointsOverlap([
+        { x: 0, y: 0 },
+        { x: 0, y: 60 },
+        { x: 280, y: 0 },
+      ]),
+    ).toBe(false);
   });
 
   it("computeDraftOriginY returns 0 on an empty canvas, max-y + margin otherwise", async () => {
@@ -61,15 +59,5 @@ describe("relayoutEndpoints (un-stack overlapping endpoint nodes)", () => {
     // Default (no origin) still works the same as before — tables start at y=0.
     const unshifted = graphToDoc(g, 0);
     expect(unshifted.tables[0].y).toBe(0);
-  });
-
-  it("is idempotent — running twice doesn't shift anything that's already laid out cleanly", async () => {
-    await ep("GET", "/idem/a", 100);
-    await ep("GET", "/idem/b", 100);
-    await relayoutEndpoints();
-    const before = await db.query.endpoint.findMany({ orderBy: (e, { asc }) => asc(e.id) });
-    await relayoutEndpoints();
-    const after = await db.query.endpoint.findMany({ orderBy: (e, { asc }) => asc(e.id) });
-    for (let i = 0; i < before.length; i++) expect(after[i].y).toBe(before[i].y);
   });
 });

@@ -7,7 +7,7 @@ import {
   packTablesMasonry,
   tablesOverlap,
 } from "@/lib/table-layout";
-import { endpointsOverlap, gridPositionForEndpoint } from "@/lib/endpoint-layout";
+import { endpointsOverlap } from "@/lib/endpoint-layout";
 
 describe("estimateTableHeight", () => {
   it("grows with the column count", () => {
@@ -89,30 +89,6 @@ describe("packTablesMasonry", () => {
   });
 });
 
-describe("gridPositionForEndpoint", () => {
-  it("wraps to a new column instead of building a single tall stack", () => {
-    // 40 endpoints used to render as one 4400px-tall column. They now spread across
-    // multiple columns growing leftward (more-negative x for later columns).
-    const positions = Array.from({ length: 40 }, (_, i) => gridPositionForEndpoint(i));
-    const distinctXs = new Set(positions.map((p) => p.x));
-    expect(distinctXs.size).toBeGreaterThan(1);
-    const maxY = Math.max(...positions.map((p) => p.y));
-    const single = gridPositionForEndpoint(39).y;
-    expect(maxY).toBeLessThan(39 * 110); // tighter than the old single-column layout
-    expect(single).toBeLessThan(40 * 110);
-  });
-
-  it("places later columns further left (more negative x) so endpoints stay left of tables", () => {
-    const a = gridPositionForEndpoint(0);
-    const b = gridPositionForEndpoint(20);
-    expect(b.x).toBeLessThan(a.x);
-  });
-
-  it("is deterministic", () => {
-    expect(gridPositionForEndpoint(7)).toEqual(gridPositionForEndpoint(7));
-  });
-});
-
 describe("tablesOverlap", () => {
   it("flags the old broken grid where tall tables stack on their neighbours", () => {
     // The pre-fix formula put Node (11 cols → ~382px tall) at y=0 and its bottom
@@ -146,12 +122,15 @@ describe("tablesOverlap", () => {
 });
 
 describe("endpointsOverlap", () => {
-  it("flags the old single-column stack where two endpoints share a y", () => {
+  it("flags two endpoints stacked at the same spot", () => {
     expect(endpointsOverlap([{ x: -460, y: 100 }, { x: -460, y: 100 }])).toBe(true);
   });
 
-  it("treats the new multi-column grid as non-overlapping", () => {
-    const positions = Array.from({ length: 30 }, (_, i) => gridPositionForEndpoint(i));
+  it("treats a docked column (one row pitch apart) as non-overlapping", () => {
+    const positions = Array.from({ length: 30 }, (_, i) => ({
+      x: (i % 3) * 280,
+      y: Math.floor(i / 3) * 60,
+    }));
     expect(endpointsOverlap(positions)).toBe(false);
   });
 });

@@ -2,13 +2,11 @@ import { z } from "zod";
 import { and, count, eq, inArray, notInArray, or, sql } from "drizzle-orm";
 import { db, type DB } from "@/lib/db-drizzle";
 import { dbTable, dbColumn, dbRelation, endpoint, endpointTable, syncState } from "@/lib/drizzle/schema";
-import {
-  endpointsOverlap,
-  gridPositionForEndpoint,
-  relayoutEndpoints,
-} from "@/lib/endpoint-layout";
+import { endpointsOverlap } from "@/lib/endpoint-layout";
 import { reconcilePlannedEndpoints } from "@/lib/endpoint-reconcile";
-import { packTablesMasonry, relayoutTables, tablesOverlap } from "@/lib/table-layout";
+import { tablesOverlap } from "@/lib/table-layout";
+import { nextEndpointDock, nextTableSlot } from "@/lib/db-board-layout";
+import { arrangeDbBoard } from "@/lib/board-arrange";
 
 // ── Snapshot contract (what the intel daemon POSTs) ─────────────────────────
 
@@ -117,20 +115,50 @@ export async function ingestSnapshot(
           : eq(dbTable.source, "INTROSPECTION"),
       );
 
-  // Position NEW tables with a masonry pack sized to each table's column count, anchored
-  // against whatever tables are already on the canvas. The old `(i%4)*320, floor(i/4)*260`
-  // grid silently stacked tall tables (Node, DbColumn) on top of their neighbours.
+  // Position NEW tables inside their domain's block (shortest column), anchored against
+  // whatever is already on the canvas — incremental, so existing positions never move.
   const allExisting = await prisma.query.dbTable.findMany({
-    columns: { name: true, x: true, y: true },
+    columns: { id: true, name: true, domain: true, x: true, y: true },
     with: { columns: { columns: { id: true } } },
   });
+  const existingEps = await prisma.query.endpoint.findMany({
+    columns: { id: true, method: true, path: true, x: true, y: true },
+    with: { tables: { columns: { tableId: true } } },
+  });
   const existingByName = new Map(allExisting.map((t) => [t.name, t]));
-  const newTablePositions = packTablesMasonry(
-    snap.tables
-      .filter((t) => !existingByName.has(t.name))
-      .map((t) => ({ key: t.name, columnCount: t.columns.length })),
-    allExisting.map((t) => ({ x: t.x, y: t.y, columnCount: t.columns.length })),
-  );
+  const placedTablesAcc = allExisting.map((t) => ({
+    id: t.id,
+    name: t.name,
+    domain: t.domain,
+    columnCount: t.columns.length,
+    x: t.x,
+    y: t.y,
+  }));
+  const placedEpsAcc = existingEps.map((e) => ({
+    id: e.id,
+    method: e.method,
+    path: e.path,
+    uses: e.tables.map((u) => ({ tableId: u.tableId })),
+    x: e.x,
+    y: e.y,
+  }));
+  const newTablePositions = new Map<string, { x: number; y: number }>();
+  for (const t of snap.tables) {
+    if (existingByName.has(t.name)) continue;
+    const p = nextTableSlot(
+      { domain: t.domain ?? null, columnCount: t.columns.length },
+      placedTablesAcc,
+      placedEpsAcc,
+    );
+    newTablePositions.set(t.name, p);
+    placedTablesAcc.push({
+      id: `new:${t.name}`,
+      name: t.name,
+      domain: t.domain ?? null,
+      columnCount: t.columns.length,
+      ...p,
+    });
+  }
 
   const tableIdByName = new Map<string, string>();
   for (const t of snap.tables) {
@@ -210,9 +238,13 @@ export async function ingestSnapshot(
     if (stale.length) await prisma.delete(endpoint).where(inArray(endpoint.id, stale));
   }
 
-  // For NEW endpoints we drop into the next free slot of the multi-column grid (the
-  // single-column stack made a real backend's endpoints into a 4000px-tall fence).
-  let nextSlotIndex = (await prisma.select({ n: count() }).from(endpoint))[0].n;
+  // NEW endpoints dock directly beneath their primary table (the docked-layout scheme);
+  // ones that touch no known table grow the Unattached strip below the board.
+  // Swap the placeholder ids of tables created THIS run for their real ids, so a new
+  // endpoint can dock under a table that arrived in the same snapshot.
+  for (const pt of placedTablesAcc) {
+    if (pt.id.startsWith("new:")) pt.id = tableIdByName.get(pt.name) ?? pt.id;
+  }
   for (const e of snap.endpoints) {
     const existing = await prisma.query.endpoint.findFirst({
       where: (t, { and, eq }) => and(eq(t.method, e.method), eq(t.path, e.path)),
@@ -222,10 +254,18 @@ export async function ingestSnapshot(
       x = existing.x;
       y = existing.y;
     } else {
-      const slot = gridPositionForEndpoint(nextSlotIndex);
+      const dockInput = {
+        id: `new:${e.method} ${e.path}`,
+        method: e.method,
+        path: e.path,
+        uses: e.uses
+          .map((u) => ({ tableId: tableIdByName.get(u.table) ?? "" }))
+          .filter((u) => u.tableId),
+      };
+      const slot = nextEndpointDock(dockInput, placedTablesAcc, placedEpsAcc);
       x = slot.x;
       y = slot.y;
-      nextSlotIndex++;
+      placedEpsAcc.push({ ...dockInput, x, y });
     }
     const [saved] = await prisma
       .insert(endpoint)
@@ -270,23 +310,24 @@ export async function ingestSnapshot(
   await reconcilePlannedEndpoints(prisma);
 
   // Self-heal layout: if any pair of tables or endpoints overlaps after the upserts
-  // (a stale layout from before the masonry/grid formulas, or a hand-placement that
-  // drifted into a neighbour), repack them. Drag-and-drop positions that don't
-  // collide are preserved — the heal only fires when the canvas is actually broken.
+  // (a stale layout from before the docked scheme, or a hand-placement that drifted
+  // into a neighbour), re-arrange the whole board with the domain-clustered + docked
+  // layout. Drag-and-drop positions that don't collide are preserved — the heal only
+  // fires when the canvas is actually broken.
   const placedTables = await prisma.query.dbTable.findMany({
     where: (t, { eq }) => eq(t.source, "INTROSPECTION"),
     columns: { x: true, y: true },
     with: { columns: { columns: { id: true } } },
   });
+  const placedEps = await prisma.select({ x: endpoint.x, y: endpoint.y }).from(endpoint);
   if (
     tablesOverlap(
       placedTables.map((t) => ({ x: t.x, y: t.y, columnCount: t.columns.length })),
-    )
+    ) ||
+    endpointsOverlap(placedEps)
   ) {
-    await relayoutTables(prisma);
+    await arrangeDbBoard(prisma);
   }
-  const placedEps = await prisma.select({ x: endpoint.x, y: endpoint.y }).from(endpoint);
-  if (endpointsOverlap(placedEps)) await relayoutEndpoints(prisma);
 
   const version = await bumpVersion(prisma);
   return {

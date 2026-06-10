@@ -1,75 +1,35 @@
 import { eq } from "drizzle-orm";
 import { db, type DB } from "@/lib/db-drizzle";
 import { dbTable, endpoint } from "@/lib/drizzle/schema";
-import { estimateTableHeight, TABLE_COL_WIDTH, TABLE_GAP_PX } from "@/lib/table-layout";
+import { computeDbBoardLayout } from "@/lib/db-board-layout";
+import { BOARD_ALGO_VERSIONS, readBoardLayout, writeBoardLayout } from "@/lib/board-layout-state";
 
-// Explicit "Arrange board" for /db (user-invoked — unlike the overlap self-heal, this moves
-// EVERYTHING, hand-placed or not). Goal: use the screen's width, not its height.
-//   • Tables: masonry whose column count scales with the schema (≈√n, min 4) so 24 tables
-//     read as a wide block, not a 4-column tower.
-//   • Endpoints: a grid in the left gutter whose rows-per-column is matched to the table
-//     block's height — the two blocks sit side by side. Sorted by path so related routes
-//     (e.g. all /api/notes*) are adjacent.
+// "Arrange board" for /db (the explicit button + the one-shot default + the overlap self-heal).
+// Domain-clustered tables with DOCKED endpoints — the layout math lives in lib/db-board-layout;
+// this module just reads the workspace, applies the positions, and gates the one-shot.
 
-const EP_ROW_HEIGHT = 60;
-const EP_COL_WIDTH = 280;
-const EP_BASE_X = -300; // closest endpoint column to the tables
-const EP_GUTTER = 40;
-
-export interface ArrangeTable {
-  id: string;
-  columnCount: number;
-}
-export interface ArrangeEndpoint {
-  id: string;
-  method: string;
-  path: string;
-}
-
-export function computeBoardLayout(
-  tables: ArrangeTable[],
-  endpoints: ArrangeEndpoint[],
-): { tables: Map<string, { x: number; y: number }>; endpoints: Map<string, { x: number; y: number }> } {
-  // ── tables: width-scaled masonry ──
-  const colCount = Math.max(4, Math.min(8, Math.ceil(Math.sqrt(tables.length * 1.7))));
-  const bottoms = new Array<number>(colCount).fill(0);
-  const tablePos = new Map<string, { x: number; y: number }>();
-  for (const t of tables) {
-    let col = 0;
-    for (let i = 1; i < colCount; i++) if (bottoms[i] < bottoms[col]) col = i;
-    tablePos.set(t.id, { x: col * TABLE_COL_WIDTH, y: bottoms[col] });
-    bottoms[col] += estimateTableHeight(t.columnCount) + TABLE_GAP_PX;
-  }
-  const tableBlockHeight = Math.max(0, ...bottoms) - TABLE_GAP_PX;
-
-  // ── endpoints: height-matched grid in the left gutter ──
-  const epPos = new Map<string, { x: number; y: number }>();
-  if (endpoints.length) {
-    const rowsPerCol = Math.max(6, Math.floor(tableBlockHeight / EP_ROW_HEIGHT) || 12);
-    const sorted = [...endpoints].sort(
-      (a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method) || a.id.localeCompare(b.id),
-    );
-    sorted.forEach((e, i) => {
-      const col = Math.floor(i / rowsPerCol);
-      const row = i % rowsPerCol;
-      epPos.set(e.id, { x: EP_BASE_X - EP_GUTTER - col * EP_COL_WIDTH, y: row * EP_ROW_HEIGHT });
-    });
-  }
-  return { tables: tablePos, endpoints: epPos };
-}
-
-/** Apply the layout to every table + endpoint in the workspace. Returns how many moved. */
+/** Apply the domain-clustered + docked layout to every table + endpoint. Returns how many moved. */
 export async function arrangeDbBoard(prisma: DB = db): Promise<number> {
   const [tablesRaw, endpointsRaw] = await Promise.all([
     prisma.query.dbTable.findMany({
       with: { columns: { columns: { id: true } } },
       orderBy: (t, { asc }) => asc(t.name),
     }),
-    prisma.query.endpoint.findMany(),
+    prisma.query.endpoint.findMany({ with: { tables: { columns: { tableId: true } } } }),
   ]);
-  const layout = computeBoardLayout(
-    tablesRaw.map((t) => ({ id: t.id, columnCount: t.columns.length })),
-    endpointsRaw.map((e) => ({ id: e.id, method: e.method, path: e.path })),
+  const layout = computeDbBoardLayout(
+    tablesRaw.map((t) => ({
+      id: t.id,
+      name: t.name,
+      domain: t.domain,
+      columnCount: t.columns.length,
+    })),
+    endpointsRaw.map((e) => ({
+      id: e.id,
+      method: e.method,
+      path: e.path,
+      uses: e.tables.map((u) => ({ tableId: u.tableId })),
+    })),
   );
   let moved = 0;
   for (const t of tablesRaw) {
@@ -85,4 +45,16 @@ export async function arrangeDbBoard(prisma: DB = db): Promise<number> {
     moved++;
   }
   return moved;
+}
+
+/** Organized by default for /db: arrange AT MOST ONCE per algo version (the same anti-fighting
+ *  contract as ensureBoardArranged for the node boards) — after the one-shot, only the explicit
+ *  Arrange button or the overlap self-heal moves cards. */
+export async function ensureDbBoardArranged(prisma: DB = db): Promise<void> {
+  const version = BOARD_ALGO_VERSIONS.db;
+  if (readBoardLayout("db").sig === version) return;
+  const any = await prisma.query.dbTable.findFirst({ columns: { id: true } });
+  if (!any) return; // empty board — keep the one-shot for when content exists
+  await arrangeDbBoard(prisma);
+  writeBoardLayout("db", { sig: version });
 }
