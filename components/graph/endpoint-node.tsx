@@ -156,6 +156,14 @@ export function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
             {data.method}
           </span>
           <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{data.path}</span>
+          {data.source !== "INTROSPECTION" && (
+            <span
+              title="planned — not yet detected in code"
+              className="shrink-0 rounded-md border border-[#f5b942]/35 bg-[#f5b942]/10 px-1.5 py-px font-mono text-[8px] font-semibold uppercase tracking-[0.14em] text-[#f5b942]"
+            >
+              planned
+            </span>
+          )}
           <RiskBadgeRow badges={riskBadges} />
           <button
             type="button"

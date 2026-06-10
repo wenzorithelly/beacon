@@ -136,6 +136,14 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
             {data.name}
           </span>
           <span className="flex items-center gap-1.5">
+            {data.source !== "INTROSPECTION" && (
+              <span
+                title="planned — not yet detected in code"
+                className="shrink-0 rounded-md border border-[#f5b942]/35 bg-[#f5b942]/10 px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-[#f5b942]"
+              >
+                planned
+              </span>
+            )}
             <RiskBadgeRow badges={riskBadges} />
             {data.domain && (
               <span className="text-[9px] uppercase tracking-[0.14em]" style={{ color }}>
