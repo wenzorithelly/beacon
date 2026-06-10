@@ -955,7 +955,7 @@ export function MapClient({
   return (
     <NodeEditContext.Provider value={editApi}>
     <div
-      className={cn("relative w-full", embedded ? "h-full" : "h-screen")}
+      className={cn("canvas-dots relative w-full", embedded ? "h-full" : "h-screen")}
       onDragOver={(e) => {
         // Allow dropping the "+ Feature/Component" pill anywhere on the board.
         if (!e.dataTransfer.types.includes("application/beacon-node")) return;
@@ -971,7 +971,6 @@ export function MapClient({
       }}
     >
       <ReactFlow
-        className="canvas-dots"
         nodes={finalNodes}
         edges={[...displayEdges, ...annoEdges]}
         nodeTypes={nodeTypes}

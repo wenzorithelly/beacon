@@ -524,9 +524,8 @@ export function FilesMapClient({
   }
 
   return (
-    <div className="relative h-screen w-full">
+    <div className="canvas-dots relative h-screen w-full">
       <ReactFlow
-        className="canvas-dots"
         nodes={displayNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}

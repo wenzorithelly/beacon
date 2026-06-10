@@ -983,9 +983,8 @@ export function DbMapClient({
 
   return (
     <DbEditContext.Provider value={dbEdit}>
-      <div className={cn("relative w-full", embedded ? "h-full" : "h-screen")}>
+      <div className={cn("canvas-dots relative w-full", embedded ? "h-full" : "h-screen")}>
         <ReactFlow
-          className="canvas-dots"
           nodes={displayNodes}
           edges={[...displayEdges, ...annoEdges.map((e) => ({ ...e, hidden: hiddenIds.has(e.source) }))]}
           nodeTypes={nodeTypes}
