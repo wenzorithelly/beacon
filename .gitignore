@@ -48,6 +48,8 @@ next-env.d.ts
 # local sqlite databases
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 
 # claude code
 .claude/
