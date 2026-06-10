@@ -68,6 +68,32 @@ describe("watcher manager", () => {
     expect(started).toEqual([]);
   });
 
+  it("stopWatcher stops one running watcher immediately", async () => {
+    const { manager, stopped } = harness([ws("a"), ws("b")], { limit: 5 });
+    manager.reconcile();
+    await manager.stopWatcher("a");
+    expect(stopped).toEqual(["a"]);
+    expect(manager.isWatching("a")).toBe(false);
+    expect(manager.isWatching("b")).toBe(true);
+  });
+
+  it("stopWatcher is a no-op for unknown or never-started ids", async () => {
+    const { manager, stopped } = harness([ws("a")], { limit: 0 });
+    await manager.stopWatcher("a"); // registered but never started
+    await manager.stopWatcher("nope"); // not registered at all
+    expect(stopped).toEqual([]);
+  });
+
+  it("a stopped workspace can be re-started by ensureWatcher (fresh handle)", async () => {
+    const { manager, started, stopped } = harness([ws("a")], { limit: 5 });
+    manager.reconcile();
+    await manager.stopWatcher("a");
+    expect(stopped).toEqual(["a"]);
+    manager.ensureWatcher("a");
+    expect(started).toEqual(["a", "a"]); // a second, fresh start
+    expect(manager.isWatching("a")).toBe(true);
+  });
+
   it("evicts the least-recently-used lazy watcher when the hard cap is hit", () => {
     const { manager, stopped } = harness([ws("w0"), ws("w1"), ws("w2")], { limit: 0, hardCap: 2 });
     manager.ensureWatcher("w0");

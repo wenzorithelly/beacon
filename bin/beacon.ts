@@ -43,6 +43,7 @@ function mod(rel: string): string {
 //   beacon prompt     — UserPromptSubmit hook handler (nudges the feature loop)
 //   beacon stop-hook  — Stop hook handler (nudges prose plan-approval → present on /plan)
 //   beacon stop       — stop the shared daemon
+//   beacon remove     — delete a workspace (unregister + wipe its ~/.beacon/<id>/ data)
 //   beacon setup      — (re-)install per-repo skills + .mcp.json in CWD
 //   beacon doctor     — audit install state (global hooks/skills + this repo's wiring)
 //   beacon uninstall  — reverse every Beacon artifact (global + per-repo)
@@ -59,6 +60,8 @@ if (sub === "mcp") {
   await import(mod("bin/stop-hook.ts"));
 } else if (sub === "stop") {
   stopDaemon();
+} else if (sub === "remove") {
+  await import(mod("bin/remove.ts"));
 } else if (sub === "setup") {
   await setupRepo(gitToplevel() || cwd);
 } else if (sub === "doctor") {

@@ -269,6 +269,13 @@ export interface EnsureWorkspaceDbResult {
 // repeat keeps pinned() cheap to call on every request (it short-circuits once the file is known-current).
 const provisionedThisProcess = new Set<string>();
 
+/** Forget the per-process provision cache for a workspace's db file. Needed when the file is
+ *  deleted (workspace deletion): otherwise a re-added workspace short-circuits ensureWorkspaceDb
+ *  on the stale cache entry and its first query hits SQLITE_CANTOPEN. */
+export function forgetWorkspaceDb(id: string): void {
+  provisionedThisProcess.delete(join(dataDirFor(id), "db.sqlite"));
+}
+
 // Make a workspace's db usable: provision the schema when missing, apply pending migrations, and
 // convert any legacy Prisma TEXT timestamps to epoch-ms integers (all idempotent). Runs in-process
 // via libSQL — no `bun`-on-PATH dependency, no out-of-process spawn. Never throws.

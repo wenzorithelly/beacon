@@ -1,10 +1,13 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { ArrowRight, BookOpen, MessageSquare } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { ContextCard } from "@/components/context-card";
 import { DangerCard } from "@/components/danger-card";
+import { DeleteWorkspaceCard } from "@/components/delete-workspace-card";
 import { PermissionModeCard } from "@/components/permission-mode-card";
+import { activeWorkspace, BEACON_WS_COOKIE, getWorkspace } from "@/lib/workspaces";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +17,10 @@ export const dynamic = "force-dynamic";
 const eyebrow = "mb-2 mt-8 text-xs font-semibold uppercase tracking-wider text-muted-foreground";
 
 export default async function SettingsPage() {
+  // The workspace THIS browser is on (cookie pin, validated), else the global active —
+  // same resolution as lib/request-workspace. Drives the delete-workspace card.
+  const cookieId = (await cookies()).get(BEACON_WS_COOKIE)?.value;
+  const ws = (cookieId ? getWorkspace(cookieId) : null) ?? activeWorkspace();
   return (
     <div className="mx-auto w-full max-w-3xl px-6 pb-16 pt-20">
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
@@ -67,9 +74,10 @@ export default async function SettingsPage() {
       <h2 className={eyebrow}>Project</h2>
       <ContextCard />
 
-      {/* No eyebrow here — DangerCard is self-labeling (red "Danger zone" title); just space it. */}
-      <div className="mt-8">
+      {/* No eyebrow here — the danger cards are self-labeling (red titles); just space them. */}
+      <div className="mt-8 space-y-4">
         <DangerCard />
+        {ws && <DeleteWorkspaceCard id={ws.id} name={ws.name} />}
       </div>
     </div>
   );

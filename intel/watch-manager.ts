@@ -88,6 +88,14 @@ export function createWatcherManager(deps: WatcherManagerDeps) {
     active.set(id, { handle: deps.start(ws), seq: ++seq });
   }
 
+  /** Stop one workspace's watcher right away (workspace deletion — no 30s reconcile wait). */
+  async function stopWatcher(id: string): Promise<void> {
+    const e = active.get(id);
+    if (!e) return;
+    active.delete(id); // delete BEFORE awaiting stop so isWatching flips immediately
+    await e.handle.stop();
+  }
+
   function isWatching(id: string): boolean {
     return active.has(id);
   }
@@ -101,7 +109,7 @@ export function createWatcherManager(deps: WatcherManagerDeps) {
     active.clear();
   }
 
-  return { reconcile, ensureWatcher, isWatching, activeIds, stopAll };
+  return { reconcile, ensureWatcher, stopWatcher, isWatching, activeIds, stopAll };
 }
 
 // ── Process-wide singleton, wired to the real registry + watcher factory ──────────
@@ -143,6 +151,12 @@ export function ensureWatcher(id: string): void {
 /** Whether a workspace's code graph is being kept live right now (staleness signal). */
 export function isWatching(id: string): boolean {
   return manager.isWatching(id);
+}
+
+/** Stop one workspace's watcher immediately (workspace deletion). No disabled-guard
+ *  needed: when inline watching is off, the manager's active set is empty → no-op. */
+export async function stopWatcherFor(id: string): Promise<void> {
+  await manager.stopWatcher(id);
 }
 
 export async function stopWorkspaceWatchers(): Promise<void> {

@@ -64,6 +64,20 @@ export function invalidateDb(dbUrl: string): void {
   clients.delete(dbUrl);
 }
 
+/** Evict AND close a workspace's cached client — for when the db file itself is being
+ *  deleted, so no open libSQL handle outlives the unlinked file. (invalidateDb only
+ *  drops the cache reference; its callers want a reconnect, not a teardown.) */
+export function closeDb(dbUrl: string): void {
+  const c = clients.get(dbUrl);
+  clients.delete(dbUrl);
+  try {
+    // Drizzle attaches the raw libSQL client as $client at runtime; the DB type doesn't declare it.
+    (c as unknown as { $client?: { close?: () => void } } | undefined)?.$client?.close?.();
+  } catch {
+    // already closed
+  }
+}
+
 // Resolve the workspace this access targets and return its cached client. Provisioning/migration is
 // NOT done here: the libSQL migrator is async and this getter is synchronous (it returns a bound
 // Drizzle method to call). Callers reach a workspace through an async boundary that has already
