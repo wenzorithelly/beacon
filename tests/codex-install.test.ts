@@ -12,6 +12,13 @@ import {
   auditCodex,
   removeCodexArtifacts,
 } from "@/lib/codex-install";
+import { selfHealGlobal } from "@/lib/global-install";
+import { installCodexRepoSkills, auditRepo, removeRepoAssets } from "@/lib/assets";
+import { spawnSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const PKG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 // Same isolation trick as tests/global-install.test.ts: userHome() reads
 // process.env.HOME directly, so rebasing HOME onto a tmpdir sandboxes ~/.codex
@@ -183,6 +190,35 @@ describe("setupCodexAssets / auditCodex / removeCodexArtifacts", () => {
     )).toBe(true);
   });
 
+  it("selfHealGlobal wires ~/.codex when detected, skips it when not, and survives a broken ~/.codex", async () => {
+    process.env.BEACON_CODEX = "0";
+    const skipped = await selfHealGlobal();
+    expect(skipped.ok).toBe(true);
+    expect(skipped.codex).toBeUndefined();
+    expect(existsSync(join(home, ".codex"))).toBe(false);
+
+    process.env.BEACON_CODEX = "1";
+    const healed = await selfHealGlobal();
+    expect(healed.ok).toBe(true);
+    expect(healed.codex?.ok).toBe(true);
+    expect(healed.codex?.hooksAdded).toBe(CODEX_HOOKS.length);
+    expect(existsSync(hooksJson())).toBe(true);
+    expect(existsSync(join(home, ".claude", "settings.json"))).toBe(true);
+
+    const again = await selfHealGlobal();
+    expect(again.codex?.hooksAdded).toBe(0);
+    expect(again.codex?.skillsAdded).toEqual([]);
+    expect(again.codex?.mcp.added).toBe(false);
+
+    // A broken ~/.codex (file, not dir) must not break the Claude-side heal.
+    rmSync(join(home, ".codex"), { recursive: true, force: true });
+    writeFileSync(join(home, ".codex"), "i am a file");
+    const broken = await selfHealGlobal();
+    expect(broken.ok).toBe(true);
+    expect(broken.codex?.ok).toBe(false);
+    expect(typeof broken.codex?.error).toBe("string");
+  });
+
   it("removeCodexArtifacts reverses everything ours, leaving user content", async () => {
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(agentsMd(), "# my own notes\n");
@@ -198,5 +234,57 @@ describe("setupCodexAssets / auditCodex / removeCodexArtifacts", () => {
     expect(audit.mcp).toBe(false);
     expect(Object.values(audit.skills).some(Boolean)).toBe(false);
     expect(Object.values(audit.hooks).some(Boolean)).toBe(false);
+  });
+});
+
+describe("per-repo codex skills (.agents/skills)", () => {
+  it("installCodexRepoSkills + auditRepo + removeRepoAssets round-trip", () => {
+    const repo = join(home, "some-repo");
+    mkdirSync(repo, { recursive: true });
+    const paths = installCodexRepoSkills(repo);
+    expect(paths).toHaveLength(2);
+    let audit = auditRepo(repo);
+    expect(audit.codexSkills["beacon-init"]).toBe(true);
+    expect(audit.codexSkills["beacon-refresh"]).toBe(true);
+
+    const removed = removeRepoAssets(repo);
+    expect(removed.skillsRemoved).toContain("codex:beacon-init");
+    expect(removed.skillsRemoved).toContain("codex:beacon-refresh");
+    audit = auditRepo(repo);
+    expect(audit.codexSkills["beacon-init"]).toBe(false);
+  });
+});
+
+describe("entry-point self-heal (subprocess)", () => {
+  it("`beacon hook` with BEACON_CODEX=1 populates BOTH ~/.claude and ~/.codex", () => {
+    const r = spawnSync("bun", ["bin/hook.ts"], {
+      cwd: PKG_DIR,
+      env: { ...process.env, HOME: home, BEACON_CODEX: "1", BEACON_URL: "http://127.0.0.1:1" },
+      input: "",
+      timeout: 15_000,
+    });
+    expect(r.status).toBe(0);
+    expect(existsSync(join(home, ".claude", "skills", "beacon-init", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(home, ".agents", "skills", "beacon-init", "SKILL.md"))).toBe(true);
+    const hooks = JSON.parse(readFileSync(hooksJson(), "utf8"));
+    expect(hooks.hooks.PostToolUse[0].matcher).toBe("apply_patch");
+    const parsed = Bun.TOML.parse(readFileSync(configToml(), "utf8")) as {
+      mcp_servers: { beacon: { command: string } };
+    };
+    expect(parsed.mcp_servers.beacon.command).toBe("beacon");
+    expect(readFileSync(agentsMd(), "utf8")).toContain("beacon:global:start");
+  });
+
+  it("`beacon hook` with BEACON_CODEX=0 leaves ~/.codex untouched", () => {
+    const r = spawnSync("bun", ["bin/hook.ts"], {
+      cwd: PKG_DIR,
+      env: { ...process.env, HOME: home, BEACON_CODEX: "0", BEACON_URL: "http://127.0.0.1:1" },
+      input: "",
+      timeout: 15_000,
+    });
+    expect(r.status).toBe(0);
+    expect(existsSync(join(home, ".claude", "skills", "beacon-init", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(home, ".codex"))).toBe(false);
+    expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 });

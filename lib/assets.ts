@@ -164,6 +164,27 @@ export function installPlanSkill(repo: string): string {
   return path;
 }
 
+const CODEX_REPO_SKILLS = [
+  { name: "beacon-init", body: () => INIT_SKILL },
+  { name: "beacon-refresh", body: () => REFRESH_SKILL },
+] as const;
+
+/**
+ * Codex discovers repo skills under <repo>/.agents/skills (same SKILL.md format as
+ * Claude's .claude/skills). Same init+refresh pair as the per-repo Claude install.
+ */
+export function installCodexRepoSkills(repo: string): string[] {
+  const paths: string[] = [];
+  for (const s of CODEX_REPO_SKILLS) {
+    const dir = join(repo, ".agents", "skills", s.name);
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, "SKILL.md");
+    writeFileSync(path, s.body());
+    paths.push(path);
+  }
+  return paths;
+}
+
 const WORKFLOW_MARK_START = "<!-- beacon:workflow:start -->";
 const WORKFLOW_MARK_END = "<!-- beacon:workflow:end -->";
 const WORKFLOW_RULE = `${WORKFLOW_MARK_START}
@@ -278,6 +299,11 @@ export interface RepoAudit {
     "beacon-init": boolean;
     "beacon-refresh": boolean;
   };
+  /** Codex-side repo skills under .agents/skills (only meaningful when codex is installed). */
+  codexSkills: {
+    "beacon-init": boolean;
+    "beacon-refresh": boolean;
+  };
 }
 
 export function auditRepo(repo: string): RepoAudit {
@@ -314,6 +340,12 @@ export function auditRepo(repo: string): RepoAudit {
         join(repo, ".claude", "skills", "beacon-refresh", "SKILL.md"),
       ),
     },
+    codexSkills: {
+      "beacon-init": existsSync(join(repo, ".agents", "skills", "beacon-init", "SKILL.md")),
+      "beacon-refresh": existsSync(
+        join(repo, ".agents", "skills", "beacon-refresh", "SKILL.md"),
+      ),
+    },
   };
 }
 
@@ -334,6 +366,16 @@ export function removeRepoAssets(repo: string): RepoRemoveResult {
     if (existsSync(dir)) {
       rmSync(dir, { recursive: true, force: true });
       skillsRemoved.push(name);
+    }
+  }
+
+  // Codex-side repo skills (.agents/skills) — removed unconditionally; cheap and
+  // safe even when the codex binary is long gone.
+  for (const name of ["beacon-init", "beacon-refresh"]) {
+    const dir = join(repo, ".agents", "skills", name);
+    if (existsSync(dir)) {
+      rmSync(dir, { recursive: true, force: true });
+      skillsRemoved.push(`codex:${name}`);
     }
   }
 

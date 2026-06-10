@@ -75,32 +75,38 @@ if (sub === "mcp") {
 //   • /beacon-db-design — design schema for a feature and preview on /db
 //   • beacon_* MCP tools — read the map, propose plans, register feature work
 async function setupRepo(repo: string, quiet = false) {
-  const { installInitSkill, installRefreshSkill, ensureMcp, ensureWorkflowDoc } = await import(
-    mod("lib/assets.ts")
-  );
+  const { installInitSkill, installRefreshSkill, installCodexRepoSkills, ensureMcp, ensureWorkflowDoc } =
+    await import(mod("lib/assets.ts"));
   const { selfHealGlobal } = await import(mod("lib/global-install.ts"));
+  const { codexDetected } = await import(mod("lib/codex-install.ts"));
   // `beacon setup` is the explicit fix-it command — heal the global ~/.claude/ layer
-  // here too so a user running it after a manual cleanup doesn't have to also run
-  // bare `beacon` to re-trigger launchPanel's global install.
-  await selfHealGlobal();
+  // (and ~/.codex when the Codex CLI is installed) here too so a user running it after
+  // a manual cleanup doesn't have to also run bare `beacon` to re-trigger
+  // launchPanel's global install.
+  const heal = await selfHealGlobal();
   const initSkill = installInitSkill(repo);
   const refreshSkill = installRefreshSkill(repo);
   ensureWorkflowDoc(repo);
   const mcp = ensureMcp(repo);
+  // Codex reads repo AGENTS.md natively (no @import needed) and its MCP entry is
+  // global (~/.codex/config.toml, written by the heal above) — only the repo-level
+  // skills under .agents/skills are per-repo.
+  const codexSkills: string[] = codexDetected() ? installCodexRepoSkills(repo) : [];
   if (quiet) {
     if (mcp.added) {
       console.log(
-        `[beacon] registered Beacon MCP in ${mcp.path} — restart Claude Code to use @beacon mentions.`,
+        `[beacon] registered Beacon MCP in ${mcp.path} — restart your agent CLI to use @beacon mentions.`,
       );
     }
   } else {
     console.log(`\n  ◉ Beacon setup · ${repo}`);
     console.log(`  ✓ skill:  ${initSkill}`);
     console.log(`  ✓ skill:  ${refreshSkill}`);
+    for (const s of codexSkills) console.log(`  ✓ skill:  ${s}`);
     console.log(`  ${mcp.added ? "✓ added " : "· kept  "} Beacon MCP in ${mcp.path}`);
-    console.log(`  → in this repo, run /beacon-init in Claude Code to map the repo.\n`);
+    console.log(`  → in this repo, run /beacon-init in your agent (Claude Code or Codex) to map the repo.\n`);
   }
-  return { initSkill, refreshSkill, mcp };
+  return { initSkill, refreshSkill, mcp, codexSkills, heal };
 }
 
 function gitToplevel(): string {
@@ -218,23 +224,28 @@ async function launchPanel() {
     );
   }
 
-  // Always ensure Beacon's Claude Code helpers are installed (idempotent): the skill +
-  // the MCP registration, so @beacon mentions + the design skill work in this repo.
-  await setupRepo(repo, true);
-
-  // Also install GLOBAL assets in ~/.claude/ — skills + settings.json hooks + CLAUDE.md
-  // block — so every Claude Code session on this machine, in every repo, can discover
-  // Beacon. Idempotent: prints only what actually changed.
-  const { setupGlobalAssets } = await import(mod("lib/global-install.ts"));
-  const g = (await setupGlobalAssets()) as Awaited<
-    ReturnType<typeof import("../lib/global-install").setupGlobalAssets>
-  >;
+  // Always ensure Beacon's agent helpers are installed (idempotent): the skills + the
+  // MCP registration, so @beacon mentions + the plan loop work in this repo. The
+  // selfHeal inside also wires the GLOBAL layers — ~/.claude/ always, ~/.codex/ +
+  // ~/.agents/ when the Codex CLI is detected. Prints only what actually changed.
+  const { heal: g } = await setupRepo(repo, true);
   const globalChanges: string[] = [];
   if (g.skillsAdded.length) globalChanges.push(`skills ${g.skillsAdded.join(", ")}`);
   if (g.hooksAdded) globalChanges.push(`${g.hooksAdded} Claude Code hook${g.hooksAdded === 1 ? "" : "s"}`);
   if (g.claudeMdBlockTouched) globalChanges.push("global CLAUDE.md block");
   if (globalChanges.length)
     console.log(`[beacon] wired into ~/.claude/: ${globalChanges.join(" + ")}.`);
+  const c = g.codex;
+  if (c) {
+    const codexChanges: string[] = [];
+    if (c.skillsAdded.length) codexChanges.push(`skills ${c.skillsAdded.join(", ")}`);
+    if (c.hooksAdded) codexChanges.push(`${c.hooksAdded} Codex hook${c.hooksAdded === 1 ? "" : "s"}`);
+    if (c.agentsMdBlockTouched) codexChanges.push("global AGENTS.md block");
+    if (c.mcp.added) codexChanges.push("MCP entry in config.toml");
+    if (codexChanges.length)
+      console.log(`[beacon] wired into ~/.codex/: ${codexChanges.join(" + ")}.`);
+    if (c.mcp.error) console.log(`[beacon] codex MCP not wired: ${c.mcp.error}`);
+  }
 
   // Register the repo, ensure the shared server, then open the browser straight onto this
   // repo (activate makes it the server's active workspace). The intel pipeline is MANUAL —

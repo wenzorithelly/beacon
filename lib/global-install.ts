@@ -13,6 +13,7 @@ import {
   removeSkillDir,
   type HookSpec,
 } from "@/lib/agent-config";
+import type { CodexSetupResult } from "@/lib/codex-install";
 
 // Global Beacon install/audit/remove primitives. Owns the bits that live in the user's
 // ~/.claude/ home — not per-repo and not per-workspace. The CLI's first-run + the
@@ -197,9 +198,16 @@ export async function setupGlobalAssets(): Promise<SetupResult> {
 
 // ── Self-heal (called from every `beacon` entry point) ─────────────────────
 
+export interface CodexHealResult extends CodexSetupResult {
+  ok: boolean;
+  error?: string;
+}
+
 export interface SelfHealResult extends SetupResult {
   ok: boolean;
   error?: string;
+  /** Present only when the Codex CLI is detected (or BEACON_CODEX=1 forces it). */
+  codex?: CodexHealResult;
 }
 
 /**
@@ -213,13 +221,18 @@ export interface SelfHealResult extends SetupResult {
  * then on, every Claude Code session that spawns `beacon mcp` (via .mcp.json)
  * re-applies the global layer, so accidental cleanups + machine migrations
  * heal automatically without the user having to re-run `beacon` in each repo.
+ *
+ * When the Codex CLI is on the machine, the same heal also wires ~/.codex +
+ * ~/.agents (hooks.json, config.toml MCP entry, AGENTS.md block, skills) — and
+ * a Codex-side failure never breaks the Claude-side heal (and vice versa).
  */
 export async function selfHealGlobal(): Promise<SelfHealResult> {
+  let result: SelfHealResult;
   try {
     const r = await setupGlobalAssets();
-    return { ok: true, ...r };
+    result = { ok: true, ...r };
   } catch (e) {
-    return {
+    result = {
       ok: false,
       error: e instanceof Error ? e.message : String(e),
       skillsAdded: [],
@@ -227,6 +240,20 @@ export async function selfHealGlobal(): Promise<SelfHealResult> {
       claudeMdBlockTouched: false,
     };
   }
+  try {
+    const codex = await import("@/lib/codex-install");
+    if (codex.codexDetected()) result.codex = { ok: true, ...(await codex.setupCodexAssets()) };
+  } catch (e) {
+    result.codex = {
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+      skillsAdded: [],
+      hooksAdded: 0,
+      agentsMdBlockTouched: false,
+      mcp: { added: false },
+    };
+  }
+  return result;
 }
 
 // ── Bulk remove (used by `beacon uninstall`) ────────────────────────────────
