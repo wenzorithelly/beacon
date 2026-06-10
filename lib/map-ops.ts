@@ -485,6 +485,32 @@ export async function describeFeature(input: {
   return { ok: true, id: target.id };
 }
 
+export interface DescribeFeatureItem {
+  id?: string;
+  title?: string;
+  description: string;
+  files?: string[];
+  architecture?: unknown[];
+}
+
+/** Register MANY shipped features in one call (the batch close-out). Each item resolves
+ *  independently — a miss returns ok:false for THAT item (with its title, so the agent
+ *  can retry just that one) without sinking the rest. This is what lets the terminal
+ *  session flip every feature a plan created to DONE in a single round-trip instead of
+ *  one fuzzy-matched call per feature. */
+export async function describeFeatures(
+  items: DescribeFeatureItem[],
+): Promise<{
+  results: Array<{ ok: boolean; id?: string; title?: string; candidates?: Scored[] }>;
+}> {
+  const results = [];
+  for (const it of items) {
+    const r = await describeFeature(it);
+    results.push({ ...r, title: it.title });
+  }
+  return { results };
+}
+
 /** Record the files a feature spans (reported by a session as it works). */
 export async function touchFiles(input: {
   id?: string;

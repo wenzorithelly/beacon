@@ -19,6 +19,8 @@ import {
 } from "@/lib/workspaces";
 import { mentionsDbSchema } from "@/lib/plan-block";
 import { validateProposedFeatures } from "@/lib/feature-rules";
+import { approvedFeaturesContext } from "@/lib/plan-approval-message";
+import type { ApprovedFeature } from "@/lib/plan-verdict";
 import {
   PLAN_POLL_INTERVAL_MS,
   PLAN_TOOL_TIMEOUT_MS,
@@ -107,7 +109,7 @@ server.registerTool(
   { description: "List existing features on the roadmap. Call before starting work." },
   async () => {
     const map = await api("/api/map");
-    return { content: [{ type: "text" as const, text: JSON.stringify(map, null, 2) }] };
+    return { content: [{ type: "text" as const, text: JSON.stringify(map) }] };
   },
 );
 
@@ -176,45 +178,64 @@ server.registerTool(
   async ({ parentId, parentTitle, items }) => {
     try {
       const r = await post("/api/nodes/subtasks", { parentId, parentTitle, items });
-      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
     } catch (e) {
       return errText(e);
     }
   },
 );
 
+const architectureItemSchema = z
+  .array(
+    z.object({
+      title: z.string().describe("real component/subsystem name (e.g. 'Plan review loop') — NEVER a file"),
+      domain: z.string().describe("uppercase lane: PLAN | DATA | UI | MCP | INTEL | …"),
+      role: z.string().optional().describe("one-line technical role"),
+      plain: z.string().optional().describe("one plain-language sentence"),
+      status: z.enum(["KEEP", "REBUILD", "REPLACE", "DROP"]).optional(),
+      files: z.array(z.string()).optional(),
+      depends: z.array(z.string()).optional().describe("titles of components this one depends on"),
+    }),
+  )
+  .optional()
+  .describe("Only when the feature adds/changes a REAL architectural component — upserts curated nodes, never one-per-file");
+
 server.registerTool(
   "beacon_describe_feature",
   {
     description:
-      "Call ONCE at the end of a feature: marks status=DONE, records the files you touched (kept on the FEATURE for context), and replaces the node's description with `description` markdown. Subsumes touch_files + finish_feature. If the feature added or materially changed a REAL architectural component (a subsystem — never a file), also pass `architecture` to keep the Architecture map accurate.",
+      "Register shipped feature(s) at the end of the work: marks status=DONE, records the files touched (kept on the FEATURE for context), and replaces each node's description with your markdown. Subsumes touch_files + finish_feature. REGISTER ALL FEATURES A PLAN CREATED IN ONE CALL via the `features` array (one entry per feature) — do NOT call this once per feature. Pass each feature's `id` (returned to you at plan approval) so no title-matching is needed. For a single feature you may pass the top-level fields instead. Pass `architecture` only when a feature added/changed a REAL subsystem (never a file).",
     inputSchema: {
-      description: z
-        .string()
-        .describe(
-          "Markdown: ### Overview ... ### Files - `path` — what it does",
-        ),
-      files: z.array(z.string()).optional().describe("repo-relative files this feature touches"),
-      id: z.string().optional().describe("node id from beacon_map (preferred over title)"),
-      title: z.string().optional().describe("feature title (fuzzy-matched if no id)"),
-      architecture: z
+      // Batch form (preferred): register every feature the plan created in ONE round-trip.
+      features: z
         .array(
           z.object({
-            title: z.string().describe("real component/subsystem name (e.g. 'Plan review loop') — NEVER a file"),
-            domain: z.string().describe("uppercase lane: PLAN | DATA | UI | MCP | INTEL | …"),
-            role: z.string().optional().describe("one-line technical role"),
-            plain: z.string().optional().describe("one plain-language sentence"),
-            status: z.enum(["KEEP", "REBUILD", "REPLACE", "DROP"]).optional(),
-            files: z.array(z.string()).optional(),
-            depends: z.array(z.string()).optional().describe("titles of components this one depends on"),
+            id: z.string().optional().describe("node id from plan approval / beacon_map (preferred over title)"),
+            title: z.string().optional().describe("feature title (fuzzy-matched if no id)"),
+            description: z.string().describe("Markdown: ### Overview ... ### Files - `path` — what it does"),
+            files: z.array(z.string()).optional().describe("repo-relative files this feature touches"),
+            architecture: architectureItemSchema,
           }),
         )
         .optional()
-        .describe("Only when the feature adds/changes a REAL architectural component — upserts curated nodes, never one-per-file"),
+        .describe("Register many features at once — one entry per feature, each id-keyed. Use this instead of N separate calls."),
+      // Single form (back-compat): one feature via the top-level fields.
+      description: z
+        .string()
+        .optional()
+        .describe("Single-feature markdown (omit when using `features`): ### Overview ... ### Files - `path` — what it does"),
+      files: z.array(z.string()).optional().describe("repo-relative files this feature touches (single form)"),
+      id: z.string().optional().describe("node id from plan approval / beacon_map (preferred over title)"),
+      title: z.string().optional().describe("feature title (fuzzy-matched if no id)"),
+      architecture: architectureItemSchema,
     },
   },
-  async ({ description, files, id, title, architecture }) => {
-    const r = await post("/api/map/describe", { description, files, id, title, architecture });
+  async ({ features, description, files, id, title, architecture }) => {
+    const body =
+      features?.length
+        ? { features }
+        : { description, files, id, title, architecture };
+    const r = await post("/api/map/describe", body);
     return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
   },
 );
@@ -342,7 +363,7 @@ server.registerTool(
     if (title) qs.set("title", title);
     if (query) qs.set("query", query);
     const r = await api(`/api/context/feature?${qs.toString()}`);
-    return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
   },
 );
 
@@ -363,7 +384,7 @@ server.registerTool(
     const qs = new URLSearchParams({ path });
     if (depth != null) qs.set("depth", String(depth));
     const r = await api(`/api/context/file?${qs.toString()}`);
-    return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
   },
 );
 
@@ -378,7 +399,7 @@ server.registerTool(
   },
   async ({ kind }) => {
     const r = await api(`/api/entities?kind=${kind}`);
-    return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
   },
 );
 
@@ -532,7 +553,7 @@ server.registerTool(
       const v = (await api("/api/plan/verdict").catch(() => null)) as
         | { kind: "pending" }
         | { kind: "feedback"; feedback: string }
-        | { kind: "approved"; summary: string; detail?: string; features?: string[] }
+        | { kind: "approved"; summary: string; detail?: string; features?: ApprovedFeature[] }
         | { kind: "discarded"; summary: string }
         | null;
       if (!v) continue;
@@ -549,13 +570,6 @@ server.registerTool(
         );
       }
       if (v.kind === "approved") {
-        const featureList = v.features?.length
-          ? "\n\n⚠️ This plan created these roadmap feature(s):\n" +
-            v.features.map((f) => `  • ${f}`).join("\n") +
-            "\n\nAs you SHIP each one, call `beacon_describe_feature` for it BY ITS EXACT TITLE " +
-            "(with the files you touched + a short summary) so it flips to Done. Do this per " +
-            "feature — do NOT register only the umbrella, or the rest stay Pending on the map."
-          : "";
         return text(
           `✅ Plan approved by the user. ${v.summary}` +
             (v.detail
@@ -563,7 +577,7 @@ server.registerTool(
                 "edited columns on the canvas:\n\n" +
                 v.detail
               : "") +
-            featureList,
+            approvedFeaturesContext(v.features),
         );
       }
       if (v.kind === "discarded") {
@@ -614,7 +628,7 @@ server.registerTool(
       const v = (await api("/api/plan/verdict").catch(() => null)) as
         | { kind: "pending" }
         | { kind: "feedback"; feedback: string }
-        | { kind: "approved"; summary?: string; detail?: string }
+        | { kind: "approved"; summary?: string; detail?: string; features?: ApprovedFeature[] }
         | { kind: "discarded"; summary?: string }
         | null;
       if (!v) continue;
@@ -628,7 +642,8 @@ server.registerTool(
       if (v.kind === "approved")
         return text(
           `✅ Plan approved by the user. ${v.summary ?? ""}`.trim() +
-            (v.detail ? `\n\nImplement exactly what's on the board:\n\n${v.detail}` : ""),
+            (v.detail ? `\n\nImplement exactly what's on the board:\n\n${v.detail}` : "") +
+            approvedFeaturesContext(v.features),
         );
       if (v.kind === "discarded")
         return text(
@@ -704,7 +719,7 @@ async function readNode(uri: URL, s: string | string[], kind: "features" | "arch
       "## Beacon feature loop — follow IN ORDER (do not jump to Glob/Grep/Read)",
       "1. **Load context FIRST.** Call `beacon_context_for_feature({ title })` for this feature BEFORE any Glob/Grep/Read. It returns the attached files, 1-hop import blast radius, the domain's endpoints + tables + FK relations, sibling components, and the project conventions — and marks this feature active so your edits attach to it. That bundle replaces the discovery phase; Glob is a last resort.",
       "2. **Design data before code.** Identify the tables this feature needs. If ANY are missing from the list above, design the schema and call `beacon_propose_plan` (tables + relations + endpoints, each endpoint with `uses:[{table,access}]`). It BLOCKS until the user approves on /plan — do NOT write migrations or code until it returns approval.",
-      "3. **Register at the end.** When the work is done, call `beacon_describe_feature` with the files you touched + a short markdown summary, so the map and AGENTS.md stay accurate for the next session.",
+      "3. **Register at the end — in ONE call.** When the work is done, call `beacon_describe_feature` ONCE with a `features` array (one entry per feature the plan created, each keyed by the `id` you got back at approval, with the files you touched + a short markdown summary). Don't make one call per feature, and don't register only the umbrella — that leaves the rest Pending.",
     );
   }
 

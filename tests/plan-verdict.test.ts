@@ -82,6 +82,38 @@ describe("resolvePlanVerdict — D1: approve is never misread as discard", () =>
   });
 });
 
+describe("approve verdict carries each feature's title→id", () => {
+  beforeEach(clean);
+
+  // The agent must get the promoted node ids back at approval so it can register the
+  // shipped features by EXACT id (one batched describe call) instead of fuzzy-matching
+  // titles and paying a candidate-disambiguation round-trip per feature.
+  it("echoes the approved features as {title,id} pointing at the real promoted nodes", async () => {
+    await planPost(
+      planReq({
+        description: "feature plan",
+        features: [
+          { title: "Org mgmt", cluster: "AUTH", priority: 1 },
+          { title: "Billing portal", cluster: "BILLING", priority: 2 },
+        ],
+      }),
+    );
+    await approvePost(bareReq());
+
+    const v = await resolvePlanVerdict();
+    expect(v.kind).toBe("approved");
+    if (v.kind !== "approved") return;
+    expect(v.features?.length).toBe(2);
+    for (const f of v.features ?? []) {
+      expect(f.title).toBeTruthy();
+      expect(f.id).toBeTruthy();
+      const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, f.id) });
+      expect(n?.title).toBe(f.title);
+      expect(n?.source).toBe("MANUAL"); // DRAFT → promoted on approve
+    }
+  });
+});
+
 describe("resolvePlanVerdict — precedence", () => {
   beforeEach(clean);
 

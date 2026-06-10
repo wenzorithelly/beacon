@@ -23,6 +23,8 @@ import { selfHealGlobal } from "@/lib/global-install";
 import { PLAN_HOOK_TIMEOUT_MS, PLAN_POLL_INTERVAL_MS } from "@/lib/constants";
 import { readPreferences } from "@/lib/preferences";
 import { planAllowOutput, type PermissionMode } from "@/lib/permission-modes";
+import { approvedFeaturesContext } from "@/lib/plan-approval-message";
+import type { ApprovedFeature } from "@/lib/plan-verdict";
 
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BEACON_HOME = process.env.BEACON_HOME || join(homedir(), ".beacon");
@@ -140,8 +142,8 @@ type HookEvent = {
 // mode to the user's saved preference (e.g. bypassPermissions) so they don't drop back to
 // manual approval — see lib/preferences.ts. Fail-open allows (no plan / push failed) pass no
 // mode, leaving the session untouched.
-function permissionAllow(mode?: PermissionMode) {
-  return planAllowOutput(mode);
+function permissionAllow(mode?: PermissionMode, additionalContext?: string) {
+  return planAllowOutput(mode, additionalContext);
 }
 function permissionDeny(message: string) {
   return {
@@ -242,14 +244,19 @@ function emit(out: unknown): never {
       .catch(() => null)) as
       | { kind: "pending" }
       | { kind: "feedback"; feedback: string }
-      | { kind: "approved"; summary?: string }
+      | { kind: "approved"; summary?: string; features?: ApprovedFeature[] }
       | { kind: "discarded"; summary?: string }
       | null;
     if (!v) continue;
 
     // Approved → allow, and restore the user's preferred permission mode (asked once on
-    // /plan, saved globally in ~/.beacon/preferences.json, changeable in Settings).
-    if (v.kind === "approved") emit(permissionAllow(readPreferences().planApprovalMode));
+    // /plan, saved globally in ~/.beacon/preferences.json, changeable in Settings). Hand the
+    // approved features' node ids back via additionalContext so the agent registers them done
+    // in ONE batched describe call instead of fuzzy-matching titles per feature.
+    if (v.kind === "approved")
+      emit(
+        permissionAllow(readPreferences().planApprovalMode, approvedFeaturesContext(v.features)),
+      );
     if (v.kind === "discarded")
       emit(
         permissionDeny(

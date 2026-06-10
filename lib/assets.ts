@@ -207,11 +207,13 @@ Beacon extracts it deterministically and **strips the block from the prose** (it
 
 **The board is built ONLY from the block — prose is NOT parsed.** If your plan describes ANY database models/tables/columns in the prose (e.g. "Model \`legal_precedent.py\` — natural key (court, …)"), you MUST also put them in the block's \`tables\` array (with \`columns\`), or the /db tab will be empty for that plan. Same for endpoints (\`endpoints\` with \`uses:[{table,access}]\`) and features (\`features\`). A plan that lists five tables in prose but ships a block with only \`features\` renders an empty database board — exactly the "I described models but the DB tab is empty" failure. Mirror every DB entity you mention into the block.
 
-### 3. At the end, register the work
+### 3. At the end, register the work — in ONE call
 
-Call \`beacon_describe_feature\` for **EVERY** feature the plan created — once per feature, **by its exact title** (the same titles you listed in \`features\`/the \`\`\`beacon block) — with the files you touched and a short markdown description. This flips each one to **Done** and keeps \`beacon_context_for_feature\` accurate for the next session.
+Call \`beacon_describe_feature\` **ONCE** with a \`features\` array — one entry per feature the plan created — each with the files you touched and a short markdown description. This flips each one to **Done** and keeps \`beacon_context_for_feature\` accurate for the next session.
 
-Do this per feature. If a plan added five features, that's five \`beacon_describe_feature\` calls — registering only an umbrella ("Harden auth") leaves the individual features stuck on **Pending** on the map.
+Key each entry by its node \`id\`: the ids are handed back to you when the plan is approved (in the approval message / additionalContext), so you don't fuzzy-match titles or pay a disambiguation round-trip. If you don't have an id, \`title\` still works.
+
+Register them all in that single batched call. If a plan added five features, that's ONE \`beacon_describe_feature\` call with five entries — NOT five calls, and NOT just an umbrella ("Harden auth"), which leaves the individual features stuck on **Pending**.
 
 If the feature added or materially changed a REAL architectural component (a subsystem — NOT a file), also pass \`architecture: [{ title, domain, role, … }]\` so the Architecture map stays accurate. It upserts curated components by title; never list files as components.
 

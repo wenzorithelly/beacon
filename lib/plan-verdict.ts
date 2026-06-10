@@ -16,11 +16,18 @@ export interface PlanVerdict {
   // Full approved schema (the agent reads the user's edited columns from here). Only set
   // when the approved plan carried a DB draft.
   detail?: string;
-  // Titles of the roadmap features this plan created. Echoed back on approval so the agent
-  // knows EXACTLY which features to mark done (beacon_describe_feature) as it ships each one
-  // — without this it tends to register only umbrella work and leaves the rest Pending.
-  features?: string[];
+  // The roadmap features this plan created, each with its promoted node id. Echoed back on
+  // approval so the agent registers them done (beacon_describe_feature) BY EXACT ID in one
+  // batched call — no fuzzy title-matching, no candidate-disambiguation round-trips, and it
+  // can't register only the umbrella and leave the rest Pending. (Legacy verdict files may
+  // hold bare title strings; consumers normalize those — see resolvePlanVerdict.)
+  features?: ApprovedFeature[];
   decidedAt: number;
+}
+
+export interface ApprovedFeature {
+  title: string;
+  id: string;
 }
 
 function verdictPath(): string {

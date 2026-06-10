@@ -47,7 +47,10 @@ export function isPermissionMode(v: unknown): v is PermissionMode {
 // The Claude Code PermissionRequest "allow" hook output, optionally switching the session's
 // permission mode (CC 2.1.7+). Shared by bin/plan.ts (the ExitPlanMode hook) and its tests so
 // the exact wire shape is verified once. `mode` falsy → a plain allow (unchanged behavior).
-export function planAllowOutput(mode?: PermissionMode | null) {
+// `additionalContext`, when set, is injected into the agent's conversation on allow — Beacon
+// uses it to hand back the approved features' node ids so the agent registers them done in one
+// batched describe call instead of fuzzy-matching titles (valid for allow per the CC hook spec).
+export function planAllowOutput(mode?: PermissionMode | null, additionalContext?: string | null) {
   const decision: {
     behavior: "allow";
     updatedPermissions?: { type: "setMode"; mode: PermissionMode; destination: "session" }[];
@@ -55,5 +58,11 @@ export function planAllowOutput(mode?: PermissionMode | null) {
   if (mode) {
     decision.updatedPermissions = [{ type: "setMode", mode, destination: "session" }];
   }
-  return { hookSpecificOutput: { hookEventName: "PermissionRequest", decision } };
+  const hookSpecificOutput: {
+    hookEventName: "PermissionRequest";
+    decision: typeof decision;
+    additionalContext?: string;
+  } = { hookEventName: "PermissionRequest", decision };
+  if (additionalContext?.trim()) hookSpecificOutput.additionalContext = additionalContext;
+  return { hookSpecificOutput };
 }

@@ -14,7 +14,13 @@ import { archivePlan } from "@/lib/plan-history";
 import { synthesizePlanMarkdown } from "@/lib/plan-markdown";
 import { extractBeaconBlock } from "@/lib/plan-block";
 import { clearPlanMeta, readPlanMeta } from "@/lib/plan-meta";
-import { clearPlanVerdict, readPlanVerdict, writePlanVerdict } from "@/lib/plan-verdict";
+import {
+  clearPlanVerdict,
+  readPlanVerdict,
+  writePlanVerdict,
+  type ApprovedFeature,
+  type PlanVerdict,
+} from "@/lib/plan-verdict";
 import {
   clearStoredAnnotations,
   readAnnotationFeedback,
@@ -86,7 +92,7 @@ export async function approvePlan(opts?: { doc?: DraftDoc | null }): Promise<{
     .update(node)
     .set({ source: "MANUAL" })
     .where(and(eq(node.source, "DRAFT"), eq(node.view, "ROADMAP")))
-    .returning({ id: node.id });
+    .returning({ id: node.id, title: node.title });
   const featuresApproved = { count: promoted.length };
 
   archivePlan({
@@ -112,8 +118,9 @@ export async function approvePlan(opts?: { doc?: DraftDoc | null }): Promise<{
     status: "approved",
     summary,
     detail: doc ? describeApprovedDoc(doc) : undefined,
-    // The exact titles the agent must mark done as it ships each feature.
-    features: snap.featureGraph.features.map((f) => f.title),
+    // The exact {title,id} of every feature the agent must mark done — id-keyed so it
+    // registers them in one batched describe call with no fuzzy title-matching.
+    features: promoted.map((p) => ({ title: p.title, id: p.id })),
     decidedAt: Date.now(),
   });
 
@@ -155,8 +162,18 @@ export async function discardPlan(): Promise<void> {
 export type PlanVerdictResolution =
   | { kind: "pending" }
   | { kind: "feedback"; feedback: string }
-  | { kind: "approved"; summary: string; detail?: string; features?: string[] }
+  | { kind: "approved"; summary: string; detail?: string; features?: ApprovedFeature[] }
   | { kind: "discarded"; summary: string };
+
+// Tolerate both the current {title,id}[] verdict shape and any legacy verdict file that
+// still holds bare title strings (a verdict written by an older build, picked up after an
+// in-place upgrade). Legacy entries simply have no id — the agent falls back to title-match.
+function normalizeFeatures(raw: PlanVerdict["features"]): ApprovedFeature[] | undefined {
+  if (!raw?.length) return undefined;
+  return raw.map((f) =>
+    typeof f === "string" ? { title: f, id: "" } : { title: f.title, id: f.id },
+  );
+}
 
 // The single verdict both pollers read. Precedence:
 //   1. Submitted, non-empty feedback (closes the iterate loop) —
@@ -169,7 +186,7 @@ export async function resolvePlanVerdict(): Promise<PlanVerdictResolution> {
   const v = readPlanVerdict();
   if (v) {
     return v.status === "approved"
-      ? { kind: "approved", summary: v.summary, detail: v.detail, features: v.features }
+      ? { kind: "approved", summary: v.summary, detail: v.detail, features: normalizeFeatures(v.features) }
       : { kind: "discarded", summary: v.summary };
   }
 

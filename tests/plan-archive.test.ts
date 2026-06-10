@@ -96,7 +96,7 @@ describe("approving a plan archives its full markdown", () => {
     expect(archived).toContain("Closing prose.");
   });
 
-  it("the approved verdict echoes the plan's feature titles (so the agent marks EACH done)", async () => {
+  it("the approved verdict echoes each feature as {title,id} (so the agent batch-registers by id)", async () => {
     await planPost(
       reqJson({
         description: "Multi-feature plan",
@@ -109,10 +109,10 @@ describe("approving a plan archives its full markdown", () => {
     await approvePlan();
     const v = await resolvePlanVerdict();
     expect(v.kind).toBe("approved");
-    // The exact titles flow back so the agent calls beacon_describe_feature per feature.
-    expect(v.kind === "approved" && v.features).toEqual([
-      "Refresh token rotation",
-      "Email verification",
-    ]);
+    // Each feature's {title,id} flows back so the agent registers them all in ONE describe
+    // call keyed by id — no fuzzy title-matching, no per-feature disambiguation round-trip.
+    if (v.kind !== "approved") return;
+    expect(v.features?.map((f) => f.title)).toEqual(["Refresh token rotation", "Email verification"]);
+    expect(v.features?.every((f) => !!f.id)).toBe(true);
   });
 });
