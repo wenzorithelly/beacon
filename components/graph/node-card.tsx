@@ -176,6 +176,16 @@ function BugFlagButton({ nodeId }: { nodeId: string }) {
   );
 }
 
+// Priority heat on roadmap card borders: P0 red (the existing critical treatment), P1 the
+// brand orange, P2 amber, P3 stays neutral. Border only — the card body never tints, so the
+// signal reads preattentively without shouting. Full literals for the Tailwind scan.
+const PRIORITY_BORDER = [
+  "border-[#ff3860]/60 shadow-[0_0_0_1px_rgba(255,56,96,0.15)]",
+  "border-[#ff7a45]/50",
+  "border-amber-400/35",
+  "border-border",
+] as const;
+
 export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
   const { categories, statuses, patch, isExpanded, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent } =
     useNodeEdit();
@@ -191,9 +201,11 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
   const [cluster, setCluster] = useState(data.cluster ?? "");
   const [plain, setPlain] = useState(data.plain ?? "");
 
-  const critical = data.priority === 0;
   const isBug = data.kind === "BUG" && data.view === "ROADMAP";
   const isArch = data.view === "ARCHITECTURE";
+  const priorityBorder = isArch
+    ? "border-border"
+    : (PRIORITY_BORDER[data.priority] ?? "border-border");
   const openBugs = data.openBugs ?? 0;
   const cancelled = data.status === "CANCELLED" || data.status === "DROP";
   const dimmed = data.status === "DEPRIORITIZED";
@@ -218,10 +230,11 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
       <div
         className={cn(
           "relative rounded-lg border bg-card px-3 py-2.5 text-card-foreground shadow-sm",
-          "w-fit max-w-96",
+          // Cap BELOW the 320px layout column so a long title can never run under the
+          // neighbouring card — it wraps to more lines instead (never truncates).
+          "w-fit max-w-[296px]",
           data.isChild ? "min-w-56" : "min-w-64",
-          isBug && "border-rose-400/50 bg-rose-500/[0.05]",
-          critical && !isBug ? "border-[#ff3860]/60" : "border-border",
+          isBug ? "border-rose-400/50 bg-rose-500/[0.05]" : priorityBorder,
           working && "border-sky-400/60",
           selected && "ring-2 ring-[var(--accent,#f5b942)]",
           cancelled && "opacity-60",
@@ -229,7 +242,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
         )}
       >
         <FourDotHandles />
-        <div className="truncate text-[15px] font-semibold leading-snug">{data.title}</div>
+        <div className="break-words text-[15px] font-semibold leading-snug">{data.title}</div>
       </div>
     );
   }
@@ -248,9 +261,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
           ? "border-dashed border-sky-400/50 bg-sky-500/[0.06]"
           : suggested
             ? "border-dashed border-violet-400/60 bg-violet-500/[0.07] shadow-[0_0_0_1px_rgba(167,139,250,0.18)]"
-            : critical
-              ? "border-[#ff3860]/60 shadow-[0_0_0_1px_rgba(255,56,96,0.15)]"
-              : "border-border",
+            : priorityBorder,
         isBug && !draft && "border-rose-400/50 bg-rose-500/[0.05]",
         working && "border-sky-400/60 shadow-[0_0_0_1px_rgba(56,160,255,0.25)]",
         data.isNext && "border-emerald-400/70 shadow-[0_0_0_2px_rgba(52,211,153,0.35)]",
