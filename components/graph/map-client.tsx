@@ -1111,7 +1111,10 @@ export function MapClient({
         }}
         onNodeClick={(e, node) => {
           if (node.type === "annotation") {
-            onPinClick?.((node.data as unknown as AnnotationNodeData).annotationId);
+            // An editable card is being written/edited IN PLACE — clicking into it must not
+            // yank the Comments side panel open. Read-only cards keep the jump-to behavior.
+            const d = node.data as unknown as AnnotationNodeData;
+            if (!d.editable) onPinClick?.(d.annotationId);
             return;
           }
           if (pickingParent) {

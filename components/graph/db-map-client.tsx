@@ -1090,7 +1090,10 @@ export function DbMapClient({
           onNodeMouseLeave={() => setHoveredId(null)}
           onNodeClick={(_, node) => {
             if (node.type === "annotation") {
-              onPinClick?.((node.data as AnnotationNodeData).annotationId);
+              // An editable card is being written/edited IN PLACE — clicking into it must not
+              // yank the Comments side panel open. Read-only cards keep the jump-to behavior.
+              const d = node.data as AnnotationNodeData;
+              if (!d.editable) onPinClick?.(d.annotationId);
               return;
             }
             const kind = node.type === "endpoint" ? "endpoint" : "table";
