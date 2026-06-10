@@ -77,6 +77,7 @@ export default async function PlanPage({
     const mapNodes: MapNodePayload[] = nodes.map((n) => ({
       id: n.id,
       view: n.view,
+      kind: n.kind,
       cluster: n.cluster,
       title: n.title,
       role: n.role,
@@ -90,6 +91,7 @@ export default async function PlanPage({
       parentId: n.parentId,
       isCriterion: n.nodeTags.some((nt) => nt.tag.label === "criterion"),
       files: n.files.map((f) => f.path),
+      bugFlags: [], // plan review renders drafts — flags aren't part of the proposal
     }));
     const mapEdges: MapEdgePayload[] = dbEdges.map((e) => ({
       id: e.id,

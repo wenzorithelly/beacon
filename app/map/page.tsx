@@ -155,6 +155,7 @@ export default async function MapPage({
       with: {
         nodeTags: { with: { tag: { columns: { label: true } } } },
         files: { columns: { path: true }, orderBy: (f, { asc }) => asc(f.path) },
+        bugFlags: { orderBy: (f, { asc }) => [asc(f.createdAt), asc(f.id)] },
       },
     });
     // Filter edges to those whose BOTH endpoints are nodes of this view. The relational
@@ -180,6 +181,7 @@ export default async function MapPage({
     const payload: MapNodePayload[] = nodes.map((n) => ({
       id: n.id,
       view: n.view,
+      kind: n.kind,
       cluster: n.cluster,
       title: n.title,
       role: n.role,
@@ -194,6 +196,12 @@ export default async function MapPage({
       isCriterion: n.nodeTags.some((nt) => nt.tag.label === "criterion"),
       files: n.files.map((f) => f.path),
       signals: featureSignals(n.files.map((f) => f.path), untestedSet),
+      bugFlags: n.bugFlags.map((f) => ({
+        id: f.id,
+        by: f.by,
+        note: f.note,
+        resolved: f.resolvedAt != null,
+      })),
     }));
 
     const edges: MapEdgePayload[] = dbEdges.map((e) => ({

@@ -5,6 +5,7 @@ import { type Node, type NodeProps } from "@xyflow/react";
 import { FourDotHandles } from "@/components/graph/handles";
 import { PinRail } from "@/components/graph/annotation-node";
 import {
+  Bug,
   Sparkles,
   Maximize2,
   Minimize2,
@@ -37,6 +38,8 @@ export type MapNodeData = {
   priority: number;
   cluster: string | null;
   view: string;
+  /** FEATURE | BUG — a BUG card is a bug the user plans to work on (roadmap only). */
+  kind?: string;
   source: string;
   sourceRef: string | null;
   isCriterion: boolean;
@@ -46,6 +49,8 @@ export type MapNodeData = {
   isNext?: boolean;
   // Deterministic rollup signals for the card badges (untested file count, auth touch).
   signals?: FeatureSignals;
+  /** Open bug/investigation flags on this node — renders the bug-count badge. */
+  openBugs?: number;
   /** Plan-review annotations anchored to this feature (numbered pins at the card edge). */
   pins?: { id: string; n: number; column: string | null }[];
   onPinClick?: (annotationId: string) => void;
@@ -81,6 +86,8 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
   const [plain, setPlain] = useState(data.plain ?? "");
 
   const critical = data.priority === 0;
+  const isBug = data.kind === "BUG" && data.view === "ROADMAP";
+  const openBugs = data.openBugs ?? 0;
   const cancelled = data.status === "CANCELLED" || data.status === "DROP";
   const dimmed = data.status === "DEPRIORITIZED";
   const draft = data.source === "DRAFT";
@@ -104,6 +111,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
             : critical
               ? "border-[#ff3860]/60 shadow-[0_0_0_1px_rgba(255,56,96,0.15)]"
               : "border-border",
+        isBug && !draft && "border-rose-400/50 bg-rose-500/[0.05]",
         working && "border-sky-400/60 shadow-[0_0_0_1px_rgba(56,160,255,0.25)]",
         data.isNext && "border-emerald-400/70 shadow-[0_0_0_2px_rgba(52,211,153,0.35)]",
         selected && "ring-2 ring-[var(--accent,#f5b942)]",
@@ -194,8 +202,17 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
 
       {/* Deterministic rollup signals (untested files / auth touch) — permanent roadmap view.
           Only render when there's something worth flagging, so benign features stay clean. */}
-      {((data.signals?.untested ?? 0) > 0 || data.signals?.auth) && (
+      {((data.signals?.untested ?? 0) > 0 || data.signals?.auth || openBugs > 0) && (
         <div className="mt-1 flex flex-wrap items-center gap-1">
+          {openBugs > 0 && (
+            <span
+              title={`${openBugs} open bug flag(s) — raised by you or an agent examining this code`}
+              className="flex items-center gap-1 rounded bg-rose-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-rose-300"
+            >
+              <Bug className="size-2.5" />
+              {openBugs} {openBugs === 1 ? "bug" : "bugs"}
+            </span>
+          )}
           {(data.signals?.untested ?? 0) > 0 && (
             <span
               title={`${data.signals!.untested} of ${data.signals!.total} attached file(s) have no test importing them`}
@@ -238,13 +255,24 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
         {data.view === "ROADMAP" ? (
           <>
             <span
-              title={data.isChild ? "Sub-task of a feature" : "Feature — top-level roadmap item"}
+              title={
+                isBug
+                  ? "Bug — something to fix"
+                  : data.isChild
+                    ? "Sub-task of a feature"
+                    : "Feature — top-level roadmap item"
+              }
               className={cn(
-                "shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-                data.isChild ? "bg-zinc-500/15 text-zinc-300" : "bg-sky-500/15 text-sky-300",
+                "flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                isBug
+                  ? "bg-rose-500/15 text-rose-300"
+                  : data.isChild
+                    ? "bg-zinc-500/15 text-zinc-300"
+                    : "bg-sky-500/15 text-sky-300",
               )}
             >
-              {data.isChild ? "sub-task" : "feature"}
+              {isBug && <Bug className="size-2.5" />}
+              {isBug ? "bug" : data.isChild ? "sub-task" : "feature"}
             </span>
             {suggested && (
               <span className="flex items-center gap-1 rounded bg-violet-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-300">

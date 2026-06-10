@@ -41,6 +41,7 @@ export interface NodeFormDialogProps {
     plain?: string | null;
     status?: string;
     cluster?: string | null;
+    kind?: string;
   };
 }
 
@@ -63,6 +64,9 @@ export function NodeFormDialog({
   const [status, setStatus] = useState<NodeStatus>(
     (defaults?.status as NodeStatus) ?? (view === "ARCHITECTURE" ? "REBUILD" : "PENDING"),
   );
+  const [kind, setKind] = useState<"FEATURE" | "BUG">(
+    defaults?.kind === "BUG" ? "BUG" : "FEATURE",
+  );
   const [saving, setSaving] = useState(false);
 
   const statuses = view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES;
@@ -74,6 +78,7 @@ export function NodeFormDialog({
       if (mode === "create") {
         await createNodeAction({
           view,
+          ...(view === "ROADMAP" ? { kind } : {}),
           title: title.trim(),
           role: role.trim() || null,
           plain: plain.trim() || null,
@@ -85,6 +90,7 @@ export function NodeFormDialog({
         });
       } else if (nodeId) {
         await updateNodeAction(nodeId, {
+          ...(view === "ROADMAP" ? { kind } : {}),
           title: title.trim(),
           role: role.trim() || null,
           plain: plain.trim() || null,
@@ -128,6 +134,23 @@ export function NodeFormDialog({
               onChange={(e) => setPlain(e.target.value)}
             />
           </div>
+          {view === "ROADMAP" && (
+            <div className="space-y-1.5">
+              <Label>Kind</Label>
+              <Select
+                value={kind}
+                onValueChange={(v) => v != null && setKind(v as "FEATURE" | "BUG")}
+              >
+                <SelectTrigger>
+                  <SelectValue>{(v: string) => (v === "BUG" ? "Bug" : "Feature")}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FEATURE">Feature</SelectItem>
+                  <SelectItem value="BUG">Bug</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Status</Label>

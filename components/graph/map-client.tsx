@@ -23,6 +23,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import {
+  Bug as BugIcon,
   GitBranch,
   HelpCircle,
   PanelRight,
@@ -96,12 +97,14 @@ function buildNodes(payload: MapNodePayload[]): Node<MapNodeData>[] {
       priority: n.priority,
       cluster: n.cluster,
       view: n.view,
+      kind: n.kind,
       source: n.source,
       sourceRef: n.sourceRef,
       isCriterion: n.isCriterion,
       isChild: n.parentId != null,
       parentId: n.parentId,
       signals: n.signals,
+      openBugs: n.bugFlags.filter((f) => !f.resolved).length,
     },
   }));
 }
@@ -330,9 +333,10 @@ export function MapClient({
   // impatient users into clicking again and creating duplicates. If the write fails we
   // roll the optimistic card back out. Shared by the "+ Feature" button and drag-to-drop.
   const createNodeAt = useCallback(
-    async (x: number, y: number) => {
+    async (x: number, y: number, kind: "FEATURE" | "BUG" = "FEATURE") => {
       const id = createId();
       const status = view === "ARCHITECTURE" ? "REBUILD" : "PENDING";
+      const title = kind === "BUG" ? "New bug" : "New node";
       setNodes((nds) => [
         ...nds,
         {
@@ -340,18 +344,20 @@ export function MapClient({
           type: view === "ROADMAP" ? "roadmapNode" : "archNode",
           position: { x, y },
           data: {
-            title: "New node",
+            title,
             role: null,
             plain: null,
             status,
             priority: 2,
             cluster: null,
             view,
+            kind,
             source: "MANUAL",
             sourceRef: null,
             isCriterion: false,
             isChild: false,
             parentId: null,
+            openBugs: 0,
           },
         },
       ]);
@@ -362,7 +368,7 @@ export function MapClient({
         const res = await fetch("/api/nodes", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id, view, title: "New node", status, x, y }),
+          body: JSON.stringify({ id, view, kind, title, status, x, y }),
         });
         if (!res.ok) throw new Error("create failed");
       } catch {
@@ -384,6 +390,12 @@ export function MapClient({
   const addNode = useCallback(() => {
     const off = (createCount.current++ % 8) * 28;
     void createNodeAt(80 + off, 80 + off);
+  }, [createNodeAt]);
+
+  // "+ Bug" (roadmap only): a typed bug card the user plans to work on.
+  const addBug = useCallback(() => {
+    const off = (createCount.current++ % 8) * 28;
+    void createNodeAt(80 + off, 80 + off, "BUG");
   }, [createNodeAt]);
 
   const editApi: NodeEditApi = useMemo(
@@ -854,9 +866,11 @@ export function MapClient({
             view: n.view,
             source: n.source,
             sourceRef: n.sourceRef,
+            kind: n.kind,
             isCriterion: false,
             isChild: true,
             parentId: parent.id,
+            openBugs: 0,
           },
         },
       ]);
@@ -1000,7 +1014,8 @@ export function MapClient({
         e.preventDefault();
         // Place the card's top-left where the pill was dropped (screen → flow coords).
         const { x, y } = flowRef.current.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-        void createNodeAt(x, y);
+        const kind = e.dataTransfer.getData("application/beacon-node-kind") === "BUG" ? "BUG" : "FEATURE";
+        void createNodeAt(x, y, kind);
       }}
     >
       <ReactFlow
@@ -1230,6 +1245,22 @@ export function MapClient({
                 <Plus className="size-3.5 text-[var(--accent-2,#ff7a45)]" />
               {view === "ARCHITECTURE" ? "Component" : "Feature"}
             </button>
+            {view === "ROADMAP" && (
+              <button
+                onClick={addBug}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("application/beacon-node", view);
+                  e.dataTransfer.setData("application/beacon-node-kind", "BUG");
+                  e.dataTransfer.effectAllowed = "copy";
+                }}
+                title="Add bug (click, or drag onto the board to place it)"
+                className="flex h-8 cursor-grab items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-white/[0.06] active:cursor-grabbing"
+              >
+                <BugIcon className="size-3.5 text-rose-400" />
+                Bug
+              </button>
+            )}
             <span aria-hidden className="mx-0.5 h-5 w-px bg-white/10" />
             <button
               onClick={() => setPickingParent((p) => !p)}

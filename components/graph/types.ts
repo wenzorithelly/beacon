@@ -2,9 +2,17 @@
 
 import type { FeatureSignals } from "@/lib/feature-signals";
 
+export interface BugFlagPayload {
+  id: string;
+  by: string; // "user" | "agent"
+  note: string;
+  resolved: boolean;
+}
+
 export interface MapNodePayload {
   id: string;
   view: string;
+  kind: string; // FEATURE | BUG
   cluster: string | null;
   title: string;
   role: string | null;
@@ -20,6 +28,9 @@ export interface MapNodePayload {
   files: string[];
   // Deterministic rollup signals (untested file count, auth-touch) for the card badges.
   signals?: FeatureSignals;
+  // Bug/investigation flags raised on this node (user via the sidebar, agent via
+  // init/refresh/describe). Open ones drive the card's bug badge.
+  bugFlags: BugFlagPayload[];
 }
 
 export interface MapEdgePayload {

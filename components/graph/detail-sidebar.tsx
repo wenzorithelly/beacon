@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MessageSquarePlus, Sparkles, X } from "lucide-react";
+import { Bug, MessageSquarePlus, Sparkles, X } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { MarkdownView } from "@/components/plan/markdown-view";
 import {
@@ -286,6 +286,10 @@ function NodeDetail({
         </div>
       )}
 
+      {/* Bug flags — architecture components carry findings raised by the user or by an
+          agent examining the code (beacon-init / beacon-refresh / describe_feature). */}
+      {view === "ARCHITECTURE" && <BugFlagsSection node={node} />}
+
       {/* actions */}
       <div className="flex flex-wrap gap-1.5 pt-1">
         <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
@@ -351,6 +355,7 @@ function NodeDetail({
             plain: node.plain,
             status: node.status,
             cluster: node.cluster,
+            kind: node.kind,
           }}
         />
       )}
@@ -366,6 +371,128 @@ function NodeDetail({
           defaults={{ cluster: node.cluster }}
         />
       )}
+    </div>
+  );
+}
+
+function BugFlagsSection({ node }: { node: MapNodePayload }) {
+  const router = useRouter();
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const open = node.bugFlags.filter((f) => !f.resolved);
+
+  const act = (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    void fn()
+      .then(() => router.refresh())
+      .finally(() => setBusy(false));
+  };
+
+  const addFlag = () => {
+    const v = note.trim();
+    if (!v) return;
+    act(async () => {
+      const res = await fetch("/api/bug-flags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nodeId: node.id, by: "user", note: v }),
+      });
+      if (res.ok) setNote("");
+    });
+  };
+
+  return (
+    <div>
+      <h3 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <Bug className="size-3.5 text-rose-300" />
+        Bug flags{open.length > 0 && ` (${open.length} open)`}
+      </h3>
+      {node.bugFlags.length > 0 && (
+        <ul className="space-y-1.5">
+          {node.bugFlags.map((f) => (
+            <li
+              key={f.id}
+              className={cn(
+                "rounded-md border px-2 py-1.5",
+                f.resolved
+                  ? "border-white/5 bg-card/30 opacity-60"
+                  : "border-rose-400/25 bg-rose-500/[0.05]",
+              )}
+            >
+              <div className="flex items-center gap-1.5">
+                <span
+                  title={f.by === "agent" ? "Flagged by an agent examining the code" : "Flagged by you"}
+                  className={cn(
+                    "rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                    f.by === "agent" ? "bg-violet-500/15 text-violet-300" : "bg-sky-500/15 text-sky-300",
+                  )}
+                >
+                  {f.by === "agent" ? "agent" : "you"}
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      act(() =>
+                        fetch(`/api/bug-flags/${f.id}`, {
+                          method: "PATCH",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify({ resolved: !f.resolved }),
+                        }),
+                      )
+                    }
+                    className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+                  >
+                    {f.resolved ? "Reopen" : "Resolve"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    title="Delete flag"
+                    onClick={() => act(() => fetch(`/api/bug-flags/${f.id}`, { method: "DELETE" }))}
+                    className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-red-300"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              </div>
+              <p
+                className={cn(
+                  "mt-1 text-[11.5px] leading-snug",
+                  f.resolved && "line-through",
+                )}
+              >
+                {f.note}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-1.5 flex items-start gap-1.5">
+        <textarea
+          rows={1}
+          value={note}
+          placeholder="Flag a bug or something worth investigating…"
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              addFlag();
+            }
+          }}
+          className="field-sizing-content min-h-7 w-full resize-none rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-[11.5px] outline-none placeholder:text-muted-foreground/60 focus:bg-white/[0.06]"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 shrink-0 px-2 text-[11px]"
+          disabled={busy || !note.trim()}
+          onClick={addFlag}
+        >
+          Flag
+        </Button>
+      </div>
     </div>
   );
 }
