@@ -1,6 +1,9 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
-import { healRoadmapLayout } from "@/lib/map-ops";
+import { ensureBoardArranged } from "@/lib/map-ops";
+import { ensureDbBoardArranged } from "@/lib/board-arrange";
+import { readBoardLayout } from "@/lib/board-layout-state";
+import type { RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { MapClient } from "@/components/graph/map-client";
 import { FilesMapClient } from "@/components/graph/files-map-client";
 import { DbMapClient } from "@/components/graph/db-map-client";
@@ -52,6 +55,8 @@ export default async function MapPage({
     }));
 
     if (view === "DATABASE") {
+      // Organized by default: one-shot domain-clustered + docked arrange (sig-gated).
+      await ensureDbBoardArranged();
       // DB-designer view: the same payload the old /db route fetched.
       const [tablesRaw, relationsRaw, endpointsRaw] = await Promise.all([
         db.query.dbTable.findMany({
@@ -142,11 +147,18 @@ export default async function MapPage({
       );
     }
 
-    // Self-heal the roadmap layout: organically re-arrange the board (d3-force) when its structure
-    // changed since the last layout, so an OLD board fixes itself on first open and new features
-    // settle in sensibly. Signature-gated (see healRoadmapLayout) so a refresh / drag / Group-by is
-    // left alone. Runs before the read so the payload reflects the healed positions immediately.
-    if (view === "ROADMAP") await healRoadmapLayout();
+    // Organized by default: the one-shot arrange (sig-gated, see ensureBoardArranged) tidies the
+    // board into labeled groups the first time this algo version sees it; after that the user's
+    // arrangement is never auto-moved. Runs before the read so the payload reflects it immediately.
+    if (view === "ROADMAP" || view === "ARCHITECTURE") await ensureBoardArranged(view);
+    // The dimension the roadmap is currently grouped by — drives the lane regions on load.
+    const initialArrangedBy: RoadmapGroupBy | null =
+      view === "ROADMAP"
+        ? ((): RoadmapGroupBy | null => {
+            const by = readBoardLayout("roadmap").arrangedBy;
+            return by === "cluster" || by === "status" || by === "priority" ? by : null;
+          })()
+        : null;
 
     const nodes = await db.query.node.findMany({
       where: (n, { eq }) => eq(n.view, view),
@@ -236,6 +248,7 @@ export default async function MapPage({
         edges={edges}
         workOnNextId={workOnNextId}
         boardAnnotations={boardAnnotations}
+        initialArrangedBy={initialArrangedBy}
       />
     );
   });

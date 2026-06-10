@@ -63,34 +63,34 @@ describe("startFeature creation guard", () => {
   });
 });
 
-describe("startFeature re-lays-out the board organically", () => {
-  it("clusters dependency-linked features closer than an unrelated new one", async () => {
+describe("startFeature places the new card in its group without moving anything", () => {
+  it("existing cards keep their positions; the new card joins its theme's region", async () => {
     const [a] = await db
       .insert(node)
       .values({ view: "ROADMAP", title: "Foundation", cluster: "DATA", status: "PENDING", x: 1000, y: 0 })
       .returning();
     const [b] = await db
       .insert(node)
-      .values({ view: "ROADMAP", title: "Built on top", cluster: "DATA", status: "PENDING", x: 0, y: 0 })
+      .values({ view: "ROADMAP", title: "Far away", cluster: "UI", status: "PENDING", x: -2000, y: 900 })
       .returning();
-    await db.insert(edge).values({ fromId: b.id, toId: a.id, kind: "DEPENDS" }); // b depends on a
+    await db.insert(edge).values({ fromId: b.id, toId: a.id, kind: "DEPENDS" });
 
-    // Creating a feature changes the structure → the board is re-laid-out by the force layout.
-    const r = await startFeature({ title: "Unrelated new thing zzz", cluster: "DATA" });
+    const r = await startFeature({ title: "Another data thing zzz", cluster: "DATA" });
     expect(r.action).toBe("created");
 
     const aAfter = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, a.id) });
-    if (!aAfter) throw new Error("not found");
     const bAfter = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, b.id) });
-    if (!bAfter) throw new Error("not found");
-    const newAfter = await db.query.node.findFirst({
+    const created = await db.query.node.findFirst({
       where: (t, { eq }) => eq(t.id, (r as { id: string }).id),
     });
-    if (!newAfter) throw new Error("not found");
+    if (!aAfter || !bAfter || !created) throw new Error("not found");
+    // The board is never auto-re-laid-out by a create — existing cards stay put.
+    expect({ x: aAfter.x, y: aAfter.y }).toEqual({ x: 1000, y: 0 });
+    expect({ x: bAfter.x, y: bAfter.y }).toEqual({ x: -2000, y: 900 });
+    // The new DATA card lands inside the DATA region (near its sibling), not near UI.
     const d = (p: { x: number; y: number }, q: { x: number; y: number }) =>
       Math.hypot(p.x - q.x, p.y - q.y);
-    // The two linked features end up nearer each other than the unrelated new feature.
-    expect(d(aAfter, bAfter)).toBeLessThan(d(aAfter, newAfter));
+    expect(d(created, aAfter)).toBeLessThan(d(created, bAfter));
   });
 });
 

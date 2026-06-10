@@ -11,6 +11,7 @@ import {
 } from "@/lib/draft-store";
 import { clearFeatureDraft, getFeatureDraft, type FeatureGraph } from "@/lib/feature-design";
 import { archivePlan } from "@/lib/plan-history";
+import { placeInGroup } from "@/lib/node-placement";
 import { synthesizePlanMarkdown } from "@/lib/plan-markdown";
 import { extractBeaconBlock } from "@/lib/plan-block";
 import { clearPlanMeta, readPlanMeta } from "@/lib/plan-meta";
@@ -92,8 +93,31 @@ export async function approvePlan(opts?: { doc?: DraftDoc | null }): Promise<{
     .update(node)
     .set({ source: "MANUAL" })
     .where(and(eq(node.source, "DRAFT"), eq(node.view, "ROADMAP")))
-    .returning({ id: node.id, title: node.title });
+    .returning({ id: node.id, title: node.title, cluster: node.cluster });
   const featuresApproved = { count: promoted.length };
+
+  // The draft block was parked BELOW the board while under review; once approved, each feature
+  // joins its theme's region like any other new card (organized by default, no full re-layout).
+  if (promoted.length) {
+    const all = await db.query.node.findMany({
+      where: (t, { eq }) => eq(t.view, "ROADMAP"),
+      columns: { id: true, parentId: true, cluster: true, x: true, y: true },
+    });
+    const promotedIds = new Set(promoted.map((p) => p.id));
+    const groupKey = (c: string | null) => (c ?? "").trim() || "—";
+    const occupied = all
+      .filter((n) => !promotedIds.has(n.id))
+      .map((n) => ({ x: n.x, y: n.y, group: groupKey(n.cluster), top: !n.parentId }));
+    for (const p of promoted) {
+      const key = groupKey(p.cluster);
+      const pos = placeInGroup(
+        occupied.filter((o) => o.top && o.group === key),
+        occupied,
+      );
+      await db.update(node).set({ x: pos.x, y: pos.y }).where(eq(node.id, p.id));
+      occupied.push({ x: pos.x, y: pos.y, group: key, top: true });
+    }
+  }
 
   archivePlan({
     description: snap.description,

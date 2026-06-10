@@ -5,13 +5,15 @@ import { node, nodeFile, edge, appSetting, bugFlag } from "@/lib/drizzle/schema"
 import { bumpVersion } from "@/lib/ingest";
 import { matchFeature, type Scored } from "@/lib/match";
 import { validateFeatureCreation, validateFront } from "@/lib/feature-rules";
-import { placeWithoutOverlap } from "@/lib/node-placement";
-import { forceLayoutRoadmap } from "@/lib/roadmap-force-layout";
+import { placeInGroup, placeWithoutOverlap } from "@/lib/node-placement";
+import { layoutRoadmap, type RoadmapGroupBy } from "@/lib/roadmap-layout";
+import { layeredLayout } from "@/lib/layered-layout";
 import {
-  readRoadmapLayoutSig,
-  roadmapStructureSignature,
-  writeRoadmapLayoutSig,
-} from "@/lib/roadmap-layout-state";
+  BOARD_ALGO_VERSIONS,
+  readBoardLayout,
+  writeBoardLayout,
+  type BoardKey,
+} from "@/lib/board-layout-state";
 import { createNode } from "@/lib/mutations";
 import { repoRoot } from "@/lib/project";
 import { setAppSettings } from "@/lib/settings";
@@ -183,36 +185,61 @@ export async function cascadeCompletionDown(featureId: string): Promise<{
  *  3. plausible-but-ambiguous matches → return candidates to disambiguate
  *  4. no match → create it under `front` (creating that front if needed)
  */
-// Lay the committed roadmap board out as an ORGANIC 2D graph (d3-force): independent features
-// spread across the width, dependency-linked features pull into tight clusters with short edges.
-// Called on every /map load and after a feature is created, so an existing board self-heals.
-//
-// Re-runs ONLY when the graph STRUCTURE changes (a feature/edge added or removed), tracked by a
-// per-workspace signature file. A plain refresh, a manual card drag, or a Group-by arrangement
-// leaves the signature untouched and is therefore preserved — the layout never fights the user.
-// DRAFT nodes are excluded (a plan under review owns its own layout in lib/feature-design). Does
+// Organized by default: arrange a board into labeled groups (roadmap → theme lanes,
+// architecture → domain clusters) AT MOST ONCE per layout-algo version. Called on every /map
+// load; the per-workspace sig file gates it, so after the one-shot the board belongs to the
+// user — refreshes, drags and structural changes never trigger a full re-layout again (new
+// nodes are placed incrementally inside their group via placeInGroup). Only an algo-version
+// bump (ships a re-tidy to every workspace once) or an explicit Group-by/Arrange click moves
+// existing cards. DRAFT nodes are excluded (a plan under review owns its own layout). Does
 // NOT bump the sync version.
-export async function healRoadmapLayout(): Promise<void> {
+export async function ensureBoardArranged(view: "ROADMAP" | "ARCHITECTURE"): Promise<void> {
+  const board: BoardKey = view === "ROADMAP" ? "roadmap" : "architecture";
+  const version = BOARD_ALGO_VERSIONS[board];
+  const stored = readBoardLayout(board);
+  if (stored.sig === version) return; // one-shot already done for this algo
   const all = await db.query.node.findMany({
-    where: (t, { eq }) => eq(t.view, "ROADMAP"),
-    columns: { id: true, parentId: true, source: true, x: true, y: true },
+    where: (t, { eq }) => eq(t.view, view),
+    orderBy: (t, { asc }) => asc(t.createdAt),
+    columns: { id: true, parentId: true, source: true, cluster: true, status: true, priority: true, x: true, y: true },
   });
   const nodes = all.filter((n) => n.source !== "DRAFT");
+  // Nothing worth arranging yet — don't burn the one-shot, so the board still tidies itself
+  // the first time it actually has content (e.g. right after /beacon-init).
   if (nodes.length < 2) return;
-  const ids = nodes.map((n) => n.id);
-  const edges = await db.query.edge.findMany({
-    where: (t, { and, eq }) =>
-      and(eq(t.kind, "DEPENDS"), inArray(t.fromId, ids), inArray(t.toId, ids)),
-    columns: { fromId: true, toId: true },
-  });
 
-  const sig = roadmapStructureSignature(ids, edges);
-  if (readRoadmapLayoutSig() === sig) return; // structure unchanged → keep the current arrangement
+  let pos: Map<string, { x: number; y: number }>;
+  let arrangedBy: string | null = null;
+  if (view === "ROADMAP") {
+    const by: RoadmapGroupBy =
+      stored.arrangedBy === "status" || stored.arrangedBy === "priority"
+        ? stored.arrangedBy
+        : "cluster";
+    arrangedBy = by;
+    pos = layoutRoadmap(
+      nodes.map((n) => ({
+        id: n.id,
+        parentId: n.parentId,
+        cluster: n.cluster,
+        status: n.status,
+        priority: n.priority,
+      })),
+      by,
+    );
+  } else {
+    // Layered dependency flow: foundations left, dependents rightward, domains as bands.
+    const ids = nodes.map((n) => n.id);
+    const depends = await db.query.edge.findMany({
+      where: (t, { and: a, eq: q }) =>
+        a(q(t.kind, "DEPENDS"), inArray(t.fromId, ids), inArray(t.toId, ids)),
+      columns: { fromId: true, toId: true },
+    });
+    pos = layeredLayout(
+      nodes.map((n) => ({ id: n.id, group: (n.cluster ?? "").trim() || "—" })),
+      depends,
+    );
+  }
 
-  const pos = forceLayoutRoadmap(
-    nodes.map((n) => ({ id: n.id, parentId: n.parentId })),
-    edges,
-  );
   const updates: Promise<unknown>[] = [];
   for (const n of nodes) {
     const p = pos.get(n.id);
@@ -221,7 +248,7 @@ export async function healRoadmapLayout(): Promise<void> {
     updates.push(db.update(node).set({ x: p.x, y: p.y }).where(eq(node.id, n.id)));
   }
   await Promise.all(updates);
-  writeRoadmapLayoutSig(sig);
+  writeBoardLayout(board, arrangedBy ? { sig: version, arrangedBy } : { sig: version });
 }
 
 export async function startFeature(input: {
@@ -288,16 +315,25 @@ export async function startFeature(input: {
   });
   if (createErr) return { action: "rejected", message: createErr };
 
-  const siblings = parentId
-    ? nodes.filter((n) => n.parentId === parentId).length
-    : fronts.length;
-  const pos = placeWithoutOverlap(
-    nodes.map((n) => ({ x: n.x, y: n.y })),
-    {
-      x: parentId ? (fronts.find((f) => f.id === parentId)?.x ?? 0) : siblings * 300,
-      y: parentId ? 160 + siblings * 110 : 0,
-    },
-  );
+  // Sub-tasks stack under their parent; a new top-level feature lands INSIDE its theme's
+  // region (shortest masonry column) instead of a blind row — the board stays organized
+  // without a full re-layout.
+  const siblings = parentId ? nodes.filter((n) => n.parentId === parentId).length : 0;
+  const groupKey = (c: string | null) => (c ?? "").trim() || "—";
+  const pos = parentId
+    ? placeWithoutOverlap(
+        nodes.map((n) => ({ x: n.x, y: n.y })),
+        {
+          x: fronts.find((f) => f.id === parentId)?.x ?? 0,
+          y: 160 + siblings * 110,
+        },
+      )
+    : placeInGroup(
+        nodes
+          .filter((n) => !n.parentId && groupKey(n.cluster) === groupKey(cluster))
+          .map((n) => ({ x: n.x, y: n.y })),
+        nodes.map((n) => ({ x: n.x, y: n.y })),
+      );
   const [task] = await db
     .insert(node)
     .values({
@@ -314,9 +350,6 @@ export async function startFeature(input: {
     })
     .returning();
   await propagateStatusUp(task.id);
-  // A new feature changes the graph structure → re-tidy the board organically so the new card is
-  // placed sensibly instead of in a blind row.
-  await healRoadmapLayout();
   await bumpVersion();
   await setCurrent(task.id);
   return { action: "created", id: task.id, title, front: frontTitle };
@@ -404,16 +437,14 @@ export async function upsertArchitectureComponents(input: unknown[]): Promise<nu
   const nodeByTitle = new Map(existing.map((n) => [n.title.toLowerCase(), n]));
   const idByTitle = new Map<string, string>(existing.map((n) => [n.title.toLowerCase(), n.id]));
 
-  // Column x + next free y per domain, seeded from existing nodes so new components stack below
-  // their domain siblings rather than overlapping them. New domains get a fresh column.
-  const xByDomain = new Map<string, number>();
-  const maxYByDomain = new Map<string, number>();
-  for (const n of existing) {
-    const d = (n.cluster ?? "").trim() || "—";
-    if (!xByDomain.has(d)) xByDomain.set(d, n.x);
-    maxYByDomain.set(d, Math.max(maxYByDomain.get(d) ?? -150, n.y));
-  }
-  let nextCol = existing.length ? Math.max(...existing.map((n) => n.x)) + 320 : 0;
+  // New components land INSIDE their domain's region (shortest masonry column); a brand-new
+  // domain starts its own region below the board. Grows as we insert so two new components of
+  // one domain stack instead of colliding.
+  const occupied: Array<{ x: number; y: number; domain: string }> = existing.map((n) => ({
+    x: n.x,
+    y: n.y,
+    domain: (n.cluster ?? "").trim() || "—",
+  }));
 
   for (const c of components) {
     const key = c.title.toLowerCase();
@@ -432,14 +463,11 @@ export async function upsertArchitectureComponents(input: unknown[]): Promise<nu
       }
     } else {
       const d = c.domain.trim() || "—";
-      let x = xByDomain.get(d);
-      if (x === undefined) {
-        x = nextCol;
-        nextCol += 320;
-        xByDomain.set(d, x);
-      }
-      const y = (maxYByDomain.get(d) ?? -150) + 150;
-      maxYByDomain.set(d, y);
+      const { x, y } = placeInGroup(
+        occupied.filter((o) => o.domain === d),
+        occupied,
+      );
+      occupied.push({ x, y, domain: d });
       const [created] = await db
         .insert(node)
         .values({

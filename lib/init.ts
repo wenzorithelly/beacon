@@ -5,8 +5,9 @@ import { node, nodeFile, edge, bugFlag } from "@/lib/drizzle/schema";
 import { bumpVersion, ingestSnapshot, snapshotSchema } from "@/lib/ingest";
 import { setProjectMeta } from "@/lib/project-meta";
 import { writeContextFiles } from "@/lib/context-files";
-import { layoutArchitectureByDomain } from "@/lib/architecture-layout";
-import { forceLayoutRoadmap } from "@/lib/roadmap-force-layout";
+import { layeredLayout } from "@/lib/layered-layout";
+import { layoutRoadmap } from "@/lib/roadmap-layout";
+import { BOARD_ALGO_VERSIONS, writeBoardLayout } from "@/lib/board-layout-state";
 
 // Beacon's repo-mapping (formerly the `beacon init` CLI). The CLI used to spawn
 // a separate Claude/Anthropic process to read the repo and produce structured
@@ -70,12 +71,20 @@ export async function persistArchitecture(components: Component[]): Promise<numb
 
   const idByTitle = new Map<string, string>();
 
-  // Group by domain into a wrapped grid so related components sit together (vs one long row).
-  const wrapped = components.map((c) => ({ domain: c.domain, c }));
-  const pos = layoutArchitectureByDomain(wrapped);
-  for (const w of wrapped) {
-    const c = w.c;
-    const at = pos.get(w) ?? { x: 0, y: 0 };
+  // Layered dependency flow (same layout the /map one-shot applies): foundations left,
+  // dependents rightward, domains as contiguous bands. Keyed by title — ids don't exist yet.
+  const titleSet = new Set(components.map((c) => c.title));
+  const pos = layeredLayout(
+    components.map((c) => ({ id: c.title, group: (c.domain ?? "").trim() || "—" })),
+    components.flatMap((c) =>
+      (c.depends ?? [])
+        .filter((d) => titleSet.has(d) && d !== c.title)
+        .map((d) => ({ fromId: c.title, toId: d })),
+    ),
+  );
+  writeBoardLayout("architecture", { sig: BOARD_ALGO_VERSIONS.architecture });
+  for (const c of components) {
+    const at = pos.get(c.title) ?? { x: 0, y: 0 };
     const [created] = await db
       .insert(node)
       .values({
@@ -140,16 +149,20 @@ export async function persistArchitecture(components: Component[]): Promise<numb
 
 export async function persistRoadmap(roadmap: RoadmapItem[]): Promise<number> {
   await db.delete(node).where(and(eq(node.view, "ROADMAP"), eq(node.source, "INIT")));
-  // Roadmap items carry no dependency edges, so the force layout spreads them organically across
-  // the board's width instead of one long horizontal row off the screen.
-  const pos = forceLayoutRoadmap(
-    roadmap.map((_, i) => ({ id: String(i) })),
-    [],
-  );
+  // Organized by default: lay the items out in labeled theme lanes (the same grouping the /map
+  // one-shot would apply) and record the sig so the first load doesn't re-arrange them again.
+  const items = roadmap.map((r, i) => ({
+    id: String(i),
+    parentId: null,
+    cluster: r.category ?? r.cluster ?? null,
+    status: "PENDING",
+    priority: r.priority ?? 2,
+  }));
+  const pos = layoutRoadmap(items, "cluster");
   for (let i = 0; i < roadmap.length; i++) {
     const r = roadmap[i];
     const p = pos.get(String(i)) ?? { x: 0, y: 0 };
-    const [created] = await db
+    await db
       .insert(node)
       .values({
         view: "ROADMAP",
@@ -165,6 +178,7 @@ export async function persistRoadmap(roadmap: RoadmapItem[]): Promise<number> {
       })
       .returning();
   }
+  writeBoardLayout("roadmap", { sig: BOARD_ALGO_VERSIONS.roadmap, arrangedBy: "cluster" });
   return roadmap.length;
 }
 
