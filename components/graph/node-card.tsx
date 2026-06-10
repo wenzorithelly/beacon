@@ -30,6 +30,7 @@ import {
 import { STATUS_META } from "@/lib/constants";
 import { categoryColorClass } from "@/lib/category-color";
 import { useNodeEdit } from "@/components/graph/node-edit-context";
+import { useZoomLOD } from "@/components/graph/use-zoom-lod";
 import { MarkdownView } from "@/components/plan/markdown-view";
 import { cn } from "@/lib/utils";
 import type { FeatureSignals } from "@/lib/feature-signals";
@@ -207,6 +208,31 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
   // (source → MANUAL, drops the violet styling); Dismiss deletes it like the panel does.
   const [accepting, startAccept] = useTransition();
   const acceptSuggestion = () => startAccept(async () => acceptSuggestionAction(id));
+
+  // Semantic zoom: below the mid threshold the card body is physically unreadable, so render
+  // the title alone at larger type; below the far threshold cards vanish entirely (opacity 0 —
+  // the box keeps its size so handles/regions stay stable) and the group summaries take over.
+  const lod = useZoomLOD();
+  if (lod !== "full") {
+    return (
+      <div
+        className={cn(
+          "relative rounded-lg border bg-card px-3 py-2.5 text-card-foreground shadow-sm",
+          "w-fit max-w-96",
+          data.isChild ? "min-w-56" : "min-w-64",
+          isBug && "border-rose-400/50 bg-rose-500/[0.05]",
+          critical && !isBug ? "border-[#ff3860]/60" : "border-border",
+          working && "border-sky-400/60",
+          selected && "ring-2 ring-[var(--accent,#f5b942)]",
+          cancelled && "opacity-60",
+          lod === "far" && "!opacity-0",
+        )}
+      >
+        <FourDotHandles />
+        <div className="truncate text-[15px] font-semibold leading-snug">{data.title}</div>
+      </div>
+    );
+  }
 
   return (
     <div

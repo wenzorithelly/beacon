@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { METHOD_COLOR } from "@/components/graph/db-types";
 import { useDbEdit } from "@/components/graph/db-edit-context";
 import { FourDotHandles } from "@/components/graph/handles";
+import { useZoomLOD } from "@/components/graph/use-zoom-lod";
 import { PinRail } from "@/components/graph/annotation-node";
 import { RiskBadgeRow } from "@/components/graph/risk-badge-row";
 import { type DiffStatus } from "@/lib/db-diff";
@@ -52,6 +53,27 @@ export function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.rev]);
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+
+  // Semantic zoom: method+path only below the mid threshold; invisible below far (the box
+  // keeps its size so the docked column under a table stays visually stable).
+  const lod = useZoomLOD();
+  if (lod !== "full") {
+    return (
+      <div
+        className={cn(
+          "relative flex w-[240px] items-center gap-2 rounded-lg border border-white/10 bg-[#161618]/95 px-2.5 py-2 text-card-foreground backdrop-blur",
+          selected && "ring-2 ring-[var(--accent,#f5b942)]",
+          lod === "far" && "!opacity-0",
+        )}
+      >
+        <FourDotHandles />
+        <span className="shrink-0 font-mono text-[12px] font-bold" style={{ color }}>
+          {data.method}
+        </span>
+        <span className="truncate font-mono text-[13px]">{data.path}</span>
+      </div>
+    );
+  }
 
   return (
     <div

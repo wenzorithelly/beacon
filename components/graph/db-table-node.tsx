@@ -6,6 +6,7 @@ import { KeyRound, Link2, MessageSquarePlus, Plus, Trash2, X } from "lucide-reac
 import { cn } from "@/lib/utils";
 import { domainColor, type DbColumnPayload } from "@/components/graph/db-types";
 import { useDbEdit } from "@/components/graph/db-edit-context";
+import { useZoomLOD } from "@/components/graph/use-zoom-lod";
 import { FourDotHandles } from "@/components/graph/handles";
 import { PinRail } from "@/components/graph/annotation-node";
 import { RiskBadgeRow } from "@/components/graph/risk-badge-row";
@@ -104,6 +105,21 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
     "relative rounded-xl border bg-[#161618]/95 text-card-foreground shadow-[0_18px_50px_-22px_rgba(0,0,0,0.9)] backdrop-blur",
     selected && "ring-2 ring-[var(--accent,#f5b942)]",
   );
+
+  // Semantic zoom: name-only card below the mid threshold; invisible (region summaries take
+  // over) below the far threshold. The box keeps a stable size so edges/regions don't jump.
+  const lod = useZoomLOD();
+  if (lod !== "full") {
+    return (
+      <div className={cn(shell, "w-[260px] border-white/10 px-3 py-2.5", lod === "far" && "!opacity-0")}>
+        <FourDotHandles />
+        <div className="flex items-center gap-2">
+          <span className="inline-block size-2 shrink-0 rounded-full" style={{ background: color }} />
+          <span className="truncate font-mono text-[15px] font-semibold">{data.name}</span>
+        </div>
+      </div>
+    );
+  }
 
   if (!draft) {
     return (
