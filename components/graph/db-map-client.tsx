@@ -1178,7 +1178,7 @@ export function DbMapClient({
                       setBusy(false);
                     }
                   }}
-                  className="flex h-6 items-center gap-1 rounded-full px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-40"
+                  className="flex h-6 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-40"
                 >
                   <LayoutGrid className="size-3" />
                   {busy ? "Arranging…" : "Arrange"}

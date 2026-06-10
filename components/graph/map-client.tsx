@@ -1247,7 +1247,7 @@ export function MapClient({
               <button
                 onClick={arrangeArchitecture}
                 title="Arrange components into a left→right dependency flow, grouped by domain"
-                className="flex h-6 items-center gap-1 rounded-full px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                className="flex h-6 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
               >
                 <LayoutGrid className="size-3" />
                 Arrange
