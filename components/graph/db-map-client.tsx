@@ -201,6 +201,9 @@ export function DbMapClient({
   // Edge selection focuses just the two endpoints of the clicked line; exclusive
   // with node selection (clicking either clears the other).
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  // Hovering a table/endpoint reveals its edges + fades the rest — same effect as a click,
+  // without committing the selection (mirrors the roadmap board's hover reveal).
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelTab, setPanelTab] = useState<"details" | "comments">("details");
   const [busy, setBusy] = useState(false);
@@ -724,15 +727,17 @@ export function DbMapClient({
     [annos],
   );
 
-  // Click-to-highlight: selecting a NODE focuses 1-hop neighbours; selecting an
-  // EDGE focuses just the two endpoints the line connects. Either fades the rest.
+  // Click- AND hover-to-highlight: focusing a NODE (selected wins over hovered) lights its
+  // 1-hop neighbours; selecting an EDGE focuses just the two endpoints the line connects.
+  // Either fades the rest.
+  const focusNodeId = selected?.id ?? hoveredId;
   const focusIds = useMemo(() => {
     if (selectedEdgeId) {
       const e = baseEdges.find((x) => x.id === selectedEdgeId);
       return e ? new Set([e.source, e.target]) : null;
     }
-    return selected ? neighborIds(selected.id, baseEdges) : null;
-  }, [selected, selectedEdgeId, baseEdges]);
+    return focusNodeId ? neighborIds(focusNodeId, baseEdges) : null;
+  }, [focusNodeId, selectedEdgeId, baseEdges]);
 
   // Filter-driven hidden set. Tables fail on domain or source mismatch; endpoints fail
   // on method or source mismatch. Edges touching a hidden node are hidden too.
@@ -782,11 +787,11 @@ export function DbMapClient({
   const displayEdges = useMemo(() => {
     return baseEdges.map((e) => {
       const hidden = hiddenIds.has(e.source) || hiddenIds.has(e.target);
-      if (!selected && !selectedEdgeId) return hidden ? { ...e, hidden } : e;
+      if (!focusNodeId && !selectedEdgeId) return hidden ? { ...e, hidden } : e;
       const on = selectedEdgeId
         ? e.id === selectedEdgeId
-        : selected
-          ? e.source === selected.id || e.target === selected.id
+        : focusNodeId
+          ? e.source === focusNodeId || e.target === focusNodeId
           : false;
       return on
         ? { ...e, hidden, zIndex: 20, style: { ...e.style, opacity: 1, strokeWidth: 2.5 } }
@@ -799,7 +804,7 @@ export function DbMapClient({
             style: { ...e.style, opacity: 0.08 },
           };
     });
-  }, [baseEdges, selected, selectedEdgeId, hiddenIds]);
+  }, [baseEdges, focusNodeId, selectedEdgeId, hiddenIds]);
 
   const domainsPresent = useMemo(
     () =>
@@ -998,6 +1003,10 @@ export function DbMapClient({
           }}
           onNodesChange={onNodesChange}
           onConnect={onConnect}
+          onNodeMouseEnter={(_, node) => {
+            if (node.type !== "annotation") setHoveredId(node.id);
+          }}
+          onNodeMouseLeave={() => setHoveredId(null)}
           onNodeClick={(_, node) => {
             if (node.type === "annotation") {
               onPinClick?.((node.data as AnnotationNodeData).annotationId);
