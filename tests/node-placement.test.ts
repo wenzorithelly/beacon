@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { placeWithoutOverlap } from "@/lib/node-placement";
+import { placeInGroup, placeWithoutOverlap } from "@/lib/node-placement";
 
 describe("placeWithoutOverlap", () => {
   it("returns the desired position when there's nothing there", () => {
@@ -26,5 +26,49 @@ describe("placeWithoutOverlap", () => {
     const p = placeWithoutOverlap(stack, { x: 0, y: 0 });
     const collides = stack.some((e) => Math.abs(e.x - p.x) < 200 && Math.abs(e.y - p.y) < 150);
     expect(collides).toBe(false);
+  });
+});
+
+describe("placeInGroup", () => {
+  const noOverlap = (p: { x: number; y: number }, all: { x: number; y: number }[]) =>
+    all.every((e) => Math.abs(e.x - p.x) >= 200 || Math.abs(e.y - p.y) >= 150);
+
+  it("an empty board starts the first group at the origin", () => {
+    expect(placeInGroup([], [])).toEqual({ x: 0, y: 0 });
+  });
+
+  it("a new group starts below everything on the board", () => {
+    const others = [{ x: 0, y: 0 }, { x: 320, y: 150 }];
+    const p = placeInGroup([], others);
+    expect(p.y).toBeGreaterThan(150);
+    expect(noOverlap(p, others)).toBe(true);
+  });
+
+  it("drops into the group's shortest column", () => {
+    // col 0 has two cards (bottom 150), col 1 has one (bottom 0) → col 1 wins.
+    const members = [{ x: 0, y: 0 }, { x: 0, y: 150 }, { x: 320, y: 0 }];
+    const p = placeInGroup(members, members);
+    expect(p.x).toBe(320);
+    expect(p.y).toBe(150);
+  });
+
+  it("opens a new column when the group is a square-ish block wanting to grow wide", () => {
+    // 3 members all in col 0 → ceil(sqrt(4)) = 2 columns available; col 1 empty → wins at group top.
+    const members = [{ x: 100, y: 0 }, { x: 100, y: 150 }, { x: 100, y: 300 }];
+    const p = placeInGroup(members, members);
+    expect(p.x).toBe(420); // minX + 1*colW
+    expect(p.y).toBe(0);
+  });
+
+  it("never lands on an existing node (board-wide safety net)", () => {
+    const members = [{ x: 0, y: 0 }];
+    const intruder = { x: 0, y: 150 }; // another group's card sitting in our column
+    const p = placeInGroup(members, [...members, intruder]);
+    expect(noOverlap(p, [...members, intruder])).toBe(true);
+  });
+
+  it("is deterministic", () => {
+    const members = [{ x: 0, y: 0 }, { x: 320, y: 0 }];
+    expect(placeInGroup(members, members)).toEqual(placeInGroup(members, members));
   });
 });
