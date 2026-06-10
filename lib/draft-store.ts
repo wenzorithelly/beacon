@@ -341,10 +341,14 @@ const draftDocSchema = z.object({
 export async function approveDraft(
   input: unknown,
   prisma: Prisma = db,
+  opts: { planId?: string } = {},
 ): Promise<{ tables: number; relations: number; endpoints: number }> {
   const doc = draftDocSchema.parse(input) as DraftDoc;
   const nameById = new Map(doc.tables.map((t) => [t.id, t.name]));
   const realIdByName = new Map<string, string>();
+  // Lineage stamp — last approving plan wins on re-approved rows (the newest plan is the
+  // one "being implemented", so prune-planned tracks it, not the original proposer).
+  const planId = opts.planId ?? null;
 
   // Tables → upsert by name (source MANUAL = approved/planned, renders solid). Columns replaced.
   for (const t of doc.tables) {
@@ -355,12 +359,13 @@ export async function approveDraft(
         domain: t.domain,
         description: t.description,
         source: "MANUAL",
+        planId,
         x: t.x,
         y: t.y,
       })
       .onConflictDoUpdate({
         target: dbTable.name,
-        set: { domain: t.domain, description: t.description },
+        set: { domain: t.domain, description: t.description, planId },
       })
       .returning();
     realIdByName.set(t.name, saved.id);
@@ -424,12 +429,13 @@ export async function approveDraft(
         domain: e.domain,
         description: e.description,
         source: "MANUAL",
+        planId,
         x: e.x,
         y: e.y,
       })
       .onConflictDoUpdate({
         target: [endpoint.method, endpoint.path],
-        set: { domain: e.domain, description: e.description },
+        set: { domain: e.domain, description: e.description, planId },
       })
       .returning();
     await prisma.delete(endpointTable).where(eq(endpointTable.endpointId, saved.id));

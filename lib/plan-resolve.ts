@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
 import { node } from "@/lib/drizzle/schema";
@@ -88,10 +89,14 @@ export async function approvePlan(opts?: { doc?: DraftDoc | null }): Promise<{
   // The /db canvas sends the browser-edited doc; /plan approves the on-disk draft as-is.
   const doc = opts?.doc ?? snap.draftDoc;
 
-  const dbCount = doc ? await approveDraft(doc) : null;
+  // One id for the whole approval: stamped on every entity the plan creates (lineage for
+  // prune-planned) AND used as the archive id, so board ↔ history correlate directly.
+  const planId = randomUUID().slice(0, 8);
+
+  const dbCount = doc ? await approveDraft(doc, db, { planId }) : null;
   const promoted = await db
     .update(node)
-    .set({ source: "MANUAL" })
+    .set({ source: "MANUAL", planId })
     .where(and(eq(node.source, "DRAFT"), eq(node.view, "ROADMAP")))
     .returning({ id: node.id, title: node.title, cluster: node.cluster });
   const featuresApproved = { count: promoted.length };
@@ -120,6 +125,7 @@ export async function approvePlan(opts?: { doc?: DraftDoc | null }): Promise<{
   }
 
   archivePlan({
+    id: planId,
     description: snap.description,
     markdown: snap.markdown,
     verdict: "approved",

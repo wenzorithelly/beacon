@@ -28,10 +28,14 @@ function dir(): string {
   return d;
 }
 
-export function archivePlan(p: Omit<ArchivedPlan, "id" | "archivedAt">): ArchivedPlan {
+export function archivePlan(
+  p: Omit<ArchivedPlan, "id" | "archivedAt"> & { id?: string },
+): ArchivedPlan {
+  // The caller may supply the id so it can double as the lineage planId stamped on the
+  // entities the plan created (approvePlan) — archive id and board lineage stay one string.
   const archived: ArchivedPlan = {
     ...p,
-    id: randomUUID().slice(0, 8),
+    id: p.id ?? randomUUID().slice(0, 8),
     archivedAt: Date.now(),
   };
   writeJsonAtomic(join(dir(), `${archived.id}.json`), archived, true);

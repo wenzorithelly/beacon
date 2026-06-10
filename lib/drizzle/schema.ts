@@ -39,6 +39,8 @@ export const node = sqliteTable(
     sourceRef: text(),
     externalId: text(),
     source: text().default("MANUAL").notNull(),
+    // Lineage to the approved plan (= ArchivedPlan.id) that created/promoted this node.
+    planId: text(),
     parentId: text(),
     createdAt: integer({ mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
     updatedAt: integer({ mode: "timestamp_ms" })
@@ -187,6 +189,8 @@ export const dbTable = sqliteTable(
     domain: text(),
     description: text(),
     source: text().default("MANUAL").notNull(),
+    // Lineage to the approved plan that proposed this table (MANUAL rows only).
+    planId: text(),
     x: real().default(0).notNull(),
     y: real().default(0).notNull(),
     createdAt: integer({ mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
@@ -248,6 +252,8 @@ export const endpoint = sqliteTable(
     domain: text(),
     description: text(),
     source: text().default("MANUAL").notNull(),
+    // Lineage to the approved plan that proposed this endpoint (MANUAL rows only).
+    planId: text(),
     x: real().default(0).notNull(),
     y: real().default(0).notNull(),
     createdAt: integer({ mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),

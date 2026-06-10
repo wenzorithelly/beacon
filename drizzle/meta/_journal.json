@@ -36,6 +36,13 @@
       "when": 1781115501904,
       "tag": "0004_fair_namora",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1781134063758,
+      "tag": "0005_graceful_adam_warlock",
+      "breakpoints": true
     }
   ]
 }
