@@ -1,12 +1,18 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  ensureHookEntry,
+  hasHookEntry,
+  removeHookEntry,
+  ensureMarkerBlock,
+  hasMarkerBlock,
+  removeMarkerBlock,
+  installSkillFile,
+  isSkillInstalled,
+  removeSkillDir,
+  type HookSpec,
+} from "@/lib/agent-config";
 
 // Global Beacon install/audit/remove primitives. Owns the bits that live in the user's
 // ~/.claude/ home — not per-repo and not per-workspace. The CLI's first-run + the
@@ -90,136 +96,47 @@ verbatim. Do NOT implement until the tool returns approval.`;
 // ── Skills ──────────────────────────────────────────────────────────────────
 
 export function installGlobalSkill(name: string, body: string): string {
-  const dir = join(SKILLS_DIR(), name);
-  mkdirSync(dir, { recursive: true });
-  const path = join(dir, "SKILL.md");
-  writeFileSync(path, body);
-  return path;
+  return installSkillFile(SKILLS_DIR(), name, body);
 }
 
 export function isGlobalSkillInstalled(name: string): boolean {
-  return existsSync(join(SKILLS_DIR(), name, "SKILL.md"));
+  return isSkillInstalled(SKILLS_DIR(), name);
 }
 
 export function removeGlobalSkill(name: string): boolean {
-  const dir = join(SKILLS_DIR(), name);
-  if (!existsSync(dir)) return false;
-  rmSync(dir, { recursive: true, force: true });
-  return true;
+  return removeSkillDir(SKILLS_DIR(), name);
 }
 
 // ── Hooks (~/.claude/settings.json) ─────────────────────────────────────────
 
-type HookCommand = { type: "command"; command: string };
-type HookMatcher = { matcher: string; hooks: HookCommand[] };
-interface Settings {
-  hooks?: Partial<Record<string, HookMatcher[]>>;
-  [k: string]: unknown;
-}
-
-function readSettings(): Settings {
-  try {
-    return JSON.parse(readFileSync(SETTINGS_FILE(), "utf8")) as Settings;
-  } catch {
-    return {};
-  }
-}
-
-function writeSettings(s: Settings): void {
-  mkdirSync(CLAUDE_DIR(), { recursive: true });
-  writeFileSync(SETTINGS_FILE(), JSON.stringify(s, null, 2) + "\n");
-}
-
-export interface HookSpec {
-  event: string;
-  matcher: string;
-  command: string;
-}
+export type { HookSpec };
 
 /** Returns true if the hook was added; false if it was already present (no-op). */
 export function ensureGlobalHook(spec: HookSpec): boolean {
-  const s = readSettings();
-  s.hooks = s.hooks ?? {};
-  s.hooks[spec.event] = s.hooks[spec.event] ?? [];
-  const arr = s.hooks[spec.event]!;
-  const already = arr.some((m) =>
-    m.matcher === spec.matcher &&
-    m.hooks?.some((h) => h.command === spec.command),
-  );
-  if (already) return false;
-  arr.push({ matcher: spec.matcher, hooks: [{ type: "command", command: spec.command }] });
-  writeSettings(s);
-  return true;
+  return ensureHookEntry(SETTINGS_FILE(), spec);
 }
 
 export function hasGlobalHook(spec: Pick<HookSpec, "event" | "command">): boolean {
-  const s = readSettings();
-  const arr = s.hooks?.[spec.event] ?? [];
-  return arr.some((m) => m.hooks?.some((h) => h.command === spec.command));
+  return hasHookEntry(SETTINGS_FILE(), spec);
 }
 
 /** Removes hook entries whose command matches. Returns true if anything was removed. */
 export function removeGlobalHook(spec: Pick<HookSpec, "event" | "command">): boolean {
-  const s = readSettings();
-  const arr = s.hooks?.[spec.event];
-  if (!arr) return false;
-  let changed = false;
-  const filtered = arr
-    .map((m) => {
-      const before = m.hooks?.length ?? 0;
-      const after = (m.hooks ?? []).filter((h) => h.command !== spec.command);
-      if (after.length !== before) changed = true;
-      return { ...m, hooks: after };
-    })
-    .filter((m) => (m.hooks ?? []).length > 0);
-  if (!changed) return false;
-  if (filtered.length) s.hooks![spec.event] = filtered;
-  else delete s.hooks![spec.event];
-  if (s.hooks && Object.keys(s.hooks).length === 0) delete s.hooks;
-  writeSettings(s);
-  return true;
+  return removeHookEntry(SETTINGS_FILE(), spec);
 }
 
 // ── CLAUDE.md global block ──────────────────────────────────────────────────
 
 export function ensureGlobalClaudeMdBlock(body: string): void {
-  const block = `${CLAUDE_MD_START}\n${body.trim()}\n${CLAUDE_MD_END}`;
-  let md = "";
-  try {
-    md = readFileSync(CLAUDE_MD(), "utf8");
-  } catch {
-    /* new file */
-  }
-  const re = new RegExp(`${CLAUDE_MD_START}[\\s\\S]*?${CLAUDE_MD_END}`);
-  md = re.test(md)
-    ? md.replace(re, block)
-    : md.trim()
-      ? `${md.trim()}\n\n${block}\n`
-      : `${block}\n`;
-  mkdirSync(CLAUDE_DIR(), { recursive: true });
-  writeFileSync(CLAUDE_MD(), md.endsWith("\n") ? md : `${md}\n`);
+  ensureMarkerBlock(CLAUDE_MD(), CLAUDE_MD_START, CLAUDE_MD_END, body);
 }
 
 export function hasGlobalClaudeMdBlock(): boolean {
-  try {
-    return readFileSync(CLAUDE_MD(), "utf8").includes(CLAUDE_MD_START);
-  } catch {
-    return false;
-  }
+  return hasMarkerBlock(CLAUDE_MD(), CLAUDE_MD_START);
 }
 
 export function removeGlobalClaudeMdBlock(): boolean {
-  let md = "";
-  try {
-    md = readFileSync(CLAUDE_MD(), "utf8");
-  } catch {
-    return false;
-  }
-  const re = new RegExp(`${CLAUDE_MD_START}[\\s\\S]*?${CLAUDE_MD_END}\\n?`);
-  if (!re.test(md)) return false;
-  const out = md.replace(re, "").replace(/\n{3,}/g, "\n\n").trimStart();
-  writeFileSync(CLAUDE_MD(), out);
-  return true;
+  return removeMarkerBlock(CLAUDE_MD(), CLAUDE_MD_START, CLAUDE_MD_END);
 }
 
 // ── Audit ───────────────────────────────────────────────────────────────────
