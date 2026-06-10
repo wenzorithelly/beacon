@@ -385,7 +385,17 @@ export function AnnotationPanel({
       >
         <RenderedMarkdown
           markdown={markdown}
-          annotations={annotations}
+          // While the composer is open the native selection is gone (the textarea owns focus),
+          // so the excerpt being commented on rides along as a pending pseudo-annotation —
+          // the text STAYS visibly highlighted until the comment is added or discarded.
+          annotations={
+            composer
+              ? [
+                  ...annotations,
+                  { id: "__pending", excerpt: composer.excerpt, comment: "", kind: "comment" as const },
+                ]
+              : annotations
+          }
           focusOnId={focusOnId}
           onClearFocus={() => setFocusOnId(null)}
           onUpdate={updateComment}
@@ -446,7 +456,9 @@ export function AnnotationPanel({
   );
 }
 
-// Floating textarea anchored at the selection. Enter saves, Esc/empty-blur cancels.
+// Floating textarea anchored at the selection, with explicit Add / Discard buttons.
+// Enter still saves and Esc still discards; clicking elsewhere keeps a non-empty comment
+// (and drops an empty one) — but the buttons make the outcome a deliberate choice.
 function InlineComposer({
   excerpt,
   x,
@@ -463,10 +475,19 @@ function InlineComposer({
   onCancel: () => void;
 }) {
   const [value, setValue] = useState(seed);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const confirm = () => (value.trim() ? onConfirm(value.trim()) : onCancel());
   return (
     <div
+      ref={boxRef}
       style={{ position: "fixed", left: x + 4, top: y - 6, zIndex: 60 }}
       className="w-64 rounded-md border border-white/15 bg-card/95 p-1.5 shadow-xl backdrop-blur"
+      // Only treat focus LEAVING the whole composer as an implicit save — focus moving from
+      // the textarea to the buttons must not auto-confirm under the user's click.
+      onBlur={(e) => {
+        if (boxRef.current?.contains(e.relatedTarget as Node | null)) return;
+        confirm();
+      }}
     >
       <div className="mb-1 line-clamp-1 text-[10px] text-muted-foreground">“{excerpt}”</div>
       <textarea
@@ -474,21 +495,40 @@ function InlineComposer({
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onFocus={(e) => e.currentTarget.setSelectionRange(value.length, value.length)}
-        placeholder="Comment… (Enter to save · Esc to cancel)"
+        placeholder="Comment… (Enter to add · Esc to discard)"
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            if (value.trim()) onConfirm(value.trim());
-            else onCancel();
+            confirm();
           } else if (e.key === "Escape") {
             e.preventDefault();
             onCancel();
           }
         }}
-        onBlur={() => (value.trim() ? onConfirm(value.trim()) : onCancel())}
         className="h-16 w-full resize-none rounded bg-white/[0.05] px-1.5 py-1 text-xs outline-none placeholder:text-muted-foreground/50 focus:bg-white/[0.08]"
       />
+      <div className="mt-1 flex items-center justify-end gap-1">
+        <button
+          type="button"
+          onClick={onCancel}
+          title="Discard this comment (Esc)"
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-red-500/15 hover:text-red-300"
+        >
+          <X className="size-3" />
+          Discard
+        </button>
+        <button
+          type="button"
+          onClick={confirm}
+          disabled={!value.trim()}
+          title="Add this comment (Enter)"
+          className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-sky-300 transition-colors hover:bg-sky-500/25 disabled:opacity-40"
+        >
+          <Check className="size-3" />
+          Add
+        </button>
+      </div>
     </div>
   );
 }
