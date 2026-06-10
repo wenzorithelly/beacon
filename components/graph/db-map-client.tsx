@@ -859,7 +859,11 @@ export function DbMapClient({
   const displayEdges = useMemo(() => {
     return baseEdges.map((e) => {
       const hidden = hiddenIds.has(e.source) || hiddenIds.has(e.target);
-      if (!focusNodeId && !selectedEdgeId) return hidden ? { ...e, hidden } : e;
+      // Default (nothing focused): lines render WITHOUT their FK labels — dozens of
+      // "col → table.id" texts drift behind/through the cards and read as noise. The label
+      // surfaces on demand: hover a table/endpoint or select the edge (same contract as
+      // the roadmap's edge labels).
+      if (!focusNodeId && !selectedEdgeId) return { ...e, hidden, label: undefined };
       const on = selectedEdgeId
         ? e.id === selectedEdgeId
         : focusNodeId

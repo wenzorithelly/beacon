@@ -56,10 +56,11 @@ export function GroupRegions({
           {far ? (
             <div className="flex h-full flex-col items-center justify-center gap-[0.3em] px-2">
               <span
-                className="max-w-full truncate text-center font-semibold tracking-tight text-foreground"
-                // Screen-constant size, but never bigger than the region can hold.
+                className="whitespace-nowrap text-center font-semibold tracking-tight text-foreground"
+                // Screen-constant size, but never bigger than the region can hold — the WHOLE
+                // word always shows (the font shrinks to fit; never an ellipsis).
                 style={{
-                  fontSize: Math.min(labelPx, r.h * 0.34, (r.w - 16) / (Math.max(r.label.length, 1) * 0.62)),
+                  fontSize: Math.min(labelPx, r.h * 0.34, (r.w - 16) / (Math.max(r.label.length, 1) * 0.74)),
                   lineHeight: 1.1,
                 }}
               >
