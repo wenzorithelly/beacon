@@ -30,6 +30,13 @@ describe("extractNextRoutes", () => {
       { path: "app/plan/page.tsx", content: "export default function P() {}" },
       { path: "lib/api-workspace.ts", content: "export const GET = nope;" },
     ]);
-    expect(out).toEqual([{ method: "GET", path: "/api/jobs/{path}", uses: [] }]);
+    expect(out).toEqual([
+      {
+        method: "GET",
+        path: "/api/jobs/{path}",
+        uses: [],
+        file: "app/api/(internal)/jobs/[...path]/route.ts",
+      },
+    ]);
   });
 });
