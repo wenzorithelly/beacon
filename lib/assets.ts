@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Assets Beacon installs into a target repo so its Claude Code sessions can use Beacon:
-// the init + refresh skills and the MCP server registration. Database design is now
-// driven by the plan-mode hook (`beacon plan` → /plan page), so there's no separate
-// db-design skill. Node-builtins only (the CLI dynamic-imports this, like lib/workspaces).
+// Assets Beacon installs into a target repo so its agent sessions (Claude Code, Codex)
+// can use Beacon: the init + refresh skills and the MCP server registration. Database
+// design is now driven by the plan-mode hook (`beacon plan` → /plan page), so there's no
+// separate db-design skill. Node-builtins only (the CLI dynamic-imports this, like
+// lib/workspaces).
 
 export const INIT_SKILL = `---
 name: beacon-init
@@ -151,8 +152,9 @@ If it returns feedback, revise and call it again.
 - **Anything else** (a code-change plan, a mixed plan, a "how should I approach X") → use
   \`beacon_present_plan\` with markdown so the full reasoning shows on /plan.
 
-If \`beacon_present_plan\` isn't available, the panel isn't wired here — fall back to presenting via
-ExitPlanMode with the same \`\`\`beacon block, or tell the user to run \`beacon\` in this repo once.
+If \`beacon_present_plan\` isn't available, the panel isn't wired here — fall back to ExitPlanMode
+with the same \`\`\`beacon block (Claude Code only; Codex has no ExitPlanMode), or tell the user to
+run \`beacon\` in this repo once.
 `;
 
 /** Write the /beacon-plan skill into <repo>/.claude/skills/beacon-plan/SKILL.md. */
@@ -217,6 +219,8 @@ REUSE before you create. Call \`beacon_map\` to see the features + categories th
 When listing features, give each \`dependsOn: ["Other feature title", …]\` for any feature that must ship after another in the same plan. Beacon draws these as "depends on" links so the roadmap shows the dependency chain instead of loose, disconnected cards.
 
 ### 2b. Presenting a plan in plan mode (ExitPlanMode)
+
+In Codex (which has no ExitPlanMode), always present plans via \`beacon_present_plan\` / \`beacon_propose_plan\` instead — this section applies to Claude Code's plan mode only.
 
 When you present a plan via ExitPlanMode (not \`beacon_propose_plan\`) and it proposes DB tables/relations/endpoints or roadmap features, embed ONE fenced \`\`\`beacon code block of JSON in the plan — the same shapes \`beacon_propose_plan\` accepts:
 

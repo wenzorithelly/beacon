@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 /**
- * Beacon MCP server (stdio). Gives a Claude Code session tools to see the repo's
- * feature map and register what it's working on. Talks to the running Beacon panel
- * over HTTP (start `beacon` first). Add to your repo's .mcp.json:
+ * Beacon MCP server (stdio). Gives an agent session (Claude Code, Codex) tools to see
+ * the repo's feature map and register what it's working on. Talks to the running Beacon
+ * panel over HTTP (start `beacon` first). Claude Code loads it from the repo's
+ * .mcp.json; Codex from the global [mcp_servers.beacon] in ~/.codex/config.toml:
  *
  *   { "mcpServers": { "beacon": { "command": "beacon", "args": ["mcp"] } } }
  */
@@ -34,16 +35,17 @@ import {
   type NoteResourceRow,
 } from "@/lib/note-resource";
 
-// Every Claude Code session spawns `beacon mcp` once via .mcp.json. Re-applying the
-// global ~/.claude/ assets here means a single Beacon-wired repo is enough to keep
-// every session on this machine discovering Beacon — no per-repo re-install needed.
+// Every agent session spawns `beacon mcp` once (Claude Code via .mcp.json, Codex via
+// ~/.codex/config.toml). Re-applying the global assets here means a single Beacon-wired
+// repo is enough to keep every session on this machine discovering Beacon — no
+// per-repo re-install needed.
 // selfHealGlobal only touches the filesystem; it never writes to stdout (which the
 // StdioServerTransport below owns for the MCP protocol).
 await selfHealGlobal();
 
 const BASE = process.env.BEACON_URL || `http://localhost:${process.env.PORT || 4319}`;
 
-// The repo this MCP server is serving. Claude Code spawns `beacon mcp` with the repo as
+// The repo this MCP server is serving. The agent CLI spawns `beacon mcp` with the repo as
 // CWD, so the git toplevel (or CWD) identifies it. We pin EVERY request to this repo's
 // workspace via the x-beacon-workspace header, so the agent's reads + writes always hit
 // ITS workspace's DB — never whatever the user has selected in the browser dropdown.

@@ -6,6 +6,10 @@
  * open the browser, poll for the user's verdict, then emit a PermissionRequest decision
  * (allow / deny + feedback) on stdout.
  *
+ * Claude Code ONLY: Codex has no ExitPlanMode and no plan-approval hook, so this is
+ * never registered in ~/.codex/hooks.json — Codex plan reviews flow through the
+ * beacon_present_plan / beacon_propose_plan MCP tools (same /plan loop, same verdict).
+ *
  * Hook input (stdin): JSON with `tool_input.plan` (Claude Code) or `tool_input.plan_filename`
  * (Gemini CLI; not currently supported by Beacon — falls back to allow).
  *

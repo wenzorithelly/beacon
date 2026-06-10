@@ -68,9 +68,10 @@ export const GLOBAL_HOOKS = [
   },
 ];
 
-// Block injected into ~/.claude/CLAUDE.md so EVERY Claude Code session — including the
-// ones in repos that have never seen Beacon — knows the tool exists and how to wire it.
-// Kept intentionally short: triggers + the one-command fix when something isn't wired.
+// Block injected into ~/.claude/CLAUDE.md (and, by the Codex install layer, into
+// ~/.codex/AGENTS.md) so EVERY agent session — including the ones in repos that have
+// never seen Beacon — knows the tool exists and how to wire it. Kept intentionally
+// short: triggers + the one-command fix when something isn't wired.
 export const GLOBAL_CLAUDE_MD_BLOCK = `## Beacon (visual planning panel)
 
 This machine has Beacon installed — a local visual planning surface for the terminal-side
@@ -218,9 +219,10 @@ export interface SelfHealResult extends SetupResult {
  * `beacon setup`. Idempotent: a second call returns zero counts.
  *
  * The first time a user runs `beacon` anywhere this populates ~/.claude. From
- * then on, every Claude Code session that spawns `beacon mcp` (via .mcp.json)
- * re-applies the global layer, so accidental cleanups + machine migrations
- * heal automatically without the user having to re-run `beacon` in each repo.
+ * then on, every agent session that spawns `beacon mcp` (Claude Code via
+ * .mcp.json, Codex via ~/.codex/config.toml) re-applies the global layer, so
+ * accidental cleanups + machine migrations heal automatically without the
+ * user having to re-run `beacon` in each repo.
  *
  * When the Codex CLI is on the machine, the same heal also wires ~/.codex +
  * ~/.agents (hooks.json, config.toml MCP entry, AGENTS.md block, skills) — and

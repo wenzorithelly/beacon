@@ -37,7 +37,7 @@ function mod(rel: string): string {
 
 // Subcommands. Anything not listed falls through to `launchPanel()`, which opens the
 // browser-side control panel for the current repo (the everyday `beacon` usage).
-//   beacon mcp        — MCP stdio server (Claude Code spawns this via .mcp.json)
+//   beacon mcp        — MCP stdio server (Claude Code spawns it via .mcp.json, Codex via ~/.codex/config.toml)
 //   beacon hook       — PostToolUse hook handler (reports edits to the active feature)
 //   beacon plan       — PermissionRequest hook handler (pipes ExitPlanMode → /plan)
 //   beacon prompt     — UserPromptSubmit hook handler (nudges the feature loop)
@@ -70,7 +70,7 @@ if (sub === "mcp") {
 }
 
 // Install Beacon's helpers into a repo: skills + the MCP server registration.
-// The user's Claude Code sessions then have:
+// The user's agent sessions (Claude Code, Codex) then have:
 //   • /beacon-init — read this repo and map it into Beacon (replaces the old `beacon init` CLI)
 //   • /beacon-db-design — design schema for a feature and preview on /db
 //   • beacon_* MCP tools — read the map, propose plans, register feature work
@@ -211,7 +211,7 @@ async function launchPanel() {
   const data = dataDirFor(id);
 
   // First run for this repo: create its database (in-process via libSQL — see
-  // lib/drizzle/provision) + install Beacon's Claude Code helpers.
+  // lib/drizzle/provision) + install Beacon's agent helpers.
   const firstRun = !existsSync(join(data, "db.sqlite"));
   if (firstRun) console.log(`[beacon] first run for ${repo} — creating database…`);
   const provisioned = await ensureWorkspaceDb(id);
@@ -220,7 +220,7 @@ async function launchPanel() {
   }
   if (firstRun) {
     console.log(
-      "[beacon] tip: already have code here? run `/beacon-init` in Claude Code to map the project.",
+      "[beacon] tip: already have code here? run `/beacon-init` in your agent (Claude Code or Codex) to map the project.",
     );
   }
 
