@@ -33,6 +33,14 @@ import {
   Target,
 } from "lucide-react";
 import { NodeCard, type MapNodeData } from "@/components/graph/node-card";
+import {
+  ANNOTATION_ACCENT,
+  AnnotationCardNode,
+  type AnnotationNodeData,
+  type BoardAnnotationPayload,
+} from "@/components/graph/annotation-node";
+import { anchorAnnotations } from "@/lib/annotation-anchors";
+import type { TextAnnotation } from "@/lib/annotations";
 import { DeletableEdge } from "@/components/graph/deletable-edge";
 import { DetailSidebar } from "@/components/graph/detail-sidebar";
 import { NodeEditContext, type NodeEditApi } from "@/components/graph/node-edit-context";
@@ -63,7 +71,7 @@ function laneLabel(groupBy: RoadmapGroupBy, d: MapNodeData): string {
 
 const PERSIST_FIELDS = new Set(["title", "role", "plain", "cluster", "status", "priority"]);
 
-const nodeTypes = { roadmapNode: NodeCard, archNode: NodeCard };
+const nodeTypes = { roadmapNode: NodeCard, archNode: NodeCard, annotation: AnnotationCardNode };
 const edgeTypes = { deletable: DeletableEdge };
 
 const EDGE_STYLE: Record<string, { stroke: string; dash?: string }> = {
@@ -155,6 +163,9 @@ export function MapClient({
   controlRef,
   onAskAgent,
   onAddComment,
+  annotations,
+  onPinClick,
+  boardAnnotations,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   nodes: MapNodePayload[];
@@ -176,6 +187,14 @@ export function MapClient({
   // Leave a review comment anchored to the selected node (plan board only) — wired to the
   // annotation feedback bundle. When set, the detail sidebar shows a "Comment on this …" button.
   onAddComment?: (excerpt: string) => void;
+  // Plan-review annotations: those whose excerpt names a feature title render ON the canvas
+  // as a numbered pin on the card + an "ANNOTATION · YOU" card joined by an orange curve.
+  annotations?: TextAnnotation[];
+  onPinClick?: (annotationId: string) => void;
+  // Standalone /map mode: persistent board annotations. Providing this prop — even [] —
+  // switches the surface from "plan feedback" to persisted annotations: created from the
+  // card's hover-dot or the sidebar, edited in the card, position remembered.
+  boardAnnotations?: BoardAnnotationPayload[];
 }) {
   const initialNodes = useMemo(() => buildNodes(nodePayload), [nodePayload]);
   const initialEdges = useMemo(
@@ -543,9 +562,182 @@ export function MapClient({
     });
   }, [visibleEdges, selectedId, selectedEdgeId, hoveredId]);
 
+  // ── Canvas annotations — ONE pipeline, two sources ──
+  // /plan (feedback): annotations whose excerpt names a feature title, read-only on canvas.
+  // /map (board annotations): persisted rows, editable + movable + deletable.
+  const boardMode = boardAnnotations !== undefined;
+  const [stored, setStored] = useState<BoardAnnotationPayload[]>(boardAnnotations ?? []);
+  useEffect(() => {
+    // Live-refresh / navigation re-delivers the server list; adopt it as the new truth.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (boardAnnotations) setStored(boardAnnotations);
+  }, [boardAnnotations]);
+
+  const annos = useMemo(() => {
+    if (boardMode) {
+      const valid = new Set(nodePayload.map((n) => n.id));
+      return stored
+        .filter((r) => r.targetKind === "feature" && valid.has(r.targetId))
+        .map((r, i) => ({
+          id: r.id,
+          n: i + 1,
+          targetId: r.targetId,
+          text: r.body,
+          x: r.x,
+          y: r.y,
+        }));
+    }
+    const textById = new Map((annotations ?? []).map((a) => [a.id, a.comment]));
+    return anchorAnnotations(annotations ?? [], {
+      tables: [],
+      features: nodePayload.map((n) => ({ id: n.id, title: n.title })),
+    }).map((a) => ({
+      id: a.annotationId,
+      n: a.n,
+      targetId: a.targetId,
+      text: textById.get(a.annotationId) ?? "",
+      x: null as number | null,
+      y: null as number | null,
+    }));
+  }, [boardMode, stored, annotations, nodePayload]);
+  const pinsByTarget = useMemo(() => {
+    const m = new Map<string, { id: string; n: number; column: string | null }[]>();
+    for (const a of annos) {
+      const list = m.get(a.targetId) ?? [];
+      list.push({ id: a.id, n: a.n, column: null });
+      m.set(a.targetId, list);
+    }
+    return m;
+  }, [annos]);
+
+  // Board-annotation CRUD (pinned to the browser's workspace via the beacon_ws cookie).
+  const addBoardAnno = useCallback(
+    async (excerpt: string) => {
+      const hit = anchorAnnotations([{ id: "_", excerpt }], {
+        tables: [],
+        features: nodePayload.map((n) => ({ id: n.id, title: n.title })),
+      })[0];
+      if (!hit) return;
+      const res = await fetch("/api/board-annotations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetKind: "feature", targetId: hit.targetId }),
+      });
+      if (res.ok) {
+        const row = (await res.json()) as BoardAnnotationPayload;
+        setStored((prev) => [...prev, row]);
+      }
+    },
+    [nodePayload],
+  );
+  const patchBoardAnno = useCallback(
+    (id: string, fields: { body?: string; x?: number; y?: number }) => {
+      setStored((prev) => prev.map((r) => (r.id === id ? { ...r, ...fields } : r)));
+      void fetch(`/api/board-annotations/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(fields),
+      });
+    },
+    [],
+  );
+  const removeBoardAnno = useCallback((id: string) => {
+    setStored((prev) => prev.filter((r) => r.id !== id));
+    void fetch(`/api/board-annotations/${id}`, { method: "DELETE" });
+  }, []);
+  const effectiveAddComment = boardMode ? addBoardAnno : onAddComment;
+
+  // Inject pins + the comment affordance into their feature cards, then append the floating
+  // annotation cards. The cards live OUTSIDE the stateful node list (which has many mutation
+  // paths — subtasks, arrange, heal); board-mode dragging routes through `stored` instead.
+  const finalNodes = useMemo(() => {
+    const byId = new Map(displayNodes.map((n) => [n.id, n]));
+    const perTarget = new Map<string, number>();
+    const annoNodes: Node<AnnotationNodeData>[] = annos.flatMap((a) => {
+      const target = byId.get(a.targetId);
+      if (!target || target.hidden) return [];
+      const idx = perTarget.get(a.targetId) ?? 0;
+      perTarget.set(a.targetId, idx + 1);
+      const h = target.measured?.height ?? 96;
+      return [
+        {
+          id: `anno-${a.id}`,
+          type: "annotation" as const,
+          position: {
+            x: a.x ?? target.position.x + 26,
+            y: a.y ?? target.position.y + h + 56 + idx * 112,
+          },
+          draggable: boardMode,
+          data: {
+            n: a.n,
+            text: a.text,
+            annotationId: a.id,
+            onClick: boardMode ? undefined : onPinClick,
+            editable: boardMode,
+            onChangeText: boardMode ? (id: string, body: string) => patchBoardAnno(id, { body }) : undefined,
+            onDelete: boardMode ? removeBoardAnno : undefined,
+          },
+        },
+      ];
+    });
+    const withPins = displayNodes.map((n) => {
+      const pins = pinsByTarget.get(n.id);
+      if (!pins && !effectiveAddComment) return n;
+      return {
+        ...n,
+        data: {
+          ...n.data,
+          pins,
+          onPinClick: boardMode ? undefined : onPinClick,
+          onComment: effectiveAddComment,
+        },
+      };
+    });
+    // The board's flow instance is typed on MapNodeData; annotation cards are render-only
+    // chrome with their own data shape, so they cross the boundary through a cast.
+    return [...withPins, ...(annoNodes as unknown as Node<MapNodeData>[])];
+  }, [
+    displayNodes,
+    annos,
+    pinsByTarget,
+    boardMode,
+    onPinClick,
+    effectiveAddComment,
+    patchBoardAnno,
+    removeBoardAnno,
+  ]);
+  const annoEdges = useMemo<Edge[]>(
+    () =>
+      annos.map((a) => ({
+        id: `annoe-${a.id}`,
+        source: a.targetId,
+        sourceHandle: `pin-${a.id}`,
+        target: `anno-${a.id}`,
+        targetHandle: "in",
+        type: "default",
+        selectable: false,
+        zIndex: 30,
+        style: { stroke: ANNOTATION_ACCENT, strokeWidth: 1.5, opacity: 0.9 },
+      })),
+    [annos],
+  );
+
   const onNodesChange = useCallback(
-    (changes: NodeChange<Node<MapNodeData>>[]) =>
-      setNodes((nds) => applyNodeChanges(changes, nds)),
+    (changes: NodeChange<Node<MapNodeData>>[]) => {
+      // Annotation cards aren't in the stateful list — route their drag through `stored`
+      // so the card follows the pointer; the final position persists on drag stop.
+      const rest: NodeChange<Node<MapNodeData>>[] = [];
+      for (const ch of changes) {
+        if (ch.type === "position" && ch.id.startsWith("anno-") && ch.position) {
+          const id = ch.id.slice(5);
+          const { x, y } = ch.position;
+          setStored((prev) => prev.map((r) => (r.id === id ? { ...r, x, y } : r)));
+        } else {
+          rest.push(ch);
+        }
+      }
+      if (rest.length) setNodes((nds) => applyNodeChanges(rest, nds));
+    },
     [],
   );
   const onEdgesChange = useCallback(
@@ -780,8 +972,8 @@ export function MapClient({
       }}
     >
       <ReactFlow
-        nodes={displayNodes}
-        edges={displayEdges}
+        nodes={finalNodes}
+        edges={[...displayEdges, ...annoEdges]}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         connectionMode={ConnectionMode.Loose}
@@ -809,11 +1001,16 @@ export function MapClient({
         }}
         onNodesDelete={(removed) => {
           for (const n of removed) {
+            if (n.id.startsWith("anno-")) continue; // removed via the Comments panel instead
             void fetch(`/api/nodes/${n.id}`, { method: "DELETE" });
             setSelectedId((s) => (s === n.id ? null : s));
           }
         }}
         onNodeClick={(e, node) => {
+          if (node.type === "annotation") {
+            onPinClick?.((node.data as unknown as AnnotationNodeData).annotationId);
+            return;
+          }
           if (pickingParent) {
             setPickingParent(false);
             const n = node as Node<MapNodeData>;
@@ -847,7 +1044,15 @@ export function MapClient({
             setSelectedEdgeId(null);
           }
         }}
-        onNodeDragStop={(_, node) => persistPosition(node.id, node.position.x, node.position.y)}
+        onNodeDragStop={(_, node) => {
+          if (node.id.startsWith("anno-")) {
+            // Board annotations remember where you parked the card; plan cards don't move.
+            if (boardMode)
+              patchBoardAnno(node.id.slice(5), { x: node.position.x, y: node.position.y });
+            return;
+          }
+          persistPosition(node.id, node.position.x, node.position.y);
+        }}
         deleteKeyCode={["Backspace", "Delete"]}
         colorMode="dark"
         fitView
@@ -858,7 +1063,7 @@ export function MapClient({
         zoomActivationKeyCode={["Meta", "Control"]}
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={22} color="#2a2a32" />
+        <Background gap={26} size={1.4} color="#303036" />
 
         {/* Labeled lane backgrounds (Item C) — rendered in flow coordinate space so they pan
             and zoom with the canvas. Non-interactive; the box sits in the padding around its
@@ -1189,7 +1394,7 @@ export function MapClient({
           commentsCount={commentsCount}
           activeTab={panelTab}
           onTabChange={setPanelTab}
-          onAddComment={onAddComment}
+          onAddComment={effectiveAddComment}
           topOffset={embedded ? 64 : undefined}
         />
       )}

@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { type Node, type NodeProps } from "@xyflow/react";
-import { Trash2 } from "lucide-react";
+import { MessageSquarePlus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { METHOD_COLOR } from "@/components/graph/db-types";
 import { useDbEdit } from "@/components/graph/db-edit-context";
 import { FourDotHandles } from "@/components/graph/handles";
+import { PinRail } from "@/components/graph/annotation-node";
 import { RiskBadgeRow } from "@/components/graph/risk-badge-row";
 import { type DiffStatus } from "@/lib/db-diff";
 import { endpointRiskBadges } from "@/lib/risk-badges";
@@ -20,6 +21,11 @@ export type EndpointNodeData = {
   // Plan-vs-Repo diff (draft nodes only): added = not in the live schema, unchanged = already exists.
   diffStatus?: DiffStatus;
   diffChanges?: string[];
+  /** Plan-review annotations anchored to this endpoint. */
+  pins?: { id: string; n: number; column: string | null }[];
+  onPinClick?: (annotationId: string) => void;
+  /** Plan review: comment on this endpoint (excerpt = `METHOD path`). */
+  onComment?: (excerpt: string) => void;
 };
 
 export type EndpointNode = Node<EndpointNodeData>;
@@ -50,11 +56,11 @@ export function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
   return (
     <div
       className={cn(
-        "group flex w-[240px] items-center gap-2 rounded-md border bg-card px-2.5 py-1.5 text-card-foreground shadow-sm",
-        draft ? "border-dashed" : "border-border",
+        "group relative flex w-[240px] items-center gap-2 rounded-lg border bg-[#161618]/95 px-2.5 py-1.5 text-card-foreground shadow-[0_12px_36px_-18px_rgba(0,0,0,0.9)] backdrop-blur",
+        draft ? "border-dashed" : "border-white/10",
         selected && "ring-2 ring-[var(--accent,#f5b942)]",
       )}
-      style={draft ? { borderColor: `${accent}88`, background: `${accent}0f` } : undefined}
+      style={draft ? { borderColor: `${accent}66`, background: `${accent}0f` } : undefined}
     >
       <FourDotHandles />
       {data.source === "INTROSPECTION" && (
@@ -147,6 +153,26 @@ export function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
             <Trash2 className="size-3" />
           </button>
         </>
+      )}
+      {(data.pins?.length ?? 0) > 0 ? (
+        <PinRail pins={data.pins!} onPinClick={data.onPinClick} />
+      ) : (
+        data.onComment && (
+          <button
+            type="button"
+            title={`Comment on ${data.method} ${data.path}`}
+            onClick={(e) => {
+              stop(e);
+              data.onComment?.(`${data.method} ${data.path}`);
+            }}
+            className={cn(
+              noDrag,
+              "absolute -right-3 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-[#242428] text-muted-foreground opacity-0 shadow-md transition-all group-hover:opacity-100 hover:border-[#ff7a45]/50 hover:text-[#ff7a45]",
+            )}
+          >
+            <MessageSquarePlus className="size-3" />
+          </button>
+        )
       )}
     </div>
   );

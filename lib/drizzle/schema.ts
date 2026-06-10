@@ -138,6 +138,28 @@ export const note = sqliteTable(
   (t) => [index("Note_updatedAt_idx").on(t.updatedAt)],
 );
 
+// Persistent board annotations: notes pinned to a board entity on /map, kept across sessions
+// (a feature card, a DB table, one of its columns, or an endpoint). Plan-review annotations
+// are NOT stored here — those live in the plan feedback round-trip and vanish with the round.
+export const boardAnnotation = sqliteTable(
+  "BoardAnnotation",
+  {
+    id: text().primaryKey().$defaultFn(() => createId()),
+    targetKind: text().notNull(), // feature | table | column | endpoint (text + Zod union — no enum)
+    targetId: text().notNull(), // Node id (feature) / DbTable id / Endpoint id
+    columnName: text(), // set when targetKind=column — which table row the pin anchors to
+    body: text().default("").notNull(),
+    x: real(), // card position; null = auto-place below the target
+    y: real(),
+    createdAt: integer({ mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer({ mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date())
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index("BoardAnnotation_target_idx").on(t.targetId)],
+);
+
 // ── DB-designer schema map ───────────────────────────────────────────────────
 export const dbTable = sqliteTable(
   "DbTable",

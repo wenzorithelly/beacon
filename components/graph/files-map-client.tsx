@@ -559,7 +559,7 @@ export function FilesMapClient({
         zoomActivationKeyCode={["Meta", "Control"]}
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={22} color="#2a2a32" />
+        <Background gap={26} size={1.4} color="#303036" />
         <Controls
           position="bottom-right"
           className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"

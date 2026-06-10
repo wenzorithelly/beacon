@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { FourDotHandles } from "@/components/graph/handles";
+import { PinRail } from "@/components/graph/annotation-node";
 import {
   Sparkles,
   Maximize2,
@@ -10,6 +11,7 @@ import {
   PanelRight,
   Trash2,
   MessageCircleQuestion,
+  MessageSquarePlus,
   FlaskConical,
   Lock,
 } from "lucide-react";
@@ -44,6 +46,11 @@ export type MapNodeData = {
   isNext?: boolean;
   // Deterministic rollup signals for the card badges (untested file count, auth touch).
   signals?: FeatureSignals;
+  /** Plan-review annotations anchored to this feature (numbered pins at the card edge). */
+  pins?: { id: string; n: number; column: string | null }[];
+  onPinClick?: (annotationId: string) => void;
+  /** Start an annotation on this card (plan feedback or persisted board annotation). */
+  onComment?: (excerpt: string) => void;
 };
 
 export type MapNode = Node<MapNodeData>;
@@ -86,7 +93,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
   return (
     <div
       className={cn(
-        "rounded-lg border bg-card px-2.5 py-2 text-card-foreground shadow-sm transition",
+        "group/nc relative rounded-lg border bg-card px-2.5 py-2 text-card-foreground shadow-sm transition",
         expanded ? "w-80" : data.isChild ? "w-56" : "w-64",
         draft
           ? "border-dashed border-sky-400/50 bg-sky-500/[0.06]"
@@ -103,6 +110,26 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
       )}
     >
       <FourDotHandles />
+      {(data.pins?.length ?? 0) > 0 ? (
+        <PinRail pins={data.pins!} onPinClick={data.onPinClick} />
+      ) : (
+        data.onComment && (
+          <button
+            type="button"
+            title={`Annotate ${data.title}`}
+            onClick={(e) => {
+              stop(e);
+              data.onComment?.(data.title);
+            }}
+            className={cn(
+              noDrag,
+              "absolute -right-3 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-[#242428] text-muted-foreground opacity-0 shadow-md transition-all group-hover/nc:opacity-100 hover:border-[#ff7a45]/50 hover:text-[#ff7a45]",
+            )}
+          >
+            <MessageSquarePlus className="size-3" />
+          </button>
+        )
+      )}
 
       {data.isNext && (
         <div className="mb-1 inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-300">

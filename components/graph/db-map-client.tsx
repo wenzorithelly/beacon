@@ -19,6 +19,14 @@ import "@xyflow/react/dist/style.css";
 
 import { DbTableNode, type DbTableNodeData } from "@/components/graph/db-table-node";
 import { EndpointNode, type EndpointNodeData } from "@/components/graph/endpoint-node";
+import {
+  ANNOTATION_ACCENT,
+  AnnotationCardNode,
+  type AnnotationNodeData,
+  type BoardAnnotationPayload,
+} from "@/components/graph/annotation-node";
+import { anchorAnnotations } from "@/lib/annotation-anchors";
+import type { TextAnnotation } from "@/lib/annotations";
 import { DbEditContext, type DbEditApi } from "@/components/graph/db-edit-context";
 import { DbDetailSidebar } from "@/components/graph/db-detail-sidebar";
 import { ACCESS_COLOR, neighborIds } from "@/components/graph/db-types";
@@ -54,7 +62,7 @@ export type { DbSelection };
 
 import { DeletableEdge } from "@/components/graph/deletable-edge";
 
-const nodeTypes = { dbTable: DbTableNode, endpoint: EndpointNode };
+const nodeTypes = { dbTable: DbTableNode, endpoint: EndpointNode, annotation: AnnotationCardNode };
 const edgeTypes = { deletable: DeletableEdge };
 const STORAGE_KEY = "beacon:db-draft";
 const EMPTY_DOC: DraftDoc = {
@@ -65,7 +73,7 @@ const EMPTY_DOC: DraftDoc = {
   endpoints: [],
 };
 
-type DbNode = Node<DbTableNodeData> | Node<EndpointNodeData>;
+type DbNode = Node<DbTableNodeData> | Node<EndpointNodeData> | Node<AnnotationNodeData>;
 // `rev` bumps on EVERY history change (incl. boot/adopt resets) and drives render rebuilds.
 // `edited` is true only after a genuine USER edit — boot/new-proposal resets clear it — so the
 // parent's "Submit feedback / disable Approve" signal never fires from merely opening the board.
@@ -154,6 +162,9 @@ export function DbMapClient({
   commentsContent,
   commentsCount = 0,
   onAddComment,
+  annotations,
+  onPinClick,
+  boardAnnotations,
 }: {
   tables: DbTablePayload[];
   relations: DbRelationPayload[];
@@ -175,6 +186,14 @@ export function DbMapClient({
   commentsContent?: React.ReactNode;
   commentsCount?: number;
   onAddComment?: (excerpt: string) => void;
+  // Plan-review annotations: those whose excerpt names a table / table.column / endpoint are
+  // drawn ON the canvas as numbered pins + "ANNOTATION · YOU" cards (the rest stay panel-only).
+  annotations?: TextAnnotation[];
+  onPinClick?: (annotationId: string) => void;
+  // Standalone /map mode: persistent board annotations (BoardAnnotation rows). Providing
+  // this prop — even [] — switches the canvas-annotation surface from "plan feedback" to
+  // "persisted annotations": created from row hover-dots, edited in the card, position remembered.
+  boardAnnotations?: BoardAnnotationPayload[];
 }) {
   const router = useRouter();
   const [showEndpoints, setShowEndpoints] = useState(true);
@@ -385,6 +404,119 @@ export function DbMapClient({
     return m;
   }, [allTables, allEndpoints]);
 
+  // column → referenced table name per table, so FK rows render "→ users" instead of a type.
+  const fkTargets = useMemo(() => {
+    const nameById = new Map(allTables.map((t) => [t.id, t.name]));
+    const m = new Map<string, Record<string, string>>();
+    for (const r of allRelations) {
+      const to = nameById.get(r.toTableId);
+      if (!to) continue;
+      const rec = m.get(r.fromTableId) ?? {};
+      rec[r.fromColumn] = to;
+      m.set(r.fromTableId, rec);
+    }
+    return m;
+  }, [allRelations, allTables]);
+
+  // ── Canvas annotations — ONE pipeline, two sources ──
+  // /plan (feedback): annotations whose excerpt names an entity, read-only on canvas.
+  // /map (board annotations): persisted BoardAnnotation rows, editable + movable + deletable.
+  const boardMode = boardAnnotations !== undefined;
+  const [stored, setStored] = useState<BoardAnnotationPayload[]>(boardAnnotations ?? []);
+  useEffect(() => {
+    // Live-refresh / navigation re-delivers the server list; adopt it as the new truth.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (boardAnnotations) setStored(boardAnnotations);
+  }, [boardAnnotations]);
+
+  const anchorEntities = useMemo(
+    () => ({
+      tables: allTables.map((t) => ({
+        id: t.id,
+        name: t.name,
+        columns: t.columns.map((c) => c.name),
+      })),
+      endpoints: allEndpoints.map((e) => ({ id: e.id, method: e.method, path: e.path })),
+    }),
+    [allTables, allEndpoints],
+  );
+  const annos = useMemo(() => {
+    if (boardMode) {
+      const valid = new Set([...allTables.map((t) => t.id), ...allEndpoints.map((e) => e.id)]);
+      return stored
+        .filter((r) => valid.has(r.targetId))
+        .map((r, i) => ({
+          id: r.id,
+          n: i + 1,
+          targetId: r.targetId,
+          column: r.columnName,
+          text: r.body,
+          x: r.x,
+          y: r.y,
+        }));
+    }
+    const textById = new Map((annotations ?? []).map((a) => [a.id, a.comment]));
+    return anchorAnnotations(annotations ?? [], anchorEntities).map((a) => ({
+      id: a.annotationId,
+      n: a.n,
+      targetId: a.targetId,
+      column: a.column,
+      text: textById.get(a.annotationId) ?? "",
+      x: null as number | null,
+      y: null as number | null,
+    }));
+  }, [boardMode, stored, annotations, anchorEntities, allTables, allEndpoints]);
+
+  const pinsByTarget = useMemo(() => {
+    const m = new Map<string, { id: string; n: number; column: string | null }[]>();
+    for (const a of annos) {
+      const list = m.get(a.targetId) ?? [];
+      list.push({ id: a.id, n: a.n, column: a.column });
+      m.set(a.targetId, list);
+    }
+    return m;
+  }, [annos]);
+  const annoTargetById = useMemo(
+    () => new Map(annos.map((a) => [`anno-${a.id}`, a.targetId])),
+    [annos],
+  );
+
+  // Board-annotation CRUD (fetches are pinned to the browser's workspace via the beacon_ws cookie).
+  const addBoardAnno = useCallback(
+    async (excerpt: string) => {
+      const hit = anchorAnnotations([{ id: "_", excerpt }], anchorEntities)[0];
+      if (!hit) return;
+      const res = await fetch("/api/board-annotations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          targetKind: hit.kind,
+          targetId: hit.targetId,
+          columnName: hit.column ?? undefined,
+        }),
+      });
+      if (res.ok) {
+        const row = (await res.json()) as BoardAnnotationPayload;
+        setStored((prev) => [...prev, row]);
+      }
+    },
+    [anchorEntities],
+  );
+  const patchBoardAnno = useCallback((id: string, fields: { body?: string; x?: number; y?: number }) => {
+    setStored((prev) => prev.map((r) => (r.id === id ? { ...r, ...fields } : r)));
+    void fetch(`/api/board-annotations/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(fields),
+    });
+  }, []);
+  const removeBoardAnno = useCallback((id: string) => {
+    setStored((prev) => prev.filter((r) => r.id !== id));
+    void fetch(`/api/board-annotations/${id}`, { method: "DELETE" });
+  }, []);
+
+  const nodeOnComment = boardMode ? addBoardAnno : onAddComment;
+
   const sides = useCallback(
     (src: string, tgt: string) => {
       const ax = posX.get(src) ?? 0;
@@ -417,6 +549,10 @@ export function DbMapClient({
         rev: history.rev,
         diffStatus: tableDiffs.get(t.id)?.status,
         diffChanges: tableDiffs.get(t.id)?.changes,
+        fkTargets: fkTargets.get(t.id),
+        pins: pinsByTarget.get(t.id),
+        onPinClick,
+        onComment: nodeOnComment,
       },
     }));
     const endpointNodes: Node<EndpointNodeData>[] = allEndpoints.map((e) => ({
@@ -431,10 +567,61 @@ export function DbMapClient({
         rev: history.rev,
         diffStatus: endpointDiffs.get(e.id)?.status,
         diffChanges: endpointDiffs.get(e.id)?.changes,
+        pins: pinsByTarget.get(e.id),
+        onPinClick,
+        onComment: nodeOnComment,
       },
     }));
-    return [...tableNodes, ...endpointNodes];
-  }, [allTables, allEndpoints, usageCount, history.rev, tableDiffs, endpointDiffs]);
+    // Annotation cards float below their target; the pin → card curve carries the number.
+    // Multiple cards on one target stagger downward. Board annotations restore their saved x/y;
+    // plan cards auto-place (the card is draggable either way — the node-state position map
+    // keeps wherever the user parks it through rebuilds).
+    const perTarget = new Map<string, number>();
+    const tableById = new Map(allTables.map((t) => [t.id, t]));
+    const endpointById = new Map(allEndpoints.map((e) => [e.id, e]));
+    const annoNodes: Node<AnnotationNodeData>[] = annos.map((a) => {
+      const t = tableById.get(a.targetId);
+      const e = endpointById.get(a.targetId);
+      const baseX = t?.x ?? e?.x ?? 0;
+      const baseY = t?.y ?? e?.y ?? 0;
+      const height = t ? 38 + t.columns.length * 28 : 42;
+      const idx = perTarget.get(a.targetId) ?? 0;
+      perTarget.set(a.targetId, idx + 1);
+      return {
+        id: `anno-${a.id}`,
+        type: "annotation",
+        position: {
+          x: a.x ?? baseX + 26,
+          y: a.y ?? baseY + height + 64 + idx * 112,
+        },
+        data: {
+          n: a.n,
+          text: a.text,
+          annotationId: a.id,
+          onClick: boardMode ? undefined : onPinClick,
+          editable: boardMode,
+          onChangeText: boardMode ? (id, body) => patchBoardAnno(id, { body }) : undefined,
+          onDelete: boardMode ? removeBoardAnno : undefined,
+        },
+      };
+    });
+    return [...tableNodes, ...endpointNodes, ...annoNodes];
+  }, [
+    allTables,
+    allEndpoints,
+    usageCount,
+    history.rev,
+    tableDiffs,
+    endpointDiffs,
+    fkTargets,
+    pinsByTarget,
+    annos,
+    boardMode,
+    onPinClick,
+    nodeOnComment,
+    patchBoardAnno,
+    removeBoardAnno,
+  ]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<DbNode>(buildNodes());
   useEffect(() => {
@@ -455,6 +642,11 @@ export function DbMapClient({
   const onNodeDragStop = useCallback(
     (_e: unknown, node: Node) => {
       const { x, y } = node.position;
+      if (node.id.startsWith("anno-")) {
+        // Board annotations remember where you parked the card; plan cards are session-local.
+        if (boardMode) patchBoardAnno(node.id.slice(5), { x, y });
+        return;
+      }
       if (draftIds.has(node.id)) {
         // Position lives in the draft doc, but moving a node isn't an undoable edit.
         silent((doc) => {
@@ -471,7 +663,7 @@ export function DbMapClient({
         persistReal(node.type === "endpoint" ? "endpoint" : "table", node.id, x, y);
       }
     },
-    [draftIds, silent, persistReal],
+    [draftIds, silent, persistReal, boardMode, patchBoardAnno],
   );
 
   // ── Edges (real + draft FKs and endpoint→table links) ──
@@ -514,6 +706,24 @@ export function DbMapClient({
     [fkEdges, usageEdges, showEndpoints],
   );
 
+  // Pin → card curves. Outside baseEdges so focus/fade logic never dims them; hidden only
+  // when the annotated node itself is filtered out.
+  const annoEdges = useMemo<Edge[]>(
+    () =>
+      annos.map((a) => ({
+        id: `annoe-${a.id}`,
+        source: a.targetId,
+        sourceHandle: `pin-${a.id}`,
+        target: `anno-${a.id}`,
+        targetHandle: "in",
+        type: "default",
+        selectable: false,
+        zIndex: 30,
+        style: { stroke: ANNOTATION_ACCENT, strokeWidth: 1.5, opacity: 0.9 },
+      })),
+    [annos],
+  );
+
   // Click-to-highlight: selecting a NODE focuses 1-hop neighbours; selecting an
   // EDGE focuses just the two endpoints the line connects. Either fades the rest.
   const focusIds = useMemo(() => {
@@ -553,6 +763,12 @@ export function DbMapClient({
   // the clutter we wanted to cut.
   const displayNodes = useMemo(() => {
     return nodes.map((n) => {
+      // Annotation cards follow their target's visibility and never fade on focus.
+      if (n.id.startsWith("anno-")) {
+        const target = annoTargetById.get(n.id);
+        const hidden = !!target && hiddenIds.has(target);
+        return hidden !== !!n.hidden ? { ...n, hidden } : n;
+      }
       const hidden = hiddenIds.has(n.id);
       if (!focusIds) return hidden ? { ...n, hidden } : n;
       return {
@@ -561,7 +777,7 @@ export function DbMapClient({
         style: { ...n.style, opacity: focusIds.has(n.id) ? 1 : 0.45, transition: "opacity 120ms" },
       };
     });
-  }, [nodes, hiddenIds, focusIds]);
+  }, [nodes, hiddenIds, focusIds, annoTargetById]);
 
   const displayEdges = useMemo(() => {
     return baseEdges.map((e) => {
@@ -771,7 +987,7 @@ export function DbMapClient({
       <div className={cn("relative w-full", embedded ? "h-full" : "h-screen")}>
         <ReactFlow
           nodes={displayNodes}
-          edges={displayEdges}
+          edges={[...displayEdges, ...annoEdges.map((e) => ({ ...e, hidden: hiddenIds.has(e.source) }))]}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           connectionMode={ConnectionMode.Loose}
@@ -783,6 +999,10 @@ export function DbMapClient({
           onNodesChange={onNodesChange}
           onConnect={onConnect}
           onNodeClick={(_, node) => {
+            if (node.type === "annotation") {
+              onPinClick?.((node.data as AnnotationNodeData).annotationId);
+              return;
+            }
             const kind = node.type === "endpoint" ? "endpoint" : "table";
             setSelected({ id: node.id, kind });
             setSelectedEdgeId(null);
@@ -813,8 +1033,9 @@ export function DbMapClient({
           onNodesDelete={(removed) => {
             for (const n of removed) {
               // draft tables/endpoints are managed by the local doc + undo history; skip
-              // here so the user uses the in-card delete button for those.
-              if (draftIds.has(n.id)) continue;
+              // here so the user uses the in-card delete button for those. Annotation cards
+              // are removed from the Comments panel, not the canvas.
+              if (n.id.startsWith("anno-") || draftIds.has(n.id)) continue;
               if (n.type === "endpoint") {
                 void fetch(`/api/endpoints/${n.id}`, { method: "DELETE" });
               } else if (n.type === "dbTable") {
@@ -831,7 +1052,7 @@ export function DbMapClient({
           zoomActivationKeyCode={["Meta", "Control"]}
           proOptions={{ hideAttribution: true }}
         >
-          <Background gap={22} color="#2a2a32" />
+          <Background gap={26} size={1.4} color="#303036" />
           <Controls
             position="bottom-right"
             className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
@@ -1073,7 +1294,7 @@ export function DbMapClient({
             commentsCount={commentsCount}
             activeTab={panelTab}
             onTabChange={setPanelTab}
-            onAddComment={onAddComment}
+            onAddComment={nodeOnComment}
             topOffset={embedded ? 64 : undefined}
           />
         )}

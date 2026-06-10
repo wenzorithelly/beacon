@@ -5,6 +5,8 @@ import { MapClient } from "@/components/graph/map-client";
 import { FilesMapClient } from "@/components/graph/files-map-client";
 import { DbMapClient } from "@/components/graph/db-map-client";
 import { readDraftDoc } from "@/lib/draft-store";
+import { listBoardAnnotations } from "@/lib/board-annotations";
+import type { BoardAnnotationPayload } from "@/components/graph/annotation-node";
 import { readTouched } from "@/lib/touched-files";
 import { untestedFiles } from "@/lib/test-coverage";
 import { featureSignals } from "@/lib/feature-signals";
@@ -38,6 +40,17 @@ export default async function MapPage({
   // Pin the render to the browser's selected workspace (beacon_ws cookie), not the global
   // active one — so a background agent activation can't swap the map out from under you.
   return withBrowserWorkspace(async () => {
+    // Persistent board annotations (pins + cards on the roadmap/architecture/database boards).
+    const boardAnnotations: BoardAnnotationPayload[] = (await listBoardAnnotations()).map((a) => ({
+      id: a.id,
+      targetKind: a.targetKind as BoardAnnotationPayload["targetKind"],
+      targetId: a.targetId,
+      columnName: a.columnName,
+      body: a.body,
+      x: a.x,
+      y: a.y,
+    }));
+
     if (view === "DATABASE") {
       // DB-designer view: the same payload the old /db route fetched.
       const [tablesRaw, relationsRaw, endpointsRaw] = await Promise.all([
@@ -92,6 +105,7 @@ export default async function MapPage({
           endpoints={endpoints}
           draft={draft}
           workspaceId={workspaceId}
+          boardAnnotations={boardAnnotations}
         />
       );
     }
@@ -208,7 +222,13 @@ export default async function MapPage({
         : null;
 
     return (
-      <MapClient view={view} nodes={payload} edges={edges} workOnNextId={workOnNextId} />
+      <MapClient
+        view={view}
+        nodes={payload}
+        edges={edges}
+        workOnNextId={workOnNextId}
+        boardAnnotations={boardAnnotations}
+      />
     );
   });
 }

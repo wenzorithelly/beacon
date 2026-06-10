@@ -204,6 +204,17 @@ export function PlanWorkspace({
     [annoApi, tab],
   );
 
+  // Clicking a numbered pin / annotation card on a board jumps to that comment in the
+  // Comments tab — the canvas and the panel are two views of the same feedback round.
+  const focusPin = useCallback(
+    (annotationId: string) => {
+      annoApi?.focusOnAnnotation(annotationId);
+      if (tab === "db") dbControlRef.current?.openComments();
+      else mapControlRef.current?.openComments();
+    },
+    [annoApi, tab],
+  );
+
   // Persisted left-pane width (percent) so the user's preferred split survives reloads.
   // localStorage is only available on the client; we read it lazily in the initializer.
   const [leftPct, setLeftPct] = useState<number>(() => {
@@ -662,6 +673,8 @@ export function PlanWorkspace({
                   controlRef={mapControlRef}
                   onAskAgent={askAboutNode}
                   onAddComment={addNodeComment}
+                  annotations={annoApi?.annotations}
+                  onPinClick={focusPin}
                 />
               ) : (
                 <DbMapClient
@@ -677,6 +690,8 @@ export function PlanWorkspace({
                   commentsContent={commentsContent}
                   commentsCount={annoApi?.annotationCount ?? 0}
                   onAddComment={addNodeComment}
+                  annotations={annoApi?.annotations}
+                  onPinClick={focusPin}
                 />
               )}
             </div>

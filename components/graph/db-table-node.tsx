@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { type Node, type NodeProps } from "@xyflow/react";
-import { KeyRound, Link2, Plus, Trash2, X } from "lucide-react";
+import { KeyRound, Link2, MessageSquarePlus, Plus, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { domainColor, type DbColumnPayload } from "@/components/graph/db-types";
 import { useDbEdit } from "@/components/graph/db-edit-context";
 import { FourDotHandles } from "@/components/graph/handles";
+import { PinRail } from "@/components/graph/annotation-node";
 import { RiskBadgeRow } from "@/components/graph/risk-badge-row";
 import { type DiffStatus } from "@/lib/db-diff";
 import { tableRiskBadges } from "@/lib/risk-badges";
@@ -21,6 +22,13 @@ export type DbTableNodeData = {
   // Plan-vs-Repo diff (draft nodes only): how this proposed table compares to the live schema.
   diffStatus?: DiffStatus;
   diffChanges?: string[];
+  /** column name → referenced table name, resolved from the FK relations on the board. */
+  fkTargets?: Record<string, string>;
+  /** Plan-review annotations anchored to this table (column = null → the header). */
+  pins?: { id: string; n: number; column: string | null }[];
+  onPinClick?: (annotationId: string) => void;
+  /** Plan review: comment on this table / a column row (excerpt = `table` / `table.column`). */
+  onComment?: (excerpt: string) => void;
 };
 
 export type DbTableNode = Node<DbTableNodeData>;
@@ -29,6 +37,36 @@ const noDrag = "nodrag nopan";
 
 // Re-export so other usages (db-map-client `Handles` reference) keep working.
 const Handles = FourDotHandles;
+
+/** Hover affordance to start an annotation on a row/header that has no pin yet. */
+function CommentDot({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={cn(
+        noDrag,
+        "absolute -right-3 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-[#242428] text-muted-foreground opacity-0 shadow-md transition-all group-hover/row:opacity-100 hover:border-[#ff7a45]/50 hover:text-[#ff7a45]",
+      )}
+    >
+      <MessageSquarePlus className="size-3" />
+    </button>
+  );
+}
+
+/** Right-hand cell: the FK's `→ target` when the column references a table, else its type. */
+function TypeCell({ c, fkTargets }: { c: DbColumnPayload; fkTargets?: Record<string, string> }) {
+  const target = fkTargets?.[c.name];
+  return (
+    <span className="ml-auto shrink-0 truncate font-mono text-[11px] text-muted-foreground/80">
+      {target ? <>&rarr;&nbsp;{target}</> : c.type}
+    </span>
+  );
+}
 
 export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
   const draft = data.source === "DRAFT";
@@ -58,18 +96,24 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
     edit.patchTable(id, { columns: next });
   };
 
+  const headerPins = (data.pins ?? []).filter((p) => p.column === null);
+  const pinsFor = (col: string) => (data.pins ?? []).filter((p) => p.column === col);
+  // Shared shell: dark glass card, 12px radius, hairline rows. NO overflow-hidden — the
+  // annotation pins ride half-outside the right edge — so the header tints its own top corners.
+  const shell = cn(
+    "relative rounded-xl border bg-[#161618]/95 text-card-foreground shadow-[0_18px_50px_-22px_rgba(0,0,0,0.9)] backdrop-blur",
+    selected && "ring-2 ring-[var(--accent,#f5b942)]",
+  );
+
   if (!draft) {
     return (
-      <div
-        className={cn(
-          "w-[232px] overflow-hidden rounded-md border bg-card text-card-foreground shadow-sm",
-          selected && "ring-2 ring-[var(--accent,#f5b942)]",
-        )}
-        style={{ borderColor: `${color}55` }}
-      >
+      <div className={cn(shell, "w-[240px]")} style={{ borderColor: `${color}3d` }}>
         <Handles />
-        <div className="flex items-center justify-between px-2.5 py-1.5" style={{ background: `${color}1f` }}>
-          <span className="flex items-center gap-1.5 font-mono text-sm font-semibold">
+        <div
+          className="group/row relative flex items-center justify-between rounded-t-[11px] px-3 py-2"
+          style={{ background: `${color}14` }}
+        >
+          <span className="flex items-center gap-1.5 font-mono text-[13px] font-semibold tracking-tight">
             {data.source === "INTROSPECTION" && (
               <span title="live — derived from your code" className="inline-block size-1.5 rounded-full bg-emerald-400" />
             )}
@@ -78,26 +122,46 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
           <span className="flex items-center gap-1.5">
             <RiskBadgeRow badges={riskBadges} />
             {data.domain && (
-              <span className="text-[10px] uppercase tracking-wide" style={{ color }}>
+              <span className="text-[9px] uppercase tracking-[0.14em]" style={{ color }}>
                 {data.domain}
               </span>
             )}
           </span>
+          {headerPins.length > 0 ? (
+            <PinRail pins={headerPins} onPinClick={data.onPinClick} />
+          ) : (
+            data.onComment && (
+              <CommentDot title={`Comment on ${data.name}`} onClick={() => data.onComment?.(data.name)} />
+            )
+          )}
         </div>
-        <div className="divide-y divide-border/40">
-          {data.columns.map((c) => (
-            <div key={c.name} className="flex items-center gap-1.5 px-2.5 py-1 text-[11px]">
-              {c.isPk ? (
-                <KeyRound className="size-3 shrink-0 text-amber-400" />
-              ) : c.isFk ? (
-                <Link2 className="size-3 shrink-0 text-sky-400" />
-              ) : (
-                <span className="size-3 shrink-0" />
-              )}
-              <span className={cn("font-mono", c.isPk && "font-semibold")}>{c.name}</span>
-              <span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">{c.type}</span>
-            </div>
-          ))}
+        <div className="divide-y divide-white/[0.05]">
+          {data.columns.map((c) => {
+            const pins = pinsFor(c.name);
+            return (
+              <div key={c.name} className="group/row relative flex items-center gap-2 px-3 py-[7px] text-[12px]">
+                {c.isPk ? (
+                  <KeyRound className="size-3 shrink-0 text-amber-300/90" />
+                ) : c.isFk ? (
+                  <Link2 className="size-3 shrink-0 text-sky-400/80" />
+                ) : (
+                  <span className="size-3 shrink-0" />
+                )}
+                <span className="truncate font-mono">{c.name}</span>
+                <TypeCell c={c} fkTargets={data.fkTargets} />
+                {pins.length > 0 ? (
+                  <PinRail pins={pins} onPinClick={data.onPinClick} />
+                ) : (
+                  data.onComment && (
+                    <CommentDot
+                      title={`Comment on ${data.name}.${c.name}`}
+                      onClick={() => data.onComment?.(`${data.name}.${c.name}`)}
+                    />
+                  )
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -105,16 +169,12 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
 
   // ── Draft: fully editable ──
   return (
-    <div
-      className={cn(
-        "w-[252px] overflow-hidden rounded-md border border-dashed bg-card text-card-foreground shadow-sm",
-        selected && "ring-2 ring-[var(--accent,#f5b942)]",
-      )}
-      style={{ borderColor: `${accent}88` }}
-    >
+    <div className={cn(shell, "group/card w-[252px]")} style={{ borderColor: `${accent}59` }}>
       <Handles />
-      <div className="flex items-center gap-1.5 px-2 py-1.5" style={{ background: `${color}1f` }}>
-        <span title={diffTitle} className="inline-block size-1.5 shrink-0 rounded-full" style={{ background: accent }} />
+      <div
+        className="group/row relative flex items-center gap-1.5 rounded-t-[11px] px-3 py-2"
+        style={{ background: `${accent}14` }}
+      >
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -127,13 +187,13 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
             if (e.key === "Enter") e.currentTarget.blur();
           }}
           placeholder="table"
-          className={cn(noDrag, "min-w-0 flex-1 bg-transparent font-mono text-sm font-semibold outline-none")}
+          className={cn(noDrag, "min-w-0 flex-1 bg-transparent font-mono text-[13px] font-semibold tracking-tight outline-none")}
         />
         <RiskBadgeRow badges={riskBadges} />
         <span
           title={diffTitle}
-          className="shrink-0 rounded px-1 text-[9px] uppercase tracking-wide"
-          style={{ background: `${accent}26`, color: accent }}
+          className="shrink-0 rounded-md border px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[0.14em]"
+          style={{ background: `${accent}1f`, borderColor: `${accent}55`, color: accent }}
         >
           {diffLabel}
         </span>
@@ -146,72 +206,107 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
           }}
           onBlur={() => setConfirmDel(false)}
           title="Delete table"
-          className={cn(noDrag, "shrink-0 transition-colors", confirmDel ? "text-red-300" : "text-muted-foreground hover:text-red-300")}
+          className={cn(
+            noDrag,
+            "shrink-0 transition-all",
+            confirmDel
+              ? "text-red-300"
+              : "text-muted-foreground opacity-0 hover:text-red-300 group-hover/card:opacity-100",
+          )}
         >
           <Trash2 className="size-3" />
         </button>
+        {headerPins.length > 0 ? (
+          <PinRail pins={headerPins} onPinClick={data.onPinClick} />
+        ) : (
+          data.onComment && (
+            <CommentDot title={`Comment on ${data.name}`} onClick={() => data.onComment?.(data.name)} />
+          )
+        )}
       </div>
-      <div className="divide-y divide-border/40">
-        {cols.map((c, i) => (
-          <div key={i} className="flex items-center gap-1 px-2 py-0.5 text-[11px]">
-            <button
-              type="button"
-              onClick={(e) => {
-                stop(e);
-                saveCols(cols.map((x, j) => (j === i ? { ...x, isPk: !x.isPk } : x)));
-              }}
-              title="Primary key"
-              className={cn(noDrag, "shrink-0", c.isPk ? "text-amber-400" : "text-muted-foreground/40 hover:text-amber-400")}
-            >
-              <KeyRound className="size-3" />
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                stop(e);
-                saveCols(cols.map((x, j) => (j === i ? { ...x, isFk: !x.isFk } : x)));
-              }}
-              title="Foreign key"
-              className={cn(noDrag, "shrink-0", c.isFk ? "text-sky-400" : "text-muted-foreground/40 hover:text-sky-400")}
-            >
-              <Link2 className="size-3" />
-            </button>
-            <input
-              value={c.name}
-              onChange={(e) => setCols((cs) => cs.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
-              onBlur={() => saveCols(cols)}
-              onKeyDown={stop}
-              placeholder="column"
-              className={cn(noDrag, "min-w-0 flex-1 bg-transparent font-mono outline-none")}
-            />
-            <input
-              value={c.type}
-              onChange={(e) => setCols((cs) => cs.map((x, j) => (j === i ? { ...x, type: e.target.value } : x)))}
-              onBlur={() => saveCols(cols)}
-              onKeyDown={stop}
-              placeholder="type"
-              className={cn(noDrag, "w-16 shrink-0 bg-transparent text-right font-mono text-[10px] text-muted-foreground outline-none")}
-            />
-            <button
-              type="button"
-              onClick={(e) => {
-                stop(e);
-                saveCols(cols.filter((_, j) => j !== i));
-              }}
-              title="Remove column"
-              className={cn(noDrag, "shrink-0 text-muted-foreground/40 hover:text-red-300")}
-            >
-              <X className="size-3" />
-            </button>
-          </div>
-        ))}
+      <div className="divide-y divide-white/[0.05]">
+        {cols.map((c, i) => {
+          const pins = pinsFor(c.name);
+          return (
+            <div key={i} className="group/row relative flex items-center gap-1.5 px-3 py-[5px] text-[12px]">
+              <button
+                type="button"
+                onClick={(e) => {
+                  stop(e);
+                  saveCols(cols.map((x, j) => (j === i ? { ...x, isPk: !x.isPk } : x)));
+                }}
+                title="Primary key"
+                className={cn(noDrag, "shrink-0", c.isPk ? "text-amber-300/90" : "text-muted-foreground/40 hover:text-amber-300")}
+              >
+                <KeyRound className="size-3" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  stop(e);
+                  saveCols(cols.map((x, j) => (j === i ? { ...x, isFk: !x.isFk } : x)));
+                }}
+                title="Foreign key"
+                className={cn(noDrag, "shrink-0", c.isFk ? "text-sky-400/80" : "text-muted-foreground/40 hover:text-sky-400")}
+              >
+                <Link2 className="size-3" />
+              </button>
+              <input
+                value={c.name}
+                onChange={(e) => setCols((cs) => cs.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                onBlur={() => saveCols(cols)}
+                onKeyDown={stop}
+                placeholder="column"
+                className={cn(noDrag, "min-w-0 flex-1 bg-transparent font-mono outline-none")}
+              />
+              {data.fkTargets?.[c.name] ? (
+                <span className="w-16 shrink-0 truncate text-right font-mono text-[11px] text-muted-foreground/80">
+                  &rarr;&nbsp;{data.fkTargets[c.name]}
+                </span>
+              ) : (
+                <input
+                  value={c.type}
+                  onChange={(e) => setCols((cs) => cs.map((x, j) => (j === i ? { ...x, type: e.target.value } : x)))}
+                  onBlur={() => saveCols(cols)}
+                  onKeyDown={stop}
+                  placeholder="type"
+                  className={cn(noDrag, "w-16 shrink-0 bg-transparent text-right font-mono text-[11px] text-muted-foreground/80 outline-none")}
+                />
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  stop(e);
+                  saveCols(cols.filter((_, j) => j !== i));
+                }}
+                title="Remove column"
+                className={cn(
+                  noDrag,
+                  "shrink-0 text-muted-foreground/40 opacity-0 transition-opacity hover:text-red-300 group-hover/card:opacity-100",
+                )}
+              >
+                <X className="size-3" />
+              </button>
+              {pins.length > 0 ? (
+                <PinRail pins={pins} onPinClick={data.onPinClick} />
+              ) : (
+                data.onComment && (
+                  <CommentDot
+                    title={`Comment on ${data.name}.${c.name}`}
+                    onClick={() => data.onComment?.(`${data.name}.${c.name}`)}
+                  />
+                )
+              )}
+            </div>
+          );
+        })}
         <button
           type="button"
           onClick={(e) => {
             stop(e);
             saveCols([...cols, { name: "", type: "text", isPk: false, isFk: false, nullable: true, note: null }]);
           }}
-          className={cn(noDrag, "flex w-full items-center gap-1 px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground")}
+          className={cn(noDrag, "flex w-full items-center gap-1 px-3 py-1.5 text-[10px] text-muted-foreground hover:text-foreground")}
         >
           <Plus className="size-3" /> column
         </button>
