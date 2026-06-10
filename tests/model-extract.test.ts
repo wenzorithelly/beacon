@@ -71,6 +71,127 @@ class LegalDocument(BaseModel):
     const { tables } = extractModelSchema([base, legalType, legalDoc]);
     expect(tables.map((t) => t.name).sort()).toEqual(["legal_documents", "legal_types"]);
   });
+
+  // juriscan_v2 regression: nested generics in Mapped[...] silently dropped 11 columns.
+  const verification = {
+    path: "app/models/claim_verification.py",
+    content: `
+class ClaimVerification(BaseModel):
+    __tablename__ = "claim_verifications"
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[dict[str, Any] | None] = mapped_column(_JSON_OR_JSONB, nullable=True)
+    verdict: Mapped[str] = mapped_column(String(20), nullable=False)
+    request: Mapped["VerificationRequest"] = relationship(back_populates="claims")
+    claims: Mapped[list["Claim"]] = relationship(back_populates="verification")
+`,
+  };
+  const chunk = {
+    path: "app/models/document_chunk.py",
+    content: `
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
+    flags: Mapped[Optional[dict[str, Any]]] = mapped_column(_JSON_OR_JSONB, nullable=True)
+    version_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID,
+        ForeignKey(
+            "document_versions.id",
+            use_alter=True,
+            name="fk_chunks_version",
+        ),
+        nullable=True,
+    )
+`,
+  };
+
+  it("keeps columns with nested generics (dict[...], list[...]) AND everything after them", () => {
+    const { tables } = extractModelSchema([base, verification]);
+    const t = tables.find((t) => t.name === "claim_verifications")!;
+    expect(t.columns.map((c) => c.name)).toEqual([
+      "id", "raw_text", "evidence", "verdict", "created_at", "updated_at", "deleted_at",
+    ]);
+    expect(t.columns.find((c) => c.name === "evidence")?.type).toBe("jsonb");
+  });
+
+  it("never emits relationship() declarations as columns", () => {
+    const { tables } = extractModelSchema([base, verification]);
+    const names = tables.find((t) => t.name === "claim_verifications")!.columns.map((c) => c.name);
+    expect(names).not.toContain("request");
+    expect(names).not.toContain("claims");
+  });
+
+  it("handles Vector columns, Optional[...] generics, and multi-line use_alter FKs", () => {
+    const { tables, relations } = extractModelSchema([chunk]);
+    const t = tables.find((t) => t.name === "document_chunks")!;
+    const col = (n: string) => t.columns.find((c) => c.name === n)!;
+    expect(col("embedding").type).toBe("vector(1536)");
+    expect(col("flags").type).toBe("jsonb");
+    expect(col("version_id")).toMatchObject({ isFk: true, nullable: true });
+    expect(relations).toContainEqual({
+      fromTable: "document_chunks", fromColumn: "version_id",
+      toTable: "document_versions", toColumn: "id",
+    });
+  });
+
+  it("extracts bare mapped_column assignments (no Mapped[] annotation)", () => {
+    const { tables } = extractModelSchema([{
+      path: "app/models/tag.py",
+      content: `
+class Tag(Base):
+    __tablename__ = "tags"
+    id = mapped_column(Integer, primary_key=True)
+    label = mapped_column(String(40), nullable=False)
+`,
+    }]);
+    const t = tables.find((t) => t.name === "tags")!;
+    expect(t.columns.map((c) => c.name)).toEqual(["id", "label"]);
+    expect(t.columns.find((c) => c.name === "id")).toMatchObject({ type: "integer", isPk: true });
+    expect(t.columns.find((c) => c.name === "label")?.type).toBe("varchar(40)");
+  });
+
+  it("extracts legacy SQLAlchemy 1.x Column(...) assignments", () => {
+    const { tables, relations } = extractModelSchema([{
+      path: "app/models/audit.py",
+      content: `
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id = Column(Integer, primary_key=True)
+    actor_id = Column(GUID, ForeignKey("users.id"), nullable=False)
+    payload = Column(JSON, nullable=True)
+`,
+    }]);
+    const t = tables.find((t) => t.name === "audit_logs")!;
+    expect(t.columns.map((c) => c.name)).toEqual(["id", "actor_id", "payload"]);
+    expect(t.columns.find((c) => c.name === "payload")?.type).toBe("jsonb");
+    expect(relations).toContainEqual({
+      fromTable: "audit_logs", fromColumn: "actor_id", toTable: "users", toColumn: "id",
+    });
+  });
+
+  it("extracts Table(...) association tables with their FKs", () => {
+    const { tables, relations } = extractModelSchema([{
+      path: "app/models/user_role.py",
+      content: `
+user_roles = Table(
+    "user_roles",
+    Base.metadata,
+    Column("user_id", GUID, ForeignKey("users.id"), primary_key=True),
+    Column("role_id", GUID, ForeignKey("roles.id"), primary_key=True),
+    Column("note", Text, nullable=True),
+)
+`,
+    }]);
+    const t = tables.find((t) => t.name === "user_roles")!;
+    expect(t.columns.map((c) => c.name)).toEqual(["user_id", "role_id", "note"]);
+    expect(t.columns.filter((c) => c.isPk)).toHaveLength(2);
+    expect(relations).toContainEqual({
+      fromTable: "user_roles", fromColumn: "user_id", toTable: "users", toColumn: "id",
+    });
+    expect(relations).toContainEqual({
+      fromTable: "user_roles", fromColumn: "role_id", toTable: "roles", toColumn: "id",
+    });
+  });
 });
 
 describe("extractModelSchema — Prisma", () => {

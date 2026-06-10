@@ -62,13 +62,15 @@ function sqlalchemyType(rawArgs: string, pyType: string): string {
       case "Enum": return "varchar";
     }
   }
-  const t = pyType.replace(/\s*\|\s*None/, "").trim();
+  let t = pyType.replace(/\s*\|\s*None/g, "").trim();
+  const opt = t.match(/^Optional\[([\s\S]*)\]$/);
+  if (opt) t = opt[1].trim();
   if (/uuid/i.test(t)) return "uuid";
   if (/datetime/i.test(t)) return "timestamptz";
   if (/\bint\b/i.test(t)) return "integer";
   if (/\bbool\b/i.test(t)) return "boolean";
-  if (/\bfloat\b/i.test(t)) return "float";
-  if (/\bdict\b|\bAny\b/.test(t)) return "jsonb";
+  if (/\bfloat\b/.test(t) && !/\blist\b/.test(t)) return "float";
+  if (/\bdict\b|\blist\b|\bAny\b/.test(t)) return "jsonb";
   return "text";
 }
 
@@ -85,6 +87,20 @@ function balanced(src: string, open: number): string {
   return "";
 }
 
+// The matching-bracket body starting at the "[" index `open` — Mapped[dict[str, Any] | None]
+// nests, so a [^\]]+ regex stops one bracket short. null when unbalanced.
+function balancedSquare(src: string, open: number): string | null {
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "[") depth++;
+    else if (src[i] === "]") {
+      depth--;
+      if (depth === 0) return src.slice(open + 1, i);
+    }
+  }
+  return null;
+}
+
 interface PyClass {
   name: string;
   bases: string[];
@@ -97,27 +113,79 @@ function parsePyClass(name: string, bases: string[], body: string): PyClass {
   const tableName = body.match(/__tablename__\s*=\s*["']([^"']+)["']/)?.[1];
   const columns: ModelColumn[] = [];
   const fks: Array<{ column: string; toTable: string; toColumn: string }> = [];
-  const colRe = /(\w+)\s*:\s*Mapped\[([^\]]+)\]\s*=\s*mapped_column\s*\(/g;
+  // Three declaration shapes, emitted in source order, de-duped by name (first wins):
+  // annotated `x: Mapped[...] = mapped_column(...)`, bare `x = mapped_column(...)`, and
+  // legacy 1.x `x = Column(...)`. Only mapped_column/Column callees count — annotated
+  // relationship()/column_property() lines are NOT columns.
+  const hits: Array<{ colName: string; pyType: string; argsAt: number }> = [];
+  const annRe = /(\w+)\s*:\s*Mapped\s*\[/g;
   let mm: RegExpExecArray | null;
-  while ((mm = colRe.exec(body))) {
-    const colName = mm[1];
-    const pyType = mm[2];
-    const args = balanced(body, mm.index + mm[0].length - 1);
+  while ((mm = annRe.exec(body))) {
+    const open = mm.index + mm[0].length - 1;
+    const pyType = balancedSquare(body, open);
+    if (pyType === null) continue;
+    const after = open + pyType.length + 2;
+    const assign = body.slice(after).match(/^\s*=\s*(\w+)\s*\(/);
+    if (!assign || assign[1] !== "mapped_column") continue;
+    hits.push({ colName: mm[1], pyType, argsAt: after + assign[0].length - 1 });
+  }
+  const bareRe = /(\w+)\s*=\s*(mapped_column|Column)\s*\(/g;
+  while ((mm = bareRe.exec(body))) {
+    hits.push({ colName: mm[1], pyType: "", argsAt: mm.index + mm[0].length - 1 });
+  }
+  hits.sort((a, b) => a.argsAt - b.argsAt);
+  const seen = new Set<string>();
+  for (const h of hits) {
+    if (seen.has(h.colName) || h.colName === "__tablename__") continue;
+    seen.add(h.colName);
+    const args = balanced(body, h.argsAt);
     const isPk = /primary_key\s*=\s*True/.test(args) || undefined;
     const nullable = /nullable\s*=\s*False/.test(args) ? false : true;
     const fk = args.match(/ForeignKey\(\s*["']([^"']+?)\.([^"'.]+)["']/);
-    columns.push({ name: colName, type: sqlalchemyType(args, pyType), isPk, isFk: fk ? true : undefined, nullable });
-    if (fk) fks.push({ column: colName, toTable: fk[1], toColumn: fk[2] });
+    columns.push({ name: h.colName, type: sqlalchemyType(args, h.pyType), isPk, isFk: fk ? true : undefined, nullable });
+    if (fk) fks.push({ column: h.colName, toTable: fk[1], toColumn: fk[2] });
   }
   return { name, bases, tableName, columns, fks };
+}
+
+// Core-style association tables: user_roles = Table("user_roles", Base.metadata, Column(...), ...).
+function extractCoreTables(content: string): { tables: ModelTable[]; relations: ModelRelation[] } {
+  const tables: ModelTable[] = [];
+  const relations: ModelRelation[] = [];
+  const tableRe = /\bTable\s*(\()\s*["']([^"']+)["']\s*,/g;
+  let mm: RegExpExecArray | null;
+  while ((mm = tableRe.exec(content))) {
+    const tableName = mm[2];
+    const args = balanced(content, mm.index + mm[0].indexOf("("));
+    if (!/\bmetadata\b/.test(args) || !/\bColumn\s*\(/.test(args)) continue;
+    const columns: ModelColumn[] = [];
+    const colRe = /\bColumn\s*\(/g;
+    let cm: RegExpExecArray | null;
+    while ((cm = colRe.exec(args))) {
+      const cargs = balanced(args, cm.index + cm[0].length - 1);
+      const colName = cargs.match(/^\s*["'](\w+)["']\s*,/)?.[1];
+      if (!colName) continue;
+      const isPk = /primary_key\s*=\s*True/.test(cargs) || undefined;
+      const nullable = /nullable\s*=\s*False/.test(cargs) ? false : true;
+      const fk = cargs.match(/ForeignKey\(\s*["']([^"']+?)\.([^"'.]+)["']/);
+      columns.push({ name: colName, type: sqlalchemyType(cargs, ""), isPk, isFk: fk ? true : undefined, nullable });
+      if (fk) relations.push({ fromTable: tableName, fromColumn: colName, toTable: fk[1], toColumn: fk[2] });
+    }
+    if (columns.length) tables.push({ name: tableName, columns });
+  }
+  return { tables, relations };
 }
 
 function extractSqlAlchemy(files: SourceFile[]): ModelSchema {
   // First pass: every class (incl. abstract bases like BaseModel) with its own columns.
   const classes = new Map<string, PyClass>();
+  const core: { tables: ModelTable[]; relations: ModelRelation[] } = { tables: [], relations: [] };
   for (const f of files) {
     if (!f.path.endsWith(".py")) continue;
-    if (!/mapped_column\s*\(|__tablename__/.test(f.content)) continue;
+    if (!/mapped_column\s*\(|__tablename__|\bTable\s*\(\s*["']/.test(f.content)) continue;
+    const ct = extractCoreTables(f.content);
+    core.tables.push(...ct.tables);
+    core.relations.push(...ct.relations);
     const classRe = /^class\s+(\w+)\s*\(([^)]*)\)\s*:/gm;
     let cm: RegExpExecArray | null;
     const starts: Array<{ name: string; bases: string[]; at: number }> = [];
@@ -130,7 +198,8 @@ function extractSqlAlchemy(files: SourceFile[]): ModelSchema {
       classes.set(cls.name, cls);
     }
   }
-  if (![...classes.values()].some((c) => c.tableName)) return { tables: [], relations: [] };
+  if (![...classes.values()].some((c) => c.tableName) && !core.tables.length)
+    return { tables: [], relations: [] };
 
   // Resolve inheritance: a table's columns = its own preceded by its (abstract) bases' columns,
   // de-duped by name. This pulls the id + audit timestamps a shared BaseModel contributes.
@@ -164,6 +233,10 @@ function extractSqlAlchemy(files: SourceFile[]): ModelSchema {
     tables.push({ name: cls.tableName, columns: [...(id ? [id] : []), ...ordered, ...audit] });
     for (const fk of cls.fks) relations.push({ fromTable: cls.tableName, fromColumn: fk.column, toTable: fk.toTable, toColumn: fk.toColumn });
   }
+  // Core Table(...) declarations merge in; a class-declared table of the same name wins.
+  const declared = new Set(tables.map((t) => t.name));
+  for (const t of core.tables) if (!declared.has(t.name)) tables.push(t);
+  relations.push(...core.relations.filter((r) => !declared.has(r.fromTable)));
   return { tables, relations };
 }
 
