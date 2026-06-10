@@ -646,6 +646,14 @@ export function MapClient({
   }, []);
   const effectiveAddComment = boardMode ? addBoardAnno : onAddComment;
 
+  // React Flow keeps a node `visibility: hidden` until its measured dimensions are applied
+  // back onto the node object it receives. Annotation cards aren't in the stateful list, so
+  // their dimension changes would be dropped (= permanently invisible card) — onNodesChange
+  // captures them here and finalNodes re-attaches them.
+  const [annoMeasured, setAnnoMeasured] = useState<Map<string, { width: number; height: number }>>(
+    () => new Map(),
+  );
+
   // Inject pins + the comment affordance into their feature cards, then append the floating
   // annotation cards. The cards live OUTSIDE the stateful node list (which has many mutation
   // paths — subtasks, arrange, heal); board-mode dragging routes through `stored` instead.
@@ -666,6 +674,7 @@ export function MapClient({
             x: a.x ?? target.position.x + 26,
             y: a.y ?? target.position.y + h + 56 + idx * 112,
           },
+          measured: annoMeasured.get(`anno-${a.id}`),
           draggable: boardMode,
           data: {
             n: a.n,
@@ -704,6 +713,7 @@ export function MapClient({
     effectiveAddComment,
     patchBoardAnno,
     removeBoardAnno,
+    annoMeasured,
   ]);
   const annoEdges = useMemo<Edge[]>(
     () =>
@@ -731,6 +741,16 @@ export function MapClient({
           const id = ch.id.slice(5);
           const { x, y } = ch.position;
           setStored((prev) => prev.map((r) => (r.id === id ? { ...r, x, y } : r)));
+        } else if (ch.type === "dimensions" && ch.id.startsWith("anno-")) {
+          const dims = ch.dimensions;
+          if (dims)
+            setAnnoMeasured((prev) => {
+              const cur = prev.get(ch.id);
+              if (cur && cur.width === dims.width && cur.height === dims.height) return prev;
+              const m = new Map(prev);
+              m.set(ch.id, dims);
+              return m;
+            });
         } else {
           rest.push(ch);
         }

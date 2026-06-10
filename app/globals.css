@@ -172,9 +172,11 @@
    React Flow re-applies its own inline style to its root on every render, so the root
    can't reliably carry it; the root stays transparent and the wrapper shows through. */
 .canvas-dots {
-  background-color: var(--background);
-  background-image: radial-gradient(circle, oklch(1 0 0 / 0.14) 1.8px, transparent 1.9px);
-  background-size: 38px 38px;
+  /* Same look as the landing page's plan-review mock: its .bm-canvas dot pattern over the
+     .glass window tone (--card, the warmer charcoal) — NOT the darker page --background. */
+  background-color: color-mix(in oklab, var(--card) 94%, white 1%);
+  background-image: radial-gradient(oklch(1 0 0 / 0.08) 1px, transparent 1px);
+  background-size: 22px 22px;
   background-position: 0 0;
 }
 
