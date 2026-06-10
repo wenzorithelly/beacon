@@ -36,6 +36,11 @@ import {
 } from "@/components/graph/canvas-popover";
 import { CanvasTabs } from "@/components/graph/canvas-tabs";
 import { accessForMethod } from "@/lib/access";
+import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
+import { primaryTableFor, UNATTACHED_GROUP } from "@/lib/db-board-layout";
+import { GroupRegions } from "@/components/graph/group-regions";
+import { LodReporter } from "@/components/graph/use-zoom-lod";
+import type { Lod } from "@/lib/zoom-lod";
 import { diffDraftTables, diffDraftEndpoints, type NodeDiff } from "@/lib/db-diff";
 import { cn } from "@/lib/utils";
 import type {
@@ -238,6 +243,9 @@ export function DbMapClient({
   }, [controlRef]);
   // Multi-select filters — empty set means "show all" for that dimension.
   const [domainFilter, setDomainFilter] = useState<Set<string>>(new Set());
+  // Semantic-zoom level, lifted out of the React Flow context by <LodReporter/> — drives
+  // edge hiding + the far-zoom region summaries.
+  const [lod, setLod] = useState<Lod>("full");
   const [sourceFilter, setSourceFilter] = useState<Set<string>>(new Set());
   const [methodFilter, setMethodFilter] = useState<Set<string>>(new Set());
 
@@ -795,6 +803,52 @@ export function DbMapClient({
     });
   }, [nodes, hiddenIds, focusIds, annoTargetById]);
 
+  // Domain group-regions (Gestalt common region): tables group by their own domain; each
+  // endpoint joins its PRIMARY table's domain (the table it's docked beneath), so the region
+  // wraps the whole cluster. Unattached endpoints get their own region. Tracks live drags via
+  // the stateful node list.
+  const endpointRegionGroup = useMemo(() => {
+    const nameById = new Map(allTables.map((t) => [t.id, t.name]));
+    const domainById = new Map(allTables.map((t) => [t.id, (t.domain ?? "").trim() || "—"]));
+    return new Map(
+      allEndpoints.map((e) => {
+        const pid = primaryTableFor(
+          { id: e.id, method: e.method, path: e.path, uses: e.tables.map((u) => ({ tableId: u.tableId })) },
+          nameById,
+        );
+        return [e.id, pid ? domainById.get(pid)! : UNATTACHED_GROUP] as const;
+      }),
+    );
+  }, [allTables, allEndpoints]);
+
+  const regions = useMemo(() => {
+    const items: RegionInput[] = [];
+    for (const n of nodes) {
+      if (hiddenIds.has(n.id)) continue;
+      if (n.type === "dbTable") {
+        const d = n.data as DbTableNodeData;
+        items.push({
+          id: n.id,
+          group: (d.domain ?? "").trim() || "—",
+          x: n.position.x,
+          y: n.position.y,
+          w: n.measured?.width ?? 280,
+          h: n.measured?.height ?? 38 + d.columns.length * 28,
+        });
+      } else if (n.type === "endpoint") {
+        items.push({
+          id: n.id,
+          group: endpointRegionGroup.get(n.id) ?? UNATTACHED_GROUP,
+          x: n.position.x,
+          y: n.position.y,
+          w: n.measured?.width ?? 240,
+          h: n.measured?.height ?? 50,
+        });
+      }
+    }
+    return computeGroupRegions(items);
+  }, [nodes, hiddenIds, endpointRegionGroup]);
+
   const displayEdges = useMemo(() => {
     return baseEdges.map((e) => {
       const hidden = hiddenIds.has(e.source) || hiddenIds.has(e.target);
@@ -1003,7 +1057,12 @@ export function DbMapClient({
       <div className={cn("canvas-dots relative w-full", embedded ? "h-full" : "h-screen")}>
         <ReactFlow
           nodes={displayNodes}
-          edges={[...displayEdges, ...annoEdges.map((e) => ({ ...e, hidden: hiddenIds.has(e.source) }))]}
+          edges={
+            // Far zoom: hide edges entirely — noise between invisible cards.
+            lod === "far"
+              ? [...displayEdges, ...annoEdges].map((e) => ({ ...e, hidden: true }))
+              : [...displayEdges, ...annoEdges.map((e) => ({ ...e, hidden: hiddenIds.has(e.source) }))]
+          }
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           connectionMode={ConnectionMode.Loose}
@@ -1072,6 +1131,9 @@ export function DbMapClient({
           zoomActivationKeyCode={["Meta", "Control"]}
           proOptions={{ hideAttribution: true }}
         >
+          {/* Labeled domain containers behind the tables — pan/zoom with the canvas. */}
+          <GroupRegions regions={regions} tone="category" lod={lod} />
+          <LodReporter onLod={setLod} />
           <Controls
             position="bottom-right"
             className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"

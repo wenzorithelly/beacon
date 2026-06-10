@@ -11,7 +11,6 @@ import {
   MiniMap,
   Panel,
   ReactFlow,
-  ViewportPortal,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -26,6 +25,7 @@ import {
   Bug as BugIcon,
   GitBranch,
   HelpCircle,
+  LayoutGrid,
   PanelRight,
   Plus,
   Search,
@@ -53,6 +53,12 @@ import {
 } from "@/components/graph/canvas-popover";
 import { ARCH_STATUSES, ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
 import { layoutRoadmap, type RoadmapGroupBy } from "@/lib/roadmap-layout";
+import { layeredLayout } from "@/lib/layered-layout";
+import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
+import { placeInGroup } from "@/lib/node-placement";
+import { GroupRegions } from "@/components/graph/group-regions";
+import { LodReporter } from "@/components/graph/use-zoom-lod";
+import type { Lod } from "@/lib/zoom-lod";
 import { cn } from "@/lib/utils";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
 
@@ -170,6 +176,7 @@ export function MapClient({
   onUpdateComment,
   onRemoveComment,
   boardAnnotations,
+  initialArrangedBy = null,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   nodes: MapNodePayload[];
@@ -204,6 +211,9 @@ export function MapClient({
   // switches the surface from "plan feedback" to persisted annotations: created from the
   // card's hover-dot or the sidebar, edited in the card, position remembered.
   boardAnnotations?: BoardAnnotationPayload[];
+  // The dimension the roadmap is currently arranged by on the server (board-layout-state) —
+  // lets the lane regions render on first paint instead of only after a Group-by click.
+  initialArrangedBy?: RoadmapGroupBy | null;
 }) {
   const initialNodes = useMemo(() => buildNodes(nodePayload), [nodePayload]);
   const initialEdges = useMemo(
@@ -266,7 +276,6 @@ export function MapClient({
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   // Figma-style "next click on a feature parents a sub-task under it".
   const [pickingParent, setPickingParent] = useState(false);
-  const createCount = useRef(0);
   // Captured at <ReactFlow onInit> so onConnectEnd can translate clientX/Y → flow coords
   // without restructuring the tree to put MapClient under a ReactFlowProvider.
   const flowRef = useRef<ReactFlowInstance<Node<MapNodeData>, Edge> | null>(null);
@@ -386,17 +395,26 @@ export function MapClient({
     [view],
   );
 
-  // "+ Feature/Component" button: cascade fresh cards down-right so repeated adds don't stack.
+  // "+ Feature/Component/Bug" buttons: a fresh card has no category yet, so it lands in the
+  // uncategorized ("—") group's region — stacked with its peers instead of piling at top-left.
+  const placeNewCard = useCallback(() => {
+    const real = nodes.filter((n) => n.type !== "annotation");
+    const members = real
+      .filter((n) => !n.data.parentId && !(n.data.cluster ?? "").trim())
+      .map((n) => n.position);
+    return placeInGroup(members, real.map((n) => n.position));
+  }, [nodes]);
+
   const addNode = useCallback(() => {
-    const off = (createCount.current++ % 8) * 28;
-    void createNodeAt(80 + off, 80 + off);
-  }, [createNodeAt]);
+    const p = placeNewCard();
+    void createNodeAt(p.x, p.y);
+  }, [createNodeAt, placeNewCard]);
 
   // "+ Bug" (roadmap only): a typed bug card the user plans to work on.
   const addBug = useCallback(() => {
-    const off = (createCount.current++ % 8) * 28;
-    void createNodeAt(80 + off, 80 + off, "BUG");
-  }, [createNodeAt]);
+    const p = placeNewCard();
+    void createNodeAt(p.x, p.y, "BUG");
+  }, [createNodeAt, placeNewCard]);
 
   const editApi: NodeEditApi = useMemo(
     () => ({
@@ -414,12 +432,15 @@ export function MapClient({
     [view, categories, patch, expandedIds, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent],
   );
 
-  // Group-by lanes + the search box — ephemeral UI state (never persisted into node data),
-  // like the filters below. `arrangedBy` is the dimension the board is currently laid out by
-  // (null until the user picks one); clicking a group button arranges instantly and lanes are
-  // drawn from `arrangedBy`, so they always match the real card positions.
-  const [arrangedBy, setArrangedBy] = useState<RoadmapGroupBy | null>(null);
+  // Group-by lanes + the search box. `arrangedBy` is the dimension the board is currently laid
+  // out by — seeded from the server (the default arrange / last Group-by click) so regions show
+  // on load; clicking a group button arranges instantly and lanes are drawn from `arrangedBy`,
+  // so they always match the real card positions.
+  const [arrangedBy, setArrangedBy] = useState<RoadmapGroupBy | null>(initialArrangedBy);
   const [searchQuery, setSearchQuery] = useState("");
+  // Semantic-zoom level, lifted out of the React Flow context by <LodReporter/> — drives
+  // edge hiding + the far-zoom region summaries.
+  const [lod, setLod] = useState<Lod>("full");
 
   // Filters (client-side, instant — never persisted into node state). Each dimension
   // is a multi-select Set; an empty set means "show all" for that dimension.
@@ -516,45 +537,39 @@ export function MapClient({
     });
   }, [visibleNodes, focusIds, workOnNextId, expandedIds]);
 
-  // Lane background rectangles (Item C). Shown only after a group action, and labeled by the
-  // dimension the board was ACTUALLY arranged by (`arrangedBy`) — never a stale selector — so
-  // boxes always match real positions. Each box wraps its group's grid block (bounding box of
-  // its members, padded). The layout separates lane blocks with a gap, so neighbouring boxes
-  // don't overlap. Children belong to their parent's lane (one hop — sub-tasks can't nest).
-  const lanes = useMemo(() => {
-    if (!arrangedBy || view !== "ROADMAP") return [];
+  // Group-region containers (Gestalt common region). Roadmap: shown once the board is arranged,
+  // labeled by the dimension it was ACTUALLY arranged by (`arrangedBy`) — never a stale selector.
+  // Architecture: always grouped by domain. Children belong to their parent's region (one hop —
+  // sub-tasks can't nest). Recomputed from displayNodes each render, so they track live drags.
+  const regions = useMemo(() => {
+    if (view === "ROADMAP" && !arrangedBy) return [];
+    if (view !== "ROADMAP" && view !== "ARCHITECTURE") return [];
     const byId = new Map(displayNodes.map((n) => [n.id, n]));
-    const PAD = 20;
-    const HEADER = 26;
-    type Box = { label: string; minX: number; minY: number; maxX: number; maxY: number };
-    const boxes = new Map<string, Box>();
+    const items: RegionInput[] = [];
     for (const n of displayNodes) {
-      if (n.hidden) continue;
+      if (n.hidden || n.type === "annotation") continue;
       const parent = n.data.parentId ? byId.get(n.data.parentId) : undefined;
-      const lane = parent ?? n;
-      const key = laneLabel(arrangedBy, lane.data);
-      const w = n.measured?.width ?? (n.data.isChild ? 224 : 256);
-      const h = n.measured?.height ?? 96;
-      const x = n.position.x;
-      const y = n.position.y;
-      const b = boxes.get(key);
-      if (b) {
-        b.minX = Math.min(b.minX, x);
-        b.minY = Math.min(b.minY, y);
-        b.maxX = Math.max(b.maxX, x + w);
-        b.maxY = Math.max(b.maxY, y + h);
-      } else {
-        boxes.set(key, { label: key, minX: x, minY: y, maxX: x + w, maxY: y + h });
-      }
+      const groupNode = parent ?? n;
+      const group =
+        view === "ROADMAP" && arrangedBy
+          ? laneLabel(arrangedBy, groupNode.data)
+          : groupNode.data.cluster?.trim() || "—";
+      items.push({
+        id: n.id,
+        group,
+        x: n.position.x,
+        y: n.position.y,
+        w: n.measured?.width ?? (n.data.isChild ? 224 : 256),
+        h: n.measured?.height ?? 96,
+      });
     }
-    return Array.from(boxes.values()).map((b) => ({
-      label: b.label,
-      x: b.minX - PAD,
-      y: b.minY - PAD - HEADER,
-      w: b.maxX - b.minX + PAD * 2,
-      h: b.maxY - b.minY + PAD * 2 + HEADER,
-    }));
+    return computeGroupRegions(items);
   }, [displayNodes, arrangedBy, view]);
+
+  // Color regions only when the grouping IS the category dimension — hashing a status or
+  // priority label into the category palette would imply a meaning the color doesn't have.
+  const regionTone =
+    view === "ARCHITECTURE" || arrangedBy === "cluster" ? ("category" as const) : ("neutral" as const);
 
   const displayEdges = useMemo(() => {
     const focusNode = selectedId ?? hoveredId;
@@ -977,12 +992,45 @@ export function MapClient({
         body: JSON.stringify({ batch }),
       });
     setArrangedBy(by);
+    // Remember the chosen dimension per-workspace so the next load lanes by it.
+    void fetch("/api/board-layout", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ board: "roadmap", arrangedBy: by }),
+    });
     requestAnimationFrame(() =>
       flowRef.current?.fitView({ duration: 600, padding: 0.2 }),
     );
     },
     [nodes],
   );
+
+  // Architecture "Arrange": layered left→right dependency flow (foundations left, dependents
+  // rightward, domains as bands) computed client-side from the live nodes + DEPENDS edges,
+  // batch-persisted in one round-trip. Same non-destructive contract as the roadmap Group-by.
+  const arrangeArchitecture = useCallback(() => {
+    const real = nodes.filter((n) => n.type !== "annotation");
+    const pos = layeredLayout(
+      real.map((n) => ({ id: n.id, group: (n.data.cluster ?? "").trim() || "—" })),
+      edgePayload
+        .filter((e) => e.kind === "DEPENDS")
+        .map((e) => ({ fromId: e.fromId, toId: e.toId })),
+    );
+    setNodes((nds) =>
+      nds.map((n) => {
+        const p = pos.get(n.id);
+        return p ? { ...n, position: p } : n;
+      }),
+    );
+    const batch = Array.from(pos, ([id, p]) => ({ id, x: p.x, y: p.y }));
+    if (batch.length)
+      void fetch("/api/nodes/positions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ batch }),
+      });
+    requestAnimationFrame(() => flowRef.current?.fitView({ duration: 600, padding: 0.2 }));
+  }, [nodes, edgePayload]);
 
   // Search results: visible (filter-passing) cards whose title matches, capped.
   const searchResults = useMemo(() => {
@@ -1023,7 +1071,12 @@ export function MapClient({
     >
       <ReactFlow
         nodes={finalNodes}
-        edges={[...displayEdges, ...annoEdges]}
+        edges={
+          // Far zoom: hide edges entirely — they'd render as noise between invisible cards.
+          lod === "far"
+            ? [...displayEdges, ...annoEdges].map((e) => ({ ...e, hidden: true }))
+            : [...displayEdges, ...annoEdges]
+        }
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         connectionMode={ConnectionMode.Loose}
@@ -1114,31 +1167,10 @@ export function MapClient({
         proOptions={{ hideAttribution: true }}
       >
 
-        {/* Labeled lane backgrounds (Item C) — rendered in flow coordinate space so they pan
-            and zoom with the canvas. Non-interactive; the box sits in the padding around its
-            members so its border/header never overlap card content. */}
-        {lanes.length > 0 && (
-          <ViewportPortal>
-            {lanes.map((l) => (
-              <div
-                key={l.label}
-                style={{
-                  position: "absolute",
-                  transform: `translate(${l.x}px, ${l.y}px)`,
-                  width: l.w,
-                  height: l.h,
-                  pointerEvents: "none",
-                  zIndex: 0,
-                }}
-                className="rounded-2xl border border-white/[0.08] bg-white/[0.015]"
-              >
-                <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-                  {l.label}
-                </div>
-              </div>
-            ))}
-          </ViewportPortal>
-        )}
+        {/* Labeled group containers — flow coordinate space, so they pan/zoom with the canvas.
+            Non-interactive; each box sits in the padding around its members. */}
+        <GroupRegions regions={regions} tone={regionTone} lod={lod} />
+        <LodReporter onLod={setLod} />
 
         <Controls
           position="bottom-right"
@@ -1208,6 +1240,18 @@ export function MapClient({
             <div className="glass rounded-full px-3 py-1 text-[11px] text-muted-foreground">
               Click a {view === "ARCHITECTURE" ? "component" : "feature"} to attach the
               {" "}{view === "ARCHITECTURE" ? "sub-component" : "sub-task"} · Esc to cancel
+            </div>
+          )}
+          {view === "ARCHITECTURE" && (
+            <div className="glass flex items-center gap-1 rounded-full p-1">
+              <button
+                onClick={arrangeArchitecture}
+                title="Arrange components into a left→right dependency flow, grouped by domain"
+                className="flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              >
+                <LayoutGrid className="size-3.5" />
+                Arrange
+              </button>
             </div>
           )}
           {view === "ROADMAP" && (
