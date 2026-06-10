@@ -26,6 +26,7 @@ const ENTRYPOINTS = [
   "lib/workspaces.ts",
   "lib/assets.ts",
   "lib/global-install.ts",
+  "lib/codex-install.ts",
 ];
 
 // Externalize the real node_modules deps (resolved by the user's `bun add -g`), but NOT our own
