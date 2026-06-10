@@ -18,8 +18,6 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - up: `make up`
 
 ### Architecture
-- **AI**
-  - AI extraction — Structured-output extraction through the Claude Code CLI in headless mode (no API key) or the Anthropic API, with a model registry. (intel/ai-cli.ts, intel/ai.ts, lib/ai-structured.ts, lib/intel-models.ts)
 - **CLI**
   - Beacon CLI & daemon — `beacon` entrypoint: registers the repo as a workspace, ensures one shared background Next.js server, opens the browser onto the repo. (bin/beacon.ts)
 - **CONTEXT**
@@ -31,13 +29,13 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - **DBMAP**
   - Schema ingest & layout — Upserts tables/columns/relations/endpoints (preserving manual nodes + positions), reconciles endpoint↔table usage, and auto-lays-out tables and endpoints. (app/api/db/reconcile-endpoints/route.ts, app/api/ingest/route.ts, lib/endpoint-layout.ts, lib/endpoint-reconcile.ts, lib/ingest.ts, lib/table-layout.ts)
 - **HOOKS**
-  - Claude Code hooks bridge — PermissionRequest hook (`beacon plan`) pipes ExitPlanMode markdown → /plan and returns the verdict; PostToolUse hook (`beacon hook`) reports file edits to the active feature. (bin/hook.ts, bin/plan.ts)
+  - Claude Code hooks bridge — PermissionRequest hook (`beacon plan`) pipes ExitPlanMode markdown → /plan (Claude Code only); PostToolUse hook (`beacon hook`) reports file edits from Claude's Edit/Write AND Codex's apply_patch; the Stop-hook nudge reads both transcript formats. (bin/hook.ts, bin/plan.ts, bin/prompt.ts, bin/stop-hook.ts, lib/hook-files.ts, lib/stop-hook-detect.ts)
 - **INFRA**
   - Live refresh (SSE) — A single-row SyncState version is bumped on every ingest; clients stream/poll it to refresh open canvases without a manual reload. (app/api/stream/route.ts, app/api/version/route.ts, components/live-refresh.tsx)
 - **INIT**
   - Repo mapping (init) — Persists a /beacon-init analysis (architecture nodes+edges, roadmap fronts, ProjectMeta) and regenerates AGENTS.md; same DB shape as propose_plan but commits directly. (app/api/architecture/sync/route.ts, app/api/init/route.ts, lib/architecture-sync.ts, lib/init.ts, lib/project-meta.ts)
 - **INSTALL**
-  - Global & repo install — Writes/self-heals ~/.claude skills+hooks+CLAUDE.md and per-repo .mcp.json + skills + AGENTS.md workflow block; doctor audits, uninstall reverses. (bin/doctor.ts, bin/uninstall.ts, lib/assets.ts, lib/global-install.ts)
+  - Global & repo install — Writes/self-heals ~/.claude (skills+hooks+CLAUDE.md) AND, when the codex binary is detected, ~/.codex + ~/.agents (hooks.json, config.toml MCP entry, AGENTS.md block, skills) plus per-repo .mcp.json + .claude/skills + .agents/skills + AGENTS.md block; doctor audits both surfaces, uninstall reverses them. (bin/doctor.ts, bin/uninstall.ts, lib/agent-config.ts, lib/assets.ts, lib/codex-install.ts, lib/global-install.ts)
 - **INTEL**
   - Live code-intelligence daemon — Per-workspace chokidar watchers (recently-opened subset + lazy warm-up) → registry-driven polyglot, multi-root, incremental code-graph build → pinned ingest. Degrades gracefully. (instrumentation.ts, intel/config.ts, intel/ingest.ts, intel/merge.ts, intel/pipeline.ts, intel/watch-inline.ts)
   - Code graph & files canvas — Polyglot, multi-root import-edge index (per-language resolver registry) with cached degrees + cycle flags; transitive depth-N blast-radius; hub/lang-aware files canvas. (app/api/code-graph/route.ts, components/graph/files-map-client.tsx, intel/extractors/code-graph.ts, intel/extractors/languages/index.ts, lib/code-graph.ts)
@@ -49,58 +47,63 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
   - Plan UI (/plan) — Split-screen review page: native annotation panel on the left, roadmap + database canvases tabbed on the right, plus plan history. (app/plan/page.tsx, components/plan/annotation-panel.tsx, components/plan/markdown-view.tsx, components/plan/plan-bar.tsx, components/plan/plan-history-view.tsx, components/plan/plan-workspace.tsx)
   - Roadmap canvas (/map) — React Flow roadmap/architecture canvases with node cards, detail sidebar, edge editing, and tabbed views. (app/map/page.tsx, components/graph/canvas-tabs.tsx, components/graph/deletable-edge.tsx, components/graph/detail-sidebar.tsx, components/graph/map-client.tsx, components/graph/node-card.tsx)
   - DB design canvas — React Flow tables+endpoints board with a distinct draft layer, endpoint↔table links, detail sidebar, and approve/discard draft actions. (components/graph/db-detail-sidebar.tsx, components/graph/db-draft-actions.tsx, components/graph/db-map-client.tsx, components/graph/db-table-node.tsx, components/graph/db-types.ts, components/graph/endpoint-node.tsx)
-  - Settings & app shell — Layout, top nav, workspace switcher, and the settings page that drives intel model/provider/editor choices and code-map sync. (app/api/settings/route.ts, app/layout.tsx, app/settings/page.tsx, components/top-nav.tsx, components/workspace-switcher.tsx, lib/settings.ts)
+  - Settings & app shell — Layout, top nav, workspace switcher, and the settings page that drives editor choice and code-map sync. (app/layout.tsx, app/settings/page.tsx, components/top-nav.tsx, components/workspace-switcher.tsx, lib/settings.ts)
   - Notes notebook — Workspace rich-text notebook the agent can @-mention and convert into features (components/notes/note-editor.tsx, components/notes/notes-drawer.tsx, lib/note-markdown.ts, lib/note-resource.ts, lib/notes.ts)
   - Board annotations — Persistent per-workspace annotation pins + cards on the /map canvases (BoardAnnotation table + /api/board-annotations CRUD); on /plan the same surface renders feedback-bundle annotations instead (app/api/board-annotations/route.ts, components/graph/annotation-node.tsx, lib/annotation-anchors.ts, lib/board-annotations.ts)
 
 ### Database
-- `AppSetting`: id, intelModel, intelProvider, editor, currentFeatureId
+- `AppSetting`: id, editor, currentFeatureId, updatedAt
 - `BoardAnnotation`: id, targetKind, targetId, columnName, body, x, y, createdAt, updatedAt
-- `CodeFile`: path, x, y
+- `CodeFile`: path, root, lang, x, y, mtimeMs, size, inDegree, outDegree, updatedAt
 - `CodeFileEdge`: fromPath, toPath, circular
-- `DbColumn`: id, tableId, name, type, isPk, isFk, nullable, ord
+- `DbColumn`: id, tableId, name, type, isPk, isFk, nullable, note, ord
 - `DbRelation`: id, fromTableId, toTableId, fromColumn, toColumn, label
-- `DbTable`: id, name, domain, description, source, x, y
-- `DraftColumn`: id, tableId, name, type, isPk, isFk, nullable, ord
+- `DbTable`: id, name, domain, description, source, x, y, createdAt, updatedAt
+- `DraftColumn`: id, tableId, name, type, isPk, isFk, nullable, note, ord
 - `DraftRelation`: id, fromTableId, toTableId, fromColumn, toColumn, label
-- `DraftTable`: id, name, domain, description, x, y
+- `DraftTable`: id, name, domain, description, x, y, createdAt
 - `Edge`: id, fromId, toId, kind, label, sourceHandle, targetHandle
-- `Endpoint`: id, method, path, domain, description, source, x, y
+- `Endpoint`: id, method, path, domain, description, source, x, y, createdAt, updatedAt
 - `EndpointTable`: id, endpointId, tableId, access
-- `Feedback`: id, body, upvotes, downvotes, createdAt
-- `Node`: id, view, cluster, title, role, plain, status, priority, progress, x, y, source
-- `NodeFile`: id, nodeId, path
+- `Feedback`: id, body, upvotes, downvotes, deleteToken, createdAt
+- `Node`: id, title, parentId, x, progress, pinned, createdAt
+- `NodeFile`: id, nodeId, A
 - `Note`: id, title, body, ord, pinned, createdAt, updatedAt
-- `ProjectMeta`: id, overview, conventions
-- `SyncState`: id, version
+- `ProjectMeta`: id, overview, conventions, updatedAt
+- `SyncState`: id, version, codeGraphSyncedAt, updatedAt
 - `Tag`: id, label, color
+- `_NodeTags`: A, B
 
 ### Endpoints
+- GET /api/board-annotations
+- POST /api/board-annotations
+- PATCH /api/board-annotations/{id}
+- DELETE /api/board-annotations/{id}
+- POST /api/code-graph
+- POST /api/code-graph/position
 - POST /api/context
-- POST /api/context/embed-backfill
 - GET /api/context/feature
 - GET /api/context/file
+- POST /api/db/arrange
 - POST /api/db/backfill-access
 - POST /api/db/position
 - POST /api/db/reconcile-endpoints
 - DELETE /api/db/relations/{id}
 - DELETE /api/db/tables/{id}
-- DELETE /api/endpoints/{id}
-- POST /api/ingest
 - POST /api/draft
+- DELETE /api/draft
 - POST /api/draft/approve
 - GET /api/draft/status
-- GET /api/feedback
-- POST /api/feedback
-- POST /api/feedback/[id]/vote
-- POST /api/architecture/sync
-- POST /api/init
-- POST /api/code-graph
-- POST /api/code-graph/position
-- POST /api/intel/sync
 - POST /api/edges
 - DELETE /api/edges/{id}
+- DELETE /api/endpoints/{id}
 - GET /api/entities
+- GET /api/feedback
+- POST /api/feedback
+- DELETE /api/feedback/{id}
+- POST /api/feedback/{id}/vote
+- POST /api/ingest
+- POST /api/init
 - GET /api/map
 - POST /api/map/describe
 - POST /api/map/files
@@ -108,14 +111,10 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - POST /api/map/start
 - POST /api/map/touch-active
 - POST /api/nodes
+- POST /api/nodes/positions
 - POST /api/nodes/subtasks
 - PATCH /api/nodes/{id}
 - DELETE /api/nodes/{id}
-- POST /api/nodes/{id}/position
-- GET /api/notes
-- POST /api/notes
-- PATCH /api/notes/{id}
-- DELETE /api/notes/{id}
 
 ### Conventions & gotchas
 - This is Next.js 16 App Router with breaking changes — read node_modules/next/dist/docs/ before relying on memory; APIs and conventions differ from older App Router.
@@ -125,6 +124,22 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - Keep the schema Postgres-portable: no enum columns (use text + Zod unions) and no scalar-array columns (model arrays as related rows) — SQLite can't store arrays.
 - All agent-facing text (MCP tool returns, context bundles, AGENTS.md) is in English; the UI never says "Claude" — refer to it as "the agent" or "your terminal session".
 - The AGENTS.md project block lives between <!-- beacon:start --> and <!-- beacon:end --> and is regenerated by lib/context-files.ts from ProjectMeta + the architecture/db nodes — edit outside the markers; CLAUDE.md @imports AGENTS.md.
+- TDD on non-trivial changes; tests live in tests/ and run via `bun test`. Multi-workspace data lives under ~/.beacon/<id>/ (overridable with BEACON_HOME), not in the repo.
+
+_Maintained by Beacon — edit outside the markers; this block is regenerated._
+<!-- beacon:end --> and is regenerated by lib/context-files.ts from ProjectMeta + the architecture/db nodes — edit outside the markers; CLAUDE.md @imports AGENTS.md.
+- TDD on non-trivial changes; tests live in tests/ and run via `bun test`. Multi-workspace data lives under ~/.beacon/<id>/ (overridable with BEACON_HOME), not in the repo.
+
+_Maintained by Beacon — edit outside the markers; this block is regenerated._
+<!-- beacon:end --> and is regenerated by lib/context-files.ts from ProjectMeta + the architecture/db nodes — edit outside the markers; CLAUDE.md @imports AGENTS.md.
+- TDD on non-trivial changes; tests live in tests/ and run via `bun test`. Multi-workspace data lives under ~/.beacon/<id>/ (overridable with BEACON_HOME), not in the repo.
+
+_Maintained by Beacon — edit outside the markers; this block is regenerated._
+<!-- beacon:end --> and is regenerated by lib/context-files.ts from ProjectMeta + the architecture/db nodes — edit outside the markers; CLAUDE.md @imports AGENTS.md.
+- TDD on non-trivial changes; tests live in tests/ and run via `bun test`. Multi-workspace data lives under ~/.beacon/<id>/ (overridable with BEACON_HOME), not in the repo.
+
+_Maintained by Beacon — edit outside the markers; this block is regenerated._
+<!-- beacon:end --> and is regenerated by lib/context-files.ts from ProjectMeta + the architecture/db nodes — edit outside the markers; CLAUDE.md @imports AGENTS.md.
 - TDD on non-trivial changes; tests live in tests/ and run via `bun test`. Multi-workspace data lives under ~/.beacon/<id>/ (overridable with BEACON_HOME), not in the repo.
 
 _Maintained by Beacon — edit outside the markers; this block is regenerated._
@@ -199,11 +214,13 @@ Beacon extracts it deterministically and **strips the block from the prose** (it
 
 **The board is built ONLY from the block — prose is NOT parsed.** If your plan describes ANY database models/tables/columns in the prose (e.g. "Model `legal_precedent.py` — natural key (court, …)"), you MUST also put them in the block's `tables` array (with `columns`), or the /db tab will be empty for that plan. Same for endpoints (`endpoints` with `uses:[{table,access}]`) and features (`features`). A plan that lists five tables in prose but ships a block with only `features` renders an empty database board — exactly the "I described models but the DB tab is empty" failure. Mirror every DB entity you mention into the block.
 
-### 3. At the end, register the work
+### 3. At the end, register the work — in ONE call
 
-Call `beacon_describe_feature` for **EVERY** feature the plan created — once per feature, **by its exact title** (the same titles you listed in `features`/the ```beacon block) — with the files you touched and a short markdown description. This flips each one to **Done** and keeps `beacon_context_for_feature` accurate for the next session.
+Call `beacon_describe_feature` **ONCE** with a `features` array — one entry per feature the plan created — each with the files you touched and a short markdown description. This flips each one to **Done** and keeps `beacon_context_for_feature` accurate for the next session.
 
-Do this per feature. If a plan added five features, that's five `beacon_describe_feature` calls — registering only an umbrella ("Harden auth") leaves the individual features stuck on **Pending** on the map.
+Key each entry by its node `id`: the ids are handed back to you when the plan is approved (in the approval message / additionalContext), so you don't fuzzy-match titles or pay a disambiguation round-trip. If you don't have an id, `title` still works.
+
+Register them all in that single batched call. If a plan added five features, that's ONE `beacon_describe_feature` call with five entries — NOT five calls, and NOT just an umbrella ("Harden auth"), which leaves the individual features stuck on **Pending**.
 
 If the feature added or materially changed a REAL architectural component (a subsystem — NOT a file), also pass `architecture: [{ title, domain, role, … }]` so the Architecture map stays accurate. It upserts curated components by title; never list files as components.
 
