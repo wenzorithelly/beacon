@@ -11,6 +11,7 @@ import {
   setupCodexAssets,
   auditCodex,
   removeCodexArtifacts,
+  codexMcpProblem,
 } from "@/lib/codex-install";
 import { selfHealGlobal } from "@/lib/global-install";
 import { installCodexRepoSkills, auditRepo, removeRepoAssets } from "@/lib/assets";
@@ -113,6 +114,22 @@ describe("ensureCodexMcp", () => {
     expect(r.added).toBe(false);
     expect(r.error).toBeTruthy();
     expect(readFileSync(configToml(), "utf8")).toBe(user);
+  });
+});
+
+describe("codexMcpProblem (doctor diagnosis, read-only)", () => {
+  it("null when there is no config or the entry is present", () => {
+    expect(codexMcpProblem()).toBeNull();
+    ensureCodexMcp();
+    expect(codexMcpProblem()).toBeNull();
+  });
+
+  it("names broken TOML and inline-table conflicts with the manual fix", () => {
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(configToml(), `model = "unterminated\n`);
+    expect(codexMcpProblem()).toContain("does not parse");
+    writeFileSync(configToml(), `mcp_servers = { other = { command = "x" } }\n`);
+    expect(codexMcpProblem()).toContain("inline table");
   });
 });
 

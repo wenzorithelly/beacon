@@ -113,6 +113,25 @@ export interface CodexMcpResult {
   error?: string;
 }
 
+/**
+ * Read-only diagnosis for `beacon doctor`: why is the MCP entry missing/unfixable?
+ * null when there's no problem a bare `beacon` run wouldn't fix.
+ */
+export function codexMcpProblem(): string | null {
+  let content = "";
+  try {
+    content = readFileSync(CODEX_CONFIG_TOML(), "utf8");
+  } catch {
+    return null; // no config yet — ensureCodexMcp will create it
+  }
+  const parsed = parseToml(content);
+  if (!parsed) return `~/.codex/config.toml does not parse — ${MANUAL_FIX}`;
+  if (parsed.mcp_servers?.beacon) return null;
+  if (/^\s*mcp_servers\s*=/m.test(content))
+    return `mcp_servers is an inline table — ${MANUAL_FIX}`;
+  return null;
+}
+
 export function ensureCodexMcp(): CodexMcpResult {
   let content = "";
   let exists = false;
