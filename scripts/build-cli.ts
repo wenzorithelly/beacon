@@ -38,9 +38,14 @@ const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
 };
 const external = Object.keys(pkg.dependencies ?? {}).flatMap((d) => [d, `${d}/*`]);
 
+// Overridable so the test suite can run a REAL build into a tempdir and assert every
+// entrypoint actually got emitted (a newer Bun once silently merged a cyclic entry pair,
+// shipping a v0.1.18 whose dist/lib/global-install.js didn't exist).
+const OUTDIR = process.env.BEACON_CLI_OUTDIR || "dist";
+
 const result = await Bun.build({
   entrypoints: ENTRYPOINTS,
-  outdir: "dist",
+  outdir: OUTDIR,
   target: "bun",
   minify: true,
   external,
@@ -52,11 +57,21 @@ if (!result.success) {
   process.exit(1);
 }
 
+// Every entrypoint must come out as its own bundle at its mirrored path — bin/beacon.ts
+// loads siblings by that path at runtime, so a missing emit is a broken published CLI.
+const missing = ENTRYPOINTS.map((e) => e.replace(/\.ts$/, ".js")).filter(
+  (rel) => !Bun.file(`${OUTDIR}/${rel}`).size,
+);
+if (missing.length) {
+  console.error(`[build-cli] entrypoints not emitted: ${missing.join(", ")}`);
+  process.exit(1);
+}
+
 // bun build drops the entry shebang; restore it so the npm/bun bin shim runs the bundle with Bun
 // (it uses bun: APIs + top-level await and would crash under node).
-const beaconBin = "dist/bin/beacon.js";
+const beaconBin = `${OUTDIR}/bin/beacon.js`;
 const src = await Bun.file(beaconBin).text();
 if (!src.startsWith("#!")) await Bun.write(beaconBin, `#!/usr/bin/env bun\n${src}`);
 chmodSync(beaconBin, 0o755);
 
-console.log(`[build-cli] bundled ${ENTRYPOINTS.length} modules → dist/`);
+console.log(`[build-cli] bundled ${ENTRYPOINTS.length} modules → ${OUTDIR}/`);

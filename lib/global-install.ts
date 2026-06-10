@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  GLOBAL_SKILLS,
+  GLOBAL_AGENT_BLOCK,
   ensureHookEntry,
   hasHookEntry,
   removeHookEntry,
@@ -11,6 +13,7 @@ import {
   installSkillFile,
   isSkillInstalled,
   removeSkillDir,
+  type GlobalSkillName,
   type HookSpec,
 } from "@/lib/agent-config";
 import type { CodexSetupResult } from "@/lib/codex-install";
@@ -36,8 +39,11 @@ const CLAUDE_MD = () => join(CLAUDE_DIR(), "CLAUDE.md");
 const CLAUDE_MD_START = "<!-- beacon:global:start -->";
 const CLAUDE_MD_END = "<!-- beacon:global:end -->";
 
-export const GLOBAL_SKILLS = ["beacon-init", "beacon-refresh", "beacon-plan"] as const;
-export type GlobalSkillName = (typeof GLOBAL_SKILLS)[number];
+// GLOBAL_SKILLS + the discovery block live in lib/agent-config.ts (shared with
+// codex-install without an import cycle — see the note there); re-exported here so
+// existing importers (doctor, uninstall, tests) keep one source.
+export { GLOBAL_SKILLS, type GlobalSkillName };
+export const GLOBAL_CLAUDE_MD_BLOCK = GLOBAL_AGENT_BLOCK;
 
 export const GLOBAL_HOOKS = [
   {
@@ -67,33 +73,6 @@ export const GLOBAL_HOOKS = [
       "When the agent ends a turn asking for plan approval in prose (instead of presenting it), nudge it to present the plan on Beacon's /plan canvas. Bounded by stop_hook_active — at most one nudge.",
   },
 ];
-
-// Block injected into ~/.claude/CLAUDE.md (and, by the Codex install layer, into
-// ~/.codex/AGENTS.md) so EVERY agent session — including the ones in repos that have
-// never seen Beacon — knows the tool exists and how to wire it. Kept intentionally
-// short: triggers + the one-command fix when something isn't wired.
-export const GLOBAL_CLAUDE_MD_BLOCK = `## Beacon (visual planning panel)
-
-This machine has Beacon installed — a local visual planning surface for the terminal-side
-agent. Beacon proposes feature plans (roadmap features + DB schema + endpoints) via MCP,
-the user reviews on a canvas at /plan, and feedback flows back as the next round.
-
-**When to invoke**
-- User asks to "plan a feature" / "design a schema" → if the \`beacon_propose_plan\`
-  MCP tool is available, design the plan and call it. If it is NOT available, the panel
-  isn't wired in this repo — run \`beacon\` here once, then retry.
-- User asks to "set up Beacon" / "map this repo" → invoke the \`beacon-init\` skill.
-- User asks to "refresh Beacon" / "update the map" / "bring Beacon up to date" → invoke
-  the \`beacon-refresh\` skill. Re-surveys the repo and updates init-derived nodes while
-  preserving anything the user added by hand.
-- Run \`beacon doctor\` to audit what's wired (global hooks, repo's .mcp.json, AGENTS.md block).
-
-**The plan feedback loop**
-\`beacon_propose_plan\` BLOCKS until the user clicks Approve / Discard / submits feedback.
-Feedback bundles inline annotations on the markdown PLUS any edits the user made directly
-on the /map and /db boards (added features, attached subtasks, edited columns, new
-endpoints). Treat board edits as the user's revision intent — re-propose matching them
-verbatim. Do NOT implement until the tool returns approval.`;
 
 // ── Skills ──────────────────────────────────────────────────────────────────
 

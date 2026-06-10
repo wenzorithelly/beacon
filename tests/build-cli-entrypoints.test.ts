@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,4 +21,28 @@ describe("scripts/build-cli.ts ENTRYPOINTS", () => {
       expect(build).toContain(`"${rel}"`);
     }
   });
+
+  // Run the REAL bundler with the CI's own Bun and assert every entry came out at its
+  // mirrored path. v0.1.18 shipped without dist/lib/global-install.js because the CI's
+  // newer Bun merged a cyclic entrypoint pair instead of emitting both — this test runs
+  // in the release workflow BEFORE publish, so that failure mode now blocks the release.
+  it("a real build emits one bundle per entrypoint (this Bun version)", () => {
+    const out = mkdtempSync(join(tmpdir(), "beacon-cli-build-"));
+    try {
+      const r = spawnSync("bun", ["scripts/build-cli.ts"], {
+        cwd: ROOT,
+        env: { ...process.env, BEACON_CLI_OUTDIR: out },
+        timeout: 120_000,
+      });
+      expect(r.status).toBe(0);
+      const build = readFileSync(join(ROOT, "scripts", "build-cli.ts"), "utf8");
+      const entries = [...build.matchAll(/^\s*"((?:bin|lib)\/[^"]+\.ts)",?$/gm)].map((m) => m[1]);
+      expect(entries.length).toBeGreaterThanOrEqual(12);
+      for (const e of entries) {
+        expect(existsSync(join(out, e.replace(/\.ts$/, ".js")))).toBe(true);
+      }
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  }, 130_000);
 });

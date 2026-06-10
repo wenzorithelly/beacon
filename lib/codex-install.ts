@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  GLOBAL_SKILLS,
+  GLOBAL_AGENT_BLOCK,
   ensureHookEntry,
   hasHookEntry,
   removeHookEntry,
@@ -11,9 +13,9 @@ import {
   installSkillFile,
   isSkillInstalled,
   removeSkillDir,
+  type GlobalSkillName,
 } from "@/lib/agent-config";
 import { writeFileAtomic } from "@/lib/atomic-write";
-import { GLOBAL_SKILLS, GLOBAL_CLAUDE_MD_BLOCK, type GlobalSkillName } from "@/lib/global-install";
 
 // Codex CLI install/audit/remove primitives — the ~/.codex + ~/.agents twin of
 // lib/global-install.ts. Codex reads MCP servers from ~/.codex/config.toml,
@@ -212,7 +214,7 @@ export async function setupCodexAssets(): Promise<CodexSetupResult> {
     if (ensureHookEntry(CODEX_HOOKS_FILE(), { event: h.event, matcher: h.matcher, command: h.command }))
       hooksAdded++;
   const blockPresent = hasMarkerBlock(CODEX_AGENTS_MD(), AGENTS_MD_START);
-  ensureMarkerBlock(CODEX_AGENTS_MD(), AGENTS_MD_START, AGENTS_MD_END, GLOBAL_CLAUDE_MD_BLOCK);
+  ensureMarkerBlock(CODEX_AGENTS_MD(), AGENTS_MD_START, AGENTS_MD_END, GLOBAL_AGENT_BLOCK);
   const mcp = ensureCodexMcp();
   return { skillsAdded, hooksAdded, agentsMdBlockTouched: !blockPresent, mcp };
 }

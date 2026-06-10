@@ -14,6 +14,38 @@ import { dirname, join } from "node:path";
 // so one merge implementation serves both. Node-builtins only — this gets
 // dynamic-imported from bin/ entry points and must work without the Next runtime.
 
+export const GLOBAL_SKILLS = ["beacon-init", "beacon-refresh", "beacon-plan"] as const;
+export type GlobalSkillName = (typeof GLOBAL_SKILLS)[number];
+
+// Block injected into ~/.claude/CLAUDE.md AND ~/.codex/AGENTS.md so EVERY agent session —
+// including the ones in repos that have never seen Beacon — knows the tool exists and how
+// to wire it. Kept intentionally short: triggers + the one-command fix when something
+// isn't wired. Lives here (not in global-install) so codex-install can import it without
+// creating a global-install ↔ codex-install cycle — newer Bun bundlers merge cyclic CLI
+// entrypoints instead of emitting both, which shipped a broken v0.1.18.
+export const GLOBAL_AGENT_BLOCK = `## Beacon (visual planning panel)
+
+This machine has Beacon installed — a local visual planning surface for the terminal-side
+agent. Beacon proposes feature plans (roadmap features + DB schema + endpoints) via MCP,
+the user reviews on a canvas at /plan, and feedback flows back as the next round.
+
+**When to invoke**
+- User asks to "plan a feature" / "design a schema" → if the \`beacon_propose_plan\`
+  MCP tool is available, design the plan and call it. If it is NOT available, the panel
+  isn't wired in this repo — run \`beacon\` here once, then retry.
+- User asks to "set up Beacon" / "map this repo" → invoke the \`beacon-init\` skill.
+- User asks to "refresh Beacon" / "update the map" / "bring Beacon up to date" → invoke
+  the \`beacon-refresh\` skill. Re-surveys the repo and updates init-derived nodes while
+  preserving anything the user added by hand.
+- Run \`beacon doctor\` to audit what's wired (global hooks, repo's .mcp.json, AGENTS.md block).
+
+**The plan feedback loop**
+\`beacon_propose_plan\` BLOCKS until the user clicks Approve / Discard / submits feedback.
+Feedback bundles inline annotations on the markdown PLUS any edits the user made directly
+on the /map and /db boards (added features, attached subtasks, edited columns, new
+endpoints). Treat board edits as the user's revision intent — re-propose matching them
+verbatim. Do NOT implement until the tool returns approval.`;
+
 export type HookCommand = { type: "command"; command: string };
 export type HookMatcher = { matcher: string; hooks: HookCommand[] };
 export interface HooksDoc {
