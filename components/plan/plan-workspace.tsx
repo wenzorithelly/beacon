@@ -192,16 +192,15 @@ export function PlanWorkspace({
     else mapControlRef.current?.openComments();
   }, [tab]);
 
-  // Comment on a canvas node/table: add it to the feedback bundle (excerpt = the node/table name)
-  // and reveal the Comments tab so the reviewer can type the note — the canvas equivalent of
-  // selecting markdown text to comment.
+  // Comment on a canvas node/table: add it to the feedback bundle (excerpt = the node/table
+  // name). The annotation card that appears on the board is editable in place (autofocused
+  // while empty) — same flow as /map board annotations — so we do NOT yank the side panel
+  // open; the Comments tab stays a second view of the same round.
   const addNodeComment = useCallback(
     (excerpt: string) => {
       annoApi?.addComment(excerpt);
-      if (tab === "db") dbControlRef.current?.openComments();
-      else mapControlRef.current?.openComments();
     },
-    [annoApi, tab],
+    [annoApi],
   );
 
   // Clicking a numbered pin / annotation card on a board jumps to that comment in the
@@ -675,6 +674,8 @@ export function PlanWorkspace({
                   onAddComment={addNodeComment}
                   annotations={annoApi?.annotations}
                   onPinClick={focusPin}
+                  onUpdateComment={annoApi?.updateComment}
+                  onRemoveComment={annoApi?.removeAnnotation}
                 />
               ) : (
                 <DbMapClient
@@ -692,6 +693,8 @@ export function PlanWorkspace({
                   onAddComment={addNodeComment}
                   annotations={annoApi?.annotations}
                   onPinClick={focusPin}
+                  onUpdateComment={annoApi?.updateComment}
+                  onRemoveComment={annoApi?.removeAnnotation}
                 />
               )}
             </div>

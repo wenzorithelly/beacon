@@ -164,6 +164,8 @@ export function MapClient({
   onAddComment,
   annotations,
   onPinClick,
+  onUpdateComment,
+  onRemoveComment,
   boardAnnotations,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
@@ -190,6 +192,11 @@ export function MapClient({
   // as a numbered pin on the card + an "ANNOTATION · YOU" card joined by an orange curve.
   annotations?: TextAnnotation[];
   onPinClick?: (annotationId: string) => void;
+  // When provided (the /plan workspace passes the feedback round's updateComment /
+  // removeAnnotation), the on-canvas annotation cards become editable in place — same
+  // typing flow as /map board annotations — instead of read-only mirrors of the panel.
+  onUpdateComment?: (annotationId: string, comment: string) => void;
+  onRemoveComment?: (annotationId: string) => void;
   // Standalone /map mode: persistent board annotations. Providing this prop — even [] —
   // switches the surface from "plan feedback" to persisted annotations: created from the
   // card's hover-dot or the sidebar, edited in the card, position remembered.
@@ -680,10 +687,14 @@ export function MapClient({
             n: a.n,
             text: a.text,
             annotationId: a.id,
-            onClick: boardMode ? undefined : onPinClick,
-            editable: boardMode,
-            onChangeText: boardMode ? (id: string, body: string) => patchBoardAnno(id, { body }) : undefined,
-            onDelete: boardMode ? removeBoardAnno : undefined,
+            // Editable in place in BOTH modes when an update path exists; a card click only
+            // jumps to the Comments panel when the card is read-only (no editor to focus).
+            onClick: boardMode || onUpdateComment ? undefined : onPinClick,
+            editable: boardMode || !!onUpdateComment,
+            onChangeText: boardMode
+              ? (id: string, body: string) => patchBoardAnno(id, { body })
+              : onUpdateComment,
+            onDelete: boardMode ? removeBoardAnno : onRemoveComment,
           },
         },
       ];
@@ -710,6 +721,8 @@ export function MapClient({
     pinsByTarget,
     boardMode,
     onPinClick,
+    onUpdateComment,
+    onRemoveComment,
     effectiveAddComment,
     patchBoardAnno,
     removeBoardAnno,
