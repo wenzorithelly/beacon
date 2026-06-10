@@ -2,25 +2,16 @@ import chokidar from "chokidar";
 import { resolve } from "node:path";
 import { loadConfig } from "@/intel/config";
 import { runPipeline } from "@/intel/pipeline";
-import { resolveProvider } from "@/intel/extract";
 
 // CLI entry: `bun run intel/watch.ts` (or `make watch`). Watches the repo's
 // source and keeps Beacon's DB-design + code-graph maps live as you code.
 
 const config = loadConfig();
 const roots = config.roots.map((r) => resolve(config.configDir, r));
-const provider = resolveProvider(config);
-const providerLabel =
-  provider === "claude-cli"
-    ? "claude-cli (Claude Code subscription)"
-    : provider === "api"
-      ? "api (ANTHROPIC_API_KEY)"
-      : "none (deterministic only)";
 
 console.log(`[intel] watching: ${roots.join(", ")}`);
 console.log(
-  `[intel] control=${config.controlUrl} provider=${providerLabel} ` +
-    `(uses your Claude Code default model) openapi=${config.openapiUrl ?? "none"}`,
+  `[intel] control=${config.controlUrl} (deterministic sync) openapi=${config.openapiUrl ?? "none"}`,
 );
 
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -40,7 +31,7 @@ async function run() {
     console.log(
       `[intel] ${r.ok ? "synced" : `FAILED(${r.status})`}: ` +
         `${r.files} files · ${r.tables} tables · ${r.endpoints} endpoints · ` +
-        `${r.codeFiles} code-files / ${r.codeEdges} imports${cyc} [${r.provider}]`,
+        `${r.codeFiles} code-files / ${r.codeEdges} imports${cyc}`,
     );
   } catch (e) {
     console.error("[intel] pipeline error:", e instanceof Error ? e.message : e);

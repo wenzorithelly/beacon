@@ -12,8 +12,6 @@ export async function getAppSettings(prisma: DB = db) {
 
 export async function setAppSettings(
   data: {
-    intelModel?: string;
-    intelProvider?: string;
     editor?: string;
     currentFeatureId?: string | null;
   },

@@ -364,8 +364,6 @@ export const syncState = sqliteTable("SyncState", {
 
 export const appSetting = sqliteTable("AppSetting", {
   id: text().primaryKey().default("singleton"),
-  intelModel: text().default("claude-haiku-4-5").notNull(),
-  intelProvider: text().default("auto").notNull(),
   editor: text().default("auto").notNull(),
   currentFeatureId: text(),
   updatedAt: integer({ mode: "timestamp_ms" })

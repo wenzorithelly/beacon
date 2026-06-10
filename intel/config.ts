@@ -10,9 +10,8 @@ export interface IntelConfig {
   databaseUrl?: string;
   openapiUrl?: string;
   controlUrl: string;
-  // provider: "auto" prefers the Claude Code subscription (the `claude` CLI),
-  // then an ANTHROPIC_API_KEY. Force with "claude-cli" or "api".
-  llm: { provider: string; model: string; maxFiles: number; maxBytes: number };
+  // File-scan budget for the sync pass (runs on every save).
+  llm: { maxFiles: number; maxBytes: number };
 }
 
 const DEFAULTS = {
@@ -30,10 +29,7 @@ const DEFAULTS = {
     "**/*.lock",
     "**/*.lockb",
   ],
-  // "auto" uses your Claude Code subscription (no API key) when the `claude` CLI is
-  // present. Default model is Haiku — this runs on every save, so it's tuned for low
-  // token spend; bump to "claude-sonnet-4-6" / "claude-opus-4-8" if extraction misses things.
-  llm: { provider: "auto", model: "claude-haiku-4-5", maxFiles: 60, maxBytes: 400_000 },
+  llm: { maxFiles: 60, maxBytes: 400_000 },
 };
 
 function defaultControlUrl(): string {

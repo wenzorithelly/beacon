@@ -43,13 +43,12 @@ describe("resetAllData", () => {
       .insert(appSetting)
       .values({
         id: "singleton",
-        intelProvider: "auto",
         editor: "cursor",
         currentFeatureId: "x",
       })
       .onConflictDoUpdate({
         target: appSetting.id,
-        set: { intelProvider: "auto", editor: "cursor", currentFeatureId: "x" },
+        set: { editor: "cursor", currentFeatureId: "x" },
       });
 
     // Sanity: there is data to clear.
@@ -82,7 +81,6 @@ describe("resetAllData", () => {
       where: (s, { eq }) => eq(s.id, "singleton"),
     });
     expect(setting?.editor).toBe("cursor");
-    expect(setting?.intelProvider).toBe("auto");
     expect(setting?.currentFeatureId).toBeNull();
   });
 });
