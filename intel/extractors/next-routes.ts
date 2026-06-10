@@ -12,6 +12,8 @@ export interface RouteEndpoint {
   method: string;
   path: string;
   uses: { table: string; access: string }[];
+  /** Source route file — lets the watcher derive `uses` from its import radius. */
+  file: string;
 }
 
 function urlPath(filePath: string): string | null {
@@ -35,7 +37,7 @@ export function extractNextRoutes(files: SourceFile[]): RouteEndpoint[] {
     if (!path) continue;
     for (const method of METHODS) {
       const re = new RegExp(`export\\s+(?:async\\s+)?(?:function|const)\\s+${method}\\b`);
-      if (re.test(f.content)) out.push({ method, path, uses: [] });
+      if (re.test(f.content)) out.push({ method, path, uses: [], file: f.path });
     }
   }
   return out.sort((a, b) => `${a.path} ${a.method}`.localeCompare(`${b.path} ${b.method}`));

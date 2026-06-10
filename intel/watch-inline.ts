@@ -2,6 +2,7 @@ import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { createIncrementalCodeGraph } from "@/intel/extractors/code-graph";
+import { deriveEndpointUses } from "@/intel/extractors/endpoint-uses";
 import { extractModelSchema } from "@/intel/extractors/models";
 import { extractNextRoutes } from "@/intel/extractors/next-routes";
 import type { SourceFile } from "@/intel/extractors/files";
@@ -84,6 +85,41 @@ export function startWatcherForWorkspace(ws: WatchTarget): { stop: () => Promise
     const det = extractModelSchema(files);
     const endpoints = extractNextRoutes(files);
     if (!det.tables.length && !endpoints.length) return;
+
+    // Endpoint→table links, also deterministic: scan each route's import radius (live code
+    // graph) for the Drizzle table variables the model extractor reported, so the board
+    // draws real connections instead of orphan endpoint pills.
+    if (endpoints.length && det.tableVars && Object.keys(det.tableVars).length) {
+      const snap = graph.snapshot();
+      const adjacency = snap.edges;
+      // Preload every file the radius walk can touch (route + 2 hops), once per pass.
+      const wanted = new Set<string>(endpoints.map((e) => e.file));
+      const adj = new Map<string, string[]>();
+      for (const e of adjacency) {
+        const l = adj.get(e.from) ?? [];
+        l.push(e.to);
+        adj.set(e.from, l);
+      }
+      for (let d = 0; d < 2; d++) {
+        for (const f of [...wanted]) for (const to of adj.get(f) ?? []) wanted.add(to);
+      }
+      const contents = new Map<string, string>();
+      for (const rel of [...wanted].slice(0, 600)) {
+        try {
+          contents.set(rel, await readFile(join(ws.path, rel), "utf8"));
+        } catch {
+          /* vanished — skip */
+        }
+      }
+      const uses = deriveEndpointUses({
+        routeFiles: [...new Set(endpoints.map((e) => e.file))],
+        edges: adjacency,
+        content: (p) => contents.get(p) ?? null,
+        tableVars: det.tableVars,
+      });
+      for (const e of endpoints) e.uses = uses.get(e.file) ?? [];
+    }
+
     const r = await ingestSnapshot(
       { tables: det.tables, relations: det.relations, endpoints },
       targetDb,

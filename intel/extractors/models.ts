@@ -27,6 +27,8 @@ export interface ModelRelation {
 export interface ModelSchema {
   tables: ModelTable[];
   relations: ModelRelation[];
+  /** Drizzle only: TS table variable → SQL table name (drives endpoint→table linking). */
+  tableVars?: Record<string, string>;
 }
 
 // ── SQLAlchemy ───────────────────────────────────────────────────────────────
@@ -300,7 +302,11 @@ function extractDrizzle(files: SourceFile[]): ModelSchema {
       });
     }
   }
-  return { tables: dTables.map((t) => ({ name: t.tableName, columns: t.columns })), relations };
+  return {
+    tables: dTables.map((t) => ({ name: t.tableName, columns: t.columns })),
+    relations,
+    tableVars: Object.fromEntries(dTables.map((t) => [t.varName, t.tableName])),
+  };
 }
 
 // Parse the schema deterministically from whatever ORM the repo uses. Returns empty when no
