@@ -1,4 +1,10 @@
-import { ensureWorkspaceDb, resolveRequestWorkspaceId, runWithWorkspace } from "@/lib/workspaces";
+import {
+  BEACON_WS_COOKIE,
+  ensureWorkspaceDb,
+  getWorkspace,
+  resolveRequestWorkspaceId,
+  runWithWorkspace,
+} from "@/lib/workspaces";
 
 // Wrap a route handler so its whole execution is pinned to the request's workspace —
 // the `x-beacon-workspace` header (agent) or the `beacon_ws` cookie (browser selection),
@@ -21,4 +27,24 @@ export function pinned<A extends unknown[]>(
     if (id) await ensureWorkspaceDb(id);
     return runWithWorkspace(id, async () => handler(req, ...rest));
   };
+}
+
+// The server-action twin of pinned(): actions get no Request, so read the `beacon_ws`
+// cookie via next/headers. Without this, a server action's bare `db` falls back to the
+// GLOBAL active workspace — and a Details-panel/card action lands in whatever repo a
+// background `beacon` run last activated instead of the one the browser is viewing
+// (an accept-suggestion click silently updating zero rows in the wrong db).
+// next/headers is imported lazily so this module stays loadable under `bun test`.
+export async function pinnedAction<T>(fn: () => Promise<T>): Promise<T> {
+  let id: string | null = null;
+  try {
+    const { cookies } = await import("next/headers");
+    const jar = await cookies();
+    const v = jar.get(BEACON_WS_COOKIE)?.value ?? null;
+    id = v && getWorkspace(v) ? v : null;
+  } catch {
+    /* outside a request scope (CLI/test) — fall through to the active workspace */
+  }
+  if (id) await ensureWorkspaceDb(id);
+  return runWithWorkspace(id, fn);
 }
