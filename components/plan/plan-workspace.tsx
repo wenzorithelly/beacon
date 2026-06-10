@@ -74,7 +74,20 @@ export function PlanWorkspace({
 }) {
   const router = useRouter();
   const { status, discard } = usePlan();
-  const [tab, setTab] = useState<Tab>("map");
+  // A board tab only earns its place when the plan gives it content: features for Map,
+  // real or draft tables/endpoints for Database. Open directly on whichever side has
+  // something instead of landing the reviewer on an empty canvas.
+  const mapHasContent = mapProps.nodes.length > 0;
+  const dbHasContent =
+    dbProps.tables.length > 0 ||
+    dbProps.endpoints.length > 0 ||
+    (dbProps.draft?.tables.length ?? 0) > 0 ||
+    (dbProps.draft?.endpoints.length ?? 0) > 0;
+  const [tab, setTab] = useState<Tab>(mapHasContent ? "map" : "db");
+  // A later feedback round can empty the side the user was on — force the view back to
+  // the side that still has content (derived, so no setState-in-effect churn).
+  const activeTab: Tab =
+    tab === "map" && !mapHasContent ? "db" : tab === "db" && !dbHasContent ? "map" : tab;
   // When both views exist, the user can expand the plan to full width (hiding the board). In
   // that state — and whenever the markdown is the whole page (no board) — a section TOC rail
   // appears on the left for click-to-jump navigation.
@@ -188,9 +201,9 @@ export function PlanWorkspace({
 
   // Open the comments side panel on whichever board is showing (the 💬 toolbar button).
   const openComments = useCallback(() => {
-    if (tab === "db") dbControlRef.current?.openComments();
+    if (activeTab === "db") dbControlRef.current?.openComments();
     else mapControlRef.current?.openComments();
-  }, [tab]);
+  }, [activeTab]);
 
   // Comment on a canvas node/table: add it to the feedback bundle (excerpt = the node/table
   // name). The annotation card that appears on the board is editable in place (autofocused
@@ -208,10 +221,10 @@ export function PlanWorkspace({
   const focusPin = useCallback(
     (annotationId: string) => {
       annoApi?.focusOnAnnotation(annotationId);
-      if (tab === "db") dbControlRef.current?.openComments();
+      if (activeTab === "db") dbControlRef.current?.openComments();
       else mapControlRef.current?.openComments();
     },
-    [annoApi, tab],
+    [annoApi, activeTab],
   );
 
   // Persisted left-pane width (percent) so the user's preferred split survives reloads.
@@ -277,12 +290,7 @@ export function PlanWorkspace({
   // When the plan proposes nothing for the boards (no draft tables/endpoints, no draft
   // features) there's nothing to show on the right — render the markdown full-width so a
   // pure-prose plan is just a clean document to read, not a doc squeezed next to empty canvases.
-  const hasBoard =
-    mapProps.nodes.length > 0 ||
-    dbProps.tables.length > 0 ||
-    dbProps.endpoints.length > 0 ||
-    (dbProps.draft?.tables.length ?? 0) > 0 ||
-    (dbProps.draft?.endpoints.length ?? 0) > 0;
+  const hasBoard = mapHasContent || dbHasContent;
 
   // The board shows only in split mode (a board exists AND the user hasn't expanded the plan).
   // The section TOC shows whenever the markdown is full width: expanded, or no board at all.
@@ -642,26 +650,31 @@ export function PlanWorkspace({
             className="relative flex min-w-0 flex-col"
             style={{ width: `${100 - leftPct}%` }}
           >
-            <div className="pointer-events-none absolute left-3 top-3 z-20">
-              <div className="glass pointer-events-auto flex items-center gap-1 rounded-full p-0.5">
-                <TabBtn
-                  active={tab === "map"}
-                  onClick={() => setTab("map")}
-                  icon={<MapPinned className="size-3" />}
-                >
-                  Map
-                </TabBtn>
-                <TabBtn
-                  active={tab === "db"}
-                  onClick={() => setTab("db")}
-                  icon={<Database className="size-3" />}
-                >
-                  Database
-                </TabBtn>
+            {/* The Map/Database switch only renders when BOTH sides have content — a plan
+                that proposes only schema (or only features) opens straight on that board
+                with no empty sibling tab to wander into. */}
+            {mapHasContent && dbHasContent && (
+              <div className="pointer-events-none absolute left-3 top-3 z-20">
+                <div className="glass pointer-events-auto flex items-center gap-1 rounded-full p-0.5">
+                  <TabBtn
+                    active={activeTab === "map"}
+                    onClick={() => setTab("map")}
+                    icon={<MapPinned className="size-3" />}
+                  >
+                    Map
+                  </TabBtn>
+                  <TabBtn
+                    active={activeTab === "db"}
+                    onClick={() => setTab("db")}
+                    icon={<Database className="size-3" />}
+                  >
+                    Database
+                  </TabBtn>
+                </div>
               </div>
-            </div>
+            )}
             <div className="min-h-0 flex-1 overflow-hidden bg-background">
-              {tab === "map" ? (
+              {activeTab === "map" ? (
                 <MapClient
                   view={mapProps.view}
                   nodes={mapProps.nodes}

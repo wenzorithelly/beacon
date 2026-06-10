@@ -204,9 +204,12 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
     <div
       className={cn(
         "group/nc relative rounded-lg border bg-card px-2.5 py-2 text-card-foreground shadow-sm transition",
-        // Sub-tasks share the feature width: the old narrower w-56 left the badge row
-        // ~14px short, so the category pill got cropped ("LAUNCH" → "LAUNCI").
-        expanded ? "w-80" : "w-64",
+        // Width fits the BADGE ROW: cards aren't all the same width — one with many chips
+        // (IA + long category + long status) grows up to max-w-96 so the row never wraps or
+        // crops. Every other row is `w-0 min-w-full` so it follows the card width instead of
+        // driving it (a long title wraps; it doesn't widen the card).
+        "w-fit max-w-96",
+        expanded ? "min-w-80" : "min-w-64",
         draft
           ? "border-dashed border-sky-400/50 bg-sky-500/[0.06]"
           : suggested
@@ -252,7 +255,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
       )}
 
       {/* Title row */}
-      <div className="flex items-start gap-1.5">
+      <div className="flex w-0 min-w-full items-start gap-1.5">
         {working && (
           <span
             title="em andamento"
@@ -307,7 +310,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
       {/* Deterministic rollup signals (untested files / auth touch) — permanent roadmap view.
           Only render when there's something worth flagging, so benign features stay clean. */}
       {((data.signals?.untested ?? 0) > 0 || data.signals?.auth || openBugs > 0) && (
-        <div className="mt-1 flex flex-wrap items-center gap-1">
+        <div className="mt-1 flex w-0 min-w-full flex-wrap items-center gap-1">
           {openBugs > 0 && (
             <span
               title={`${openBugs} open bug flag(s) — raised by you or an agent examining this code`}
@@ -343,7 +346,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
       {data.role && (
         <div
           className={cn(
-            "mt-0.5 text-[10px] leading-snug text-muted-foreground",
+            "mt-0.5 w-0 min-w-full text-[10px] leading-snug text-muted-foreground",
             !expanded && "line-clamp-1",
           )}
         >
@@ -351,10 +354,10 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
         </div>
       )}
 
-      {/* Domain / category + status row. Wraps instead of flex-shrinking: when extra badges
-          (IA chip, bug chip) + a long status crowd the line, the status select drops to a
-          second row rather than cropping the category pill text. */}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {/* Domain / category + status row — the ONE row that drives the card's width (w-fit
+          above): extra badges + a long status widen the card instead of wrapping the status
+          onto a second line or cropping the category pill. */}
+      <div className="mt-2 flex items-center gap-1.5">
         {/* Roadmap: feature (top-level) vs sub-task badge, then a free category tag.
             Architecture: the DOMAIN is the prominent (editable) pill — it's what tells one
             component apart from another, instead of a generic "COMPONENT" tag on every card. */}
@@ -471,7 +474,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
           edited so an agent's `beacon_describe_feature` update (with headings + file
           bullets) reads naturally. Click the preview to switch to a textarea. */}
       {expanded && (
-        <div className="mt-2 space-y-2 border-t border-white/10 pt-2">
+        <div className="mt-2 w-0 min-w-full space-y-2 border-t border-white/10 pt-2">
           {editingPlain || !plain.trim() ? (
             <textarea
               autoFocus={editingPlain}
