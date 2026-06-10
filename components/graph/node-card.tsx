@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { FourDotHandles } from "@/components/graph/handles";
 import { PinRail } from "@/components/graph/annotation-node";
+import { acceptSuggestionAction } from "@/app/actions/nodes";
 import {
   Bug,
+  Check,
   Sparkles,
   Maximize2,
   Minimize2,
@@ -16,6 +18,7 @@ import {
   MessageSquarePlus,
   FlaskConical,
   Lock,
+  X,
 } from "lucide-react";
 import {
   Select,
@@ -199,6 +202,11 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
 
   const save = (fields: Record<string, unknown>) => patch(id, fields, true);
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+
+  // Accept an AI-suggested (INIT) card in place — same action the Details panel runs
+  // (source → MANUAL, drops the violet styling); Dismiss deletes it like the panel does.
+  const [accepting, startAccept] = useTransition();
+  const acceptSuggestion = () => startAccept(async () => acceptSuggestionAction(id));
 
   return (
     <div
@@ -384,8 +392,37 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
               {isBug ? "bug" : data.isChild ? "sub-task" : "feature"}
             </span>
             {suggested && (
-              <span className="flex items-center gap-1 rounded bg-violet-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-300">
+              <span
+                className={cn(
+                  "flex items-center gap-1 rounded bg-violet-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-300",
+                  accepting && "opacity-50",
+                )}
+              >
                 <Sparkles className="size-2.5" /> IA
+                <button
+                  type="button"
+                  title="Accept suggestion — turn it into your own feature"
+                  disabled={accepting}
+                  onClick={(e) => {
+                    stop(e);
+                    acceptSuggestion();
+                  }}
+                  className={cn(noDrag, "-my-0.5 rounded p-0.5 hover:bg-emerald-500/20 hover:text-emerald-300")}
+                >
+                  <Check className="size-2.5" />
+                </button>
+                <button
+                  type="button"
+                  title="Dismiss suggestion (deletes the card)"
+                  disabled={accepting}
+                  onClick={(e) => {
+                    stop(e);
+                    removeNode(id);
+                  }}
+                  className={cn(noDrag, "-my-0.5 -ml-0.5 rounded p-0.5 hover:bg-red-500/20 hover:text-red-300")}
+                >
+                  <X className="size-2.5" />
+                </button>
               </span>
             )}
             {/* Domain as ONE colored chip (same treatment as the architecture card), so the

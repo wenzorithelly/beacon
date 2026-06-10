@@ -156,7 +156,9 @@ export async function POST(req: Request) {
 
       writePlanMeta({
         description: parsed.description,
-        proposedAt: Date.now(),
+        // Strictly monotonic: proposedAt doubles as the round token for the stale-submit
+        // guard, so two rounds landing in the same millisecond must still differ.
+        proposedAt: Math.max(Date.now(), (prevMeta?.proposedAt ?? 0) + 1),
         // Preserve the rich markdown a prior push (e.g. the ExitPlanMode hook) stored for
         // the SAME in-flight plan when this push omits it. Otherwise a follow-up
         // propose_plan that only carries a board would wipe the prose, and the approved
