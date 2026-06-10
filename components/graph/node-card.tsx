@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { FourDotHandles } from "@/components/graph/handles";
 import { PinRail } from "@/components/graph/annotation-node";
@@ -70,6 +71,107 @@ const PRIORITIES = [
 // Keep React Flow from dragging/panning/deleting while you interact with a control.
 const noDrag = "nodrag nopan";
 
+// Edge button on ARCHITECTURE cards (stacked above the annotate button): flag a bug /
+// something worth investigating on this component without opening the detail sidebar.
+// Posts by="user"; the open-flag badge updates via router.refresh().
+function BugFlagButton({ nodeId }: { nodeId: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const close = () => {
+    setOpen(false);
+    setNote("");
+  };
+
+  const submit = async () => {
+    const v = note.trim();
+    if (!v || busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/bug-flags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nodeId, by: "user", note: v }),
+      });
+      if (res.ok) {
+        close();
+        router.refresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        title="Flag a bug on this component"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+        className={cn(
+          noDrag,
+          "absolute -right-3 top-[calc(50%-28px)] z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-[#242428] text-muted-foreground shadow-md transition-all hover:border-rose-400/50 hover:text-rose-300",
+          open ? "border-rose-400/50 text-rose-300 opacity-100" : "opacity-0 group-hover/nc:opacity-100",
+        )}
+      >
+        <Bug className="size-3" />
+      </button>
+      {open && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            noDrag,
+            "absolute -right-2 top-[calc(50%-28px)] z-20 w-60 translate-x-full rounded-xl border border-rose-400/25 bg-[#1c1c1f] p-2 shadow-xl",
+          )}
+        >
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-rose-300">
+              <Bug className="size-3" /> Flag a bug
+            </span>
+            <button
+              type="button"
+              title="Cancel"
+              onClick={close}
+              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+            >
+              <span className="block px-1 text-[11px] leading-none">✕</span>
+            </button>
+          </div>
+          <textarea
+            autoFocus
+            rows={2}
+            value={note}
+            placeholder="What did you find?"
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Escape") close();
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+            className="field-sizing-content max-h-40 min-h-12 w-full resize-none rounded-md bg-white/[0.04] px-1.5 py-1 text-xs outline-none placeholder:text-muted-foreground/50 focus:bg-white/[0.07]"
+          />
+          <button
+            type="button"
+            disabled={busy || !note.trim()}
+            onClick={() => void submit()}
+            className="mt-1.5 w-full rounded-md bg-rose-500/15 py-1 text-[11px] font-semibold text-rose-300 transition-colors hover:bg-rose-500/25 disabled:opacity-50"
+          >
+            {busy ? "Flagging…" : "Flag bug"}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
   const { categories, statuses, patch, isExpanded, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent } =
     useNodeEdit();
@@ -87,6 +189,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
 
   const critical = data.priority === 0;
   const isBug = data.kind === "BUG" && data.view === "ROADMAP";
+  const isArch = data.view === "ARCHITECTURE";
   const openBugs = data.openBugs ?? 0;
   const cancelled = data.status === "CANCELLED" || data.status === "DROP";
   const dimmed = data.status === "DEPRIORITIZED";
@@ -120,6 +223,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
       )}
     >
       <FourDotHandles />
+      {isArch && <BugFlagButton nodeId={id} />}
       {(data.pins?.length ?? 0) > 0 ? (
         <PinRail pins={data.pins!} onPinClick={data.onPinClick} />
       ) : (
