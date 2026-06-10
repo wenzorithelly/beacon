@@ -18,6 +18,20 @@
 
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+
+  // Heal the FALLBACK db (file:./dev.db — what `db` resolves to when no workspace is
+  // registered/active) in every env: no other boundary migrates it, and a schema-stale
+  // dev.db 500s every zero-workspace request. No-op for remote DATABASE_URLs.
+  try {
+    const { ensureDefaultDb } = await import("@/lib/db-drizzle");
+    await ensureDefaultDb();
+  } catch (e) {
+    console.error(
+      "[beacon] failed to provision the fallback db:",
+      e instanceof Error ? e.message : e,
+    );
+  }
+
   if (process.env.NODE_ENV === "production") return;
   if (process.env.BEACON_NO_INLINE_WATCH === "1") return;
 

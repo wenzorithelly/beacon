@@ -8,7 +8,7 @@ import {
   setActiveId,
   workspaceIdFromRequest,
 } from "@/lib/workspaces";
-import { invalidateDb } from "@/lib/db-drizzle";
+import { ensureDefaultDb, invalidateDb } from "@/lib/db-drizzle";
 import { deleteWorkspace } from "@/lib/workspace-delete";
 
 export const dynamic = "force-dynamic";
@@ -55,9 +55,13 @@ export async function DELETE(req: Request) {
   if (!r.removed) return new Response("unknown workspace", { status: 404 });
   if (!r.ok) return Response.json({ ok: false, error: r.error }, { status: 500 });
   // Heal the fallback before the browser refreshes onto it (same self-heal as POST).
+  // With NO workspace left, requests fall through to the default db — heal that instead,
+  // so the panel's polling routes don't 500 on a schema-stale dev.db.
   if (r.fallbackId) {
     const h = await ensureWorkspaceDb(r.fallbackId);
     if (h.created || h.migrated) invalidateDb(dbUrlFor(r.fallbackId));
+  } else {
+    await ensureDefaultDb();
   }
   const res = Response.json({ ok: true, fallbackId: r.fallbackId });
   // Always repoint: the settings card only deletes the workspace this browser is viewing.

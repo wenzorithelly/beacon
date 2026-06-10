@@ -78,6 +78,28 @@ export function closeDb(dbUrl: string): void {
   }
 }
 
+// The fallback db (DEFAULT_URL) is the one db NO boundary used to provision or migrate — it only
+// gets hit when no workspace resolves (zero registered, or the last one was just deleted), at
+// which point a schema-stale dev.db 500s every query ("no such column: …"). Heal it the same way
+// per-workspace dbs are healed, memoized per url per process. Local files only: a remote
+// (libsql:/Turso) DATABASE_URL must never be migrated from here. Never throws.
+const defaultProvisioned = new Map<string, Promise<void>>();
+export function ensureDefaultDb(url: string = DEFAULT_URL): Promise<void> {
+  if (!/^file:/i.test(url)) return Promise.resolve();
+  let p = defaultProvisioned.get(url);
+  if (!p) {
+    p = import("@/lib/drizzle/provision")
+      .then(({ provisionDb }) => provisionDb(url))
+      .then(() => {})
+      .catch((e) => {
+        defaultProvisioned.delete(url); // let a later boundary retry
+        console.error("[beacon] fallback db provision failed:", e instanceof Error ? e.message : e);
+      });
+    defaultProvisioned.set(url, p);
+  }
+  return p;
+}
+
 // Resolve the workspace this access targets and return its cached client. Provisioning/migration is
 // NOT done here: the libSQL migrator is async and this getter is synchronous (it returns a bound
 // Drizzle method to call). Callers reach a workspace through an async boundary that has already

@@ -93,6 +93,29 @@ describe("deleteWorkspace", () => {
   }, 60_000);
 });
 
+describe("ensureDefaultDb", () => {
+  it("provisions a missing fallback db so zero-workspace requests don't 500", async () => {
+    const { ensureDefaultDb, getDb } = await import("@/lib/db-drizzle");
+    const { node } = await import("@/lib/drizzle/schema");
+    const { count } = await import("drizzle-orm");
+    const url = `file:${join(HOME, "default-fallback.sqlite")}`;
+    expect(existsSync(join(HOME, "default-fallback.sqlite"))).toBe(false);
+
+    await ensureDefaultDb(url);
+    expect(existsSync(join(HOME, "default-fallback.sqlite"))).toBe(true);
+    // The schema is real AND current — this query needs the `kind` column that the
+    // stale-dev.db bug was missing ("no such column: kind" on /api/plan).
+    const db = getDb(url);
+    expect((await db.select({ n: count() }).from(node))[0].n).toBe(0);
+    await ensureDefaultDb(url); // idempotent — memoized, no re-migrate, no throw
+  }, 60_000);
+
+  it("is a no-op for non-file urls (never migrates a remote db)", async () => {
+    const { ensureDefaultDb } = await import("@/lib/db-drizzle");
+    await ensureDefaultDb("libsql://remote.example.turso.io"); // must not throw or connect
+  });
+});
+
 describe("DELETE /api/workspace", () => {
   it("404s on an unknown id", async () => {
     const { DELETE } = await import("@/app/api/workspace/route");

@@ -1,10 +1,26 @@
 import {
   BEACON_WS_COOKIE,
   ensureWorkspaceDb,
+  getActiveId,
   getWorkspace,
   resolveRequestWorkspaceId,
   runWithWorkspace,
 } from "@/lib/workspaces";
+import { ensureDefaultDb } from "@/lib/db-drizzle";
+
+// Heal whatever db this request will ACTUALLY hit. With no pin the db proxy falls back to
+// the global active workspace, and with no active one to the DEFAULT db (file:./dev.db) —
+// which no other boundary provisions, so a zero-workspace request used to 500 on a stale
+// schema. All three branches short-circuit once known-current this process.
+async function ensureRequestDb(id: string | null): Promise<void> {
+  if (id) {
+    await ensureWorkspaceDb(id);
+    return;
+  }
+  const active = getActiveId();
+  if (active) await ensureWorkspaceDb(active);
+  else await ensureDefaultDb();
+}
 
 // Wrap a route handler so its whole execution is pinned to the request's workspace —
 // the `x-beacon-workspace` header (agent) or the `beacon_ws` cookie (browser selection),
@@ -24,7 +40,7 @@ export function pinned<A extends unknown[]>(
 ): (req: Request, ...rest: A) => Promise<Response> {
   return async (req, ...rest) => {
     const id = await resolveRequestWorkspaceId(req);
-    if (id) await ensureWorkspaceDb(id);
+    await ensureRequestDb(id);
     return runWithWorkspace(id, async () => handler(req, ...rest));
   };
 }
@@ -45,6 +61,6 @@ export async function pinnedAction<T>(fn: () => Promise<T>): Promise<T> {
   } catch {
     /* outside a request scope (CLI/test) — fall through to the active workspace */
   }
-  if (id) await ensureWorkspaceDb(id);
+  await ensureRequestDb(id);
   return runWithWorkspace(id, fn);
 }
