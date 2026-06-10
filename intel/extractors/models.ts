@@ -3,8 +3,9 @@ import type { SourceFile } from "@/intel/extractors/files";
 // Deterministic schema extraction from ORM model source — NO AI. The AI pass is unreliable for
 // this (it silently drops tables), so the real schema is parsed straight from the code: every
 // table the codebase declares is emitted, with real column types and FK relations. Supports
-// SQLAlchemy (declarative + Mapped[]/mapped_column) and Prisma. The pipeline overrides the AI's
-// tables/relations with this so the /db board always matches the code.
+// SQLAlchemy (declarative + Mapped[]/mapped_column), Prisma, and Drizzle (sqliteTable/pgTable/
+// mysqlTable). The pipeline overrides the AI's tables/relations with this so the /db board
+// always matches the code.
 
 export interface ModelColumn {
   name: string;
@@ -210,9 +211,103 @@ function extractPrisma(files: SourceFile[]): ModelSchema {
   return { tables, relations };
 }
 
+// ── Drizzle ──────────────────────────────────────────────────────────────────
+
+// SQL type for a drizzle column-builder call: the builder name, refined by mode args
+// (integer({ mode: "timestamp_ms" }) is a timestamp, not an int, to the reader).
+function drizzleType(builder: string, args: string): string {
+  if (/mode:\s*["']timestamp/.test(args)) return "timestamp";
+  if (/mode:\s*["']boolean["']/.test(args)) return "boolean";
+  if (/mode:\s*["']json["']/.test(args)) return "jsonb";
+  return builder;
+}
+
+// The matching-brace body starting at the "{" index `open`.
+function balancedBraces(src: string, open: number): string {
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(open + 1, i);
+    }
+  }
+  return "";
+}
+
+function extractDrizzle(files: SourceFile[]): ModelSchema {
+  interface DTable {
+    varName: string;
+    tableName: string;
+    columns: ModelColumn[];
+    /** TS property key → SQL column name (for resolving `.references(() => other.prop)`). */
+    colByProp: Map<string, string>;
+    fks: Array<{ column: string; toVar: string; toProp: string }>;
+  }
+  const dTables: DTable[] = [];
+  const COL_BUILDERS = /(\w+)\s*:\s*(text|integer|real|blob|numeric|varchar|boolean|timestamp|serial|uuid|json|jsonb)\s*\(/g;
+
+  for (const f of files) {
+    if (!/\.(ts|tsx|mts|cts)$/.test(f.path)) continue;
+    if (!/\b(?:sqliteTable|pgTable|mysqlTable)\s*\(/.test(f.content)) continue;
+    const tableRe = /(?:export\s+)?const\s+(\w+)\s*=\s*(?:sqliteTable|pgTable|mysqlTable)\s*\(\s*["']([^"']+)["']\s*,/g;
+    let tm: RegExpExecArray | null;
+    while ((tm = tableRe.exec(f.content))) {
+      const open = f.content.indexOf("{", tm.index + tm[0].length);
+      if (open < 0) continue;
+      const body = balancedBraces(f.content, open);
+      const t: DTable = { varName: tm[1], tableName: tm[2], columns: [], colByProp: new Map(), fks: [] };
+
+      // Each column = its builder call through to the next column key (the builder chain).
+      const starts: Array<{ prop: string; builder: string; at: number; argOpen: number }> = [];
+      COL_BUILDERS.lastIndex = 0;
+      for (const m of body.matchAll(COL_BUILDERS)) {
+        starts.push({ prop: m[1], builder: m[2], at: m.index, argOpen: m.index + m[0].length - 1 });
+      }
+      starts.forEach((s, i) => {
+        const chain = body.slice(s.at, starts[i + 1]?.at ?? body.length);
+        const args = balanced(body, s.argOpen);
+        // text("A") — an explicit SQL column name overrides the property key.
+        const explicit = args.match(/^\s*["']([^"']+)["']/)?.[1];
+        const name = explicit ?? s.prop;
+        const fk = chain.match(/\.references\(\s*\(\)\s*=>\s*(\w+)\.(\w+)/);
+        t.columns.push({
+          name,
+          type: drizzleType(s.builder, args),
+          isPk: /\.primaryKey\(\)/.test(chain) || undefined,
+          isFk: fk ? true : undefined,
+          nullable: /\.notNull\(\)/.test(chain) ? false : true,
+        });
+        t.colByProp.set(s.prop, name);
+        if (fk) t.fks.push({ column: name, toVar: fk[1], toProp: fk[2] });
+      });
+      dTables.push(t);
+    }
+  }
+  if (!dTables.length) return { tables: [], relations: [] };
+
+  const byVar = new Map(dTables.map((t) => [t.varName, t]));
+  const relations: ModelRelation[] = [];
+  for (const t of dTables) {
+    for (const fk of t.fks) {
+      const target = byVar.get(fk.toVar);
+      if (!target) continue; // external/unknown reference
+      relations.push({
+        fromTable: t.tableName,
+        fromColumn: fk.column,
+        toTable: target.tableName,
+        toColumn: target.colByProp.get(fk.toProp) ?? fk.toProp,
+      });
+    }
+  }
+  return { tables: dTables.map((t) => ({ name: t.tableName, columns: t.columns })), relations };
+}
+
 // Parse the schema deterministically from whatever ORM the repo uses. Returns empty when no
 // recognizable models are present (then the AI snapshot's tables are kept as-is).
 export function extractModelSchema(files: SourceFile[]): ModelSchema {
+  const drizzle = extractDrizzle(files);
+  if (drizzle.tables.length) return drizzle;
   const prisma = extractPrisma(files);
   if (prisma.tables.length) return prisma;
   return extractSqlAlchemy(files);

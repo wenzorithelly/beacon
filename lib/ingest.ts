@@ -90,19 +90,32 @@ export async function bumpVersion(prisma: Prisma = db): Promise<number> {
  * entities: upsert by stable key (name / method+path) preserving manual x/y,
  * delete introspected entities absent from the snapshot. Manual entities and
  * the roadmap are never touched. Bumps the sync version.
+ *
+ * `partial: true` (the inline watcher's deterministic extract) reads an EMPTY
+ * section as "unknown", not "none": no tables → the table/relation sections are
+ * left alone; no endpoints → endpoints are left alone; an endpoint without
+ * `uses` keeps the table links it already has. Without this, a Python repo
+ * (tables, no Next routes) would wipe its introspected endpoints every pass.
  */
-export async function ingestSnapshot(input: unknown, prisma: Prisma = db) {
+export async function ingestSnapshot(
+  input: unknown,
+  prisma: Prisma = db,
+  opts: { partial?: boolean } = {},
+) {
   const snap = snapshotSchema.parse(input);
+  const doTables = !opts.partial || snap.tables.length > 0;
+  const doEndpoints = !opts.partial || snap.endpoints.length > 0;
 
   // tables ----------------------------------------------------------------
   const keepTables = snap.tables.map((t) => t.name);
-  await prisma
-    .delete(dbTable)
-    .where(
-      keepTables.length
-        ? and(eq(dbTable.source, "INTROSPECTION"), notInArray(dbTable.name, keepTables))
-        : eq(dbTable.source, "INTROSPECTION"),
-    );
+  if (doTables)
+    await prisma
+      .delete(dbTable)
+      .where(
+        keepTables.length
+          ? and(eq(dbTable.source, "INTROSPECTION"), notInArray(dbTable.name, keepTables))
+          : eq(dbTable.source, "INTROSPECTION"),
+      );
 
   // Position NEW tables with a masonry pack sized to each table's column count, anchored
   // against whatever tables are already on the canvas. The old `(i%4)*320, floor(i/4)*260`
@@ -189,11 +202,13 @@ export async function ingestSnapshot(input: unknown, prisma: Prisma = db) {
 
   // endpoints --------------------------------------------------------------
   const keepEp = new Set(snap.endpoints.map((e) => `${e.method} ${e.path}`));
-  const introEps = await prisma.query.endpoint.findMany({
-    where: (t, { eq }) => eq(t.source, "INTROSPECTION"),
-  });
-  const stale = introEps.filter((e) => !keepEp.has(`${e.method} ${e.path}`)).map((e) => e.id);
-  if (stale.length) await prisma.delete(endpoint).where(inArray(endpoint.id, stale));
+  if (doEndpoints) {
+    const introEps = await prisma.query.endpoint.findMany({
+      where: (t, { eq }) => eq(t.source, "INTROSPECTION"),
+    });
+    const stale = introEps.filter((e) => !keepEp.has(`${e.method} ${e.path}`)).map((e) => e.id);
+    if (stale.length) await prisma.delete(endpoint).where(inArray(endpoint.id, stale));
+  }
 
   // For NEW endpoints we drop into the next free slot of the multi-column grid (the
   // single-column stack made a real backend's endpoints into a 4000px-tall fence).
@@ -232,7 +247,10 @@ export async function ingestSnapshot(input: unknown, prisma: Prisma = db) {
         },
       })
       .returning();
-    await prisma.delete(endpointTable).where(eq(endpointTable.endpointId, saved.id));
+    // In partial mode an endpoint with no `uses` keeps whatever links it already has —
+    // the deterministic route extractor knows methods+paths, not table access.
+    if (!opts.partial || e.uses.length > 0)
+      await prisma.delete(endpointTable).where(eq(endpointTable.endpointId, saved.id));
     for (const u of e.uses) {
       const tid =
         tableIdByName.get(u.table) ??

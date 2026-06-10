@@ -1,12 +1,18 @@
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
-import { join, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import { createIncrementalCodeGraph } from "@/intel/extractors/code-graph";
+import { extractModelSchema } from "@/intel/extractors/models";
+import { extractNextRoutes } from "@/intel/extractors/next-routes";
+import type { SourceFile } from "@/intel/extractors/files";
+import { isSchemaCandidate, schemaCandidates } from "@/intel/schema-candidates";
 import {
   applyCodeGraphPatch,
   ingestCodeGraph,
   resolveGraph,
   type ResolvedGraph,
 } from "@/lib/code-graph";
+import { ingestSnapshot } from "@/lib/ingest";
 import { getDb } from "@/lib/db-drizzle";
 import { dbUrlFor, ensureWorkspaceDb } from "@/lib/workspaces";
 
@@ -53,6 +59,43 @@ export function startWatcherForWorkspace(ws: WatchTarget): { stop: () => Promise
   // the one file that changed (mtime-gated) and we persist a MINIMAL DB diff — no re-walk and
   // no full re-ingest per save. `prev` is the stored representation (mirrors the DB).
   const graph = createIncrementalCodeGraph(roots, ws.path);
+
+  // Deterministic DB-board sync: parse ORM models + Next route files (a handful, already
+  // known from the graph's file list) and upsert tables/endpoints as INTROSPECTION — so a
+  // table/endpoint the agent just implemented flips to "live" without an AI pass. Partial
+  // ingest: a repo without recognizable models (or routes) leaves that section untouched.
+  async function syncSchema(): Promise<void> {
+    const rels = schemaCandidates(graph.snapshot().files.map((f) => f.path));
+    // schema.prisma isn't a code-graph language, so the walk never lists it — probe directly.
+    for (const root of roots) {
+      for (const probe of ["prisma/schema.prisma", "schema.prisma"]) {
+        const abs = join(root, probe);
+        if (existsSync(abs)) rels.push(toRel(abs));
+      }
+    }
+    const files: SourceFile[] = [];
+    for (const rel of rels) {
+      try {
+        files.push({ path: rel, content: await readFile(join(ws.path, rel), "utf8") });
+      } catch {
+        /* vanished — skip */
+      }
+    }
+    const det = extractModelSchema(files);
+    const endpoints = extractNextRoutes(files);
+    if (!det.tables.length && !endpoints.length) return;
+    const r = await ingestSnapshot(
+      { tables: det.tables, relations: det.relations, endpoints },
+      targetDb,
+      { partial: true },
+    );
+    console.log(
+      `[beacon-inline] schema synced (${ws.name}): ${r.tables} tables / ${r.endpoints} endpoints`,
+    );
+  }
+  function toRel(abs: string): string {
+    return relative(ws.path, abs).split(/[\\/]/).join("/");
+  }
   let prev: ResolvedGraph | null = null; // null → (re)seed needed
   let needsReseed = false; // set when an event arrives without a filename (unknown change)
   const pending = new Set<string>(); // absolute paths reported changed since the last run
@@ -81,22 +124,28 @@ export function startWatcherForWorkspace(ws: WatchTarget): { stop: () => Promise
             r.circular > 0 ? ` (${r.circular} circular)` : ""
           }`,
         );
+        await syncSchema();
         return;
       }
       // Incremental: re-read only the files that changed, then persist a minimal diff.
       const changed = [...pending];
       pending.clear();
+      // A model/route file save must re-sync the DB board even when the import graph is
+      // unchanged (schema.prisma isn't even a graph language) — decide before the gate.
+      const schemaTouched = changed.some((abs) => isSchemaCandidate(toRel(abs)));
       let touched = false;
       for (const abs of changed) if (await graph.applyChange(abs)) touched = true;
-      if (!touched) return; // every event was a no-op (unchanged mtime / ignored path)
-      const next = resolveGraph(graph.snapshot());
-      const r = await applyCodeGraphPatch(prev, next, targetDb);
-      prev = next;
-      console.log(
-        `[beacon-inline] code-graph updated (${ws.name}): ${r.files} files / ${r.edges} imports${
-          r.circular > 0 ? ` (${r.circular} circular)` : ""
-        }`,
-      );
+      if (touched) {
+        const next = resolveGraph(graph.snapshot());
+        const r = await applyCodeGraphPatch(prev, next, targetDb);
+        prev = next;
+        console.log(
+          `[beacon-inline] code-graph updated (${ws.name}): ${r.files} files / ${r.edges} imports${
+            r.circular > 0 ? ` (${r.circular} circular)` : ""
+          }`,
+        );
+      }
+      if (schemaTouched) await syncSchema();
     } catch (e) {
       console.error(`[beacon-inline] error (${ws.name}):`, e instanceof Error ? e.message : e);
     } finally {

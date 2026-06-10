@@ -110,3 +110,69 @@ model Note {
     expect(tables.some((t) => t.name === "x")).toBe(false);
   });
 });
+
+describe("extractModelSchema — Drizzle", () => {
+  const schema = {
+    path: "lib/drizzle/schema.ts",
+    content: `
+import { sqliteTable, index, text, integer, real } from "drizzle-orm/sqlite-core";
+export const node = sqliteTable(
+  "Node",
+  {
+    id: text().primaryKey().$defaultFn(() => createId()),
+    title: text().notNull(),
+    parentId: text(),
+    x: real().default(0).notNull(),
+    progress: integer().default(0).notNull(),
+    pinned: integer({ mode: "boolean" }).default(false).notNull(),
+    createdAt: integer({ mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [index("Node_parentId_idx").on(t.parentId)],
+);
+export const nodeFile = sqliteTable(
+  "NodeFile",
+  {
+    id: text().primaryKey(),
+    nodeId: text()
+      .notNull()
+      .references(() => node.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    a: text("A").notNull(),
+  },
+);
+`,
+  };
+
+  it("extracts every sqliteTable with typed columns, pk/nullable flags", () => {
+    const out = extractModelSchema([schema]);
+    const names = out.tables.map((t) => t.name).sort();
+    expect(names).toEqual(["Node", "NodeFile"]);
+    const node = out.tables.find((t) => t.name === "Node")!;
+    const col = (n: string) => node.columns.find((c) => c.name === n)!;
+    expect(col("id").isPk).toBe(true);
+    expect(col("id").type).toBe("text");
+    expect(col("title").nullable).toBe(false);
+    expect(col("parentId").nullable).toBe(true);
+    expect(col("x").type).toBe("real");
+    expect(col("pinned").type).toBe("boolean");
+    expect(col("createdAt").type).toBe("timestamp");
+  });
+
+  it("resolves .references() into an FK column + relation by TABLE name", () => {
+    const out = extractModelSchema([schema]);
+    const nf = out.tables.find((t) => t.name === "NodeFile")!;
+    expect(nf.columns.find((c) => c.name === "nodeId")!.isFk).toBe(true);
+    expect(out.relations).toContainEqual({
+      fromTable: "NodeFile",
+      fromColumn: "nodeId",
+      toTable: "Node",
+      toColumn: "id",
+    });
+  });
+
+  it("honors an explicit column name (text(\"A\"))", () => {
+    const out = extractModelSchema([schema]);
+    const nf = out.tables.find((t) => t.name === "NodeFile")!;
+    expect(nf.columns.some((c) => c.name === "A")).toBe(true);
+    expect(nf.columns.some((c) => c.name === "a")).toBe(false);
+  });
+});

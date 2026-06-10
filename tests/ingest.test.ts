@@ -161,3 +161,56 @@ describe("ingestSnapshot", () => {
     expect(epKeys.size).toBe(eps.length);
   });
 });
+
+// Partial mode: the inline watcher's deterministic extract may know only ONE side (e.g. a
+// Python repo has tables but no Next routes). An empty section then means "unknown", never
+// "delete everything introspected".
+describe("ingestSnapshot — partial mode", () => {
+  it("an empty endpoints section leaves introspected endpoints untouched", async () => {
+    await ingestSnapshot(
+      { tables: [], relations: [], endpoints: [{ method: "GET", path: "/api/a", uses: [] }] },
+      db,
+    );
+    await ingestSnapshot(
+      { tables: [{ name: "T", columns: [{ name: "id", type: "text" }] }], relations: [], endpoints: [] },
+      db,
+      { partial: true },
+    );
+    const eps = await db.query.endpoint.findMany();
+    expect(eps.map((e) => e.path)).toContain("/api/a");
+    expect((await db.query.dbTable.findMany()).map((t) => t.name)).toContain("T");
+  });
+
+  it("an empty tables section leaves introspected tables untouched", async () => {
+    await ingestSnapshot(
+      { tables: [{ name: "Keep", columns: [{ name: "id", type: "text" }] }], relations: [], endpoints: [] },
+      db,
+    );
+    await ingestSnapshot(
+      { tables: [], relations: [], endpoints: [{ method: "GET", path: "/api/b", uses: [] }] },
+      db,
+      { partial: true },
+    );
+    expect((await db.query.dbTable.findMany()).map((t) => t.name)).toContain("Keep");
+  });
+
+  it("partial re-ingest of an endpoint without uses keeps its existing table links", async () => {
+    await ingestSnapshot(
+      {
+        tables: [{ name: "T2", columns: [{ name: "id", type: "text" }] }],
+        relations: [],
+        endpoints: [{ method: "GET", path: "/api/c", uses: [{ table: "T2", access: "read" }] }],
+      },
+      db,
+    );
+    await ingestSnapshot(
+      { tables: [], relations: [], endpoints: [{ method: "GET", path: "/api/c", uses: [] }] },
+      db,
+      { partial: true },
+    );
+    const ep = (await db.query.endpoint.findMany({ with: { tables: true } })).find(
+      (e) => e.path === "/api/c",
+    )!;
+    expect(ep.tables.length).toBe(1);
+  });
+});
