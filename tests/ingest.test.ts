@@ -98,6 +98,18 @@ describe("ingestSnapshot", () => {
     expect(firms!.y).toBe(888);
   });
 
+  it("never treats an empty section as 'delete everything' — even in full mode", async () => {
+    // The standalone watcher posts `tables: []` (no model extraction) and, with no OpenAPI,
+    // `endpoints: []`. A full-mode ingest of that used to WIPE every INTROSPECTION row of the
+    // target workspace. An empty section means "I saw nothing", never "delete everything".
+    await ingestSnapshot(SNAP);
+    await ingestSnapshot({ tables: [], relations: [], endpoints: [] });
+    const tables = await db.query.dbTable.findMany();
+    expect(tables.map((t) => t.name).sort()).toEqual(["firms", "users"]);
+    const eps = await db.query.endpoint.findMany();
+    expect(eps.length).toBeGreaterThan(0);
+  });
+
   it("keeps planned (MANUAL) entities only while their plan is being implemented", async () => {
     // Active plan → its planned table survives the scan.
     await db

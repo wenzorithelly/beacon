@@ -90,11 +90,14 @@ export async function bumpVersion(prisma: Prisma = db): Promise<number> {
  * delete introspected entities absent from the snapshot. Manual entities and
  * the roadmap are never touched. Bumps the sync version.
  *
- * `partial: true` (the inline watcher's deterministic extract) reads an EMPTY
- * section as "unknown", not "none": no tables → the table/relation sections are
- * left alone; no endpoints → endpoints are left alone; an endpoint without
- * `uses` keeps the table links it already has. Without this, a Python repo
- * (tables, no Next routes) would wipe its introspected endpoints every pass.
+ * An EMPTY section always reads as "unknown", not "none": no tables → the
+ * table/relation sections are left alone; no endpoints → endpoints are left
+ * alone. This is not just the partial (inline watcher) mode — the standalone
+ * watcher posts `tables: []` (it has no model extraction) and, without an
+ * OpenAPI url, `endpoints: []`; reading that as "delete everything" wiped the
+ * whole board of whatever workspace the post landed on. `partial: true`
+ * additionally keeps an endpoint's existing table links when its `uses` is
+ * empty (the deterministic route extractor knows methods+paths, not access).
  */
 export async function ingestSnapshot(
   input: unknown,
@@ -102,8 +105,8 @@ export async function ingestSnapshot(
   opts: { partial?: boolean } = {},
 ) {
   const snap = snapshotSchema.parse(input);
-  const doTables = !opts.partial || snap.tables.length > 0;
-  const doEndpoints = !opts.partial || snap.endpoints.length > 0;
+  const doTables = snap.tables.length > 0;
+  const doEndpoints = snap.endpoints.length > 0;
 
   // tables ----------------------------------------------------------------
   const keepTables = snap.tables.map((t) => t.name);

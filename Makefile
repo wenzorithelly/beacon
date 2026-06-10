@@ -6,12 +6,14 @@ install:    ## install deps
 up:         ## run the control app dev server (http://localhost:3000)
 	bun run dev
 
+# BEACON_REPO pins the watcher's posts to THIS repo's workspace — without it a header-less
+# /api/ingest falls back to whatever workspace the browser has active and writes there.
 watch:      ## run the live code-intelligence watcher (control app must be up)
-	bun run intel/watch.ts
+	BEACON_REPO="$(CURDIR)" bun run intel/watch.ts
 
 dev:        ## drop into hot-reload to edit: stops the prod `beacon` daemon, serves :4319 (run `beacon` to return to prod)
 	@beacon stop 2>/dev/null || true
-	@PORT=4319 bash -c 'bun run dev & DEV=$$!; trap "kill $$DEV 2>/dev/null" EXIT; sleep 2; bun run intel/watch.ts'
+	@PORT=4319 bash -c 'bun run dev & DEV=$$!; trap "kill $$DEV 2>/dev/null" EXIT; sleep 2; BEACON_REPO="$(CURDIR)" bun run intel/watch.ts'
 
 down:       ## no daemon — stop the dev server with Ctrl-C
 	@echo "No background daemon. Stop the dev server with Ctrl-C."
