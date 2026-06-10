@@ -234,7 +234,7 @@ Beacon extracts it deterministically and **strips the block from the prose** (it
 
 ### 3. At the end, register the work — in ONE call
 
-Call \`beacon_describe_feature\` **ONCE** with a \`features\` array — one entry per feature the plan created — each with the files you touched and a short markdown description. This flips each one to **Done** and keeps \`beacon_context_for_feature\` accurate for the next session.
+Call \`beacon_describe_feature\` **ONCE** with a \`features\` array — one entry per feature the plan created — each with the files you touched and a short markdown description. This flips each one to **Done** — including its sub-tasks (the cascade completes every PENDING/IN_PROGRESS child; a sub-task you did NOT finish must be set BLOCKED or CANCELLED before registering, so it survives visibly) — and keeps \`beacon_context_for_feature\` accurate for the next session.
 
 Key each entry by its node \`id\`: the ids are handed back to you when the plan is approved (in the approval message / additionalContext), so you don't fuzzy-match titles or pay a disambiguation round-trip. If you don't have an id, \`title\` still works.
 

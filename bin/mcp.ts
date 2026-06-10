@@ -206,7 +206,7 @@ server.registerTool(
   "beacon_describe_feature",
   {
     description:
-      "Register shipped feature(s) at the end of the work: marks status=DONE, records the files touched (kept on the FEATURE for context), and replaces each node's description with your markdown. Subsumes touch_files + finish_feature. REGISTER ALL FEATURES A PLAN CREATED IN ONE CALL via the `features` array (one entry per feature) — do NOT call this once per feature. Pass each feature's `id` (returned to you at plan approval) so no title-matching is needed. For a single feature you may pass the top-level fields instead. Pass `architecture` only when a feature added/changed a REAL subsystem (never a file).",
+      "Register shipped feature(s) at the end of the work: marks status=DONE, records the files touched (kept on the FEATURE for context), and replaces each node's description with your markdown. Subsumes touch_files + finish_feature. A feature's unfinished SUB-TASKS are completed along with it (cascade; reported as `subtasksCompleted`) — if a sub-task is genuinely NOT done, set it BLOCKED or CANCELLED via the nodes API/board FIRST, those are left alone (`subtasksBlocked` lists what stayed). REGISTER ALL FEATURES A PLAN CREATED IN ONE CALL via the `features` array (one entry per feature) — do NOT call this once per feature. Pass each feature's `id` (returned to you at plan approval) so no title-matching is needed. For a single feature you may pass the top-level fields instead. Pass `architecture` only when a feature added/changed a REAL subsystem (never a file).",
     inputSchema: {
       // Batch form (preferred): register every feature the plan created in ONE round-trip.
       features: z

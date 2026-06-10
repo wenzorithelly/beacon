@@ -136,6 +136,46 @@ export async function propagateStatusUp(nodeId: string): Promise<void> {
   }
 }
 
+// ── Completion cascade (Done feature → its sub-tasks) ───────────────────────
+// Registering a feature DONE asserts its work is finished — so its unfinished
+// descendant sub-tasks flip DONE too, instead of stranding a Done parent over
+// Pending children the agent actually completed (which reads as "unknown state"
+// on the board). User decisions stay sticky: CANCELLED / DEPRIORITIZED are
+// already settled, and BLOCKED stays visible as a deliberate alarm — it's
+// returned to the caller so the agent can surface it.
+
+const CASCADE_STATUSES = new Set(["PENDING", "IN_PROGRESS"]);
+
+export async function cascadeCompletionDown(featureId: string): Promise<{
+  completed: number;
+  blocked: Array<{ id: string; title: string; status: string }>;
+}> {
+  const toComplete: string[] = [];
+  const blocked: Array<{ id: string; title: string; status: string }> = [];
+  // Breadth-first over ROADMAP descendants; the `seen` guard terminates on a
+  // corrupt parentId cycle, mirroring propagateStatusUp.
+  const seen = new Set<string>([featureId]);
+  let frontier = [featureId];
+  while (frontier.length) {
+    const children = await db.query.node.findMany({
+      where: (t, { and, eq, inArray: inArr }) =>
+        and(inArr(t.parentId, frontier), eq(t.view, "ROADMAP")),
+      columns: { id: true, title: true, status: true },
+    });
+    frontier = [];
+    for (const c of children) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      frontier.push(c.id);
+      if (CASCADE_STATUSES.has(c.status)) toComplete.push(c.id);
+      else if (c.status === "BLOCKED") blocked.push(c);
+    }
+  }
+  if (toComplete.length)
+    await db.update(node).set({ status: "DONE" }).where(inArray(node.id, toComplete));
+  return { completed: toComplete.length, blocked };
+}
+
 /**
  * A session starts working on a feature. Resolution order:
  *  1. explicit `id` (from beacon_map) → flag it (100% reliable)
@@ -282,15 +322,29 @@ export async function startFeature(input: {
 export async function finishFeature(input: {
   title?: string;
   id?: string;
-}): Promise<{ ok: boolean; id?: string; candidates?: Scored[] }> {
+}): Promise<{
+  ok: boolean;
+  id?: string;
+  candidates?: Scored[];
+  subtasksCompleted?: number;
+  subtasksBlocked?: Array<{ id: string; title: string; status: string }>;
+}> {
   const nodes = await db.query.node.findMany({ where: (t, { eq }) => eq(t.view, "ROADMAP") });
+
+  const finish = async (id: string) => {
+    const cascade = await cascadeCompletionDown(id);
+    await setStatus(id, "DONE");
+    return {
+      ok: true as const,
+      id,
+      subtasksCompleted: cascade.completed || undefined,
+      subtasksBlocked: cascade.blocked.length ? cascade.blocked : undefined,
+    };
+  };
 
   if (input.id) {
     const n = nodes.find((x) => x.id === input.id);
-    if (n) {
-      await setStatus(n.id, "DONE");
-      return { ok: true, id: n.id };
-    }
+    if (n) return finish(n.id);
   }
   if (!input.title) return { ok: false };
 
@@ -298,10 +352,7 @@ export async function finishFeature(input: {
     input.title,
     nodes.map((n) => ({ id: n.id, title: n.title })),
   );
-  if (best) {
-    await setStatus(best.id, "DONE");
-    return { ok: true, id: best.id };
-  }
+  if (best) return finish(best.id);
   return { ok: false, candidates: candidates.length ? candidates : undefined };
 }
 
@@ -438,7 +489,13 @@ export async function describeFeature(input: {
   description: string;
   files?: string[];
   architecture?: unknown[];
-}): Promise<{ ok: boolean; id?: string; candidates?: Scored[] }> {
+}): Promise<{
+  ok: boolean;
+  id?: string;
+  candidates?: Scored[];
+  subtasksCompleted?: number;
+  subtasksBlocked?: Array<{ id: string; title: string; status: string }>;
+}> {
   const nodes = await db.query.node.findMany({ where: (t, { eq }) => eq(t.view, "ROADMAP") });
   let target = input.id ? nodes.find((n) => n.id === input.id) : undefined;
   if (!target && input.title) {
@@ -454,6 +511,8 @@ export async function describeFeature(input: {
     .update(node)
     .set({ plain: input.description, status: "DONE" })
     .where(eq(node.id, target.id));
+  // Done is asserted for the whole feature — finish its unfinished sub-tasks too.
+  const cascade = await cascadeCompletionDown(target.id);
   await propagateStatusUp(target.id);
 
   // Record files (idempotent — only adds new ones).
@@ -482,7 +541,12 @@ export async function describeFeature(input: {
   }
 
   await bumpVersion();
-  return { ok: true, id: target.id };
+  return {
+    ok: true,
+    id: target.id,
+    subtasksCompleted: cascade.completed || undefined,
+    subtasksBlocked: cascade.blocked.length ? cascade.blocked : undefined,
+  };
 }
 
 export interface DescribeFeatureItem {

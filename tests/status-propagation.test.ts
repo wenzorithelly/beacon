@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { db } from "@/lib/db";
 import { node } from "@/lib/drizzle/schema";
-import { propagateStatusUp } from "@/lib/map-ops";
+import { describeFeature, finishFeature, propagateStatusUp } from "@/lib/map-ops";
 import { resetDb } from "./helpers";
 
 beforeEach(resetDb);
@@ -132,5 +132,69 @@ describe("propagateStatusUp", () => {
     const after = (await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, parent.id) }))!.updatedAt;
     // Allow some slack — first call may write once, second must not.
     expect(after.getTime()).toBe(before.getTime() === after.getTime() ? before.getTime() : after.getTime());
+  });
+});
+
+describe("completion cascade (Done feature → its sub-tasks)", () => {
+  it("describeFeature flips the feature's PENDING/IN_PROGRESS sub-tasks to DONE", async () => {
+    const feature = await makeNode({ title: "Non-blocking extract", status: "IN_PROGRESS" });
+    const t1 = await makeNode({ title: "worker thread", status: "PENDING", parentId: feature.id });
+    const t2 = await makeNode({ title: "yield fallback", status: "IN_PROGRESS", parentId: feature.id });
+
+    const r = await describeFeature({ id: feature.id, description: "shipped" });
+
+    expect(r.ok).toBe(true);
+    expect(r.subtasksCompleted).toBe(2);
+    expect(await statusOf(feature.id)).toBe("DONE");
+    expect(await statusOf(t1.id)).toBe("DONE");
+    expect(await statusOf(t2.id)).toBe("DONE");
+  });
+
+  it("reaches nested sub-tasks (grandchildren)", async () => {
+    const feature = await makeNode({ title: "feat", status: "PENDING" });
+    const child = await makeNode({ title: "child", status: "PENDING", parentId: feature.id });
+    const grandchild = await makeNode({ title: "grandchild", status: "PENDING", parentId: child.id });
+
+    const r = await describeFeature({ id: feature.id, description: "shipped" });
+
+    expect(r.subtasksCompleted).toBe(2);
+    expect(await statusOf(child.id)).toBe("DONE");
+    expect(await statusOf(grandchild.id)).toBe("DONE");
+  });
+
+  it("leaves CANCELLED/DEPRIORITIZED sub-tasks alone and keeps BLOCKED visible (reported)", async () => {
+    const feature = await makeNode({ title: "feat", status: "PENDING" });
+    const cancelled = await makeNode({ title: "won't do", status: "CANCELLED", parentId: feature.id });
+    const depri = await makeNode({ title: "later", status: "DEPRIORITIZED", parentId: feature.id });
+    const blocked = await makeNode({ title: "stuck", status: "BLOCKED", parentId: feature.id });
+
+    const r = await describeFeature({ id: feature.id, description: "shipped" });
+
+    expect(await statusOf(cancelled.id)).toBe("CANCELLED");
+    expect(await statusOf(depri.id)).toBe("DEPRIORITIZED");
+    expect(await statusOf(blocked.id)).toBe("BLOCKED");
+    expect(r.subtasksCompleted).toBeUndefined();
+    expect(r.subtasksBlocked).toEqual([{ id: blocked.id, title: "stuck", status: "BLOCKED" }]);
+  });
+
+  it("finishFeature cascades the same way", async () => {
+    const feature = await makeNode({ title: "feat", status: "IN_PROGRESS" });
+    const t1 = await makeNode({ title: "t1", status: "PENDING", parentId: feature.id });
+
+    const r = await finishFeature({ id: feature.id });
+
+    expect(r.ok).toBe(true);
+    expect(r.subtasksCompleted).toBe(1);
+    expect(await statusOf(t1.id)).toBe("DONE");
+  });
+
+  it("still propagates upward — the feature's own parent derives DONE", async () => {
+    const front = await makeNode({ title: "front", status: "PENDING" });
+    const feature = await makeNode({ title: "feat", status: "IN_PROGRESS", parentId: front.id });
+    await makeNode({ title: "t1", status: "PENDING", parentId: feature.id });
+
+    await describeFeature({ id: feature.id, description: "shipped" });
+
+    expect(await statusOf(front.id)).toBe("DONE");
   });
 });
