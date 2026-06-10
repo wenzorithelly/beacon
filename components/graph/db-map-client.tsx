@@ -1164,7 +1164,7 @@ export function DbMapClient({
               boards put their Arrange/Group-by pills, so it's discoverable on demand. */}
           {!embedded && (
             <Panel position="bottom-center" className="!mb-4">
-              <div className="glass flex items-center gap-1 rounded-full p-1">
+              <div className="glass flex items-center rounded-full p-0.5">
                 <button
                   type="button"
                   disabled={busy}
@@ -1178,9 +1178,9 @@ export function DbMapClient({
                       setBusy(false);
                     }
                   }}
-                  className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-40"
+                  className="flex h-6 items-center gap-1 rounded-full px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-40"
                 >
-                  <LayoutGrid className="size-3.5" />
+                  <LayoutGrid className="size-3" />
                   {busy ? "Arranging…" : "Arrange"}
                 </button>
               </div>

@@ -1243,13 +1243,13 @@ export function MapClient({
             </div>
           )}
           {view === "ARCHITECTURE" && (
-            <div className="glass flex items-center gap-1 rounded-full p-1">
+            <div className="glass flex items-center rounded-full p-0.5">
               <button
                 onClick={arrangeArchitecture}
                 title="Arrange components into a left→right dependency flow, grouped by domain"
-                className="flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                className="flex h-6 items-center gap-1 rounded-full px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
               >
-                <LayoutGrid className="size-3.5" />
+                <LayoutGrid className="size-3" />
                 Arrange
               </button>
             </div>
