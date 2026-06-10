@@ -49,6 +49,7 @@ import type { DraftGraph } from "@/lib/design";
 import {
   Check,
   HelpCircle,
+  LayoutGrid,
   PanelRight,
   Redo2,
   SlidersHorizontal,
@@ -1088,6 +1089,23 @@ export function DbMapClient({
               embedded && "hidden",
             )}
           >
+            <button
+              type="button"
+              title="Arrange board — pack tables + endpoints side by side"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await fetch("/api/db/arrange", { method: "POST" });
+                  router.refresh();
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              className="glass flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+            >
+              <LayoutGrid className="size-4" />
+            </button>
             <CanvasPopover
               title="Filters"
               trigger={(open, toggle) => (
