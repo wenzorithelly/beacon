@@ -25,6 +25,9 @@ export const featureItemSchema = z
           // 1..5) shouldn't drop the feature. Kept nullish for parse tolerance; the propose-plan
           // flow REQUIRES it via validateProposedFeatures (lib/feature-rules) before persisting.
           priority: z.number().nullish(),
+          // FEATURE (default) | BUG — a typed bug card on the roadmap. Parse-tolerant
+          // (any case); anything that isn't "bug" lands as FEATURE.
+          kind: z.string().nullish(),
           // Titles of other features in THIS plan that must ship first. Resolved into DEPENDS
           // edges so the board shows the dependency chain instead of disconnected cards. It's a
           // transport array only — never stored as a DB scalar list (it becomes Edge rows).
@@ -33,10 +36,11 @@ export const featureItemSchema = z
         // Normalize the category aliases (`category`/`domain` → `cluster`) and clamp priority into
         // Beacon's P0..P3 range so a slightly-off plan still lands on the board instead of being
         // dropped wholesale.
-        .transform(({ category, domain, priority, ...f }) => ({
+        .transform(({ category, domain, priority, kind, ...f }) => ({
           ...f,
           cluster: f.cluster ?? category ?? domain ?? null,
           priority: priority == null ? null : Math.max(0, Math.min(3, Math.round(priority))),
+          kind: kind?.trim().toUpperCase() === "BUG" ? ("BUG" as const) : ("FEATURE" as const),
         }));
 
 export const featureSchema = z.object({
@@ -81,6 +85,7 @@ export async function persistFeatureDraft(graph: FeatureGraph, prisma: Prisma = 
         view: "ROADMAP",
         source: "DRAFT",
         status: "PENDING",
+        kind: f.kind,
         title: f.title,
         role: f.role ?? null,
         plain: f.plain ?? null,
@@ -143,6 +148,7 @@ export async function getFeatureDraft(prisma: Prisma = db): Promise<FeatureGraph
       plain: n.plain,
       cluster: n.cluster,
       priority: n.priority,
+      kind: n.kind === "BUG" ? ("BUG" as const) : ("FEATURE" as const),
       dependsOn: depsByFrom.get(n.id),
     })),
   };

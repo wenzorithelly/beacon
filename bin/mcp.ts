@@ -141,11 +141,17 @@ server.registerTool(
         .describe(
           "One-line plain-language description shown on the canvas card. Replaced later by beacon_describe_feature's markdown when the work is done.",
         ),
+      kind: z
+        .enum(["FEATURE", "BUG"])
+        .optional()
+        .describe(
+          "Card type when this CREATES a new node: BUG renders a typed bug card on the roadmap (use when the user is starting work on a bug, not a feature). Defaults to FEATURE; ignored when flagging an existing node.",
+        ),
     },
   },
-  async ({ title, id, front, detail, category }) => {
+  async ({ title, id, front, detail, category, kind }) => {
     try {
-      const r = await post("/api/map/start", { title, id, front, detail, category });
+      const r = await post("/api/map/start", { title, id, front, detail, category, kind });
       return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
     } catch (e) {
       return errText(e);
@@ -172,6 +178,10 @@ server.registerTool(
               .string()
               .optional()
               .describe("one-paragraph description / why / acceptance hint"),
+            kind: z
+              .enum(["FEATURE", "BUG"])
+              .optional()
+              .describe("BUG for a bug discovered during work — renders as a typed bug card; defaults to FEATURE"),
           }),
         )
         .describe("the sub-tasks to add"),
@@ -286,6 +296,10 @@ server.registerTool(
               .optional()
               .describe("category for the board (AUTH | SEARCH | DATA | INTEL | …) — set it so the item isn't category-less"),
             priority: z.number().int().min(0).max(3).optional().describe("0=P0 critical .. 3=P3 low"),
+            kind: z
+              .enum(["FEATURE", "BUG"])
+              .optional()
+              .describe("BUG when the survey found a concrete bug to fix — renders as a typed bug card; defaults to FEATURE"),
           }),
         )
         .optional()
@@ -447,6 +461,10 @@ server.registerTool(
               .describe(
                 "titles of other features in THIS plan that must ship first — drawn as 'depends on' links so the board shows the dependency chain, not loose cards",
               ),
+            kind: z
+              .enum(["FEATURE", "BUG"])
+              .optional()
+              .describe("BUG when this roadmap item is a bug to fix — renders as a typed bug card; defaults to FEATURE"),
           }),
         )
         .optional()

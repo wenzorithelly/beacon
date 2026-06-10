@@ -230,6 +230,8 @@ export async function startFeature(input: {
   front?: string | null;
   detail?: string | null;
   cluster?: string | null;
+  /** FEATURE (default) | BUG — only used when the call CREATES a new node. */
+  kind?: string | null;
 }): Promise<StartResult> {
   const title = input.title.trim();
   if (!title) throw new Error("title required");
@@ -300,6 +302,7 @@ export async function startFeature(input: {
     .insert(node)
     .values({
       view: "ROADMAP",
+      kind: input.kind?.trim().toUpperCase() === "BUG" ? "BUG" : "FEATURE",
       title,
       plain: input.detail ?? null,
       cluster,
@@ -637,6 +640,8 @@ export async function touchFiles(input: {
 export interface AddSubtaskItem {
   title: string;
   plain?: string | null;
+  /** FEATURE (default) | BUG — a bug discovered during work, recorded as a typed sub-task. */
+  kind?: string | null;
 }
 
 export type AddSubtasksResult =
@@ -715,6 +720,7 @@ export async function addSubtasksUnder(input: {
     obstacles.push(pos);
     const n = await createNode({
       view: parentNode.view as "ROADMAP" | "ARCHITECTURE",
+      kind: it.kind?.trim().toUpperCase() === "BUG" ? "BUG" : "FEATURE",
       title: it.title.trim(),
       plain: it.plain ?? null,
       cluster: parentNode.cluster ?? null,

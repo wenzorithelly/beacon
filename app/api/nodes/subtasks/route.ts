@@ -15,6 +15,8 @@ const bodySchema = z.object({
       z.object({
         title: z.string().trim().min(1).max(200),
         plain: z.string().trim().max(2000).nullish(),
+        // FEATURE (default) | BUG — parse-tolerant; normalized in addSubtasksUnder.
+        kind: z.string().trim().max(16).nullish(),
       }),
     )
     .min(1),

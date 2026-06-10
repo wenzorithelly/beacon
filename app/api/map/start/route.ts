@@ -16,6 +16,7 @@ export async function POST(req: Request) {
         id: typeof body.id === "string" ? body.id : null,
         front: typeof body.front === "string" ? body.front : null,
         detail: typeof body.detail === "string" ? body.detail : null,
+        kind: typeof body.kind === "string" ? body.kind : null,
         // category / cluster / domain all accepted (aliases); the guard requires one on a new feature.
         cluster:
           typeof body.cluster === "string"

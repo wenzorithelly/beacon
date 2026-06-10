@@ -21,7 +21,7 @@ The user already has Beacon running. You're going to map this repository's archi
 A single \`beacon_init_persist\` MCP tool call with:
 
 - **components**: 8–25 main building blocks of this codebase. NOT every file. Group them by \`domain\` (short UPPERCASE: AUTH, API, DATA, UI, JOBS, INFRA, BILLING, SEARCH, …). For each: a one-line technical \`role\`, a one-sentence plain-language \`plain\`, the few \`files\` that implement it (repo-relative), and \`depends\` listing other component titles it relies on. Use the dependency graph you can see in the source — files that import each other heavily usually belong together. If you spot a bug or something worth investigating while reading a component's code, add \`bugs: [{ note }]\` to that component — it renders as a bug flag on the node (attributed to the agent). Only flag what you actually saw in the code; don't speculate.
-- **roadmap**: 3–6 BROAD strategic directions. Big-picture themes only — "Harden auth & security", "Add observability", "Scale the data layer", "Pay down test-coverage debt". NOT detailed tasks. NOT file-level. Each gets a short title and one-line \`why\`.
+- **roadmap**: 3–6 BROAD strategic directions. Big-picture themes only — "Harden auth & security", "Add observability", "Scale the data layer", "Pay down test-coverage debt". NOT detailed tasks. NOT file-level. Each gets a short title and one-line \`why\`. If one of them is a concrete BUG to fix (something broken you saw in the code), add \`kind: "BUG"\` so it renders as a typed bug card.
 - **overview**: one paragraph describing what this project is and its stack. This lands in AGENTS.md as the project intro.
 - **conventions**: 3–8 concrete rules a contributor MUST follow — build/test commands, where code goes, patterns, things easy to get wrong. Infer from actual files, not assumptions.
 - **snapshot** (optional but encouraged): \`{ tables, relations, endpoints }\` for the existing database. If the project uses Prisma, read \`prisma/schema.prisma\`. If SQLAlchemy, read the model files. If Django, read \`models.py\`. If you find no obvious schema source, skip the snapshot — don't fabricate.
@@ -218,6 +218,8 @@ REUSE before you create. Call \`beacon_map\` to see the features + categories th
 
 When listing features, give each \`dependsOn: ["Other feature title", …]\` for any feature that must ship after another in the same plan. Beacon draws these as "depends on" links so the roadmap shows the dependency chain instead of loose, disconnected cards.
 
+A roadmap item that is a BUG to fix (not a feature to build) should carry \`kind: "BUG"\` — it renders as a typed bug card. This works everywhere roadmap cards are created: \`beacon_propose_plan\` features, the \`\`\`beacon block, \`beacon_start_feature\` (when the user says they're starting on a bug), \`beacon_add_subtasks\` items (a bug discovered mid-work), and \`beacon_init_persist\` roadmap items. Default is FEATURE.
+
 ### 2b. Presenting a plan in plan mode (ExitPlanMode)
 
 In Codex (which has no ExitPlanMode), always present plans via \`beacon_present_plan\` / \`beacon_propose_plan\` instead — this section applies to Claude Code's plan mode only.
@@ -240,7 +242,7 @@ Key each entry by its node \`id\`: the ids are handed back to you when the plan 
 
 Register them all in that single batched call. If a plan added five features, that's ONE \`beacon_describe_feature\` call with five entries — NOT five calls, and NOT just an umbrella ("Harden auth"), which leaves the individual features stuck on **Pending**.
 
-If the feature added or materially changed a REAL architectural component (a subsystem — NOT a file), also pass \`architecture: [{ title, domain, role, … }]\` so the Architecture map stays accurate. It upserts curated components by title; never list files as components.
+If the feature added or materially changed a REAL architectural component (a subsystem — NOT a file), also pass \`architecture: [{ title, domain, role, … }]\` so the Architecture map stays accurate. It upserts curated components by title; never list files as components. If you found a bug or something worth investigating in a component's code, add \`bugs: [{ note }]\` to its architecture entry — it renders as a bug flag on the node (attributed to the agent); identical open flags are not duplicated. Only flag what you actually saw in the code.
 
 Pull raw planning data anytime with \`beacon_entities\` (features / architecture / tables / endpoints).
 ${WORKFLOW_MARK_END}`;

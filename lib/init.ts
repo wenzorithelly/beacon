@@ -34,6 +34,9 @@ const roadmapItemSchema = z.object({
   category: z.string().nullish(),
   cluster: z.string().nullish(),
   priority: z.number().int().min(0).max(3).nullish(),
+  // FEATURE (default) | BUG — lets the survey put a typed bug card on the roadmap
+  // when it finds something concrete to fix (parse-tolerant, any case).
+  kind: z.string().nullish(),
 });
 
 export const initInputSchema = z.object({
@@ -135,7 +138,7 @@ export async function persistArchitecture(components: Component[]): Promise<numb
   return components.length;
 }
 
-async function persistRoadmap(roadmap: RoadmapItem[]): Promise<number> {
+export async function persistRoadmap(roadmap: RoadmapItem[]): Promise<number> {
   await db.delete(node).where(and(eq(node.view, "ROADMAP"), eq(node.source, "INIT")));
   // Roadmap items carry no dependency edges, so the force layout spreads them organically across
   // the board's width instead of one long horizontal row off the screen.
@@ -151,6 +154,7 @@ async function persistRoadmap(roadmap: RoadmapItem[]): Promise<number> {
       .values({
         view: "ROADMAP",
         source: "INIT",
+        kind: r.kind?.trim().toUpperCase() === "BUG" ? "BUG" : "FEATURE",
         title: r.title,
         plain: r.why ?? null,
         cluster: r.category ?? r.cluster ?? null,
