@@ -65,4 +65,33 @@ describe("upsertArchitectureComponents — curated, never one-per-file", () => {
     const x = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.title, "X") });
     expect(x?.status).toBe("KEEP");
   });
+
+  it("records agent bug flags passed via `bugs`", async () => {
+    await upsertArchitectureComponents([
+      { title: "Leaky component", domain: "UI", bugs: [{ note: "listener never detached" }] },
+    ]);
+    const created = await db.query.node.findFirst({
+      where: (t, { eq }) => eq(t.title, "Leaky component"),
+    });
+    const flags = await db.query.bugFlag.findMany({
+      where: (t, { eq }) => eq(t.nodeId, created!.id),
+    });
+    expect(flags.length).toBe(1);
+    expect(flags[0].by).toBe("agent");
+    expect(flags[0].note).toBe("listener never detached");
+    expect(flags[0].resolvedAt).toBeNull();
+  });
+
+  it("does not duplicate an identical open flag on re-upsert (beacon-refresh re-runs)", async () => {
+    const component = { title: "Refresh-prone widget", domain: "UI", bugs: [{ note: "same finding" }] };
+    await upsertArchitectureComponents([component]);
+    await upsertArchitectureComponents([component]);
+    const created = await db.query.node.findFirst({
+      where: (t, { and, eq }) => and(eq(t.view, "ARCHITECTURE"), eq(t.title, "Refresh-prone widget")),
+    });
+    const flags = await db.query.bugFlag.findMany({
+      where: (t, { eq }) => eq(t.nodeId, created!.id),
+    });
+    expect(flags.length).toBe(1);
+  });
 });

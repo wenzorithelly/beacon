@@ -2,6 +2,13 @@ import { z } from "zod";
 
 export const VIEW = z.enum(["ROADMAP", "ARCHITECTURE"]);
 
+// Card kind on the roadmap canvas: a feature being built vs a bug to fix.
+export const NODE_KIND = z.enum(["FEATURE", "BUG"]);
+
+// Who raised a bug flag on a node: the user from the sidebar, or an agent during
+// beacon-init / beacon-refresh / describe_feature.
+export const BUG_FLAG_BY = z.enum(["user", "agent"]);
+
 export const NODE_STATUS = z.enum([
   // roadmap
   "PENDING",
@@ -24,6 +31,7 @@ export const createNodeSchema = z.object({
   // final id) before the POST round-trips — no fragile temp-id swap. Absent → DB cuid2.
   id: z.string().trim().min(1).max(64).optional(),
   view: VIEW,
+  kind: NODE_KIND.optional(),
   title: z.string().trim().min(1).max(200),
   cluster: z.string().trim().max(64).nullish(),
   role: z.string().trim().max(500).nullish(),
@@ -39,6 +47,7 @@ export type CreateNodeInput = z.input<typeof createNodeSchema>;
 
 export const updateNodeSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
+  kind: NODE_KIND.optional(),
   role: z.string().trim().max(500).nullish(),
   plain: z.string().trim().max(2000).nullish(),
   cluster: z.string().trim().max(64).nullish(),

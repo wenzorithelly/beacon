@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, count, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
-import { node, nodeFile, edge, appSetting } from "@/lib/drizzle/schema";
+import { node, nodeFile, edge, appSetting, bugFlag } from "@/lib/drizzle/schema";
 import { bumpVersion } from "@/lib/ingest";
 import { matchFeature, type Scored } from "@/lib/match";
 import { validateFeatureCreation, validateFront } from "@/lib/feature-rules";
@@ -380,6 +380,10 @@ const archComponentSchema = z.object({
   status: z.string().nullish(),
   files: z.array(z.string()).optional(),
   depends: z.array(z.string()).optional(),
+  // Bugs / things worth investigating the agent found while examining this component.
+  // Recorded as BugFlag rows with by="agent"; identical open flags are not duplicated,
+  // so a beacon-refresh re-run doesn't pile up copies of the same finding.
+  bugs: z.array(z.object({ note: z.string().trim().min(1).max(2000) })).optional(),
 });
 export type ArchComponentInput = z.input<typeof archComponentSchema>;
 
@@ -472,6 +476,22 @@ export async function upsertArchitectureComponents(input: unknown[]): Promise<nu
           .insert(edge)
           .values({ fromId, toId, kind: "DEPENDS" })
           .catch(() => {});
+    }
+  }
+
+  // Agent-discovered bug flags. An identical OPEN flag is skipped so a re-run
+  // (beacon-refresh re-examining the same code) doesn't duplicate the same finding;
+  // a resolved flag with the same note does NOT block — the bug came back.
+  for (const c of components) {
+    if (!c.bugs?.length) continue;
+    const nodeId = idByTitle.get(c.title.toLowerCase());
+    if (!nodeId) continue;
+    for (const b of c.bugs) {
+      const dup = await db.query.bugFlag.findFirst({
+        where: (t, { and, eq, isNull }) =>
+          and(eq(t.nodeId, nodeId), eq(t.note, b.note), isNull(t.resolvedAt)),
+      });
+      if (!dup) await db.insert(bugFlag).values({ nodeId, by: "agent", note: b.note });
     }
   }
 

@@ -26,6 +26,7 @@ export const node = sqliteTable(
   {
     id: text().primaryKey().$defaultFn(() => createId()),
     view: text().notNull(),
+    kind: text().default("FEATURE").notNull(), // FEATURE | BUG — bug cards on the roadmap canvas
     cluster: text(),
     title: text().notNull(),
     role: text(),
@@ -44,7 +45,6 @@ export const node = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date())
       .$onUpdate(() => new Date()),
-    embedding: text(),
   },
   (t) => [
     index("Node_cluster_idx").on(t.cluster),
@@ -158,6 +158,24 @@ export const boardAnnotation = sqliteTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [index("BoardAnnotation_target_idx").on(t.targetId)],
+);
+
+// One row per bug/investigation flag raised on a node (architecture components today; the FK
+// works for any node). A separate table — not a column — so a component can carry several
+// findings, each attributed to who raised it. Open = resolvedAt IS NULL.
+export const bugFlag = sqliteTable(
+  "BugFlag",
+  {
+    id: text().primaryKey().$defaultFn(() => createId()),
+    nodeId: text()
+      .notNull()
+      .references(() => node.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    by: text().notNull(), // user | agent (text + Zod union — no enum)
+    note: text().notNull(),
+    resolvedAt: integer({ mode: "timestamp_ms" }),
+    createdAt: integer({ mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [index("BugFlag_nodeId_idx").on(t.nodeId)],
 );
 
 // ── DB-designer schema map ───────────────────────────────────────────────────

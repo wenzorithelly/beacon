@@ -24,6 +24,7 @@ export async function createNode(input: CreateNodeInput) {
     .values({
       ...(data.id ? { id: data.id } : {}),
       view: data.view,
+      kind: data.kind ?? "FEATURE",
       title: data.title,
       cluster: data.cluster ?? null,
       role: data.role ?? null,

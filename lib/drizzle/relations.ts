@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
   node,
   nodeFile,
+  bugFlag,
   tag,
   nodeTags,
   edge,
@@ -23,6 +24,7 @@ import {
 
 export const nodeRelations = relations(node, ({ one, many }) => ({
   files: many(nodeFile),
+  bugFlags: many(bugFlag),
   nodeTags: many(nodeTags),
   edgesOut: many(edge, { relationName: "EdgeFrom" }),
   edgesIn: many(edge, { relationName: "EdgeTo" }),
@@ -32,6 +34,10 @@ export const nodeRelations = relations(node, ({ one, many }) => ({
 
 export const nodeFileRelations = relations(nodeFile, ({ one }) => ({
   node: one(node, { fields: [nodeFile.nodeId], references: [node.id] }),
+}));
+
+export const bugFlagRelations = relations(bugFlag, ({ one }) => ({
+  node: one(node, { fields: [bugFlag.nodeId], references: [node.id] }),
 }));
 
 export const tagRelations = relations(tag, ({ many }) => ({
