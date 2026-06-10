@@ -152,6 +152,8 @@ export function PlanWorkspace({
   // board-edited flag. Leaving hasBoardEdits true across rounds kept Approve gated ("Clear
   // to approve") on a fresh round the user had nothing pending on.
   useEffect(() => {
+    // Deliberate reset-on-new-round: proposedAt is the external signal of a re-present.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setQuestions([]);
     setAskOpen(false);
     setHasBoardEdits(false);
@@ -737,9 +739,13 @@ function AskComposer({
   const [target, setTarget] = useState(initialTarget || targets[0] || "");
   const [q, setQ] = useState("");
   useEffect(() => {
+    // Re-point the selection when the user clicks "Ask" on a different node mid-compose.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialTarget) setTarget(initialTarget);
   }, [initialTarget]);
   useEffect(() => {
+    // Backfill a default once targets arrive (they load async on the first render).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!target && targets[0]) setTarget(targets[0]);
   }, [targets, target]);
   const add = () => {

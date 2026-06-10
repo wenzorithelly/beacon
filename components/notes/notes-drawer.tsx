@@ -71,6 +71,9 @@ export function NotesDrawer() {
   // Refetch each time the drawer opens (picks up notes the agent or another tab changed);
   // flush every pending save when it closes so nothing in flight is lost.
   useEffect(() => {
+    // load()'s setState happens after an await (fetch) — the rule can't see the async
+    // boundary through the call and flags it as synchronous.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open) void load();
     else Object.keys(pending.current).forEach(flush);
   }, [open, load, flush]);

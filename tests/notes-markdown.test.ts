@@ -39,8 +39,8 @@ const doc = {
   ],
 };
 
-// deno-lint-ignore no-explicit-any
-function textNodes(node: any, acc: any[] = []): any[] {
+type PMNode = { type?: string; text?: string; marks?: { type: string }[]; content?: PMNode[] };
+function textNodes(node: PMNode | undefined, acc: PMNode[] = []): PMNode[] {
   if (node?.type === "text") acc.push(node);
   for (const c of node?.content ?? []) textNodes(c, acc);
   return acc;
@@ -74,7 +74,7 @@ describe("note markdown serialization", () => {
     const loaded = markdownToEditorDoc("plain <u>important</u> tail");
     const underlined = textNodes(loaded).find((n) => n.text === "important");
     expect(underlined).toBeDefined();
-    expect(underlined.marks?.some((m: { type: string }) => m.type === "underline")).toBe(true);
+    expect(underlined?.marks?.some((m) => m.type === "underline")).toBe(true);
     // The literal angle brackets must be gone — they became a real mark.
     expect(JSON.stringify(loaded)).not.toContain("<u>");
   });

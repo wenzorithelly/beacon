@@ -58,6 +58,9 @@ export default function FeedbackPage() {
   }, []);
 
   useEffect(() => {
+    // localStorage is client-only — readable only after mount (SSR renders the empty
+    // state), so this one-time sync from external storage is intentional.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVotes(load<Votes>(VOTES_KEY));
     setMine(load<Mine>(MINE_KEY));
     refresh();
