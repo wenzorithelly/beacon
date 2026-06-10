@@ -149,11 +149,27 @@ export async function GET(req: Request) {
   });
 }
 
+// True when the client stamped its round and it no longer matches the live round (the
+// agent re-proposed since that tab rendered). `round` 0/undefined means "round unknown"
+// (first poll not in yet) and is never treated as stale. NOTE: this is a guard, not a
+// lock — the file store has no transactions, so a re-propose landing between this check
+// and the write can still race; resetPlanRound() wipes the store right after, which keeps
+// that window harmless in practice.
+function staleRound(round: number | undefined): boolean {
+  if (!round || round <= 0) return false;
+  const live = readPlanMeta()?.proposedAt ?? 0;
+  return live > 0 && round !== live;
+}
+
 // PUT — panel writes in-progress state (not yet submitted). Idempotent. Ignores `draft`
 // since the board diff only matters at submit time.
 export async function PUT(req: Request) {
   const body = bodySchema.parse(await req.json());
   return runWithWorkspace(workspaceIdFromRequest(req), async () => {
+    // A stale tab's debounced autosave must not resurrect the OLD round's comments into
+    // the new round's store. Silently drop it (204) — it's background persistence, not a
+    // user action worth surfacing an error for; the tab re-hydrates on its next refresh.
+    if (staleRound(body.round)) return new Response(null, { status: 204 });
     const prev = readStoredAnnotations();
     writeStoredAnnotations({
       ...prev,
@@ -173,8 +189,7 @@ export async function POST(req: Request) {
   return runWithWorkspace(workspaceIdFromRequest(req), async () => {
     // Stale-round guard: the agent re-proposed since this tab rendered — refuse to stamp
     // the old round's feedback onto the new round. The client reloads on 409.
-    const meta = readPlanMeta();
-    if (typeof body.round === "number" && (meta?.proposedAt ?? 0) > 0 && body.round !== meta!.proposedAt) {
+    if (staleRound(body.round)) {
       return Response.json(
         { error: "stale round — the plan was re-proposed since this page loaded" },
         { status: 409 },

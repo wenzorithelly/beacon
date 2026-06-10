@@ -14,6 +14,7 @@ import { dataDir } from "@/lib/project";
 import { POST as planPost, DELETE as planDelete } from "@/app/api/plan/route";
 import {
   POST as annotationsPost,
+  PUT as annotationsPut,
   GET as annotationsGet,
   DELETE as annotationsDelete,
 } from "@/app/api/plan/annotations/route";
@@ -369,6 +370,38 @@ describe("POST /api/plan/annotations rejects empty + stale submits", () => {
     expect(res.status).toBe(409);
     const ann = (await (await annotationsGet(emptyReq())).json()) as { submitted: boolean };
     expect(ann.submitted).toBe(false);
+  });
+
+  it("accepts a submit with round=0 (round unknown — first status poll not in yet)", async () => {
+    await planPost(reqJson("http://test/api/plan", planA));
+    const res = await annotationsPost(
+      reqJson("http://test/api/plan/annotations", {
+        annotations: [{ id: "a1", excerpt: "pr_orgs", comment: "early but valid" }],
+        round: 0,
+      }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("silently DROPS a stale-round PUT (autosave from an old tab can't resurrect old comments)", async () => {
+    await planPost(reqJson("http://test/api/plan", planA));
+    const meta1 = (await (await import("@/lib/plan-meta")).readPlanMeta())!;
+    await planPost(reqJson("http://test/api/plan", planB)); // new round
+    const res = await annotationsPut(
+      new Request("http://test/api/plan/annotations", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annotations: [{ id: "old", excerpt: "pr_orgs", comment: "round-1 leftover" }],
+          round: meta1.proposedAt,
+        }),
+      }),
+    );
+    expect(res.status).toBe(204); // background persistence — no error surfaced
+    const ann = (await (await annotationsGet(emptyReq())).json()) as {
+      annotations: { comment: string }[];
+    };
+    expect(ann.annotations).toHaveLength(0); // the new round stayed clean
   });
 
   it("GET heals an already-poisoned store (submitted=true with empty feedback)", async () => {

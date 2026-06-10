@@ -497,10 +497,13 @@ export function MapClient({
   const displayNodes = useMemo(() => {
     return visibleNodes.map((n) => {
       // Mark the "work on next" card so NodeCard can render its accent ring + badge.
-      const base =
+      let base =
         workOnNextId && n.id === workOnNextId
           ? { ...n, data: { ...n.data, isNext: true } }
           : n;
+      // An expanded card grows over its neighbours — lift it above every collapsed card
+      // (still below annotation chrome at zIndex 30) so its body isn't covered by them.
+      if (expandedIds.has(n.id)) base = { ...base, zIndex: 25 };
       if (!focusIds || base.hidden) return base;
       return {
         ...base,
@@ -511,7 +514,7 @@ export function MapClient({
         },
       };
     });
-  }, [visibleNodes, focusIds, workOnNextId]);
+  }, [visibleNodes, focusIds, workOnNextId, expandedIds]);
 
   // Lane background rectangles (Item C). Shown only after a group action, and labeled by the
   // dimension the board was ACTUALLY arranged by (`arrangedBy`) — never a stale selector — so

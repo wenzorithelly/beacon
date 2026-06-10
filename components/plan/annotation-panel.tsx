@@ -120,18 +120,19 @@ export function AnnotationPanel({
     };
   }, [markdown, round]);
 
-  // Persist in-progress state via PUT.
+  // Persist in-progress state via PUT. Stamped with the round so a stale tab's autosave
+  // can't resurrect old comments into a freshly re-proposed round (server drops it).
   useEffect(() => {
     if (submitted) return;
     const t = setTimeout(() => {
       void fetch("/api/plan/annotations", {
         method: "PUT",
         headers: { "content-type": "application/json", ...wsHeaders(currentPlanWs()) },
-        body: JSON.stringify({ annotations, globalComment }),
+        body: JSON.stringify({ annotations, globalComment, round }),
       }).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
-  }, [annotations, globalComment, submitted]);
+  }, [annotations, globalComment, submitted, round]);
 
   // Show floating popover whenever the user has an active selection inside the document.
   const refreshPopover = useCallback(() => {
