@@ -94,7 +94,9 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
     <div
       className={cn(
         "group/nc relative rounded-lg border bg-card px-2.5 py-2 text-card-foreground shadow-sm transition",
-        expanded ? "w-80" : data.isChild ? "w-56" : "w-64",
+        // Sub-tasks share the feature width: the old narrower w-56 left the badge row
+        // ~14px short, so the category pill got cropped ("LAUNCH" → "LAUNCI").
+        expanded ? "w-80" : "w-64",
         draft
           ? "border-dashed border-sky-400/50 bg-sky-500/[0.06]"
           : suggested
@@ -267,7 +269,9 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
               }}
               className={cn(
                 noDrag,
-                "field-sizing-content min-w-12 max-w-[65%] rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide outline-none focus:brightness-125",
+                // Hide Chrome's datalist picker arrow — it eats ~14px INSIDE the input and
+                // crops the category text; suggestions still pop on focus without it.
+                "field-sizing-content min-w-12 max-w-[65%] rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide outline-none focus:brightness-125 [&::-webkit-calendar-picker-indicator]:hidden",
                 categoryColorClass(cluster),
               )}
             />
@@ -298,7 +302,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
               }}
               className={cn(
                 noDrag,
-                "field-sizing-content min-w-12 max-w-[65%] rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide outline-none focus:brightness-125",
+                "field-sizing-content min-w-12 max-w-[65%] rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide outline-none focus:brightness-125 [&::-webkit-calendar-picker-indicator]:hidden",
                 categoryColorClass(cluster),
               )}
             />
