@@ -5,7 +5,6 @@ import { createId } from "@paralleldrive/cuid2";
 import {
   applyEdgeChanges,
   applyNodeChanges,
-  Background,
   ConnectionMode,
   Controls,
   MarkerType,
@@ -972,6 +971,7 @@ export function MapClient({
       }}
     >
       <ReactFlow
+        className="canvas-dots"
         nodes={finalNodes}
         edges={[...displayEdges, ...annoEdges]}
         nodeTypes={nodeTypes}
@@ -1063,7 +1063,6 @@ export function MapClient({
         zoomActivationKeyCode={["Meta", "Control"]}
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={26} size={1.4} color="#303036" />
 
         {/* Labeled lane backgrounds (Item C) — rendered in flow coordinate space so they pan
             and zoom with the canvas. Non-interactive; the box sits in the padding around its

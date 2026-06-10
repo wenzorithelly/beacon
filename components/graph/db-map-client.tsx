@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Background,
   ConnectionMode,
   Controls,
   MarkerType,
@@ -986,6 +985,7 @@ export function DbMapClient({
     <DbEditContext.Provider value={dbEdit}>
       <div className={cn("relative w-full", embedded ? "h-full" : "h-screen")}>
         <ReactFlow
+          className="canvas-dots"
           nodes={displayNodes}
           edges={[...displayEdges, ...annoEdges.map((e) => ({ ...e, hidden: hiddenIds.has(e.source) }))]}
           nodeTypes={nodeTypes}
@@ -1052,7 +1052,6 @@ export function DbMapClient({
           zoomActivationKeyCode={["Meta", "Control"]}
           proOptions={{ hideAttribution: true }}
         >
-          <Background gap={26} size={1.4} color="#303036" />
           <Controls
             position="bottom-right"
             className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"

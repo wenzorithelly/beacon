@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   applyEdgeChanges,
   applyNodeChanges,
-  Background,
   Controls,
   Handle,
   MiniMap,
@@ -527,6 +526,7 @@ export function FilesMapClient({
   return (
     <div className="relative h-screen w-full">
       <ReactFlow
+        className="canvas-dots"
         nodes={displayNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}
@@ -559,7 +559,6 @@ export function FilesMapClient({
         zoomActivationKeyCode={["Meta", "Control"]}
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={26} size={1.4} color="#303036" />
         <Controls
           position="bottom-right"
           className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"

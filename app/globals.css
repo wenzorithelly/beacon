@@ -164,6 +164,15 @@
     -webkit-backdrop-filter: blur(28px) saturate(160%);
     border: 1px solid oklch(1 0 0 / 0.08);
   }
+  /* Canvas dot grid — SCREEN-space (constant size/spacing at every zoom level), unlike
+     React Flow's <Background>, whose world-space pattern shrinks into invisibility the
+     moment the board is zoomed out to fit. Applied to the .react-flow container. */
+  .canvas-dots {
+    background-color: var(--background);
+    background-image: radial-gradient(circle, oklch(1 0 0 / 0.13) 1.8px, transparent 1.9px);
+    background-size: 38px 38px;
+    background-position: 0 0;
+  }
 }
 
 /* Slim, subtle scrollbars inside glass panels. */
