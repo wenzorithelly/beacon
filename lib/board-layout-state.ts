@@ -18,7 +18,8 @@ export type BoardKey = "roadmap" | "architecture" | "db";
 export const BOARD_ALGO_VERSIONS: Record<BoardKey, string> = {
   // grouped-2: aspect-targeted lane columns (wide lanes instead of 4-col towers).
   roadmap: "grouped-2",
-  architecture: "arch-layered-1",
+  // arch-layered-2: domain BLOCKS pack across the screen (no vertical band tower).
+  architecture: "arch-layered-2",
   // db-dock-2: aspect-targeted domain columns + specificity dock tie-break.
   db: "db-dock-2",
 };

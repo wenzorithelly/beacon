@@ -58,7 +58,7 @@ describe("layeredLayout", () => {
     expect(pos.get("b")!.x - pos.get("c")!.x).toBe(LAYER_W);
   });
 
-  it("domains form disjoint horizontal bands (regions can't overlap)", () => {
+  it("domains form disjoint blocks (regions can't overlap)", () => {
     const nodes = [
       n("a1", "API"),
       n("a2", "API"),
@@ -68,15 +68,46 @@ describe("layeredLayout", () => {
     ];
     const edges = [e("a2", "a1"), e("d2", "d1"), e("u1", "d1")];
     const pos = layeredLayout(nodes, edges);
-    const bandOf = (group: string) => {
-      const ys = nodes.filter((x) => x.group === group).map((x) => pos.get(x.id)!.y);
-      return { min: Math.min(...ys), max: Math.max(...ys) };
+    const boxOf = (group: string) => {
+      const ps = nodes.filter((x) => x.group === group).map((x) => pos.get(x.id)!);
+      return {
+        minX: Math.min(...ps.map((p) => p.x)),
+        maxX: Math.max(...ps.map((p) => p.x)) + 300,
+        minY: Math.min(...ps.map((p) => p.y)),
+        maxY: Math.max(...ps.map((p) => p.y)) + 100,
+      };
     };
-    const bands = ["API", "DATA", "UI"].map(bandOf);
-    // Sorted by min, each band ends strictly before the next begins.
-    bands.sort((p, q) => p.min - q.min);
-    expect(bands[0].max).toBeLessThan(bands[1].min);
-    expect(bands[1].max).toBeLessThan(bands[2].min);
+    const boxes = ["API", "DATA", "UI"].map(boxOf);
+    for (let i = 0; i < boxes.length; i++)
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i];
+        const b = boxes[j];
+        const overlap = a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
+        expect(overlap).toBe(false);
+      }
+  });
+
+  it("many shallow domains spread ACROSS the screen, not into a vertical tower", () => {
+    // The juriscan shape: 7 domains, almost no dependency depth — the old domain-band
+    // stacking produced a 1-column tower the user had to scroll forever.
+    const nodes = [
+      ...["API", "AUTH", "BILLING", "CLIENTS", "CRAWL", "DATA", "INFRA"].flatMap((d, di) =>
+        Array.from({ length: d === "INFRA" ? 8 : 3 }, (_, i) => n(`${d.toLowerCase()}${i}`, d)),
+      ),
+    ];
+    const pos = layeredLayout(nodes, [e("api1", "data0")]);
+    const xs = [...pos.values()].map((p) => p.x);
+    const ys = [...pos.values()].map((p) => p.y);
+    const w = Math.max(...xs) - Math.min(...xs) + 300;
+    const h = Math.max(...ys) - Math.min(...ys) + 100;
+    expect(w).toBeGreaterThanOrEqual(h); // wide, not tall
+  });
+
+  it("a flat domain (no edges) wraps into multiple columns instead of one tall stack", () => {
+    const nodes = Array.from({ length: 8 }, (_, i) => n(`x${i}`, "INFRA"));
+    const pos = layeredLayout(nodes, []);
+    const xs = new Set([...pos.values()].map((p) => p.x));
+    expect(xs.size).toBeGreaterThan(1);
   });
 
   it("reduces crossings: dependents align with their dependencies (barycenter)", () => {

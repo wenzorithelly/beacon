@@ -64,6 +64,9 @@ export function DeletableEdge(props: EdgeProps) {
               padding: "1px 4px",
               borderRadius: 4,
               pointerEvents: "none",
+              // Above the cards: labels only show for the hovered/selected edge now, and the
+              // one label you asked to see must never hide behind a table.
+              zIndex: 1000,
             }}
           >
             {props.label}

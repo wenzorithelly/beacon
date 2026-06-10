@@ -22,8 +22,12 @@ export interface LayeredEdge {
 
 export const LAYER_W = 360;
 export const ROW_H = 150;
-/** Extra vertical gap between domain bands (beyond the row grid). */
-export const BAND_GAP = 60;
+/** Vertical gap between bands of domain blocks (room for the region header). */
+export const BAND_GAP = 170;
+/** Horizontal gap between adjacent domain blocks. */
+export const BLOCK_GAP_X = 140;
+/** Wrap domain blocks to a new band past this width. */
+export const MAX_BAND_W = 8 * LAYER_W;
 
 /** Drop back-edges via DFS over id-sorted adjacency so the layering terminates. Deterministic:
  *  the same graph always keeps/drops the same edges regardless of input order. */
@@ -68,7 +72,11 @@ export function assignLayers(nodes: LayeredNode[], dag: LayeredEdge[]): Map<stri
   return layers;
 }
 
-/** Full layout: Map<id, {x,y}>. */
+/** Full layout: Map<id, {x,y}>. Each domain is a BLOCK with the dependency flow inside it
+ *  (layers left→right, normalized to the domain's own min depth); blocks pack left→right
+ *  across the screen and wrap into bands — so a shallow graph spreads WIDE instead of
+ *  stacking domains into a vertical tower. A layer-cell with many nodes wraps into extra
+ *  sub-columns (capped rows) so a flat all-layer-0 domain still comes out square-ish. */
 export function layeredLayout(
   nodes: LayeredNode[],
   edges: LayeredEdge[],
@@ -76,53 +84,67 @@ export function layeredLayout(
   if (nodes.length === 0) return new Map();
   const dag = breakCycles(nodes, edges);
   const layers = assignLayers(nodes, dag);
-  const maxLayer = Math.max(...nodes.map((n) => layers.get(n.id) ?? 0));
+  const deps = new Map<string, string[]>(nodes.map((n) => [n.id, []]));
+  for (const e of dag) deps.get(e.fromId)?.push(e.toId);
 
-  // Global domain order: alphabetical, unset ("—") last — identical in every layer, which is
-  // what makes the bands contiguous and the region boxes disjoint.
+  // Domain blocks, alphabetical with "—" last.
   const domains = Array.from(new Set(nodes.map((n) => n.group)));
   const named = domains.filter((d) => d !== "—").sort();
   const domainOrder = domains.includes("—") ? [...named, "—"] : named;
 
-  // Reserve each domain enough rows for its tallest layer-cell.
-  const cellCount = new Map<string, number>(); // `${domain}|${layer}` → n
-  for (const n of nodes) {
-    const key = `${n.group}|${layers.get(n.id)}`;
-    cellCount.set(key, (cellCount.get(key) ?? 0) + 1);
+  // ── Per-domain block layout in LOCAL coordinates ──
+  interface Block {
+    d: string;
+    w: number;
+    h: number;
+    local: Map<string, { x: number; y: number }>;
   }
-  const bandRows = new Map<string, number>();
+  const blocks: Block[] = [];
   for (const d of domainOrder) {
-    let rows = 1;
-    for (let l = 0; l <= maxLayer; l++) rows = Math.max(rows, cellCount.get(`${d}|${l}`) ?? 0);
-    bandRows.set(d, rows);
-  }
-  const bandTop = new Map<string, number>(); // y px of the band's first row
-  let topPx = 0;
-  for (const d of domainOrder) {
-    bandTop.set(d, topPx);
-    topPx += bandRows.get(d)! * ROW_H + BAND_GAP;
-  }
-
-  // Place layer by layer (left→right). Within a (domain, layer) cell, order by the barycenter
-  // of already-placed dependency rows (crossing reduction), tie-break by id.
-  const deps = new Map<string, string[]>(nodes.map((n) => [n.id, []]));
-  for (const e of dag) deps.get(e.fromId)?.push(e.toId);
-  const rowOf = new Map<string, number>(); // absolute row index already assigned
-  const pos = new Map<string, { x: number; y: number }>();
-  for (let l = 0; l <= maxLayer; l++) {
-    const inLayer = nodes.filter((n) => layers.get(n.id) === l);
-    for (const d of domainOrder) {
-      const cell = inLayer.filter((n) => n.group === d);
+    const members = nodes.filter((n) => n.group === d);
+    const minL = Math.min(...members.map((n) => layers.get(n.id) ?? 0));
+    const maxL = Math.max(...members.map((n) => layers.get(n.id) ?? 0));
+    const local = new Map<string, { x: number; y: number }>();
+    const rowOf = new Map<string, number>(); // local row of already-placed nodes (barycenter)
+    let xOff = 0;
+    let maxRows = 1;
+    for (let l = minL; l <= maxL; l++) {
+      const cell = members.filter((n) => layers.get(n.id) === l);
+      if (!cell.length) continue; // empty layer consumes no width
       const bary = (n: LayeredNode): number => {
         const rows = (deps.get(n.id) ?? []).map((t) => rowOf.get(t)).filter((r): r is number => r !== undefined);
         return rows.length ? rows.reduce((a, b) => a + b, 0) / rows.length : Number.POSITIVE_INFINITY;
       };
       cell.sort((a, b) => bary(a) - bary(b) || a.id.localeCompare(b.id));
+      // Cap a cell's height so a flat cell (everything at layer 0) wraps into sub-columns
+      // instead of one tall stack — square-ish beats tower.
+      const rowsCap = Math.max(1, Math.ceil(Math.sqrt(cell.length * 2)));
       cell.forEach((n, i) => {
-        rowOf.set(n.id, bandTop.get(d)! / ROW_H + i);
-        pos.set(n.id, { x: l * LAYER_W, y: bandTop.get(d)! + i * ROW_H });
+        const sub = Math.floor(i / rowsCap);
+        const row = i % rowsCap;
+        rowOf.set(n.id, row);
+        local.set(n.id, { x: xOff + sub * LAYER_W, y: row * ROW_H });
+        maxRows = Math.max(maxRows, row + 1);
       });
+      xOff += Math.ceil(cell.length / rowsCap) * LAYER_W;
     }
+    blocks.push({ d, w: xOff, h: maxRows * ROW_H, local });
+  }
+
+  // ── Pack blocks left→right, wrapping into bands (room for the region header in the gaps) ──
+  const pos = new Map<string, { x: number; y: number }>();
+  let blockX = 0;
+  let bandTop = 0;
+  let bandMaxH = 0;
+  for (const b of blocks) {
+    if (blockX > 0 && blockX + b.w > MAX_BAND_W) {
+      bandTop += bandMaxH + BAND_GAP;
+      blockX = 0;
+      bandMaxH = 0;
+    }
+    for (const [id, p] of b.local) pos.set(id, { x: blockX + p.x, y: bandTop + p.y });
+    bandMaxH = Math.max(bandMaxH, b.h);
+    blockX += b.w + BLOCK_GAP_X;
   }
   return pos;
 }
