@@ -27,7 +27,7 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
   - Prisma data layer — Workspace-resolving Prisma/libSQL client (lib/db.ts) plus node/edge mutations and the roadmap read-model. (lib/db.ts, lib/map-ops.ts, lib/mutations.ts, lib/seed.ts, prisma/schema.prisma)
   - Draft store — The proposed-schema draft layer (DraftTable/Column/Relation) with approve→promote into the real DB tables and a verdict signal for the propose-plan loop. (app/api/draft/approve/route.ts, app/api/draft/route.ts, app/api/draft/status/route.ts, lib/draft-store.ts)
 - **DBMAP**
-  - Schema ingest & layout — Upserts tables/columns/relations/endpoints (preserving manual nodes + positions), reconciles endpoint↔table usage, and auto-lays-out tables and endpoints. (app/api/db/reconcile-endpoints/route.ts, app/api/ingest/route.ts, lib/endpoint-layout.ts, lib/endpoint-reconcile.ts, lib/ingest.ts, lib/table-layout.ts)
+  - Schema ingest & layout — Upserts tables/columns/relations/endpoints (empty sections never delete; curated domain/description preserved), reconciles endpoint↔table usage, prunes planned entities with no active plan, and auto-lays-out the board. (app/api/db/prune-planned/route.ts, app/api/db/reconcile-endpoints/route.ts, app/api/ingest/route.ts, lib/endpoint-layout.ts, lib/endpoint-reconcile.ts, lib/ingest.ts)
 - **HOOKS**
   - Claude Code hooks bridge — PermissionRequest hook (`beacon plan`) pipes ExitPlanMode markdown → /plan (Claude Code only); PostToolUse hook (`beacon hook`) reports file edits from Claude's Edit/Write AND Codex's apply_patch; the Stop-hook nudge reads both transcript formats. (bin/hook.ts, bin/plan.ts, bin/prompt.ts, bin/stop-hook.ts, lib/hook-files.ts, lib/stop-hook-detect.ts)
 - **INFRA**
@@ -37,7 +37,7 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - **INSTALL**
   - Global & repo install — Writes/self-heals ~/.claude (skills+hooks+CLAUDE.md) AND, when the codex binary is detected, ~/.codex + ~/.agents (hooks.json, config.toml MCP entry, AGENTS.md block, skills) plus per-repo .mcp.json + .claude/skills + .agents/skills + AGENTS.md block; doctor audits both surfaces, uninstall reverses them. (bin/doctor.ts, bin/uninstall.ts, lib/agent-config.ts, lib/assets.ts, lib/codex-install.ts, lib/global-install.ts)
 - **INTEL**
-  - Live code-intelligence daemon — Per-workspace chokidar watchers (recently-opened subset + lazy warm-up) → registry-driven polyglot, multi-root, incremental code-graph build → pinned ingest. Degrades gracefully. (instrumentation.ts, intel/config.ts, intel/ingest.ts, intel/merge.ts, intel/pipeline.ts, intel/watch-inline.ts)
+  - Live code-intelligence daemon — Per-workspace watchers (recently-opened subset + lazy warm-up) → registry-driven polyglot, multi-root, incremental code-graph build → pinned ingest. Degrades gracefully. (instrumentation.ts, intel/config.ts, intel/ingest.ts, intel/merge.ts, intel/pipeline.ts, intel/watch-inline.ts)
   - Code graph & files canvas — Polyglot, multi-root import-edge index (per-language resolver registry) with cached degrees + cycle flags; transitive depth-N blast-radius; hub/lang-aware files canvas. (app/api/code-graph/route.ts, components/graph/files-map-client.tsx, intel/extractors/code-graph.ts, intel/extractors/languages/index.ts, lib/code-graph.ts)
 - **MCP**
   - MCP server — stdio MCP server exposing beacon_map / propose_plan / context_for_feature / describe_feature / blast_radius / init_persist plus @-mention resources; pins every request to its repo's workspace. (bin/mcp.ts)
@@ -59,12 +59,12 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - `CodeFileEdge`: fromPath, toPath, circular
 - `DbColumn`: id, tableId, name, type, isPk, isFk, nullable, note, ord
 - `DbRelation`: id, fromTableId, toTableId, fromColumn, toColumn, label
-- `DbTable`: id, name, domain, description, source, x, y, createdAt, updatedAt
+- `DbTable`: id, name, domain, description, source, planId, x, y, createdAt, updatedAt
 - `DraftColumn`: id, tableId, name, type, isPk, isFk, nullable, note, ord
 - `DraftRelation`: id, fromTableId, toTableId, fromColumn, toColumn, label
 - `DraftTable`: id, name, domain, description, x, y, createdAt
 - `Edge`: id, fromId, toId, kind, label, sourceHandle, targetHandle
-- `Endpoint`: id, method, path, domain, description, source, x, y, createdAt, updatedAt
+- `Endpoint`: id, method, path, domain, description, source, planId, x, y, createdAt, updatedAt
 - `EndpointTable`: id, endpointId, tableId, access
 - `Feedback`: id, body, upvotes, downvotes, deleteToken, createdAt
 - `Node`: id, title, parentId, x, progress, pinned, createdAt
@@ -80,6 +80,7 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - POST /api/board-annotations
 - PATCH /api/board-annotations/{id}
 - DELETE /api/board-annotations/{id}
+- POST /api/board-layout
 - GET /api/bug-flags
 - POST /api/bug-flags
 - PATCH /api/bug-flags/{id}
@@ -92,6 +93,7 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - POST /api/db/arrange
 - POST /api/db/backfill-access
 - POST /api/db/position
+- POST /api/db/prune-planned
 - POST /api/db/reconcile-endpoints
 - DELETE /api/db/relations/{id}
 - DELETE /api/db/tables/{id}
@@ -114,8 +116,6 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - POST /api/map/files
 - POST /api/map/finish
 - POST /api/map/start
-- POST /api/map/touch-active
-- POST /api/nodes
 
 ### Conventions & gotchas
 - This is Next.js 16 App Router with breaking changes — read node_modules/next/dist/docs/ before relying on memory; APIs and conventions differ from older App Router.
@@ -125,6 +125,14 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 - Keep the schema Postgres-portable: no enum columns (use text + Zod unions) and no scalar-array columns (model arrays as related rows) — SQLite can't store arrays.
 - All agent-facing text (MCP tool returns, context bundles, AGENTS.md) is in English; the UI never says "Claude" — refer to it as "the agent" or "your terminal session".
 - The AGENTS.md project block lives between <!-- beacon:start --> and <!-- beacon:end --> and is regenerated by lib/context-files.ts from ProjectMeta + the architecture/db nodes — edit outside the markers; CLAUDE.md @imports AGENTS.md.
+- TDD on non-trivial changes; tests live in tests/ and run via `bun test`. Multi-workspace data lives under ~/.beacon/<id>/ (overridable with BEACON_HOME), not in the repo.
+
+_Maintained by Beacon — edit outside the markers; this block is regenerated._
+<!-- beacon:end --> and is regenerated by lib/context-files.ts from ProjectMeta + the architecture/db nodes — edit outside the markers; CLAUDE.md @imports AGENTS.md.
+- TDD on non-trivial changes; tests live in tests/ and run via `bun test`. Multi-workspace data lives under ~/.beacon/<id>/ (overridable with BEACON_HOME), not in the repo.
+
+_Maintained by Beacon — edit outside the markers; this block is regenerated._
+<!-- beacon:end --> and is regenerated by lib/context-files.ts from ProjectMeta + the architecture/db nodes — edit outside the markers; CLAUDE.md @imports AGENTS.md.
 - TDD on non-trivial changes; tests live in tests/ and run via `bun test`. Multi-workspace data lives under ~/.beacon/<id>/ (overridable with BEACON_HOME), not in the repo.
 
 _Maintained by Beacon — edit outside the markers; this block is regenerated._
