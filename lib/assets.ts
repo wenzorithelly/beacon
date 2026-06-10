@@ -20,7 +20,7 @@ The user already has Beacon running. You're going to map this repository's archi
 
 A single \`beacon_init_persist\` MCP tool call with:
 
-- **components**: 8–25 main building blocks of this codebase. NOT every file. Group them by \`domain\` (short UPPERCASE: AUTH, API, DATA, UI, JOBS, INFRA, BILLING, SEARCH, …). For each: a one-line technical \`role\`, a one-sentence plain-language \`plain\`, the few \`files\` that implement it (repo-relative), and \`depends\` listing other component titles it relies on. Use the dependency graph you can see in the source — files that import each other heavily usually belong together.
+- **components**: 8–25 main building blocks of this codebase. NOT every file. Group them by \`domain\` (short UPPERCASE: AUTH, API, DATA, UI, JOBS, INFRA, BILLING, SEARCH, …). For each: a one-line technical \`role\`, a one-sentence plain-language \`plain\`, the few \`files\` that implement it (repo-relative), and \`depends\` listing other component titles it relies on. Use the dependency graph you can see in the source — files that import each other heavily usually belong together. If you spot a bug or something worth investigating while reading a component's code, add \`bugs: [{ note }]\` to that component — it renders as a bug flag on the node (attributed to the agent). Only flag what you actually saw in the code; don't speculate.
 - **roadmap**: 3–6 BROAD strategic directions. Big-picture themes only — "Harden auth & security", "Add observability", "Scale the data layer", "Pay down test-coverage debt". NOT detailed tasks. NOT file-level. Each gets a short title and one-line \`why\`.
 - **overview**: one paragraph describing what this project is and its stack. This lands in AGENTS.md as the project intro.
 - **conventions**: 3–8 concrete rules a contributor MUST follow — build/test commands, where code goes, patterns, things easy to get wrong. Infer from actual files, not assumptions.
@@ -90,7 +90,7 @@ The one caveat: if the user manually edited an INIT-source node on the canvas (e
    - **~ changed**: COMPONENT_X (role expanded to cover Y)
    - **schema**: + 2 new tables (TableA, TableB); + 3 new endpoints; − 1 deprecated endpoint
    No need to wait for confirmation — just show the diff so the user sees what's about to land.
-5. **Call \`beacon_init_persist\`** ONCE with the refreshed full analysis (same shape as init: \`components\`, \`roadmap\`, \`overview\`, \`conventions\`, \`snapshot\`). It replaces all init-source nodes and regenerates \`AGENTS.md\`.
+5. **Call \`beacon_init_persist\`** ONCE with the refreshed full analysis (same shape as init: \`components\`, \`roadmap\`, \`overview\`, \`conventions\`, \`snapshot\`). It replaces all init-source nodes and regenerates \`AGENTS.md\`. Bug flags already on a component survive the refresh (they're carried over by title); add \`bugs: [{ note }]\` for anything NEW you found worth investigating — identical open flags are not duplicated.
 
 ## What you should NOT do
 

@@ -197,6 +197,10 @@ const architectureItemSchema = z
       status: z.enum(["KEEP", "REBUILD", "REPLACE", "DROP"]).optional(),
       files: z.array(z.string()).optional(),
       depends: z.array(z.string()).optional().describe("titles of components this one depends on"),
+      bugs: z
+        .array(z.object({ note: z.string().describe("what was found / worth investigating") }))
+        .optional()
+        .describe("bugs or things worth investigating you found in this component's code — flagged on the node (by=agent); identical open flags are not duplicated"),
     }),
   )
   .optional()
@@ -265,6 +269,10 @@ server.registerTool(
             plain: z.string().optional().describe("one plain-language sentence"),
             files: z.array(z.string()).optional().describe("repo-relative key files"),
             depends: z.array(z.string()).optional().describe("titles of other components it depends on"),
+            bugs: z
+              .array(z.object({ note: z.string().describe("what was found / worth investigating") }))
+              .optional()
+              .describe("bugs or things worth investigating you found while examining this component — flagged on the node (by=agent)"),
           }),
         )
         .describe("8-25 main building blocks, not every file"),

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
-import { node, nodeFile, edge } from "@/lib/drizzle/schema";
+import { node, nodeFile, edge, bugFlag } from "@/lib/drizzle/schema";
 import { bumpVersion, ingestSnapshot, snapshotSchema } from "@/lib/ingest";
 import { setProjectMeta } from "@/lib/project-meta";
 import { writeContextFiles } from "@/lib/context-files";
@@ -21,6 +21,9 @@ const componentSchema = z.object({
   plain: z.string().nullish(),
   files: z.array(z.string()).default([]),
   depends: z.array(z.string()).default([]),
+  // Bugs / things worth investigating found while examining this component's code —
+  // recorded as BugFlag rows with by="agent".
+  bugs: z.array(z.object({ note: z.string().trim().min(1).max(2000) })).optional(),
 });
 
 const roadmapItemSchema = z.object({
@@ -46,7 +49,19 @@ export type InitAnalysis = z.input<typeof initInputSchema>;
 type Component = z.infer<typeof componentSchema>;
 type RoadmapItem = z.infer<typeof roadmapItemSchema>;
 
-async function persistArchitecture(components: Component[]): Promise<number> {
+export async function persistArchitecture(components: Component[]): Promise<number> {
+  // The INIT replace below cascade-deletes each node's BugFlag rows, but a refresh that
+  // recreates the same component (by title) must not lose its flags — least of all one the
+  // USER raised. Snapshot them first and re-attach after the recreate.
+  const priorInitNodes = await db.query.node.findMany({
+    where: (t, { and, eq }) => and(eq(t.view, "ARCHITECTURE"), eq(t.source, "INIT")),
+    columns: { title: true },
+    with: { bugFlags: true },
+  });
+  const flagsByTitle = new Map(
+    priorInitNodes.filter((n) => n.bugFlags.length).map((n) => [n.title.toLowerCase(), n.bugFlags]),
+  );
+
   // Idempotent: replace a previous init-derived architecture.
   await db.delete(node).where(and(eq(node.view, "ARCHITECTURE"), eq(node.source, "INIT")));
 
@@ -91,6 +106,32 @@ async function persistArchitecture(components: Component[]): Promise<number> {
       }
     }
   }
+
+  // Re-attach the snapshotted flags to the recreated nodes, then record any newly
+  // reported bugs as agent flags — skipping notes already open on the node so a
+  // refresh re-reporting the same finding stays idempotent.
+  for (const c of components) {
+    const nodeId = idByTitle.get(c.title.toLowerCase());
+    if (!nodeId) continue;
+    const carried = flagsByTitle.get(c.title.toLowerCase()) ?? [];
+    if (carried.length) {
+      await db.insert(bugFlag).values(
+        carried.map((f) => ({
+          nodeId,
+          by: f.by,
+          note: f.note,
+          resolvedAt: f.resolvedAt,
+          createdAt: f.createdAt,
+        })),
+      );
+    }
+    const openNotes = new Set(carried.filter((f) => !f.resolvedAt).map((f) => f.note));
+    for (const b of c.bugs ?? []) {
+      if (openNotes.has(b.note)) continue;
+      await db.insert(bugFlag).values({ nodeId, by: "agent", note: b.note });
+    }
+  }
+
   return components.length;
 }
 
