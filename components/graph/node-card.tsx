@@ -247,8 +247,10 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
         </div>
       )}
 
-      {/* Domain / category + status row */}
-      <div className="mt-2 flex items-center gap-1.5">
+      {/* Domain / category + status row. Wraps instead of flex-shrinking: when extra badges
+          (IA chip, bug chip) + a long status crowd the line, the status select drops to a
+          second row rather than cropping the category pill text. */}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {/* Roadmap: feature (top-level) vs sub-task badge, then a free category tag.
             Architecture: the DOMAIN is the prominent (editable) pill — it's what tells one
             component apart from another, instead of a generic "COMPONENT" tag on every card. */}
