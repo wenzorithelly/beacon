@@ -32,6 +32,23 @@ export async function register() {
     );
   }
 
+  // Anonymous usage telemetry (lib/telemetry.ts): heartbeat from the LOCAL daemon only.
+  // Must run before the production early-return below — the packaged daemon runs `next start`
+  // in production mode (bin/beacon.ts). The deployed site (VERCEL/BEACON_PUBLIC) never sends;
+  // repo contributors on `bun run dev` aren't counted (BEACON_TELEMETRY_DEBUG=1 to exercise).
+  const isDeployedSite = process.env.VERCEL === "1" || process.env.BEACON_PUBLIC === "1";
+  const telemetryEligible =
+    process.env.NODE_ENV === "production" || process.env.BEACON_TELEMETRY_DEBUG === "1";
+  if (!isDeployedSite && telemetryEligible) {
+    try {
+      const { startTelemetry } = await import("@/lib/telemetry");
+      const { appVersion } = await import("@/lib/app-version");
+      startTelemetry(appVersion());
+    } catch {
+      /* telemetry must never break boot */
+    }
+  }
+
   if (process.env.NODE_ENV === "production") return;
   if (process.env.BEACON_NO_INLINE_WATCH === "1") return;
 

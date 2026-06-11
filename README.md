@@ -92,3 +92,16 @@ Beacon is local-first: every user's boards live in per-workspace SQLite on their
 so there is **no production database**. A hosted deployment is just the static app + (optionally)
 read-only shared-board snapshots persisted to a blob/KV store — no Postgres, no migrations to run
 against a server.
+
+(The one exception is the deploy's small shared Neon Postgres holding the anonymous feedback
+board and the telemetry counters below — never user board data.)
+
+## Telemetry
+
+Beacon sends an **anonymous heartbeat** at most every 12 hours while the local server runs, so we
+can count active installs (npm download counts are dominated by mirrors and CI). The payload is
+exactly five fields: a random machine id (a locally generated UUID tied to nothing), the Beacon
+version, OS, CPU architecture, and a CI flag. **Never** repo names, file paths, code, plans, or
+board content; IP addresses are not stored. Inspect the exact payload with `beacon telemetry status`.
+
+Opt out any time with `beacon telemetry off`, `BEACON_TELEMETRY_DISABLED=1`, or `DO_NOT_TRACK=1`.

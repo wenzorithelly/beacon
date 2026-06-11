@@ -15,6 +15,13 @@
       "when": 1780977540360,
       "tag": "0001_stiff_adam_destine",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781215475401,
+      "tag": "0002_slippery_sumo",
+      "breakpoints": true
     }
   ]
 }

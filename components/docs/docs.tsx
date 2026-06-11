@@ -19,6 +19,7 @@ const SECTIONS = [
   { id: "cli", title: "CLI reference" },
   { id: "integration", title: "Claude Code integration" },
   { id: "config", title: "Configuration" },
+  { id: "telemetry", title: "Telemetry" },
   { id: "troubleshooting", title: "Troubleshooting" },
 ];
 
@@ -317,6 +318,44 @@ export function Docs() {
                     <p className="w-muted mt-1.5 text-[0.92rem] leading-relaxed">{c.what}</p>
                   </div>
                 ))}
+              </div>
+            </section>
+
+            {/* telemetry */}
+            <section className="mt-16">
+              <Heading id="telemetry" eyebrow="Reference">Telemetry</Heading>
+              <p className="w-muted mb-4 leading-relaxed">
+                Beacon sends an anonymous heartbeat at most every 12 hours while the local server runs,
+                so we can count active installs (npm download numbers are dominated by mirrors and CI).
+                The payload is exactly five fields — verify it yourself anytime with{" "}
+                <span className="w-mono text-foreground">beacon telemetry status</span>, which prints the
+                exact payload that gets sent.
+              </p>
+              <div className="space-y-3">
+                <div className="glass rounded-lg p-4">
+                  <p className="font-medium text-foreground text-[0.92rem]">What is sent</p>
+                  <p className="w-muted mt-1.5 text-[0.92rem] leading-relaxed">
+                    A random machine id (a UUID generated locally — tied to nothing), the Beacon version,
+                    the operating system (<span className="w-mono">darwin</span>/<span className="w-mono">linux</span>/<span className="w-mono">win32</span>),
+                    the CPU architecture, and whether the machine is a CI runner.
+                  </p>
+                </div>
+                <div className="glass rounded-lg p-4">
+                  <p className="font-medium text-foreground text-[0.92rem]">What is never sent</p>
+                  <p className="w-muted mt-1.5 text-[0.92rem] leading-relaxed">
+                    Repo names, file paths, code, plans, board content, environment variables, or anything
+                    derived from them. IP addresses are not stored.
+                  </p>
+                </div>
+                <div className="glass rounded-lg p-4">
+                  <p className="font-medium text-foreground text-[0.92rem]">Opting out</p>
+                  <p className="w-muted mt-1.5 text-[0.92rem] leading-relaxed">
+                    Any of: <span className="w-mono text-foreground">beacon telemetry off</span>, the env var{" "}
+                    <span className="w-mono text-foreground">BEACON_TELEMETRY_DISABLED=1</span>, or the
+                    cross-tool <span className="w-mono text-foreground">DO_NOT_TRACK=1</span> convention.
+                    Re-enable with <span className="w-mono text-foreground">beacon telemetry on</span>.
+                  </p>
+                </div>
               </div>
             </section>
 

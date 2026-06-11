@@ -48,6 +48,7 @@ function mod(rel: string): string {
 //   beacon doctor     — audit install state (global hooks/skills + this repo's wiring)
 //   beacon uninstall  — reverse every Beacon artifact (global + per-repo)
 //   beacon update     — update the installed `trybeacon` package to the latest release
+//   beacon telemetry  — anonymous usage telemetry: on | off | status (default status)
 //   beacon version    — print the installed Beacon version (also --version / -v)
 const sub = process.argv[2];
 if (sub === "mcp") {
@@ -72,6 +73,8 @@ if (sub === "mcp") {
   await import(mod("bin/uninstall.ts"));
 } else if (sub === "update") {
   await updateBeacon(process.argv.includes("--force") || process.argv.includes("-f"));
+} else if (sub === "telemetry") {
+  await telemetryCommand(process.argv[3]);
 } else if (sub === "version" || sub === "--version" || sub === "-v") {
   console.log(currentVersion());
 } else {
@@ -262,6 +265,25 @@ async function launchPanel() {
     if (c.mcp.error) console.log(`[beacon] codex MCP not wired: ${c.mcp.error}`);
   }
 
+  // One-time telemetry disclosure — global trigger (no machine id yet), not per-repo. Runs
+  // BEFORE ensureDaemon() so the daemon always finds the id on disk (it never writes
+  // preferences itself). Printed even if an env opt-out is active: transparency first.
+  try {
+    const t = await import(mod("lib/telemetry.ts"));
+    if (!t.telemetryStatus().machineId) {
+      const enabled = t.telemetryStatus().enabled;
+      console.log(
+        "[beacon] telemetry: Beacon sends an anonymous heartbeat (random machine id, version, OS,\n" +
+          "         architecture — never repo names, paths, or code) at most every 12h to count\n" +
+          "         active installs. Opt out: `beacon telemetry off`, BEACON_TELEMETRY_DISABLED=1,\n" +
+          `         or DO_NOT_TRACK=1. Details: beacon telemetry status.${enabled ? "" : " (currently disabled by your env)"}`,
+      );
+      t.ensureTelemetryId();
+    }
+  } catch {
+    /* telemetry must never break launch */
+  }
+
   // Register the repo, ensure the shared server, then open the browser straight onto this
   // repo (activate makes it the server's active workspace). The intel pipeline is MANUAL —
   // the user triggers it from Settings → "Sync code map" when they want fresh data.
@@ -281,6 +303,39 @@ async function launchPanel() {
 // The installed Beacon's own version (pkgDir/package.json), NOT the CWD repo's.
 function currentVersion(): string {
   return readJson<{ version?: string }>(join(pkgDir, "package.json"))?.version ?? "0.0.0";
+}
+
+// `beacon telemetry [on|off|status]` — control + inspect the anonymous usage telemetry.
+// `status` prints the EXACT payload that gets sent, so the disclosure is verifiable.
+async function telemetryCommand(arg?: string) {
+  const t = await import(mod("lib/telemetry.ts"));
+  if (arg === "on" || arg === "off") {
+    t.setTelemetryEnabled(arg === "on");
+    console.log(`[beacon] telemetry ${arg === "on" ? "enabled" : "disabled"}.`);
+    return;
+  }
+  if (arg && arg !== "status") {
+    console.error("usage: beacon telemetry [on|off|status]");
+    process.exit(1);
+  }
+  const s = t.telemetryStatus();
+  const why =
+    s.reason === "env:BEACON_TELEMETRY_DISABLED"
+      ? " (BEACON_TELEMETRY_DISABLED=1)"
+      : s.reason === "env:DO_NOT_TRACK"
+        ? " (DO_NOT_TRACK)"
+        : s.reason === "preference"
+          ? " (beacon telemetry off)"
+          : "";
+  console.log(`\n  ◉ Beacon telemetry: ${s.enabled ? "enabled" : "disabled"}${why}`);
+  console.log(`  machine id: ${s.machineId ?? "(not generated yet — created on first \`beacon\` run)"}`);
+  if (s.machineId) {
+    console.log(`  payload:    ${JSON.stringify(t.heartbeatPayload(currentVersion()))}`);
+  }
+  console.log(
+    "  sent at most every 12h while the daemon runs — never repo names, paths, or code.\n" +
+      "  toggle: `beacon telemetry on|off` · env: BEACON_TELEMETRY_DISABLED=1 or DO_NOT_TRACK=1\n",
+  );
 }
 
 // `beacon update` — re-run the canonical installer (the documented update path: it pulls the

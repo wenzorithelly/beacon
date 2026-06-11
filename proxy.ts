@@ -20,14 +20,16 @@ export function proxy(request: NextRequest) {
 
   if (PUBLIC) {
     // `/` is the landing; `/docs` is the public guide; `/install.sh` is the public install
-    // script (served from public/); `/api/feedback*` is the global feedback board API every
-    // distributed install calls cross-origin. Everything else (the local tool's routes + the
+    // script (served from public/); `/api/feedback*` is the global feedback board API and
+    // `/api/telemetry*` the anonymous heartbeat ingest + private stats — both called by every
+    // distributed install cross-origin. Everything else (the local tool's routes + the
     // rest of /api, which read the developer's own repo data) stays hidden and redirects to `/`.
     if (
       pathname === "/" ||
       pathname === "/docs" ||
       pathname === "/install.sh" ||
-      pathname.startsWith("/api/feedback")
+      pathname.startsWith("/api/feedback") ||
+      pathname.startsWith("/api/telemetry")
     ) {
       return NextResponse.next();
     }

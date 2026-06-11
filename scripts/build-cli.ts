@@ -30,6 +30,7 @@ const ENTRYPOINTS = [
   "lib/codex-install.ts",
   "lib/release.ts", // `beacon update` reads INSTALL_COMMAND / NPM_LATEST_URL
   "lib/semver.ts", // `beacon update` compares the installed vs latest version
+  "lib/telemetry.ts", // `beacon telemetry` + the first-run disclosure notice
 ];
 
 // Externalize the real node_modules deps (resolved by the user's `bun add -g`), but NOT our own

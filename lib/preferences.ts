@@ -17,6 +17,11 @@ export interface Preferences {
   planApprovalMode?: PermissionMode;
   // True once the user has explicitly chosen — gates the one-time setup prompt on /plan.
   planApprovalModeConfigured?: boolean;
+  // Anonymous telemetry machine id (random UUID, generated once by the CLI). Its ABSENCE is
+  // the "first ever run" signal that triggers the one-time disclosure notice.
+  telemetryUuid?: string;
+  // Undefined = on by default; false only after an explicit `beacon telemetry off`.
+  telemetryEnabled?: boolean;
 }
 
 function preferencesPath(): string {
@@ -26,9 +31,14 @@ function preferencesPath(): string {
 export function readPreferences(): Preferences {
   try {
     const raw = JSON.parse(readFileSync(preferencesPath(), "utf8")) as Preferences;
+    // Every field must be passed through here: writePreferences spreads this result, so a
+    // key missing from this whitelist is silently DESTROYED on the next unrelated write.
     return {
       planApprovalMode: isPermissionMode(raw.planApprovalMode) ? raw.planApprovalMode : undefined,
       planApprovalModeConfigured: raw.planApprovalModeConfigured === true,
+      telemetryUuid: typeof raw.telemetryUuid === "string" ? raw.telemetryUuid : undefined,
+      telemetryEnabled:
+        raw.telemetryEnabled === false ? false : raw.telemetryEnabled === true ? true : undefined,
     };
   } catch {
     return {};
