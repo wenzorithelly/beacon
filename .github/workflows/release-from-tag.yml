@@ -1,0 +1,35 @@
+name: Release from tag
+
+# `make publish` ships to npm from the publisher's machine and leaves tagging to them —
+# but the in-app update banner only fires when a GitHub *release* exists for that version.
+# This closes the gap: pushing a vX.Y.Z tag cuts the matching release on GitHub's side
+# (no dependency on the publisher's network reaching api.github.com). The full CI pipeline
+# (release.yml, workflow_dispatch) still does bump → test → npm → release in one go; its
+# own tag push lands here too, where the idempotency check makes it a no-op.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create the GitHub release for this tag (idempotent)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists — nothing to do"
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
