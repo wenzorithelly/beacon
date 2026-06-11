@@ -1,0 +1,119 @@
+name: Publish on version bump
+
+# Make "bump the version in package.json + push to main" actually ship — the gap the other two
+# workflows leave: release.yml only runs on manual workflow_dispatch (it bumps itself), and
+# release-from-tag.yml only fires on a pushed v* tag. A plain version bump on main matched
+# neither, so the new version never reached npm and no GitHub release was cut.
+#
+# This publishes the version currently in package.json to npm, then tags it + creates the
+# matching GitHub release (which is what the in-app update banner watches). It is idempotent:
+# it skips when the version is unchanged from the previous commit, and when that version is
+# already on npm — so it never double-publishes alongside `make publish` or release.yml.
+#
+# Trigger: push a package.json version change to main, OR run it manually from the Actions tab
+# (workflow_dispatch) to publish the current version without another bump.
+on:
+  push:
+    branches: [main]
+    paths: ["package.json"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# Share release.yml's concurrency group so the two release paths can never race over the tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
+      tag: ${{ steps.decide.outputs.tag }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # need the previous commit to diff the version field
+
+      - name: Decide whether to publish
+        id: decide
+        run: |
+          cur=$(jq -r .version package.json)
+          prev=$(git show HEAD~1:package.json 2>/dev/null | jq -r .version 2>/dev/null || echo "")
+          echo "version=$cur" >> "$GITHUB_OUTPUT"
+          echo "tag=v$cur" >> "$GITHUB_OUTPUT"
+
+          # A manual run publishes the current version; a push must actually change the version.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "manual dispatch — targeting current version $cur"
+          elif [ "$cur" = "$prev" ]; then
+            echo "version unchanged ($cur) — nothing to publish"
+            echo "publish=false" >> "$GITHUB_OUTPUT"; exit 0
+          else
+            echo "version changed: $prev -> $cur"
+          fi
+
+          # Never double-publish: skip if this version is already live on npm.
+          if curl -fsS "https://registry.npmjs.org/trybeacon/$cur" >/dev/null 2>&1; then
+            echo "trybeacon@$cur is already on npm — nothing to publish"
+            echo "publish=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          echo "will publish trybeacon@$cur"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: detect
+    if: needs.detect.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          # Pinned in lockstep with release.yml + the local toolchain.
+          bun-version: 1.3.14
+
+      # Node provides `npm` for publish; registry-url wires NODE_AUTH_TOKEN into ~/.npmrc.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Gate the release on a green suite (same as release.yml).
+      - name: Test
+        run: bun test
+
+      # `npm publish` runs prepublishOnly → build:release (next build + CLI bundle). If it fails,
+      # no tag/release is created, so the update banner can never point at a missing version.
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Only after npm has the version: tag the release commit and cut the GitHub release the
+      # in-app update banner watches.
+      - name: Tag and create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ needs.detect.outputs.tag }}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $tag already exists — nothing to do"
+            exit 0
+          fi
+          git tag "$tag"
+          git push origin "$tag"
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$tag" --generate-notes
