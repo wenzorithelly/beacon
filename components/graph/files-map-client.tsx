@@ -10,6 +10,7 @@ import {
   Panel,
   Position,
   ReactFlow,
+  ViewportPortal,
   type Edge,
   type EdgeChange,
   type Node,
@@ -39,8 +40,11 @@ import {
 } from "@/lib/canvas-search";
 import { untestedFiles } from "@/lib/test-coverage";
 import { type TouchedMap } from "@/lib/touched-files";
-import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
+import { computeGroupRegions, type Region, type RegionInput } from "@/lib/group-regions";
 import { GroupRegions } from "@/components/graph/group-regions";
+import { LayerToggle, layerEmphasisMatch } from "@/components/graph/layer-toggle";
+import { classifyFileLayers } from "@/lib/file-layer";
+import { LAYER_META, layerStripeCss, type Layer } from "@/lib/layer";
 import { LodReporter, useZoomLOD } from "@/components/graph/use-zoom-lod";
 import { FILES_LOD, type Lod } from "@/lib/zoom-lod";
 import { categoryHex } from "@/lib/category-color";
@@ -210,6 +214,9 @@ interface FileNodeData {
   inDegree?: number;
   // The top-level directory's hue (color-group categorization, Obsidian-style).
   dirColor: string;
+  // Deterministic frontend/backend/fullstack classification (lib/file-layer) — renders a thin
+  // layer-colored ring around the dot. Null/undefined = neutral, no ring.
+  layer?: Layer | null;
   // Touched-Files overlay (driven by the PostToolUse hook via the touched store).
   touched?: boolean;
   count?: number; // edits this session
@@ -236,15 +243,23 @@ function FileNode({ data }: { data: FileNodeData }) {
   const recency = data.recency ?? 0;
   const inDeg = data.inDegree ?? 0;
   const r = dotRadius(inDeg);
+  // Layer ring: 2px of layer color wrapped around the dot (padding, not box-shadow — the
+  // amber untested ring and teal touched glow stay free to stack on top).
+  const layer = data.layer ?? null;
+  const ringPad = layer ? 2 : 0;
   // Text fade threshold, like Obsidian's: every name at reading zoom; only hubs at mid
   // zoom; none when far (the directory summaries take over).
   const showLabel = lod === "full" || (lod === "mid" && inDeg >= 4);
   const hubNote = inDeg > 0 ? ` · imported by ${inDeg}` : "";
+  // A file is never "fullstack" — one reached from both sides is SHARED (split ring).
+  const layerNote = layer
+    ? ` · ${layer === "fullstack" ? "shared (used by frontend + backend)" : LAYER_META[layer].label.toLowerCase()}`
+    : "";
   const title = touched
-    ? `${data.tooltip} · edited ${data.count ?? 0}× this session${hubNote}`
+    ? `${data.tooltip} · edited ${data.count ?? 0}× this session${hubNote}${layerNote}`
     : data.untested
-      ? `${data.tooltip} · no test imports this file${hubNote}`
-      : `${data.tooltip}${hubNote}`;
+      ? `${data.tooltip} · no test imports this file${hubNote}${layerNote}`
+      : `${data.tooltip}${hubNote}${layerNote}`;
   return (
     <div title={title} className="relative flex flex-col items-center">
       {/* Both handles sit at the DOT'S CENTER (not the container edges, which include the
@@ -254,22 +269,27 @@ function FileNode({ data }: { data: FileNodeData }) {
         position={Position.Top}
         isConnectable={false}
         className="!h-0 !w-0 !min-w-0 !border-0 !bg-transparent"
-        style={{ top: r, left: "50%" }}
+        style={{ top: r + ringPad, left: "50%" }}
       />
       <span
         aria-hidden
         className={cn("rounded-full", data.isNewest && "animate-touch-pulse")}
         style={{
-          width: r * 2,
-          height: r * 2,
-          backgroundColor: data.dirColor,
+          padding: ringPad,
+          background: layer ? layerStripeCss(layer) : undefined,
           boxShadow: touched
             ? `0 0 ${8 + Math.round(recency * 14)}px ${2 + Math.round(recency * 3)}px rgba(45,212,191,${(0.35 + recency * 0.45).toFixed(2)})`
             : data.untested
               ? "0 0 0 2px rgba(251,191,36,0.65)"
               : "none",
         }}
-      />
+      >
+        <span
+          aria-hidden
+          className="block rounded-full"
+          style={{ width: r * 2, height: r * 2, backgroundColor: data.dirColor }}
+        />
+      </span>
       {touched && (data.count ?? 0) > 0 && (
         <span
           aria-hidden
@@ -293,7 +313,7 @@ function FileNode({ data }: { data: FileNodeData }) {
         position={Position.Bottom}
         isConnectable={false}
         className="!h-0 !w-0 !min-w-0 !border-0 !bg-transparent"
-        style={{ top: r, bottom: "auto", left: "50%" }}
+        style={{ top: r + ringPad, bottom: "auto", left: "50%" }}
       />
     </div>
   );
@@ -301,14 +321,55 @@ function FileNode({ data }: { data: FileNodeData }) {
 
 const nodeTypes = { file: FileNode };
 
+// Always-on faint layer tint behind each directory cluster (the architecture-tool "zone"
+// convention): the cluster's dominant layer at ~7% opacity, borderless and label-free so it
+// reads as atmosphere, not a box over the organic web. Far zoom hands over to the opaque
+// labeled GroupRegions summaries.
+function LayerTintRegions({
+  regions,
+  dominant,
+}: {
+  regions: Region[];
+  dominant: Map<string, Layer | null>;
+}) {
+  return (
+    <ViewportPortal>
+      {regions.map((r) => {
+        const layer = dominant.get(r.key);
+        if (!layer) return null;
+        return (
+          <div
+            key={r.key}
+            className="rounded-3xl"
+            style={{
+              position: "absolute",
+              transform: `translate(${r.x}px, ${r.y}px)`,
+              width: r.w,
+              height: r.h,
+              pointerEvents: "none",
+              zIndex: 0,
+              background: layerStripeCss(layer),
+              opacity: 0.07,
+            }}
+          />
+        );
+      })}
+    </ViewportPortal>
+  );
+}
+
 export function FilesMapClient({
   files,
   edges: edgePayload,
   touched,
+  hasFrontend = false,
 }: {
   files: FileGraphFile[];
   edges: FileGraphEdge[];
   touched?: TouchedMap;
+  /** Gates every layer visual (rings, zone tints, the FE/BE/FS toggle) — a pure-backend
+   *  repo renders the canvas exactly as before. */
+  hasFrontend?: boolean;
 }) {
   // Run the simulation every load — it's deterministic (seeded from paths), so the picture
   // is stable across reloads, and layout improvements reach existing boards instead of being
@@ -325,6 +386,13 @@ export function FilesMapClient({
   const untested = useMemo(
     () => untestedFiles(files.map((f) => f.path), edgePayload),
     [files, edgePayload],
+  );
+
+  // Deterministic frontend/backend/fullstack classification (seeds + reverse-import BFS) —
+  // computed client-side from data already on hand; nothing persisted.
+  const fileLayers = useMemo(
+    () => (hasFrontend ? classifyFileLayers(files.map((f) => f.path), edgePayload) : null),
+    [hasFrontend, files, edgePayload],
   );
 
   // Touched-Files overlay: per-file edit count + recency (0..1, newest = 1) + the single newest.
@@ -374,6 +442,7 @@ export function FilesMapClient({
           untested: untested.has(f.path),
           inDegree: f.inDegree ?? 0,
           dirColor: categoryHex(groupKeys.get(f.path) ?? "(root)"),
+          layer: fileLayers?.get(f.path) ?? null,
           touched: !!ti,
           count: ti?.count ?? 0,
           recency: ti?.recency ?? 0,
@@ -381,7 +450,7 @@ export function FilesMapClient({
         },
       };
     });
-  }, [files, positions, untested, touchedInfo]);
+  }, [files, positions, untested, touchedInfo, fileLayers, groupKeys]);
 
   const initialEdges = useMemo<Edge[]>(
     () =>
@@ -421,6 +490,8 @@ export function FilesMapClient({
   const [circularOnly, setCircularOnly] = useState(false);
   // Touched-Files: "focus edits" dims everything except files edited this session (focus+context).
   const [editsOnly, setEditsOnly] = useState(false);
+  // Layer emphasis (FE/BE/FS pills): dims non-matching files instead of hiding them.
+  const [layerEmphasis, setLayerEmphasis] = useState<Layer | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // React Flow can't render identically on the server (it measures node DOM client-side,
@@ -540,8 +611,26 @@ export function FilesMapClient({
 
   // Search takes precedence over the hover/click focus while a query is active.
   const effectiveFocusIds = searchMatchIds ?? focusIds;
+
+  // Files the layer-emphasis pills push back (FE/BE keep fullstack bright; unclassified
+  // files always dim while a pill is on). Baseline lens only — focus/search take over.
+  const layerDimIds = useMemo(() => {
+    if (!layerEmphasis || !fileLayers) return null;
+    const s = new Set<string>();
+    for (const f of files)
+      if (!layerEmphasisMatch(layerEmphasis, fileLayers.get(f.path) ?? null)) s.add(f.path);
+    return s;
+  }, [layerEmphasis, fileLayers, files]);
+
   const displayNodes = useMemo(() => {
-    if (!effectiveFocusIds) return nodes;
+    if (!effectiveFocusIds) {
+      if (!layerDimIds) return nodes;
+      return nodes.map((n) =>
+        layerDimIds.has(n.id)
+          ? { ...n, style: { ...n.style, opacity: 0.15, transition: "opacity 120ms" } }
+          : n,
+      );
+    }
     return nodes.map((n) => {
       const on = effectiveFocusIds.has(n.id);
       return {
@@ -557,7 +646,7 @@ export function FilesMapClient({
         },
       };
     });
-  }, [nodes, effectiveFocusIds, searchMatchIds]);
+  }, [nodes, effectiveFocusIds, searchMatchIds, layerDimIds]);
 
   const displayEdges = useMemo(() => {
     // Search spotlight: only edges between two matched files stay bright.
@@ -568,7 +657,15 @@ export function FilesMapClient({
           : { ...e, style: { ...e.style, opacity: 0.05 } },
       );
     }
-    if (!focusNodeId && !selectedEdgeId && !circularOnly && !editsOnly) return edges;
+    if (!focusNodeId && !selectedEdgeId && !circularOnly && !editsOnly) {
+      if (!layerDimIds) return edges;
+      // Layer emphasis: an edge touching a dimmed file fades with it.
+      return edges.map((e) =>
+        layerDimIds.has(e.source) || layerDimIds.has(e.target)
+          ? { ...e, style: { ...e.style, opacity: 0.05 } }
+          : e,
+      );
+    }
     return edges.map((e) => {
       let on = false;
       if (selectedEdgeId) on = e.id === selectedEdgeId;
@@ -583,7 +680,7 @@ export function FilesMapClient({
           { ...e, style: { ...e.style, stroke: "#e4e4e7", opacity: 0.95, strokeWidth: 1.6 } }
         : { ...e, style: { ...e.style, opacity: 0.05 } };
     });
-  }, [edges, focusNodeId, selectedEdgeId, circularOnly, circularEdgeIds, editsOnly, touchedInfo, searchMatchIds]);
+  }, [edges, focusNodeId, selectedEdgeId, circularOnly, circularEdgeIds, editsOnly, touchedInfo, searchMatchIds, layerDimIds]);
 
   // Directory regions are a FAR-ZOOM aid only: zoomed out, the dots are specks, so each
   // cluster renders one labeled summary block. At reading zoom the color groups carry the
@@ -603,6 +700,36 @@ export function FilesMapClient({
     });
     return computeGroupRegions(items, { pad: 60 });
   }, [nodes, groupKeys]);
+
+  // Dominant layer per directory cluster — majority over its CLASSIFIED files (a strict
+  // winner; ties or an all-neutral cluster get no tint). Drives the faint zone tints.
+  const dominantLayer = useMemo(() => {
+    const m = new Map<string, Layer | null>();
+    if (!fileLayers) return m;
+    const counts = new Map<string, Map<Layer, number>>();
+    for (const f of files) {
+      const layer = fileLayers.get(f.path);
+      if (!layer) continue;
+      const g = groupKeys.get(f.path) ?? "(root)";
+      const c = counts.get(g) ?? new Map<Layer, number>();
+      c.set(layer, (c.get(layer) ?? 0) + 1);
+      counts.set(g, c);
+    }
+    for (const [g, c] of counts) {
+      let best: Layer | null = null;
+      let bestN = 0;
+      let tied = false;
+      for (const [layer, n] of c) {
+        if (n > bestN) {
+          best = layer;
+          bestN = n;
+          tied = false;
+        } else if (n === bestN) tied = true;
+      }
+      m.set(g, tied ? null : best);
+    }
+    return m;
+  }, [fileLayers, files, groupKeys]);
 
   // Legend entries: every directory group with its hue and size, biggest first.
   const legend = useMemo(() => {
@@ -681,6 +808,10 @@ export function FilesMapClient({
       >
         {/* Far zoom only: one labeled summary block per directory cluster. */}
         <GroupRegions regions={lod === "far" ? regions : []} tone="category" lod={lod} />
+        {/* Reading/mid zoom: faint frontend/backend zone tints behind the clusters. */}
+        {hasFrontend && (
+          <LayerTintRegions regions={lod === "far" ? [] : regions} dominant={dominantLayer} />
+        )}
         <LodReporter onLod={setLod} thresholds={FILES_LOD} />
         <Controls
           position="bottom-right"
@@ -756,6 +887,13 @@ export function FilesMapClient({
               });
             }}
           />
+          {hasFrontend && (
+            <LayerToggle
+              value={layerEmphasis}
+              onChange={setLayerEmphasis}
+              options={["frontend", "backend"]}
+            />
+          )}
           <div className="glass flex items-center gap-3 rounded-xl px-3 py-1.5 text-[11px]">
             <span className="text-muted-foreground">
               {files.length} files · {edgePayload.length} imports
