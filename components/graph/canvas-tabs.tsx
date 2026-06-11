@@ -5,8 +5,10 @@ import { Database, FolderTree, MapPinned, Network } from "lucide-react";
 import type { ComponentType } from "react";
 import { cn } from "@/lib/utils";
 
-// Top-center canvas tabs shared by /map's four views. Style matches the verdict pill on
-// /plan: filled rounded-md background on the active tab, muted text + icon on the rest.
+// Top-center canvas tabs shared by /map's four views. The strip's container is a glass
+// stadium (rounded-full), so the active chip is a CONCENTRIC stadium too — same geometry,
+// no clashing corner radii. Active = soft glass fill + hairline border + accent-tinted
+// icon; the rest stay muted with a quiet hover.
 
 export type CanvasTab = {
   value: string;
@@ -34,13 +36,13 @@ export function CanvasTabs({ tabs, active }: { tabs: CanvasTab[]; active: string
             key={t.value}
             href={t.href}
             className={cn(
-              "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] font-medium tracking-tight transition-colors",
+              "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium tracking-tight transition-colors",
               on
-                ? "bg-white/10 text-foreground"
-                : "text-muted-foreground/80 hover:bg-white/5 hover:text-foreground",
+                ? "border-white/10 bg-white/[0.07] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                : "border-transparent text-muted-foreground/80 hover:bg-white/5 hover:text-foreground",
             )}
           >
-            {Icon ? <Icon className="size-3" /> : null}
+            {Icon ? <Icon className={cn("size-3", on && "text-[#ff7a45]")} /> : null}
             <span>{t.label}</span>
           </Link>
         );
