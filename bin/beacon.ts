@@ -327,7 +327,10 @@ async function updateBeacon(force: boolean) {
     process.exitCode = 1;
     return;
   }
-  console.log(`[beacon] updated. Restart the daemon to run the new version: \`beacon stop\` then \`beacon\`.`);
+  // The shared daemon is still running the OLD code (and caches its version at startup, so the
+  // in-app "new version" banner would keep showing). Drop it so the next `beacon` launches fresh.
+  stopDaemon();
+  console.log(`[beacon] updated. Run \`beacon\` to relaunch on the new version.`);
 }
 
 function stopDaemon() {
