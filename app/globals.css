@@ -327,3 +327,12 @@
 ::highlight(beacon-annotation) {
   background-color: color-mix(in oklab, var(--accent-2, #ff7a45) 18%, transparent);
 }
+/* Deletion marks: struck-through red — ::highlight() supports text-decoration. Mirrors the old inline
+   span (bg-red-500/15, line-through decoration-red-300/70 decoration-2). Unmark lives in the panel. */
+::highlight(beacon-deletion) {
+  background-color: rgb(239 68 68 / 0.15);
+  color: rgb(254 202 202 / 0.95);
+  text-decoration-line: line-through;
+  text-decoration-color: rgb(252 165 165 / 0.7);
+  text-decoration-thickness: 2px;
+}

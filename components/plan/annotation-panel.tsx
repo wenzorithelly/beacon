@@ -25,6 +25,7 @@ const HIGHLIGHT_API =
   typeof CSS !== "undefined" && "highlights" in CSS && typeof Highlight !== "undefined";
 const PENDING_HL = "beacon-pending"; // the selection being commented on right now (composer open)
 const ANNOT_HL = "beacon-annotation"; // every saved comment's excerpt, re-located in the rendered DOM
+const DEL_HL = "beacon-deletion"; // every deletion mark's excerpt (struck through via the same API)
 
 // The HighlightRegistry / Highlight constructor aren't in this TS lib yet — access them through
 // narrow casts behind the HIGHLIGHT_API feature check.
@@ -284,26 +285,28 @@ export function AnnotationPanel({
     };
   }, [composer]);
 
-  // Keep every SAVED comment highlighted in the doc by re-locating its excerpt in the RENDERED text
-  // and painting it via the Highlight API — so the highlight survives after "Add" even for excerpts
-  // spanning inline markdown (the raw-markdown indexOf matcher can't find those). Deletions still use
-  // the inline AnnotatedSpan (strikethrough + unmark button). Re-runs when the comments or prose change.
+  // Keep every SAVED annotation marked in the doc by re-locating its excerpt in the RENDERED text and
+  // painting it via the Highlight API — so the mark survives after "Add" even for excerpts spanning
+  // inline markdown (the raw-markdown indexOf matcher can't find those). Comments get a background
+  // tint (beacon-annotation); deletions get a struck-through red mark (beacon-deletion) — ::highlight()
+  // supports text-decoration. Unmark/remove lives in the Comments panel. Re-runs on comment/prose change.
   useEffect(() => {
     const reg = highlightRegistry();
     if (!reg || !docRef.current) return;
-    const ranges: Range[] = [];
+    const commentRanges: Range[] = [];
+    const deletionRanges: Range[] = [];
     for (const a of annotations) {
-      if ((a.kind ?? "comment") !== "comment") continue;
       const r = findFirstTextRange(docRef.current, a.excerpt);
-      if (r) ranges.push(r);
+      if (!r) continue;
+      ((a.kind ?? "comment") === "deletion" ? deletionRanges : commentRanges).push(r);
     }
-    if (!ranges.length) {
-      reg.delete(ANNOT_HL);
-      return;
-    }
-    reg.set(ANNOT_HL, makeHighlight(...ranges));
+    const apply = (key: string, ranges: Range[]) =>
+      ranges.length ? reg.set(key, makeHighlight(...ranges)) : reg.delete(key);
+    apply(ANNOT_HL, commentRanges);
+    apply(DEL_HL, deletionRanges);
     return () => {
       reg.delete(ANNOT_HL);
+      reg.delete(DEL_HL);
     };
   }, [annotations, markdown]);
 
@@ -801,11 +804,10 @@ function AnnotatedInline({
   onUpdate: (id: string, comment: string) => void;
   onRemove: (id: string) => void;
 }) {
-  const matches = annotations
-    // Comments are painted via the CSS Highlight API (robust to inline markdown — see the effect in
-    // AnnotationPanel); only deletions need an inline span (strikethrough + unmark button). On
-    // browsers without the API, fall back to wrapping comments here too.
-    .filter((a) => (a.kind ?? "comment") === "deletion" || !HIGHLIGHT_API)
+  // When the CSS Highlight API is available, BOTH comments and deletions are painted by it (robust to
+  // inline markdown — see the effect in AnnotationPanel), so no inline spans are needed. Only on
+  // browsers without the API do we fall back to wrapping the matched excerpts here.
+  const matches = (HIGHLIGHT_API ? [] : annotations)
     .map((a) => ({ a, idx: text.indexOf(a.excerpt) }))
     .filter((m) => m.idx >= 0)
     .sort((x, y) => x.idx - y.idx);
