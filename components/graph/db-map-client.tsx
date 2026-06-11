@@ -41,15 +41,21 @@ import {
   matchesQuery,
   searchHits,
   tableHaystack,
+  SEARCH_DIM_OPACITY,
+  SEARCH_HIT_GLOW,
   type SearchHit,
 } from "@/lib/canvas-search";
 import { CanvasTabs } from "@/components/graph/canvas-tabs";
 import { accessForMethod } from "@/lib/access";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
-import { assignEndpointDocks, UNATTACHED_GROUP } from "@/lib/db-board-layout";
+import {
+  assignEndpointDocks,
+  computeDbBoardLayout,
+  UNATTACHED_GROUP,
+} from "@/lib/db-board-layout";
 import { GroupRegions } from "@/components/graph/group-regions";
 import { LodReporter } from "@/components/graph/use-zoom-lod";
-import type { Lod } from "@/lib/zoom-lod";
+import { DB_LOD, type Lod } from "@/lib/zoom-lod";
 import { diffDraftTables, diffDraftEndpoints, type NodeDiff } from "@/lib/db-diff";
 import { cn } from "@/lib/utils";
 import type {
@@ -225,7 +231,9 @@ export function DbMapClient({
   boardAnnotations?: BoardAnnotationPayload[];
 }) {
   const router = useRouter();
-  const [showEndpoints, setShowEndpoints] = useState(true);
+  // Endpoints are hidden by default — the schema (tables + FKs) is the primary view; toggle
+  // "endpoints" in Filters to overlay the API surface.
+  const [showEndpoints, setShowEndpoints] = useState(false);
   const [selected, setSelected] = useState<DbSelection>(null);
   // Edge selection focuses just the two endpoints of the clicked line; exclusive
   // with node selection (clicking either clears the other).
@@ -403,6 +411,24 @@ export function DbMapClient({
   const allTables = useMemo(() => [...tables, ...draftTables], [tables, draftTables]);
   const allEndpoints = useMemo(() => [...endpoints, ...draftEndpoints], [endpoints, draftEndpoints]);
 
+  // Endpoint-aware layout: with endpoints hidden, the persisted positions leave a big empty
+  // gutter under every table (the reserved dock space), so pack the tables compactly instead —
+  // `computeDbBoardLayout` with NO endpoints reserves no dock space. With endpoints shown we
+  // fall back to the persisted (docked) positions so the docks land in that reserved space.
+  const compactTablePos = useMemo(
+    () =>
+      computeDbBoardLayout(
+        allTables.map((t) => ({
+          id: t.id,
+          name: t.name,
+          domain: t.domain,
+          columnCount: t.columns.length,
+        })),
+        [],
+      ).tables,
+    [allTables],
+  );
+
   // Plan-vs-Repo diff: tag each DRAFT node added/modified/unchanged vs. the persisted schema so
   // the canvas can glow it. REVIEW-ONLY — computed only when embedded in /plan; the permanent
   // /map Database tab stays the committed truth (drafts still show, just without diff coloring).
@@ -578,7 +604,7 @@ export function DbMapClient({
     const tableNodes: Node<DbTableNodeData>[] = allTables.map((t) => ({
       id: t.id,
       type: "dbTable",
-      position: { x: t.x, y: t.y },
+      position: showEndpoints ? { x: t.x, y: t.y } : compactTablePos.get(t.id) ?? { x: t.x, y: t.y },
       data: {
         name: t.name,
         domain: t.domain,
@@ -651,6 +677,8 @@ export function DbMapClient({
   }, [
     allTables,
     allEndpoints,
+    showEndpoints,
+    compactTablePos,
     usageCount,
     history.rev,
     tableDiffs,
@@ -668,12 +696,25 @@ export function DbMapClient({
   ]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<DbNode>(buildNodes());
+  // On a normal rebuild we keep live (dragged) positions; but when the endpoints toggle flips
+  // the layout mode, tables must ADOPT the freshly computed positions (compact ↔ docked).
+  const layoutModeRef = useRef(showEndpoints);
   useEffect(() => {
+    const modeFlipped = layoutModeRef.current !== showEndpoints;
+    layoutModeRef.current = showEndpoints;
     setNodes((prev) => {
       const pos = new Map(prev.map((n) => [n.id, n.position]));
-      return buildNodes().map((n) => ({ ...n, position: pos.get(n.id) ?? n.position }));
+      return buildNodes().map((n) =>
+        modeFlipped && n.type === "dbTable"
+          ? n // adopt the rebuilt (mode-specific) table position
+          : { ...n, position: pos.get(n.id) ?? n.position },
+      );
     });
-  }, [buildNodes, setNodes]);
+    if (modeFlipped)
+      requestAnimationFrame(() =>
+        rfRef.current?.fitView({ duration: 500, padding: 0.15, minZoom: 0.2, maxZoom: 0.9 }),
+      );
+  }, [buildNodes, setNodes, showEndpoints]);
 
   const persistReal = useCallback((kind: string, id: string, x: number, y: number) => {
     void fetch(`/api/db/position`, {
@@ -873,17 +914,23 @@ export function DbMapClient({
       }
       const hidden = hiddenIds.has(n.id);
       if (!effectiveFocusIds) return hidden ? { ...n, hidden } : n;
+      const on = effectiveFocusIds.has(n.id);
+      // A search hit gets an accent ring + a hard fade on the rest, so a match clearly reads
+      // as "found". Click-focus keeps the milder 0.45 fade (neighbours are context, not noise).
+      const dimmed = searchMatchIds ? SEARCH_DIM_OPACITY : 0.45;
       return {
         ...n,
         hidden,
         style: {
           ...n.style,
-          opacity: effectiveFocusIds.has(n.id) ? 1 : 0.45,
-          transition: "opacity 120ms",
+          opacity: on ? 1 : dimmed,
+          boxShadow: on && searchMatchIds ? SEARCH_HIT_GLOW : n.style?.boxShadow,
+          borderRadius: on && searchMatchIds ? 12 : n.style?.borderRadius,
+          transition: "opacity 120ms, box-shadow 120ms",
         },
       };
     });
-  }, [nodes, hiddenIds, effectiveFocusIds, annoTargetById]);
+  }, [nodes, hiddenIds, effectiveFocusIds, searchMatchIds, annoTargetById]);
 
   // Domain group-regions (Gestalt common region): tables group by their own domain; each
   // endpoint joins its PRIMARY table's domain (the table it's docked beneath), so the region
@@ -1250,7 +1297,7 @@ export function DbMapClient({
         >
           {/* Labeled domain containers behind the tables — pan/zoom with the canvas. */}
           <GroupRegions regions={regions} tone="category" lod={lod} />
-          <LodReporter onLod={setLod} />
+          <LodReporter onLod={setLod} thresholds={DB_LOD} />
           <Controls
             position="bottom-right"
             className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"

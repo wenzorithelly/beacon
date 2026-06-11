@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { lodForZoom } from "@/lib/zoom-lod";
+import { lodForZoom, DB_LOD } from "@/lib/zoom-lod";
 
 describe("lodForZoom", () => {
   it("maps zoom ranges to full / mid / far", () => {
@@ -22,5 +22,15 @@ describe("lodForZoom", () => {
 
   it("jumping straight from far to a high zoom lands on full", () => {
     expect(lodForZoom(0.9, "far")).toBe("full");
+  });
+
+  it("DB_LOD keeps full table cards at the board's fit zoom (~0.38)", () => {
+    // The DB board fits the whole schema at ~0.38 (fitView minZoom). Tables must render full
+    // — with columns — at that level so the user sees every table as a whole, not name pills.
+    expect(lodForZoom(0.38, "full", DB_LOD)).toBe("full");
+    expect(lodForZoom(0.38, "mid", DB_LOD)).toBe("full");
+    // Only collapse when the user zooms further out than the fit level.
+    expect(lodForZoom(0.3, "full", DB_LOD)).toBe("mid");
+    expect(lodForZoom(0.18, "full", DB_LOD)).toBe("far");
   });
 });

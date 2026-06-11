@@ -8,6 +8,7 @@ import { METHOD_COLOR } from "@/components/graph/db-types";
 import { useDbEdit } from "@/components/graph/db-edit-context";
 import { FourDotHandles } from "@/components/graph/handles";
 import { useZoomLOD } from "@/components/graph/use-zoom-lod";
+import { DB_LOD } from "@/lib/zoom-lod";
 import { PinRail } from "@/components/graph/annotation-node";
 import { RiskBadgeRow } from "@/components/graph/risk-badge-row";
 import { type DiffStatus } from "@/lib/db-diff";
@@ -56,7 +57,7 @@ export function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
 
   // Semantic zoom: method+path only below the mid threshold; invisible below far (the box
   // keeps its size so the docked column under a table stays visually stable).
-  const lod = useZoomLOD();
+  const lod = useZoomLOD(DB_LOD);
   if (lod !== "full") {
     return (
       <div

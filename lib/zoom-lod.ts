@@ -31,6 +31,12 @@ const DEFAULT_THRESHOLDS: LodThresholds = {
 // so its summaries only take over when the user really zooms away.
 export const FILES_LOD: LodThresholds = { far: 0.12, farExit: 0.15, mid: 0.45, midExit: 0.5 };
 
+// The DB board fits the WHOLE schema at ~0.38 zoom (fitView minZoom). At the default 0.55 mid
+// threshold every table collapses to a name-only pill there, which hides the schema's shape.
+// Lower thresholds keep full table cards — header + columns — readable down to the fit level so
+// the user reads the schema as a whole; only zooming further out collapses to pills/summaries.
+export const DB_LOD: LodThresholds = { far: 0.2, farExit: 0.24, mid: 0.32, midExit: 0.36 };
+
 export function lodForZoom(
   zoom: number,
   prev: Lod = "full",

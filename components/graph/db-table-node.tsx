@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { domainColor, type DbColumnPayload } from "@/components/graph/db-types";
 import { useDbEdit } from "@/components/graph/db-edit-context";
 import { useZoomLOD } from "@/components/graph/use-zoom-lod";
+import { DB_LOD } from "@/lib/zoom-lod";
 import { FourDotHandles } from "@/components/graph/handles";
 import { PinRail } from "@/components/graph/annotation-node";
 import { RiskBadgeRow } from "@/components/graph/risk-badge-row";
@@ -137,7 +138,7 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
 
   // Semantic zoom: name-only card below the mid threshold; invisible (region summaries take
   // over) below the far threshold. The box keeps a stable size so edges/regions don't jump.
-  const lod = useZoomLOD();
+  const lod = useZoomLOD(DB_LOD);
   if (lod !== "full") {
     return (
       <div
