@@ -4,9 +4,14 @@
 // The repo the installer pulls from and we check for new release tags.
 export const REPO_SLUG = "wenzorithelly/beacon";
 
-// Latest GitHub release (its tag_name). GitHub serves permissive CORS, so the browser can
-// fetch this directly; a 404 (no releases cut yet) simply means "no banner".
-export const GITHUB_LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO_SLUG}/releases/latest`;
+// The npm package users actually install (`bun add -g trybeacon`).
+export const NPM_PACKAGE = "trybeacon";
+
+// Latest published version, straight from the npm registry (permissive CORS, public even
+// though the GitHub repo is PRIVATE — a private repo 404s anonymous release lookups, which
+// is why the banner must NOT read GitHub releases: it would never fire). npm is also the
+// real source of truth: the update command installs from npm, not from a release tarball.
+export const NPM_LATEST_URL = `https://registry.npmjs.org/${NPM_PACKAGE}/latest`;
 
 // The canonical hosted site — serves the landing, /install.sh, and the feedback API the
 // distributed tool calls cross-origin. MUST be the host that serves directly (no redirect):

@@ -2,14 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { ArrowUpCircle, Check, Copy, X } from "lucide-react";
-import { GITHUB_LATEST_RELEASE_URL, INSTALL_COMMAND } from "@/lib/release";
+import { INSTALL_COMMAND, NPM_LATEST_URL } from "@/lib/release";
 import { isNewerVersion } from "@/lib/semver";
 
 // Bottom-right "new version available" nudge. Renders only in the local tool (the layout
-// mounts it solely in non-public mode). On mount it asks GitHub for the latest RELEASE TAG,
-// shows the card only when that tag is strictly newer than the running install, and the copy
-// button hands the user the one-line update command. Dismissing remembers the version so it
-// won't nag again until an even newer release lands.
+// mounts it solely in non-public mode). On mount it asks the npm registry for the latest
+// published version (the GitHub repo is private, so release lookups 404 anonymously — npm
+// is the public, installable source of truth), shows the card only when that version is
+// strictly newer than the running install, and the copy button hands the user the one-line
+// update command. Dismissing remembers the version so it won't nag again until a newer one.
 const DISMISS_KEY = "beacon:update-dismissed";
 
 export function UpdateBanner({ currentVersion }: { currentVersion: string }) {
@@ -20,12 +21,10 @@ export function UpdateBanner({ currentVersion }: { currentVersion: string }) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(GITHUB_LATEST_RELEASE_URL, {
-          headers: { Accept: "application/vnd.github+json" },
-        });
-        if (!res.ok) return; // 404 = no releases yet → nothing to offer
+        const res = await fetch(NPM_LATEST_URL);
+        if (!res.ok) return; // unpublished / registry hiccup → nothing to offer
         const data = await res.json();
-        const tag = typeof data?.tag_name === "string" ? data.tag_name : "";
+        const tag = typeof data?.version === "string" ? data.version : "";
         if (cancelled || !isNewerVersion(tag, currentVersion)) return;
         if (localStorage.getItem(DISMISS_KEY) === tag) return; // already dismissed this one
         setLatest(tag);
