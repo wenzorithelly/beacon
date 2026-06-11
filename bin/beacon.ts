@@ -47,6 +47,8 @@ function mod(rel: string): string {
 //   beacon setup      — (re-)install per-repo skills + .mcp.json in CWD
 //   beacon doctor     — audit install state (global hooks/skills + this repo's wiring)
 //   beacon uninstall  — reverse every Beacon artifact (global + per-repo)
+//   beacon update     — update the installed `trybeacon` package to the latest release
+//   beacon version    — print the installed Beacon version (also --version / -v)
 const sub = process.argv[2];
 if (sub === "mcp") {
   await import(mod("bin/mcp.ts"));
@@ -68,6 +70,10 @@ if (sub === "mcp") {
   await import(mod("bin/doctor.ts"));
 } else if (sub === "uninstall") {
   await import(mod("bin/uninstall.ts"));
+} else if (sub === "update") {
+  await updateBeacon(process.argv.includes("--force") || process.argv.includes("-f"));
+} else if (sub === "version" || sub === "--version" || sub === "-v") {
+  console.log(currentVersion());
 } else {
   await launchPanel();
 }
@@ -270,6 +276,58 @@ async function launchPanel() {
   );
   console.log("  (the server keeps running in the background — `beacon stop` to stop it)\n");
   openBrowser(activate);
+}
+
+// The installed Beacon's own version (pkgDir/package.json), NOT the CWD repo's.
+function currentVersion(): string {
+  return readJson<{ version?: string }>(join(pkgDir, "package.json"))?.version ?? "0.0.0";
+}
+
+// `beacon update` — re-run the canonical installer (the documented update path: it pulls the
+// latest `trybeacon` from npm and relinks). Skips the network reinstall when already current
+// unless --force. Reuses INSTALL_COMMAND so the CLI, the landing page and the in-app update
+// banner all agree on one command.
+async function updateBeacon(force: boolean) {
+  const current = currentVersion();
+  const { INSTALL_COMMAND, NPM_LATEST_URL } = (await import(mod("lib/release.ts"))) as {
+    INSTALL_COMMAND: string;
+    NPM_LATEST_URL: string;
+  };
+  if (platform() === "win32") {
+    console.log(`[beacon] current version v${current}.`);
+    console.log(`[beacon] on Windows, update with your package manager:\n  npm i -g trybeacon@latest`);
+    return;
+  }
+  let latest: string | null = null;
+  try {
+    const res = await fetch(NPM_LATEST_URL);
+    if (res.ok) latest = ((await res.json()) as { version?: string }).version ?? null;
+  } catch {
+    /* offline / registry unreachable — fall through and just reinstall */
+  }
+  if (latest && !force) {
+    const { isNewerVersion } = (await import(mod("lib/semver.ts"))) as {
+      isNewerVersion: (a: string, b: string) => boolean;
+    };
+    if (!isNewerVersion(latest, current)) {
+      console.log(`[beacon] already on the latest version (v${current}).`);
+      console.log(`         run \`beacon update --force\` to reinstall anyway.`);
+      return;
+    }
+  }
+  console.log(
+    latest
+      ? `[beacon] updating Beacon v${current} → v${latest}…`
+      : `[beacon] reinstalling Beacon (current v${current})…`,
+  );
+  try {
+    execSync(INSTALL_COMMAND, { stdio: "inherit" });
+  } catch {
+    console.error(`[beacon] update failed. Run it manually:\n  ${INSTALL_COMMAND}`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`[beacon] updated. Restart the daemon to run the new version: \`beacon stop\` then \`beacon\`.`);
 }
 
 function stopDaemon() {
