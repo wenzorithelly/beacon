@@ -5,6 +5,10 @@ export const VIEW = z.enum(["ROADMAP", "ARCHITECTURE"]);
 // Card kind on the roadmap canvas: a feature being built vs a bug to fix.
 export const NODE_KIND = z.enum(["FEATURE", "BUG"]);
 
+// Which side of the stack a node lands on. Only surfaced in workspaces that have a
+// frontend (ProjectMeta.hasFrontend); stored as text, not a DB enum (Postgres-portable).
+export const NODE_LAYER = z.enum(["frontend", "backend", "fullstack"]);
+
 // Who raised a bug flag on a node: the user from the sidebar, or an agent during
 // beacon-init / beacon-refresh / describe_feature.
 export const BUG_FLAG_BY = z.enum(["user", "agent"]);
@@ -34,6 +38,7 @@ export const createNodeSchema = z.object({
   kind: NODE_KIND.optional(),
   title: z.string().trim().min(1).max(200),
   cluster: z.string().trim().max(64).nullish(),
+  layer: NODE_LAYER.nullish(),
   role: z.string().trim().max(500).nullish(),
   plain: z.string().trim().max(2000).nullish(),
   parentId: z.string().nullish(),
@@ -51,6 +56,7 @@ export const updateNodeSchema = z.object({
   role: z.string().trim().max(500).nullish(),
   plain: z.string().trim().max(2000).nullish(),
   cluster: z.string().trim().max(64).nullish(),
+  layer: NODE_LAYER.nullish(),
   status: NODE_STATUS.optional(),
   priority: z.number().int().min(0).max(3).optional(),
   sourceRef: z.string().trim().max(300).nullish(),

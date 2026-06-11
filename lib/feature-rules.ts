@@ -5,6 +5,7 @@
 // tables". Pure (no db / no fs import) so BOTH the MCP server process and the /api/plan route
 // can call it.
 
+import { normalizeLayer } from "@/lib/layer";
 import { matchFeature, type Candidate } from "@/lib/match";
 
 export interface FeatureLike {
@@ -15,6 +16,7 @@ export interface FeatureLike {
   category?: string | null;
   domain?: string | null;
   priority?: number | null;
+  layer?: string | null;
 }
 
 // The feature's category, accepting the `cluster` / `category` / `domain` aliases.
@@ -22,28 +24,41 @@ export function featureCategory(f: FeatureLike): string | null {
   return f.cluster ?? f.category ?? f.domain ?? null;
 }
 
-// Returns an agent-facing rejection message when any feature is missing its category/priority,
-// or null when every feature is complete.
-export function validateProposedFeatures(features: FeatureLike[]): string | null {
+// Returns an agent-facing rejection message when any feature is missing its category/priority
+// (and, when the workspace has a frontend, its layer), or null when every feature is complete.
+export function validateProposedFeatures(
+  features: FeatureLike[],
+  opts?: { requireLayer?: boolean },
+): string | null {
+  const requireLayer = opts?.requireLayer ?? false;
   const gaps = features
     .map((f) => {
       const missing: string[] = [];
       const category = featureCategory(f);
       if (!category || !category.trim()) missing.push("category");
       if (f.priority == null) missing.push("priority");
+      if (requireLayer && !normalizeLayer(f.layer)) missing.push("layer");
       return missing.length
         ? `  • "${f.title?.trim() || "(untitled)"}" — missing ${missing.join(" + ")}`
         : null;
     })
     .filter((x): x is string => x !== null);
   if (gaps.length === 0) return null;
+  const layerRule = requireLayer
+    ? " This workspace has a frontend surface, so every feature must also carry `layer`: " +
+      '"frontend" | "backend" | "fullstack" — which side of the stack the work lands on.'
+    : "";
   return (
     "⛔ Every roadmap feature needs a category AND a priority — they drive grouping and ordering " +
-    "on the board, and the user shouldn't have to add them by hand. Missing:\n" +
+    "on the board, and the user shouldn't have to add them by hand." +
+    layerRule +
+    " Missing:\n" +
     gaps.join("\n") +
     "\n\nRe-present with each feature carrying its category as `category` (or `cluster` — both " +
     "work; e.g. AUTH, SEARCH, DATA, INTEL, BILLING …) and `priority` (0 = P0 critical, 1 = P1 " +
-    "high, 2 = P2 medium, 3 = P3 low). Set BOTH on EVERY feature; don't rely on defaults."
+    "high, 2 = P2 medium, 3 = P3 low)." +
+    (requireLayer ? " Set `layer` on EVERY feature too." : "") +
+    " Don't rely on defaults."
   );
 }
 
@@ -72,6 +87,8 @@ export function existingCategories(features: ExistingFeature[]): string[] {
 export function validateFeatureCreation(input: {
   title: string;
   category?: string | null;
+  layer?: string | null;
+  requireLayer?: boolean;
   existing: ExistingFeature[];
 }): string | null {
   const title = (input.title ?? "").trim();
@@ -87,6 +104,14 @@ export function validateFeatureCreation(input: {
       `⛔ Feature "${title}" has no category. Every roadmap feature needs one — it drives grouping ` +
       `and color on the board.${reuse} Pass it as \`category\` (e.g. AUTH, SEARCH, DATA, INTEL, ` +
       `BILLING, INFRA …); don't rely on a default.`
+    );
+  }
+
+  if (input.requireLayer && !normalizeLayer(input.layer)) {
+    return (
+      `⛔ Feature "${title}" has no layer. This workspace has a frontend surface, so every roadmap ` +
+      `feature must say which side of the stack it lands on. Pass it as \`layer\`: "frontend" | ` +
+      `"backend" | "fullstack".`
     );
   }
 

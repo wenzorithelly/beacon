@@ -159,11 +159,17 @@ server.registerTool(
         .describe(
           "Card type when this CREATES a new node: BUG renders a typed bug card on the roadmap (use when the user is starting work on a bug, not a feature). Defaults to FEATURE; ignored when flagging an existing node.",
         ),
+      layer: z
+        .enum(["frontend", "backend", "fullstack"])
+        .optional()
+        .describe(
+          "Which side of the stack a NEW feature lands on. REQUIRED for a new top-level feature when the workspace has a frontend; a feature nested under a `front` inherits the parent's. Omit in pure-backend repos.",
+        ),
     },
   },
-  async ({ title, id, front, detail, category, kind }) => {
+  async ({ title, id, front, detail, category, kind, layer }) => {
     try {
-      const r = await post("/api/map/start", { title, id, front, detail, category, kind });
+      const r = await post("/api/map/start", { title, id, front, detail, category, kind, layer });
       return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
     } catch (e) {
       return errText(e);
@@ -194,6 +200,10 @@ server.registerTool(
               .enum(["FEATURE", "BUG"])
               .optional()
               .describe("BUG for a bug discovered during work — renders as a typed bug card; defaults to FEATURE"),
+            layer: z
+              .enum(["frontend", "backend", "fullstack"])
+              .optional()
+              .describe("which side of the stack the sub-task lands on; defaults to the parent's layer"),
           }),
         )
         .describe("the sub-tasks to add"),
@@ -216,6 +226,10 @@ const architectureItemSchema = z
       domain: z.string().describe("uppercase lane: PLAN | DATA | UI | MCP | INTEL | …"),
       role: z.string().optional().describe("one-line technical role"),
       plain: z.string().optional().describe("one plain-language sentence"),
+      layer: z
+        .enum(["frontend", "backend", "fullstack"])
+        .optional()
+        .describe("which side of the stack the component lives on (only when the repo has a frontend); omitting it on an update keeps the prior value"),
       status: z.enum(["KEEP", "REBUILD", "REPLACE", "DROP"]).optional(),
       files: z.array(z.string()).optional(),
       depends: z.array(z.string()).optional().describe("titles of components this one depends on"),
@@ -282,6 +296,12 @@ server.registerTool(
         .array(z.string())
         .optional()
         .describe("3-8 concrete conventions/gotchas a contributor must follow"),
+      hasFrontend: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether this repo has a frontend surface (UI code) — you just read the repo, so you know. Gates the per-item `layer` requirement + the layer UI on the boards. Set it explicitly (true or false); omitting leaves Beacon to detect it from the code graph.",
+        ),
       components: z
         .array(
           z.object({
@@ -289,6 +309,10 @@ server.registerTool(
             domain: z.string().describe("short UPPERCASE area: AUTH, API, DATA, UI, JOBS, INFRA, …"),
             role: z.string().optional().describe("one-line technical role"),
             plain: z.string().optional().describe("one plain-language sentence"),
+            layer: z
+              .enum(["frontend", "backend", "fullstack"])
+              .optional()
+              .describe("which side of the stack the component lives on — set it when hasFrontend is true"),
             files: z.array(z.string()).optional().describe("repo-relative key files"),
             depends: z.array(z.string()).optional().describe("titles of other components it depends on"),
             bugs: z
@@ -312,6 +336,10 @@ server.registerTool(
               .enum(["FEATURE", "BUG"])
               .optional()
               .describe("BUG when the survey found a concrete bug to fix — renders as a typed bug card; defaults to FEATURE"),
+            layer: z
+              .enum(["frontend", "backend", "fullstack"])
+              .optional()
+              .describe("which side of the stack the item lands on — set it when hasFrontend is true"),
           }),
         )
         .optional()
@@ -445,7 +473,7 @@ server.registerTool(
   "beacon_propose_plan",
   {
     description:
-      "BLOCKS until the user reviews. Pushes a feature plan (top-level roadmap features + DB tables + endpoints) to Beacon's /plan page. Use when the user asks you to plan a feature. EVERY feature MUST include `cluster` (its category) and `priority` (0=P0 critical .. 3=P3 low) — the tool REJECTS a plan whose features omit either, so set both on every feature. Do not implement code or migrations until this returns approval. If it returns inline feedback, revise and call again.",
+      "BLOCKS until the user reviews. Pushes a feature plan (top-level roadmap features + DB tables + endpoints) to Beacon's /plan page. Use when the user asks you to plan a feature. EVERY feature MUST include `cluster` (its category) and `priority` (0=P0 critical .. 3=P3 low) — and, when the workspace has a frontend, `layer` (frontend | backend | fullstack). The tool REJECTS a plan whose features omit any required field, so set them on every feature. Do not implement code or migrations until this returns approval. If it returns inline feedback, revise and call again.",
     inputSchema: {
       description: z.string().describe("Short summary the user will see in the review header"),
       features: z
@@ -477,6 +505,12 @@ server.registerTool(
               .enum(["FEATURE", "BUG"])
               .optional()
               .describe("BUG when this roadmap item is a bug to fix — renders as a typed bug card; defaults to FEATURE"),
+            layer: z
+              .enum(["frontend", "backend", "fullstack"])
+              .optional()
+              .describe(
+                "Which side of the stack the work lands on. REQUIRED on every feature when the workspace has a frontend (the tool rejects the plan otherwise); omit in pure-backend repos.",
+              ),
           }),
         )
         .optional()
@@ -559,24 +593,35 @@ server.registerTool(
 
     // HARD RULE: every roadmap feature must carry a category (cluster) and a priority — they
     // drive grouping/ordering on the board and the user shouldn't have to add them by hand each
-    // round. Reject here (before pushing) with the list of what's missing so the agent re-proposes.
+    // round. When the workspace has a frontend, each feature must also carry a `layer`. The
+    // hasFrontend pre-check goes through the daemon (this process is HTTP-only — no db handle);
+    // a check failure falls back to false, and the /api/plan push re-validates authoritatively.
     if (features?.length) {
-      const featureErr = validateProposedFeatures(features);
+      const requireLayer = await api("/api/project-meta")
+        .then((m) => !!(m as { hasFrontend?: boolean })?.hasFrontend)
+        .catch(() => false);
+      const featureErr = validateProposedFeatures(features, { requireLayer });
       if (featureErr) return text(featureErr);
     }
 
     const hasDb = (tables?.length ?? 0) + (endpoints?.length ?? 0) > 0;
-    await post("/api/plan", {
-      description,
-      draft: hasDb
-        ? {
-            tables: tables ?? [],
-            relations: relations ?? [],
-            endpoints: endpoints ?? [],
-          }
-        : undefined,
-      features: features?.length ? features : undefined,
-    });
+    try {
+      await post("/api/plan", {
+        description,
+        draft: hasDb
+          ? {
+              tables: tables ?? [],
+              relations: relations ?? [],
+              endpoints: endpoints ?? [],
+            }
+          : undefined,
+        features: features?.length ? features : undefined,
+      });
+    } catch (e) {
+      // The server is the authoritative gate (e.g. the layer rule when the pre-check was
+      // unreachable) — surface its actionable ⛔ message instead of a raw wrapped throw.
+      return errText(e);
+    }
 
     // Make sure the browser shows THIS repo's plan. The ExitPlanMode hook activates the
     // workspace; the MCP path didn't, so a fresh plan stayed invisible until the user

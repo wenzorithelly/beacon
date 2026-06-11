@@ -14,6 +14,8 @@ export interface MapNodePayload {
   view: string;
   kind: string; // FEATURE | BUG
   cluster: string | null;
+  // frontend | backend | fullstack | null — rendered only when the workspace has a frontend.
+  layer: string | null;
   title: string;
   role: string | null;
   plain: string | null;

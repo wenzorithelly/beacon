@@ -9,8 +9,9 @@
 // keyed by node id — the caller applies the positions to React Flow state + persists them.
 
 import { STATUS_LANE_ORDER } from "@/lib/constants";
+import { LAYERS, normalizeLayer } from "@/lib/layer";
 
-export type RoadmapGroupBy = "cluster" | "status" | "priority";
+export type RoadmapGroupBy = "cluster" | "status" | "priority" | "layer";
 
 // Layout dimensions. ROADMAP_COL_W is the width of one card column; a lane block is a small
 // integer number of these wide. Children indent inside their parent's column.
@@ -24,6 +25,8 @@ export interface RoadmapLayoutNode {
   cluster: string | null;
   status: string;
   priority: number;
+  /** frontend | backend | fullstack | null — only used by the "layer" dimension. */
+  layer?: string | null;
 }
 
 export interface RoadmapLayoutOptions {
@@ -44,11 +47,12 @@ export interface RoadmapLayoutOptions {
 function keyFor(groupBy: RoadmapGroupBy): (n: RoadmapLayoutNode) => string {
   if (groupBy === "status") return (n) => n.status;
   if (groupBy === "priority") return (n) => String(n.priority);
+  if (groupBy === "layer") return (n) => normalizeLayer(n.layer) ?? "—";
   return (n) => (n.cluster ?? "").trim() || "—"; // cluster
 }
 
 // Lane ordering per dimension: status follows Now→Next→Later, priority 0→3 (critical first),
-// cluster is alphabetical with the unset "—" lane last.
+// layer frontend→backend→fullstack (unset last), cluster is alphabetical with "—" last.
 function laneOrderFor(
   groupBy: RoadmapGroupBy,
   parents: RoadmapLayoutNode[],
@@ -56,6 +60,7 @@ function laneOrderFor(
 ): string[] {
   if (groupBy === "status") return [...STATUS_LANE_ORDER];
   if (groupBy === "priority") return ["0", "1", "2", "3"];
+  if (groupBy === "layer") return [...LAYERS, "—"];
   const keys = Array.from(new Set(parents.map(key)));
   const named = keys.filter((k) => k !== "—").sort();
   return keys.includes("—") ? [...named, "—"] : named;

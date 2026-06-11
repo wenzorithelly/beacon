@@ -2,6 +2,7 @@ import { z } from "zod";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, type DB } from "@/lib/db-drizzle";
 import { node, edge } from "@/lib/drizzle/schema";
+import { normalizeLayer } from "@/lib/layer";
 import { forceLayoutRoadmap } from "@/lib/roadmap-force-layout";
 
 // Feature draft schema: top-level roadmap nodes the terminal session pushes via
@@ -28,6 +29,10 @@ export const featureItemSchema = z
           // FEATURE (default) | BUG — a typed bug card on the roadmap. Parse-tolerant
           // (any case); anything that isn't "bug" lands as FEATURE.
           kind: z.string().nullish(),
+          // frontend | backend | fullstack — which side of the stack the work lands on.
+          // Parse-tolerant; the propose-plan flow REQUIRES it (via validateProposedFeatures)
+          // only when the workspace has a frontend.
+          layer: z.string().nullish(),
           // Titles of other features in THIS plan that must ship first. Resolved into DEPENDS
           // edges so the board shows the dependency chain instead of disconnected cards. It's a
           // transport array only — never stored as a DB scalar list (it becomes Edge rows).
@@ -36,11 +41,12 @@ export const featureItemSchema = z
         // Normalize the category aliases (`category`/`domain` → `cluster`) and clamp priority into
         // Beacon's P0..P3 range so a slightly-off plan still lands on the board instead of being
         // dropped wholesale.
-        .transform(({ category, domain, priority, kind, ...f }) => ({
+        .transform(({ category, domain, priority, kind, layer, ...f }) => ({
           ...f,
           cluster: f.cluster ?? category ?? domain ?? null,
           priority: priority == null ? null : Math.max(0, Math.min(3, Math.round(priority))),
           kind: kind?.trim().toUpperCase() === "BUG" ? ("BUG" as const) : ("FEATURE" as const),
+          layer: normalizeLayer(layer),
         }));
 
 export const featureSchema = z.object({
@@ -90,6 +96,7 @@ export async function persistFeatureDraft(graph: FeatureGraph, prisma: Prisma = 
         role: f.role ?? null,
         plain: f.plain ?? null,
         cluster: f.cluster ?? null,
+        layer: f.layer ?? null,
         priority: f.priority ?? 2,
         x: p.x,
         y: p.y + baseY,
@@ -149,6 +156,7 @@ export async function getFeatureDraft(prisma: Prisma = db): Promise<FeatureGraph
       cluster: n.cluster,
       priority: n.priority,
       kind: n.kind === "BUG" ? ("BUG" as const) : ("FEATURE" as const),
+      layer: normalizeLayer(n.layer),
       dependsOn: depsByFrom.get(n.id),
     })),
   };

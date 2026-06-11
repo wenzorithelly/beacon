@@ -60,6 +60,8 @@ interface MapProps {
   view: "ROADMAP" | "ARCHITECTURE";
   nodes: MapNodePayload[];
   edges: MapEdgePayload[];
+  // Gates the frontend/backend layer badge on the draft cards.
+  hasFrontend?: boolean;
 }
 
 type Tab = "map" | "db";
@@ -690,6 +692,7 @@ export function PlanWorkspace({
                   view={mapProps.view}
                   nodes={mapProps.nodes}
                   edges={mapProps.edges}
+                  hasFrontend={mapProps.hasFrontend}
                   embedded
                   commentsContent={commentsContent}
                   commentsCount={annoApi?.annotationCount ?? 0}

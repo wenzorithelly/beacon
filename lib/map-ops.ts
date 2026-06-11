@@ -6,6 +6,8 @@ import { bumpVersion } from "@/lib/ingest";
 import { prunePlannedEntities } from "@/lib/plan-lineage";
 import { matchFeature, type Scored } from "@/lib/match";
 import { validateFeatureCreation, validateFront } from "@/lib/feature-rules";
+import { normalizeLayer } from "@/lib/layer";
+import { resolveHasFrontend } from "@/lib/project-meta";
 import { placeInGroup, placeWithoutOverlap } from "@/lib/node-placement";
 import { layoutRoadmap, type RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { layeredLayout } from "@/lib/layered-layout";
@@ -202,7 +204,7 @@ export async function ensureBoardArranged(view: "ROADMAP" | "ARCHITECTURE"): Pro
   const all = await db.query.node.findMany({
     where: (t, { eq }) => eq(t.view, view),
     orderBy: (t, { asc }) => asc(t.createdAt),
-    columns: { id: true, parentId: true, source: true, cluster: true, status: true, priority: true, x: true, y: true },
+    columns: { id: true, parentId: true, source: true, cluster: true, layer: true, status: true, priority: true, x: true, y: true },
   });
   const nodes = all.filter((n) => n.source !== "DRAFT");
   // Nothing worth arranging yet — don't burn the one-shot, so the board still tidies itself
@@ -213,7 +215,7 @@ export async function ensureBoardArranged(view: "ROADMAP" | "ARCHITECTURE"): Pro
   let arrangedBy: string | null = null;
   if (view === "ROADMAP") {
     const by: RoadmapGroupBy =
-      stored.arrangedBy === "status" || stored.arrangedBy === "priority"
+      stored.arrangedBy === "status" || stored.arrangedBy === "priority" || stored.arrangedBy === "layer"
         ? stored.arrangedBy
         : "cluster";
     arrangedBy = by;
@@ -222,6 +224,7 @@ export async function ensureBoardArranged(view: "ROADMAP" | "ARCHITECTURE"): Pro
         id: n.id,
         parentId: n.parentId,
         cluster: n.cluster,
+        layer: n.layer,
         status: n.status,
         priority: n.priority,
       })),
@@ -260,6 +263,9 @@ export async function startFeature(input: {
   cluster?: string | null;
   /** FEATURE (default) | BUG — only used when the call CREATES a new node. */
   kind?: string | null;
+  /** frontend | backend | fullstack — only used when the call CREATES a new node;
+   *  a sub-task nested under a front inherits the front's layer. */
+  layer?: string | null;
 }): Promise<StartResult> {
   const title = input.title.trim();
   if (!title) throw new Error("title required");
@@ -301,17 +307,26 @@ export async function startFeature(input: {
   let parentId: string | null = null;
   let frontTitle: string | null = null;
   let inheritedCluster: string | null = null;
+  let inheritedLayer: string | null = null;
   if (frontInput) {
     const f = matchFeature(frontInput, fronts.map((n) => ({ id: n.id, title: n.title }))).best!;
     parentId = f.id;
     frontTitle = f.title;
-    inheritedCluster = nodes.find((n) => n.id === f.id)?.cluster ?? null;
+    const front = nodes.find((n) => n.id === f.id);
+    inheritedCluster = front?.cluster ?? null;
+    inheritedLayer = front?.layer ?? null;
   }
 
   const cluster = (input.cluster?.trim() || inheritedCluster) ?? null;
+  const layer = normalizeLayer(input.layer) ?? normalizeLayer(inheritedLayer);
+  // Layer is only demanded of NEW top-level features, and only in workspaces that have a
+  // frontend — a sub-task inherits its front's layer, a pure-backend repo never needs one.
+  const requireLayer = !parentId && (await resolveHasFrontend());
   const createErr = validateFeatureCreation({
     title,
     category: cluster,
+    layer,
+    requireLayer,
     existing: nodes.map((n) => ({ id: n.id, title: n.title, cluster: n.cluster, status: n.status })),
   });
   if (createErr) return { action: "rejected", message: createErr };
@@ -343,6 +358,7 @@ export async function startFeature(input: {
       title,
       plain: input.detail ?? null,
       cluster,
+      layer,
       status: "IN_PROGRESS",
       source: "SESSION",
       parentId,
@@ -416,6 +432,9 @@ const archComponentSchema = z.object({
   domain: z.string().trim().min(1),
   role: z.string().nullish(),
   plain: z.string().nullish(),
+  // frontend | backend | fullstack — parse-tolerant; an update that omits it keeps the
+  // prior value (same preservation rule as role/plain).
+  layer: z.string().nullish(),
   status: z.string().nullish(),
   files: z.array(z.string()).optional(),
   depends: z.array(z.string()).optional(),
@@ -456,7 +475,13 @@ export async function upsertArchitectureComponents(input: unknown[]): Promise<nu
     if (prior) {
       await db
         .update(node)
-        .set({ cluster: c.domain, role: c.role ?? prior.role, plain: c.plain ?? prior.plain, status })
+        .set({
+          cluster: c.domain,
+          layer: normalizeLayer(c.layer) ?? prior.layer,
+          role: c.role ?? prior.role,
+          plain: c.plain ?? prior.plain,
+          status,
+        })
         .where(eq(node.id, prior.id));
       if (c.files?.length) {
         await db.delete(nodeFile).where(eq(nodeFile.nodeId, prior.id));
@@ -477,6 +502,7 @@ export async function upsertArchitectureComponents(input: unknown[]): Promise<nu
           view: "ARCHITECTURE",
           source: "MANUAL",
           cluster: c.domain,
+          layer: normalizeLayer(c.layer),
           title: c.title,
           role: c.role ?? null,
           plain: c.plain ?? null,
@@ -675,6 +701,8 @@ export interface AddSubtaskItem {
   plain?: string | null;
   /** FEATURE (default) | BUG — a bug discovered during work, recorded as a typed sub-task. */
   kind?: string | null;
+  /** frontend | backend | fullstack — defaults to the parent's layer. */
+  layer?: string | null;
 }
 
 export type AddSubtasksResult =
@@ -757,6 +785,7 @@ export async function addSubtasksUnder(input: {
       title: it.title.trim(),
       plain: it.plain ?? null,
       cluster: parentNode.cluster ?? null,
+      layer: normalizeLayer(it.layer) ?? normalizeLayer(parentNode.layer),
       parentId: parentNode.id,
       x: pos.x,
       y: pos.y,

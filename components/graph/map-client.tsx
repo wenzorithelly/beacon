@@ -60,6 +60,7 @@ import {
   PopoverSection,
 } from "@/components/graph/canvas-popover";
 import { ARCH_STATUSES, ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
+import { LAYER_META, normalizeLayer } from "@/lib/layer";
 import { layoutRoadmap, type RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { layeredLayout } from "@/lib/layered-layout";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
@@ -80,10 +81,14 @@ const GROUP_BY_OPTIONS: { value: RoadmapGroupBy; label: string }[] = [
 function laneLabel(groupBy: RoadmapGroupBy, d: MapNodeData): string {
   if (groupBy === "status") return STATUS_META[d.status]?.label ?? d.status;
   if (groupBy === "priority") return `P${d.priority}`;
+  if (groupBy === "layer") {
+    const l = normalizeLayer(d.layer);
+    return l ? LAYER_META[l].label : "—";
+  }
   return d.cluster?.trim() || "—";
 }
 
-const PERSIST_FIELDS = new Set(["title", "role", "plain", "cluster", "status", "priority"]);
+const PERSIST_FIELDS = new Set(["title", "role", "plain", "cluster", "layer", "status", "priority"]);
 
 const nodeTypes = { roadmapNode: NodeCard, archNode: NodeCard, annotation: AnnotationCardNode };
 const edgeTypes = { deletable: DeletableEdge };
@@ -110,6 +115,7 @@ function buildNodes(payload: MapNodePayload[]): Node<MapNodeData>[] {
       status: n.status,
       priority: n.priority,
       cluster: n.cluster,
+      layer: n.layer,
       view: n.view,
       kind: n.kind,
       source: n.source,
@@ -185,6 +191,7 @@ export function MapClient({
   onRemoveComment,
   boardAnnotations,
   initialArrangedBy = null,
+  hasFrontend = false,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   nodes: MapNodePayload[];
@@ -222,6 +229,9 @@ export function MapClient({
   // The dimension the roadmap is currently arranged by on the server (board-layout-state) —
   // lets the lane regions render on first paint instead of only after a Group-by click.
   initialArrangedBy?: RoadmapGroupBy | null;
+  // Whether this workspace has a frontend — gates the per-card layer badge, the layer
+  // field in the edit dialog, and the "Layer" Group-by option.
+  hasFrontend?: boolean;
 }) {
   const initialNodes = useMemo(() => buildNodes(nodePayload), [nodePayload]);
   const initialEdges = useMemo(
@@ -436,8 +446,9 @@ export function MapClient({
       removeNode,
       editingTitleId,
       onAskAgent,
+      hasFrontend,
     }),
-    [view, categories, patch, expandedIds, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent],
+    [view, categories, patch, expandedIds, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent, hasFrontend],
   );
 
   // Group-by lanes + the search box. `arrangedBy` is the dimension the board is currently laid
@@ -1011,6 +1022,7 @@ export function MapClient({
         id: n.id,
         parentId: n.data.parentId ?? null,
         cluster: n.data.cluster,
+        layer: n.data.layer ?? null,
         status: n.data.status,
         priority: n.data.priority,
       })),
@@ -1309,7 +1321,11 @@ export function MapClient({
           {view === "ROADMAP" && (
             <div className="glass flex items-center gap-1 rounded-full p-1">
               <span className="pl-2 pr-0.5 text-[11px] text-muted-foreground">Group by</span>
-              {GROUP_BY_OPTIONS.map((o) => (
+              {[
+                ...GROUP_BY_OPTIONS,
+                // Only workspaces with a frontend get the frontend/backend dimension.
+                ...(hasFrontend ? [{ value: "layer" as const, label: "Layer" }] : []),
+              ].map((o) => (
                 <button
                   key={o.value}
                   onClick={() => arrange(o.value)}

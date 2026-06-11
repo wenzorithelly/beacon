@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 // Isolate the per-workspace data dir into a throwaway tmp dir so each test starts clean.
 process.env.BEACON_DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-plan-route-"));
@@ -263,6 +263,77 @@ describe("POST /api/plan enforces category + priority on every feature", () => {
     expect(res.status).toBe(422);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("From block");
+  });
+});
+
+describe("POST /api/plan requires layer only when the workspace has a frontend", () => {
+  const clearMeta = async () => {
+    const { projectMeta, codeFile } = await import("@/lib/drizzle/schema");
+    await db.delete(projectMeta);
+    await db.delete(codeFile);
+  };
+  beforeEach(async () => {
+    await planDelete(emptyReq());
+    rmSync(join(dataDir(), "plan-verdict.json"), { force: true });
+    await clearMeta();
+  });
+  // Don't leak hasFrontend/codeFile state into the suites that follow.
+  afterEach(clearMeta);
+
+  it("rejects (422) features missing layer when hasFrontend is true", async () => {
+    const { setProjectMeta } = await import("@/lib/project-meta");
+    await setProjectMeta({ hasFrontend: true });
+    const res = await planPost(
+      reqJson("http://test/api/plan", {
+        description: "no layers",
+        features: [{ title: "Search", cluster: "SEARCH", priority: 2 }],
+      }),
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("layer");
+  });
+
+  it("accepts layered features when hasFrontend is true and persists the layer", async () => {
+    const { setProjectMeta } = await import("@/lib/project-meta");
+    await setProjectMeta({ hasFrontend: true });
+    const res = await planPost(
+      reqJson("http://test/api/plan", {
+        description: "layered",
+        features: [
+          { title: "Search UI", cluster: "SEARCH", priority: 2, layer: "frontend" },
+          { title: "Search API", cluster: "SEARCH", priority: 2, layer: "backend" },
+        ],
+      }),
+    );
+    expect(res.ok).toBe(true);
+    const nodes = await db.query.node.findMany({
+      where: (t, { and, eq }) => and(eq(t.source, "DRAFT"), eq(t.view, "ROADMAP")),
+    });
+    expect(nodes.find((n) => n.title === "Search UI")?.layer).toBe("frontend");
+    expect(nodes.find((n) => n.title === "Search API")?.layer).toBe("backend");
+  });
+
+  it("does not require layer when hasFrontend is unresolved and no frontend files exist", async () => {
+    const res = await planPost(
+      reqJson("http://test/api/plan", {
+        description: "backend-only workspace",
+        features: [{ title: "Queue worker", cluster: "INFRA", priority: 1 }],
+      }),
+    );
+    expect(res.ok).toBe(true);
+  });
+
+  it("requires layer when detection finds frontend files even without the explicit flag", async () => {
+    const { codeFile } = await import("@/lib/drizzle/schema");
+    await db.insert(codeFile).values({ path: "app/page.tsx" });
+    const res = await planPost(
+      reqJson("http://test/api/plan", {
+        description: "detected frontend",
+        features: [{ title: "Queue worker", cluster: "INFRA", priority: 1 }],
+      }),
+    );
+    expect(res.status).toBe(422);
   });
 });
 

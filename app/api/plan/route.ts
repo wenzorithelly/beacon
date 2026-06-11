@@ -9,6 +9,7 @@ import { computeDraftOriginY } from "@/lib/endpoint-layout";
 import { bumpVersion } from "@/lib/ingest";
 import { discardPlan, resetPlanRound } from "@/lib/plan-resolve";
 import { readPlanMeta, writePlanMeta } from "@/lib/plan-meta";
+import { resolveHasFrontend } from "@/lib/project-meta";
 import { db, runWithWorkspace } from "@/lib/db-drizzle";
 import { workspaceIdFromRequest } from "@/lib/workspaces";
 
@@ -115,12 +116,14 @@ export async function POST(req: Request) {
         }
       }
 
-      // HARD RULE: every roadmap feature must carry a category (cluster) + priority. Reject the
-      // push BEFORE persisting anything (422 so the ExitPlanMode hook surfaces it as a denial,
-      // not the generic fail-open). The MCP path catches this earlier in bin/mcp.ts and never
-      // reaches here with invalid features; this covers the ```beacon-block (ExitPlanMode) path.
+      // HARD RULE: every roadmap feature must carry a category (cluster) + priority — and, when
+      // this workspace has a frontend, a layer. Reject the push BEFORE persisting anything (422
+      // so the ExitPlanMode hook surfaces it as a denial, not the generic fail-open). The MCP
+      // path pre-checks in bin/mcp.ts; this is the authoritative gate and covers the
+      // ```beacon-block (ExitPlanMode) path.
       if (featureInput && featureInput.length) {
-        const featureErr = validateProposedFeatures(featureInput);
+        const requireLayer = await resolveHasFrontend();
+        const featureErr = validateProposedFeatures(featureInput, { requireLayer });
         if (featureErr) return Response.json({ error: featureErr }, { status: 422 });
         // Dedup against the EXISTING roadmap only (exclude this round's own DRAFT nodes), so a
         // proposal can't silently shadow a feature that's already there.

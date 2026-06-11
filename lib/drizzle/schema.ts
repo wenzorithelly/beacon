@@ -28,6 +28,9 @@ export const node = sqliteTable(
     view: text().notNull(),
     kind: text().default("FEATURE").notNull(), // FEATURE | BUG — bug cards on the roadmap canvas
     cluster: text(),
+    // frontend | backend | fullstack | null — only meaningful when ProjectMeta.hasFrontend
+    // resolves true (text + Zod union, no enum: Postgres-portable).
+    layer: text(),
     title: text().notNull(),
     role: text(),
     plain: text(),
@@ -400,6 +403,9 @@ export const projectMeta = sqliteTable("ProjectMeta", {
   id: text().primaryKey().default("singleton"),
   overview: text(),
   conventions: text().default("[]").notNull(),
+  // Tri-state: true/false = the agent's explicit answer at init; null = unresolved → fall back
+  // to deterministic detection from CodeFile paths (lib/layer.ts detectFrontendFromPaths).
+  hasFrontend: integer({ mode: "boolean" }),
   updatedAt: integer({ mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date())

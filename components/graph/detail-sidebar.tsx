@@ -31,6 +31,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { NodeFormDialog } from "@/components/graph/node-form-dialog";
+import { useNodeEdit } from "@/components/graph/node-edit-context";
+import { LAYER_META, normalizeLayer } from "@/lib/layer";
 import {
   acceptSuggestionAction,
   cancelAction,
@@ -181,6 +183,8 @@ function NodeDetail({
   const [pending, startTransition] = useTransition();
   const [editOpen, setEditOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
+  const { hasFrontend } = useNodeEdit();
+  const layer = normalizeLayer(node.layer);
 
   const statuses = view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES;
 
@@ -195,6 +199,9 @@ function NodeDetail({
       <div>
         <div className="text-xs uppercase tracking-wide text-muted-foreground">
           {clusterLabel(node.cluster)}
+          {hasFrontend && layer && (
+            <span className="ml-2 text-zinc-400">· {LAYER_META[layer].label}</span>
+          )}
           {node.priority === 0 && (
             <span className="ml-2 text-[#ff7a90]">· critical path</span>
           )}
@@ -349,6 +356,7 @@ function NodeDetail({
           view={view}
           heading="Edit node"
           nodeId={node.id}
+          hasFrontend={hasFrontend}
           defaults={{
             title: node.title,
             role: node.role,
@@ -356,6 +364,7 @@ function NodeDetail({
             status: node.status,
             cluster: node.cluster,
             kind: node.kind,
+            layer: node.layer,
           }}
         />
       )}
@@ -368,7 +377,8 @@ function NodeDetail({
           heading="New sub-node"
           parentId={node.id}
           position={{ x: node.x, y: node.y + 120 }}
-          defaults={{ cluster: node.cluster }}
+          hasFrontend={hasFrontend}
+          defaults={{ cluster: node.cluster, layer: node.layer }}
         />
       )}
     </div>

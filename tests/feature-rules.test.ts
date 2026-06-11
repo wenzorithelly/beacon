@@ -60,6 +60,41 @@ describe("validateProposedFeatures", () => {
     expect(err).toContain("Bad");
     expect(err).not.toContain('"Good"');
   });
+
+  it("does not require layer by default", () => {
+    expect(validateProposedFeatures([{ title: "API", cluster: "DATA", priority: 1 }])).toBeNull();
+  });
+
+  it("requires layer when requireLayer is set, naming the valid values", () => {
+    const err = validateProposedFeatures([{ title: "API", cluster: "DATA", priority: 1 }], {
+      requireLayer: true,
+    })!;
+    expect(err).toContain("API");
+    expect(err).toContain("layer");
+    expect(err).toContain("frontend");
+    expect(err).toContain("backend");
+    expect(err).toContain("fullstack");
+  });
+
+  it("treats an invalid layer value as missing when required", () => {
+    const err = validateProposedFeatures(
+      [{ title: "API", cluster: "DATA", priority: 1, layer: "middleware" }],
+      { requireLayer: true },
+    );
+    expect(err).toContain("layer");
+  });
+
+  it("passes with a valid (case-tolerant) layer when required", () => {
+    expect(
+      validateProposedFeatures(
+        [
+          { title: "API", cluster: "DATA", priority: 1, layer: "backend" },
+          { title: "Screen", cluster: "UI", priority: 2, layer: "Frontend" },
+        ],
+        { requireLayer: true },
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("existingCategories", () => {
@@ -100,6 +135,32 @@ describe("validateFeatureCreation", () => {
 
   it("rejects a blank title", () => {
     expect(validateFeatureCreation({ title: "   ", category: "DATA", existing: ROADMAP })).toContain("title");
+  });
+
+  it("requires layer only when requireLayer is set", () => {
+    expect(
+      validateFeatureCreation({ title: "Stripe billing webhooks", category: "INFRA", existing: ROADMAP }),
+    ).toBeNull();
+    const err = validateFeatureCreation({
+      title: "Stripe billing webhooks",
+      category: "INFRA",
+      requireLayer: true,
+      existing: ROADMAP,
+    })!;
+    expect(err).toContain("layer");
+    expect(err).toContain("fullstack");
+  });
+
+  it("passes with a valid layer when required", () => {
+    expect(
+      validateFeatureCreation({
+        title: "Stripe billing webhooks",
+        category: "INFRA",
+        layer: "backend",
+        requireLayer: true,
+        existing: ROADMAP,
+      }),
+    ).toBeNull();
   });
 });
 

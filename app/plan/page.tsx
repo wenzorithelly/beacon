@@ -5,6 +5,7 @@ import { readDraftDoc } from "@/lib/draft-store";
 import { getFeatureDraft } from "@/lib/feature-design";
 import { synthesizePlanMarkdown } from "@/lib/plan-markdown";
 import { extractBeaconBlock } from "@/lib/plan-block";
+import { resolveHasFrontend } from "@/lib/project-meta";
 import { dataDir } from "@/lib/project";
 import { currentWorkspace } from "@/lib/workspaces";
 import { resolvePlanWorkspaceId } from "@/lib/request-workspace";
@@ -95,6 +96,7 @@ export default async function PlanPage({
       view: n.view,
       kind: n.kind,
       cluster: n.cluster,
+      layer: n.layer,
       title: n.title,
       role: n.role,
       plain: n.plain,
@@ -145,10 +147,11 @@ export default async function PlanPage({
     const planMarkdown =
       metaMarkdown ?? synthesizePlanMarkdown(description, draft, featureDraft);
 
+    const hasFrontend = await resolveHasFrontend();
     return (
       <PlanWorkspace
         dbProps={{ tables, relations, endpoints, draft, workspaceId, diffBase }}
-        mapProps={{ view: "ROADMAP", nodes: mapNodes, edges: mapEdges }}
+        mapProps={{ view: "ROADMAP", nodes: mapNodes, edges: mapEdges, hasFrontend }}
         planMarkdown={planMarkdown}
         forceHistory={forceHistory}
       />

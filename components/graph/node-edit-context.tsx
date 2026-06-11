@@ -18,6 +18,9 @@ export interface NodeEditApi {
   /** Ask the agent a question scoped to this node — opens the plan's ask composer pre-targeted
       to it. Only provided on the /plan board (the feedback loop); absent on /map. */
   onAskAgent?: (target: string) => void;
+  /** Whether this workspace has a frontend — gates the frontend/backend layer badge + editor.
+      Pure-backend repos never surface the layer distinction. */
+  hasFrontend?: boolean;
 }
 
 export const NodeEditContext = createContext<NodeEditApi | null>(null);

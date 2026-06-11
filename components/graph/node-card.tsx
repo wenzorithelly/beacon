@@ -18,6 +18,8 @@ import {
   MessageSquarePlus,
   FlaskConical,
   Lock,
+  Monitor,
+  Server,
   X,
 } from "lucide-react";
 import {
@@ -28,6 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { STATUS_META } from "@/lib/constants";
+import { LAYER_META, normalizeLayer } from "@/lib/layer";
 import { categoryColorClass } from "@/lib/category-color";
 import { useNodeEdit } from "@/components/graph/node-edit-context";
 import { useZoomLOD } from "@/components/graph/use-zoom-lod";
@@ -42,6 +45,8 @@ export type MapNodeData = {
   status: string;
   priority: number;
   cluster: string | null;
+  /** frontend | backend | fullstack | null — badge shown only when the workspace has a frontend. */
+  layer?: string | null;
   view: string;
   /** FEATURE | BUG — a BUG card is a bug the user plans to work on (roadmap only). */
   kind?: string;
@@ -74,6 +79,25 @@ const PRIORITIES = [
 
 // Keep React Flow from dragging/panning/deleting while you interact with a control.
 const noDrag = "nodrag nopan";
+
+// Frontend/backend layer badge: a monochrome pill (no new colors — brand stays one-accent)
+// with a Monitor (FE) / Server (BE) / both (fullstack) icon. Rendered only when the
+// workspace has a frontend AND the node carries a layer.
+function LayerBadge({ layer }: { layer: string | null | undefined }) {
+  const l = normalizeLayer(layer);
+  if (!l) return null;
+  const meta = LAYER_META[l];
+  return (
+    <span
+      title={`${meta.label} — which side of the stack this lands on`}
+      className="flex shrink-0 items-center gap-1 rounded bg-white/10 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-300"
+    >
+      {l !== "backend" && <Monitor className="size-2.5" />}
+      {l !== "frontend" && <Server className="size-2.5" />}
+      {meta.short}
+    </span>
+  );
+}
 
 // Edge button on ARCHITECTURE cards (stacked above the annotate button): flag a bug /
 // something worth investigating on this component without opening the detail sidebar.
@@ -187,7 +211,7 @@ const PRIORITY_BORDER = [
 ] as const;
 
 export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
-  const { categories, statuses, patch, isExpanded, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent } =
+  const { categories, statuses, patch, isExpanded, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent, hasFrontend } =
     useNodeEdit();
   const expanded = isExpanded(id);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -428,6 +452,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
               {isBug && <Bug className="size-2.5" />}
               {isBug ? "bug" : data.isChild ? "sub-task" : "feature"}
             </span>
+            {hasFrontend && <LayerBadge layer={data.layer} />}
             {suggested && (
               <span
                 className={cn(
@@ -497,6 +522,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
                 sub
               </span>
             )}
+            {hasFrontend && <LayerBadge layer={data.layer} />}
             <input
               list={`cats-${id}`}
               value={cluster}
@@ -580,20 +606,45 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
             </div>
           )}
           <div className="flex items-center justify-between gap-2">
-            <Select value={String(data.priority)} onValueChange={(v) => save({ priority: Number(v) })}>
-              <SelectTrigger className={cn(noDrag, "h-6 gap-1 rounded border-white/10 px-1.5 py-0 text-[10px]")}>
-                <SelectValue>
-                  {(v: string) => PRIORITIES.find((p) => String(p.v) === v)?.l ?? v}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                {PRIORITIES.map((p) => (
-                  <SelectItem key={p.v} value={String(p.v)}>
-                    {p.l}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-1">
+              <Select value={String(data.priority)} onValueChange={(v) => save({ priority: Number(v) })}>
+                <SelectTrigger className={cn(noDrag, "h-6 gap-1 rounded border-white/10 px-1.5 py-0 text-[10px]")}>
+                  <SelectValue>
+                    {(v: string) => PRIORITIES.find((p) => String(p.v) === v)?.l ?? v}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  {PRIORITIES.map((p) => (
+                    <SelectItem key={p.v} value={String(p.v)}>
+                      {p.l}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {hasFrontend && (
+                <Select
+                  value={normalizeLayer(data.layer) ?? "none"}
+                  onValueChange={(v) => save({ layer: v === "none" ? null : v })}
+                >
+                  <SelectTrigger
+                    title="Which side of the stack this lands on"
+                    className={cn(noDrag, "h-6 gap-1 rounded border-white/10 px-1.5 py-0 text-[10px]")}
+                  >
+                    <SelectValue>
+                      {(v: string) => (v === "none" ? "layer · —" : LAYER_META[v as keyof typeof LAYER_META]?.label ?? v)}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectItem value="none">—</SelectItem>
+                    {Object.entries(LAYER_META).map(([v, m]) => (
+                      <SelectItem key={v} value={v}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
             <div className="flex items-center gap-1">
               <button
                 type="button"

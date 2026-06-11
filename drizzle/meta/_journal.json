@@ -43,6 +43,13 @@
       "when": 1781134063758,
       "tag": "0005_graceful_adam_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1781203107562,
+      "tag": "0006_optimal_chronomancer",
+      "breakpoints": true
     }
   ]
 }

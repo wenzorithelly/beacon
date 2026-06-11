@@ -103,4 +103,25 @@ describe("layoutRoadmap (grid-block lanes)", () => {
     const pos = layoutRoadmap(nodes, "cluster", OPTS);
     expect(pos.get("orphan")).toEqual({ x: 0, y: 0 });
   });
+
+  it("groups by layer in frontend → backend → fullstack → unset order", () => {
+    const nodes = [
+      f("none"),
+      f("fs", { layer: "fullstack" }),
+      f("be", { layer: "backend" }),
+      f("fe", { layer: "frontend" }),
+    ];
+    const pos = layoutRoadmap(nodes, "layer", OPTS);
+    // One single-feature lane per layer: lanes flow left→right in the fixed order.
+    expect(pos.get("fe")!.x).toBeLessThan(pos.get("be")!.x);
+    expect(pos.get("be")!.x).toBeLessThan(pos.get("fs")!.x);
+    expect(pos.get("fs")!.x).toBeLessThan(pos.get("none")!.x); // unset "—" lane last
+  });
+
+  it("buckets a sloppily-cased layer with its normalized lane", () => {
+    const nodes = [f("a", { layer: "Frontend" }), f("b", { layer: "frontend" })];
+    const pos = layoutRoadmap(nodes, "layer", OPTS);
+    // Same lane → same x (single column), stacked rows.
+    expect(pos.get("a")!.x).toBe(pos.get("b")!.x);
+  });
 });

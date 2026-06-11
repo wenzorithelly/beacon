@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { createNodeAction, updateNodeAction } from "@/app/actions/nodes";
 import { ARCH_STATUSES, ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
+import { LAYER_META, normalizeLayer, type Layer } from "@/lib/layer";
 
 type Mode = "create" | "edit";
 type NodeStatus = (typeof ROADMAP_STATUSES)[number] | (typeof ARCH_STATUSES)[number];
@@ -42,7 +43,10 @@ export interface NodeFormDialogProps {
     status?: string;
     cluster?: string | null;
     kind?: string;
+    layer?: string | null;
   };
+  /** Show the frontend/backend layer field — only workspaces with a frontend surface it. */
+  hasFrontend?: boolean;
 }
 
 export function NodeFormDialog({
@@ -55,6 +59,7 @@ export function NodeFormDialog({
   parentId,
   position,
   defaults,
+  hasFrontend = false,
 }: NodeFormDialogProps) {
   const router = useRouter();
   const [title, setTitle] = useState(defaults?.title ?? "");
@@ -67,6 +72,7 @@ export function NodeFormDialog({
   const [kind, setKind] = useState<"FEATURE" | "BUG">(
     defaults?.kind === "BUG" ? "BUG" : "FEATURE",
   );
+  const [layer, setLayer] = useState<Layer | "none">(normalizeLayer(defaults?.layer) ?? "none");
   const [saving, setSaving] = useState(false);
 
   const statuses = view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES;
@@ -75,6 +81,7 @@ export function NodeFormDialog({
     if (!title.trim()) return;
     setSaving(true);
     try {
+      const layerValue = layer === "none" ? null : layer;
       if (mode === "create") {
         await createNodeAction({
           view,
@@ -83,6 +90,7 @@ export function NodeFormDialog({
           role: role.trim() || null,
           plain: plain.trim() || null,
           cluster: cluster.trim() || null,
+          ...(hasFrontend ? { layer: layerValue } : {}),
           parentId: parentId ?? null,
           status,
           x: position?.x ?? 60,
@@ -95,6 +103,7 @@ export function NodeFormDialog({
           role: role.trim() || null,
           plain: plain.trim() || null,
           cluster: cluster.trim() || null,
+          ...(hasFrontend ? { layer: layerValue } : {}),
           status,
         });
       }
@@ -147,6 +156,29 @@ export function NodeFormDialog({
                 <SelectContent>
                   <SelectItem value="FEATURE">Feature</SelectItem>
                   <SelectItem value="BUG">Bug</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {hasFrontend && (
+            <div className="space-y-1.5">
+              <Label>Layer</Label>
+              <Select
+                value={layer}
+                onValueChange={(v) => v != null && setLayer(v as Layer | "none")}
+              >
+                <SelectTrigger>
+                  <SelectValue>
+                    {(v: string) => (v === "none" ? "—" : LAYER_META[v as Layer]?.label ?? v)}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">—</SelectItem>
+                  {(Object.keys(LAYER_META) as Layer[]).map((l) => (
+                    <SelectItem key={l} value={l}>
+                      {LAYER_META[l].label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

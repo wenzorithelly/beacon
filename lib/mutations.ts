@@ -27,6 +27,7 @@ export async function createNode(input: CreateNodeInput) {
       kind: data.kind ?? "FEATURE",
       title: data.title,
       cluster: data.cluster ?? null,
+      layer: data.layer ?? null,
       role: data.role ?? null,
       plain: data.plain ?? null,
       parentId: data.parentId ?? null,

@@ -17,6 +17,8 @@ const bodySchema = z.object({
         plain: z.string().trim().max(2000).nullish(),
         // FEATURE (default) | BUG — parse-tolerant; normalized in addSubtasksUnder.
         kind: z.string().trim().max(16).nullish(),
+        // frontend | backend | fullstack — parse-tolerant; defaults to the parent's layer.
+        layer: z.string().trim().max(16).nullish(),
       }),
     )
     .min(1),

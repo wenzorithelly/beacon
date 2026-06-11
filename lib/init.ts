@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
 import { node, nodeFile, edge, bugFlag } from "@/lib/drizzle/schema";
 import { bumpVersion, ingestSnapshot, snapshotSchema } from "@/lib/ingest";
+import { normalizeLayer } from "@/lib/layer";
 import { setProjectMeta } from "@/lib/project-meta";
 import { writeContextFiles } from "@/lib/context-files";
 import { layeredLayout } from "@/lib/layered-layout";
@@ -20,6 +21,9 @@ const componentSchema = z.object({
   domain: z.string().trim().min(1),
   role: z.string().nullish(),
   plain: z.string().nullish(),
+  // frontend | backend | fullstack — only meaningful when the repo has a frontend
+  // (parse-tolerant; invalid values land as null).
+  layer: z.string().nullish(),
   files: z.array(z.string()).default([]),
   depends: z.array(z.string()).default([]),
   // Bugs / things worth investigating found while examining this component's code —
@@ -38,11 +42,16 @@ const roadmapItemSchema = z.object({
   // FEATURE (default) | BUG — lets the survey put a typed bug card on the roadmap
   // when it finds something concrete to fix (parse-tolerant, any case).
   kind: z.string().nullish(),
+  // frontend | backend | fullstack — which side of the stack the work lands on.
+  layer: z.string().nullish(),
 });
 
 export const initInputSchema = z.object({
   overview: z.string().nullish(),
   conventions: z.array(z.string()).default([]),
+  // The agent's explicit answer to "does this repo have a frontend?" — gates the layer
+  // requirement + UI. Omitted → unresolved (deterministic code-graph fallback applies).
+  hasFrontend: z.boolean().nullish(),
   components: z.array(componentSchema).default([]),
   roadmap: z.array(roadmapItemSchema).default([]),
   // Optional DB extraction in the same call — same shape as the snapshot ingest.
@@ -91,6 +100,7 @@ export async function persistArchitecture(components: Component[]): Promise<numb
         view: "ARCHITECTURE",
         source: "INIT",
         cluster: c.domain,
+        layer: normalizeLayer(c.layer),
         title: c.title,
         role: c.role ?? null,
         plain: c.plain ?? null,
@@ -168,6 +178,7 @@ export async function persistRoadmap(roadmap: RoadmapItem[]): Promise<number> {
         view: "ROADMAP",
         source: "INIT",
         kind: r.kind?.trim().toUpperCase() === "BUG" ? "BUG" : "FEATURE",
+        layer: normalizeLayer(r.layer),
         title: r.title,
         plain: r.why ?? null,
         cluster: r.category ?? r.cluster ?? null,
@@ -270,6 +281,7 @@ export async function runInitFromAnalysis(input: unknown): Promise<{
   await setProjectMeta({
     overview: parsed.overview ?? null,
     conventions: parsed.conventions,
+    hasFrontend: parsed.hasFrontend, // undefined/null → leave unresolved
   });
 
   let context: string[] = [];

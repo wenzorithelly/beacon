@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
 import { ensureBoardArranged } from "@/lib/map-ops";
+import { resolveHasFrontend } from "@/lib/project-meta";
 import { ensureDbBoardArranged } from "@/lib/board-arrange";
 import { readBoardLayout } from "@/lib/board-layout-state";
 import type { RoadmapGroupBy } from "@/lib/roadmap-layout";
@@ -161,11 +162,15 @@ export default async function MapPage({
     // board into labeled groups the first time this algo version sees it; after that the user's
     // arrangement is never auto-moved. Runs before the read so the payload reflects it immediately.
     if (view === "ROADMAP" || view === "ARCHITECTURE") await ensureBoardArranged(view);
+    // Whether this workspace has a frontend — gates the layer badge + the "Layer" group-by.
+    const hasFrontend = await resolveHasFrontend();
     // The dimension the roadmap is currently grouped by — drives the lane regions on load.
+    // A stale "layer" arrangement in a workspace that no longer has a frontend falls back to null.
     const initialArrangedBy: RoadmapGroupBy | null =
       view === "ROADMAP"
         ? ((): RoadmapGroupBy | null => {
             const by = readBoardLayout("roadmap").arrangedBy;
+            if (by === "layer") return hasFrontend ? by : null;
             return by === "cluster" || by === "status" || by === "priority" ? by : null;
           })()
         : null;
@@ -205,6 +210,7 @@ export default async function MapPage({
       view: n.view,
       kind: n.kind,
       cluster: n.cluster,
+      layer: n.layer,
       title: n.title,
       role: n.role,
       plain: n.plain,
@@ -259,6 +265,7 @@ export default async function MapPage({
         workOnNextId={workOnNextId}
         boardAnnotations={boardAnnotations}
         initialArrangedBy={initialArrangedBy}
+        hasFrontend={hasFrontend}
       />
     );
   });
