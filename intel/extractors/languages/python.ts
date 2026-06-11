@@ -54,7 +54,23 @@ export const pythonResolver: LanguageResolver = {
       const base = rest ? join(dir, rest.replace(/\./g, "/")) : dir;
       return probe(normalize(base).replace(/\\/g, "/"), ctx.fileSet);
     }
-    // Absolute dotted module, probed repo-relative.
-    return probe(spec.replace(/\./g, "/"), ctx.fileSet);
+    // Absolute dotted module. Probe under each ancestor directory of the importing file,
+    // DEEPEST FIRST (the closest enclosing package root wins), ending at the scan base.
+    // This is what resolves a monolith layout: backend/app/main.py doing
+    // `from app.services import x` hits backend/app/services.py even though the scanned
+    // root is the repo — Python's sys.path root (backend/) isn't the repo root.
+    const rel = spec.replace(/\./g, "/");
+    const dirs: string[] = [];
+    let d = dirname(fromFile);
+    while (d && d !== "." && d !== "/") {
+      dirs.push(d);
+      d = dirname(d);
+    }
+    dirs.push(""); // the scan base itself (flat layout)
+    for (const dir of dirs) {
+      const hit = probe(dir ? `${dir}/${rel}` : rel, ctx.fileSet);
+      if (hit.length) return hit;
+    }
+    return [];
   },
 };

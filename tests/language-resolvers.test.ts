@@ -94,6 +94,35 @@ describe("python resolver", () => {
     const c = ctx(["app/main.py"]);
     expect(py().resolve("os", "app/main.py", c)).toEqual([]);
   });
+
+  // The monolith layout: the Python package lives BELOW a subdirectory of the scanned
+  // root (repo/backend/app/…), so `from app.x import y` can't resolve repo-relative.
+  // The resolver walks the importing file's ancestor dirs (deepest first — the closest
+  // enclosing package root wins) probing the dotted path under each.
+  it("resolves an absolute import whose package root is a subdirectory (monolith backend/)", () => {
+    const c = ctx([
+      "backend/app/main.py",
+      "backend/app/services/match.py",
+      "backend/app/api/__init__.py",
+    ]);
+    expect(py().resolve("app.services.match", "backend/app/main.py", c)).toEqual([
+      "backend/app/services/match.py",
+    ]);
+    expect(py().resolve("app.api", "backend/app/main.py", c)).toEqual([
+      "backend/app/api/__init__.py",
+    ]);
+  });
+
+  it("prefers the closest enclosing root when the dotted path exists at several depths", () => {
+    const c = ctx(["backend/app/util.py", "app/util.py", "backend/services/x.py"]);
+    // From inside backend/, `app.util` is backend/app/util.py — not the repo-root app/.
+    expect(py().resolve("app.util", "backend/services/x.py", c)).toEqual(["backend/app/util.py"]);
+  });
+
+  it("still resolves repo-relative absolute imports (flat layout)", () => {
+    const c = ctx(["app/main.py", "app/helper.py"]);
+    expect(py().resolve("app.helper", "app/main.py", c)).toEqual(["app/helper.py"]);
+  });
 });
 
 describe("go resolver", () => {
