@@ -127,9 +127,19 @@ export default async function MapPage({
           columns: { fromPath: true, toPath: true, circular: true },
         }),
       ]);
+      // The Files tab ignores Python package markers (__init__.py): every package dir has one,
+      // they're near-empty, and they add a web of import edges without conveying structure. We
+      // hide them here (display-only) — the persisted code graph + blast-radius still keep them.
+      const keptFiles = files.filter(
+        (f) => f.path !== "__init__.py" && !f.path.endsWith("/__init__.py"),
+      );
+      const keptPaths = new Set(keptFiles.map((f) => f.path));
+      const keptEdges = edges.filter(
+        (e) => keptPaths.has(e.fromPath) && keptPaths.has(e.toPath),
+      );
       return (
         <FilesMapClient
-          files={files.map((f) => ({
+          files={keptFiles.map((f) => ({
             path: f.path,
             x: f.x,
             y: f.y,
@@ -137,7 +147,7 @@ export default async function MapPage({
             inDegree: f.inDegree,
             outDegree: f.outDegree,
           }))}
-          edges={edges.map((e) => ({
+          edges={keptEdges.map((e) => ({
             from: e.fromPath,
             to: e.toPath,
             circular: e.circular,
