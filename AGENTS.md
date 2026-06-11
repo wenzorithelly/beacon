@@ -52,28 +52,9 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
   - Board annotations — Persistent per-workspace annotation pins + cards on the /map canvases (BoardAnnotation table + /api/board-annotations CRUD); on /plan the same surface renders feedback-bundle annotations instead (app/api/board-annotations/route.ts, components/graph/annotation-node.tsx, lib/annotation-anchors.ts, lib/board-annotations.ts)
 
 ### Database
-- `AppSetting`: id, editor, currentFeatureId, updatedAt
-- `BoardAnnotation`: id, targetKind, targetId, columnName, body, x, y, createdAt, updatedAt
-- `BugFlag`: id, nodeId, by, note, resolvedAt, createdAt
-- `CodeFile`: path, root, lang, x, y, mtimeMs, size, inDegree, outDegree, updatedAt
-- `CodeFileEdge`: fromPath, toPath, circular
-- `DbColumn`: id, tableId, name, type, isPk, isFk, nullable, note, ord
-- `DbRelation`: id, fromTableId, toTableId, fromColumn, toColumn, label
-- `DbTable`: id, name, domain, description, source, planId, x, y, createdAt, updatedAt
-- `DraftColumn`: id, tableId, name, type, isPk, isFk, nullable, note, ord
-- `DraftRelation`: id, fromTableId, toTableId, fromColumn, toColumn, label
-- `DraftTable`: id, name, domain, description, x, y, createdAt
-- `Edge`: id, fromId, toId, kind, label, sourceHandle, targetHandle
-- `Endpoint`: id, method, path, domain, description, source, planId, x, y, createdAt, updatedAt
-- `EndpointTable`: id, endpointId, tableId, access
 - `Feedback`: id, body, upvotes, downvotes, deleteToken, createdAt
 - `Node`: id, title, parentId, x, progress, pinned, createdAt
 - `NodeFile`: id, nodeId, A
-- `Note`: id, title, body, ord, pinned, createdAt, updatedAt
-- `ProjectMeta`: id, overview, conventions, updatedAt
-- `SyncState`: id, version, codeGraphSyncedAt, updatedAt
-- `Tag`: id, label, color
-- `_NodeTags`: A, B
 
 ### Endpoints
 - GET /api/board-annotations
