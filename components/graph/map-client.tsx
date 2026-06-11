@@ -28,7 +28,6 @@ import {
   LayoutGrid,
   PanelRight,
   Plus,
-  Search,
   SlidersHorizontal,
   Target,
 } from "lucide-react";
@@ -46,6 +45,13 @@ import { DetailSidebar } from "@/components/graph/detail-sidebar";
 import { NodeEditContext, type NodeEditApi } from "@/components/graph/node-edit-context";
 import { neighborIds } from "@/components/graph/db-types";
 import { CanvasTabs } from "@/components/graph/canvas-tabs";
+import { CanvasSearch } from "@/components/graph/canvas-search";
+import {
+  matchesQuery,
+  roadmapHaystack,
+  searchHits,
+  type SearchHit,
+} from "@/lib/canvas-search";
 import {
   CanvasPopover,
   Chip,
@@ -515,6 +521,19 @@ export function MapClient({
     );
   }, [selectedId, selectedEdgeId, visibleEdges]);
 
+  // Live search spotlight: matches every text field (not just title), respects active
+  // filters, and overrides the click-focus set while you type so the canvas dims to the hits.
+  const searchActive = searchQuery.trim().length > 0;
+  const searchMatchIds = useMemo(() => {
+    if (!searchActive) return null;
+    const s = new Set<string>();
+    for (const n of nodes)
+      if (passes(n.data) && matchesQuery(roadmapHaystack(n.data), searchQuery)) s.add(n.id);
+    return s;
+  }, [nodes, searchQuery, passes, searchActive]);
+  // Search takes precedence over the 1-hop click focus while a query is active.
+  const effectiveFocusIds = searchMatchIds ?? focusIds;
+
   const displayNodes = useMemo(() => {
     return visibleNodes.map((n) => {
       // Mark the "work on next" card so NodeCard can render its accent ring + badge.
@@ -525,17 +544,17 @@ export function MapClient({
       // An expanded card grows over its neighbours — lift it above every collapsed card
       // (still below annotation chrome at zIndex 30) so its body isn't covered by them.
       if (expandedIds.has(n.id)) base = { ...base, zIndex: 25 };
-      if (!focusIds || base.hidden) return base;
+      if (!effectiveFocusIds || base.hidden) return base;
       return {
         ...base,
         style: {
           ...base.style,
-          opacity: focusIds.has(n.id) ? 1 : 0.45,
+          opacity: effectiveFocusIds.has(n.id) ? 1 : 0.45,
           transition: "opacity 120ms",
         },
       };
     });
-  }, [visibleNodes, focusIds, workOnNextId, expandedIds]);
+  }, [visibleNodes, effectiveFocusIds, workOnNextId, expandedIds]);
 
   // Group-region containers (Gestalt common region). Roadmap: shown once the board is arranged,
   // labeled by the dimension it was ACTUALLY arranged by (`arrangedBy`) — never a stale selector.
@@ -572,6 +591,16 @@ export function MapClient({
     view === "ARCHITECTURE" || arrangedBy === "cluster" ? ("category" as const) : ("neutral" as const);
 
   const displayEdges = useMemo(() => {
+    // Search spotlight: keep only edges between two matched cards bright; dim the rest.
+    if (searchMatchIds) {
+      return visibleEdges.map((e) => {
+        if (e.hidden) return e;
+        const on = searchMatchIds.has(e.source) && searchMatchIds.has(e.target);
+        return on
+          ? { ...e, style: { ...e.style, opacity: 1 } }
+          : { ...e, label: undefined, style: { ...e.style, opacity: 0.06 } };
+      });
+    }
     const focusNode = selectedId ?? hoveredId;
     // Default (nothing focused): edges render faint and WITHOUT their "depends on" labels, so
     // the board reads cleanly instead of piling repeated labels along colliding lines. The
@@ -596,7 +625,7 @@ export function MapClient({
             style: { ...e.style, opacity: 0.06 },
           };
     });
-  }, [visibleEdges, selectedId, selectedEdgeId, hoveredId]);
+  }, [visibleEdges, selectedId, selectedEdgeId, hoveredId, searchMatchIds]);
 
   // ── Canvas annotations — ONE pipeline, two sources ──
   // /plan (feedback): annotations whose excerpt names a feature title, read-only on canvas.
@@ -1032,14 +1061,22 @@ export function MapClient({
     requestAnimationFrame(() => flowRef.current?.fitView({ duration: 600, padding: 0.2 }));
   }, [nodes, edgePayload]);
 
-  // Search results: visible (filter-passing) cards whose title matches, capped.
-  const searchResults = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return [];
-    return nodes
-      .filter((n) => passes(n.data) && n.data.title.toLowerCase().includes(q))
-      .slice(0, 8);
-  }, [nodes, searchQuery, passes]);
+  // The capped, ranked list drives the results popover. (The full match set that drives the
+  // canvas spotlight is `searchMatchIds`, computed earlier so displayNodes can read it.)
+  const searchHitList = useMemo<SearchHit[]>(() => {
+    if (!searchActive) return [];
+    return searchHits(
+      nodes.filter((n) => passes(n.data)),
+      searchQuery,
+      (n) => roadmapHaystack(n.data),
+      (n) => ({
+        id: n.id,
+        label: n.data.title,
+        sublabel: n.data.cluster ?? n.data.status,
+        kind: "feature",
+      }),
+    );
+  }, [nodes, searchQuery, passes, searchActive]);
 
   function toggleIn<T>(s: T, set: React.Dispatch<React.SetStateAction<Set<T>>>) {
     set((prev) => {
@@ -1357,45 +1394,24 @@ export function MapClient({
             embedded && "hidden",
           )}
         >
-          <CanvasPopover
-            title="Search"
-            trigger={(open, toggle) => (
-              <button
-                type="button"
-                onClick={toggle}
-                title="Search features"
-                className={cn(
-                  "glass flex size-8 items-center justify-center rounded-lg transition-colors",
-                  open ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <Search className="size-4" />
-              </button>
-            )}
-          >
-            <input
-              autoFocus
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Find a feature…"
-              className="w-full rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[12px] outline-none placeholder:text-muted-foreground/50 focus:bg-white/[0.08]"
-            />
-            <div className="mt-2 max-h-64 space-y-0.5 overflow-y-auto">
-              {searchQuery.trim() && searchResults.length === 0 && (
-                <div className="px-1 py-1 text-[11px] text-muted-foreground">No matches</div>
-              )}
-              {searchResults.map((n) => (
-                <button
-                  key={n.id}
-                  type="button"
-                  onClick={() => jumpTo(n.id)}
-                  className="block w-full truncate rounded-md px-2 py-1 text-left text-[12px] text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
-                >
-                  {n.data.title}
-                </button>
-              ))}
-            </div>
-          </CanvasPopover>
+          <CanvasSearch
+            query={searchQuery}
+            onQuery={setSearchQuery}
+            hits={searchHitList}
+            placeholder="Find a feature…"
+            onPick={(id) => {
+              setSearchQuery("");
+              jumpTo(id);
+            }}
+            onZoomToMatches={() => {
+              if (!searchMatchIds?.size) return;
+              flowRef.current?.fitView({
+                nodes: [...searchMatchIds].map((id) => ({ id })),
+                duration: 600,
+                padding: 0.2,
+              });
+            }}
+          />
 
           {view === "ROADMAP" && workOnNextId && (
             <button

@@ -13,6 +13,7 @@ import {
   type Connection,
   type Edge,
   type Node,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -34,6 +35,14 @@ import {
   Chip,
   PopoverSection,
 } from "@/components/graph/canvas-popover";
+import { CanvasSearch } from "@/components/graph/canvas-search";
+import {
+  endpointHaystack,
+  matchesQuery,
+  searchHits,
+  tableHaystack,
+  type SearchHit,
+} from "@/lib/canvas-search";
 import { CanvasTabs } from "@/components/graph/canvas-tabs";
 import { accessForMethod } from "@/lib/access";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
@@ -227,6 +236,10 @@ export function DbMapClient({
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelTab, setPanelTab] = useState<"details" | "comments">("details");
   const [busy, setBusy] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  // Captured at <ReactFlow onInit> so search can pan/zoom to a result (the board never
+  // needed a flow ref before — selection only opened the side panel).
+  const rfRef = useRef<ReactFlowInstance<DbNode, Edge> | null>(null);
 
   // Imperative handle so the /plan toolbar's 💬 button can open this board's Comments tab.
   useEffect(() => {
@@ -791,9 +804,65 @@ export function DbMapClient({
     return out;
   }, [showEndpoints, tableMeta, endpointMeta, domainFilter, sourceFilter, methodFilter]);
 
+  // Live search spotlight: match tables (name, domain, description, column names) and
+  // endpoints (method, path, domain, description), ignoring filter-hidden rows. The match set
+  // overrides the 1-hop click focus while a query is active; the capped list drives the popover.
+  const searchActive = searchQuery.trim().length > 0;
+  const searchMatchIds = useMemo(() => {
+    if (!searchActive) return null;
+    const s = new Set<string>();
+    for (const t of allTables)
+      if (!hiddenIds.has(t.id) && matchesQuery(tableHaystack(t), searchQuery)) s.add(t.id);
+    for (const e of allEndpoints)
+      if (!hiddenIds.has(e.id) && matchesQuery(endpointHaystack(e), searchQuery)) s.add(e.id);
+    return s;
+  }, [allTables, allEndpoints, hiddenIds, searchQuery, searchActive]);
+  const searchHitList = useMemo<SearchHit[]>(() => {
+    if (!searchActive) return [];
+    const tableHits = searchHits(
+      allTables.filter((t) => !hiddenIds.has(t.id)),
+      searchQuery,
+      (t) => tableHaystack(t),
+      (t) => ({ id: t.id, label: t.name, sublabel: t.domain ?? "table", kind: "table" }),
+    );
+    const endpointHits = searchHits(
+      allEndpoints.filter((e) => !hiddenIds.has(e.id)),
+      searchQuery,
+      (e) => endpointHaystack(e),
+      (e) => ({ id: e.id, label: e.path, sublabel: e.method, kind: "endpoint" }),
+    );
+    return [...tableHits, ...endpointHits].slice(0, 12);
+  }, [allTables, allEndpoints, hiddenIds, searchQuery, searchActive]);
+
+  // Center + select a result. Tables/endpoints have no measured size until rendered, so fall
+  // back to rough table/endpoint dimensions for the camera math.
+  const jumpTo = useCallback(
+    (id: string) => {
+      setSearchQuery("");
+      const kind: DbSelection = endpointMeta.has(id)
+        ? { id, kind: "endpoint" }
+        : { id, kind: "table" };
+      setSelected(kind);
+      setSelectedEdgeId(null);
+      setPanelOpen(true);
+      setPanelTab("details");
+      const n = rfRef.current?.getNode(id);
+      if (!n || !rfRef.current) return;
+      const w = n.measured?.width ?? 220;
+      const h = n.measured?.height ?? 80;
+      rfRef.current.setCenter(n.position.x + w / 2, n.position.y + h / 2, {
+        zoom: 0.9,
+        duration: 600,
+      });
+    },
+    [endpointMeta],
+  );
+
   // Highlight is for edges — nodes only mildly fade so they're clearly readable as context
   // (otherwise users read "faded" as "missing endpoints"). Edges fade hard since lines were
   // the clutter we wanted to cut.
+  // Search takes precedence over the 1-hop click focus while a query is active.
+  const effectiveFocusIds = searchMatchIds ?? focusIds;
   const displayNodes = useMemo(() => {
     return nodes.map((n) => {
       // Annotation cards follow their target's visibility and never fade on focus.
@@ -803,14 +872,18 @@ export function DbMapClient({
         return hidden !== !!n.hidden ? { ...n, hidden } : n;
       }
       const hidden = hiddenIds.has(n.id);
-      if (!focusIds) return hidden ? { ...n, hidden } : n;
+      if (!effectiveFocusIds) return hidden ? { ...n, hidden } : n;
       return {
         ...n,
         hidden,
-        style: { ...n.style, opacity: focusIds.has(n.id) ? 1 : 0.45, transition: "opacity 120ms" },
+        style: {
+          ...n.style,
+          opacity: effectiveFocusIds.has(n.id) ? 1 : 0.45,
+          transition: "opacity 120ms",
+        },
       };
     });
-  }, [nodes, hiddenIds, focusIds, annoTargetById]);
+  }, [nodes, hiddenIds, effectiveFocusIds, annoTargetById]);
 
   // Domain group-regions (Gestalt common region): tables group by their own domain; each
   // endpoint joins its PRIMARY table's domain (the table it's docked beneath), so the region
@@ -866,6 +939,16 @@ export function DbMapClient({
   }, [nodes, hiddenIds, endpointRegionGroup]);
 
   const displayEdges = useMemo(() => {
+    // Search spotlight: keep only edges between two matched nodes bright; dim the rest.
+    if (searchMatchIds) {
+      return baseEdges.map((e) => {
+        const hidden = hiddenIds.has(e.source) || hiddenIds.has(e.target);
+        const on = searchMatchIds.has(e.source) && searchMatchIds.has(e.target);
+        return on
+          ? { ...e, hidden, style: { ...e.style, opacity: 1 } }
+          : { ...e, hidden, label: undefined, style: { ...e.style, opacity: 0.08 } };
+      });
+    }
     return baseEdges.map((e) => {
       const hidden = hiddenIds.has(e.source) || hiddenIds.has(e.target);
       // Default (nothing focused): lines render WITHOUT their FK labels — dozens of
@@ -889,7 +972,7 @@ export function DbMapClient({
             style: { ...e.style, opacity: 0.08 },
           };
     });
-  }, [baseEdges, focusNodeId, selectedEdgeId, hiddenIds]);
+  }, [baseEdges, focusNodeId, selectedEdgeId, hiddenIds, searchMatchIds]);
 
   const domainsPresent = useMemo(
     () =>
@@ -1078,10 +1161,15 @@ export function DbMapClient({
         <ReactFlow
           nodes={displayNodes}
           edges={
-            // Far zoom: hide edges entirely — noise between invisible cards.
-            lod === "far"
+            // Far zoom: hide edges entirely — noise between invisible cards. Cast to Edge[]
+            // so the flow instance type (captured in rfRef via onInit) stays the canonical
+            // Edge, not the narrowed `{ hidden: boolean }` shape these maps would infer.
+            (lod === "far"
               ? [...displayEdges, ...annoEdges].map((e) => ({ ...e, hidden: true }))
-              : [...displayEdges, ...annoEdges.map((e) => ({ ...e, hidden: hiddenIds.has(e.source) }))]
+              : [
+                  ...displayEdges,
+                  ...annoEdges.map((e) => ({ ...e, hidden: hiddenIds.has(e.source) })),
+                ]) as Edge[]
           }
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
@@ -1090,6 +1178,9 @@ export function DbMapClient({
             stroke: "var(--accent-2,#ff7a45)",
             strokeWidth: 1.5,
             strokeDasharray: "4 4",
+          }}
+          onInit={(inst) => {
+            rfRef.current = inst;
           }}
           onNodesChange={onNodesChange}
           onConnect={onConnect}
@@ -1224,6 +1315,22 @@ export function DbMapClient({
               embedded && "hidden",
             )}
           >
+            <CanvasSearch
+              query={searchQuery}
+              onQuery={setSearchQuery}
+              hits={searchHitList}
+              placeholder="Find a table, column, endpoint…"
+              onPick={jumpTo}
+              onZoomToMatches={() => {
+                if (!searchMatchIds?.size) return;
+                rfRef.current?.fitView({
+                  nodes: [...searchMatchIds].map((id) => ({ id })),
+                  duration: 600,
+                  padding: 0.2,
+                });
+              }}
+            />
+
             <CanvasPopover
               title="Filters"
               trigger={(open, toggle) => (

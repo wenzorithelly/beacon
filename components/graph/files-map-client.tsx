@@ -29,6 +29,13 @@ import "@xyflow/react/dist/style.css";
 import { Pencil, X, FileCode2 } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { CanvasTabs } from "@/components/graph/canvas-tabs";
+import { CanvasSearch } from "@/components/graph/canvas-search";
+import {
+  fileHaystack,
+  matchesQuery,
+  searchHits,
+  type SearchHit,
+} from "@/lib/canvas-search";
 import { untestedFiles } from "@/lib/test-coverage";
 import { type TouchedMap } from "@/lib/touched-files";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
@@ -414,6 +421,7 @@ export function FilesMapClient({
   // Touched-Files: "focus edits" dims everything except files edited this session (focus+context).
   const [editsOnly, setEditsOnly] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   // React Flow can't render identically on the server (it measures node DOM client-side,
   // and the force layout seeds unpositioned nodes randomly), so SSR + hydration diverge
   // → hydration mismatch. Render the canvas only after mount; the server emits a stable
@@ -489,6 +497,25 @@ export function FilesMapClient({
   // The file whose neighbourhood is in focus: an explicit selection wins, else the hover.
   const focusNodeId = selectedId ?? hoveredId;
 
+  // Live search spotlight: match files by path + language. The match set (node ids = paths)
+  // overrides the hover/click focus while a query is active; the capped list drives the popover.
+  const searchActive = searchQuery.trim().length > 0;
+  const searchMatchIds = useMemo(() => {
+    if (!searchActive) return null;
+    const s = new Set<string>();
+    for (const f of files) if (matchesQuery(fileHaystack(f), searchQuery)) s.add(f.path);
+    return s;
+  }, [files, searchQuery, searchActive]);
+  const searchHitList = useMemo<SearchHit[]>(() => {
+    if (!searchActive) return [];
+    return searchHits(
+      files,
+      searchQuery,
+      (f) => fileHaystack(f),
+      (f) => ({ id: f.path, label: f.path, sublabel: f.lang ?? undefined, kind: "file" }),
+    );
+  }, [files, searchQuery, searchActive]);
+
   // Hover/click-to-highlight: edge → focus its two endpoints; node → focus 1-hop
   // neighbours; circular badge → focus every node in a cycle. Fades everything
   // outside the focus set. Matches the pattern used on /map and /db.
@@ -510,19 +537,29 @@ export function FilesMapClient({
     return null;
   }, [focusNodeId, selectedEdgeId, circularOnly, circularNodeIds, edgePayload, edges, editsOnly, hasTouched, touchedInfo]);
 
+  // Search takes precedence over the hover/click focus while a query is active.
+  const effectiveFocusIds = searchMatchIds ?? focusIds;
   const displayNodes = useMemo(() => {
-    if (!focusIds) return nodes;
+    if (!effectiveFocusIds) return nodes;
     return nodes.map((n) => ({
       ...n,
       style: {
         ...n.style,
-        opacity: focusIds.has(n.id) ? 1 : 0.15,
+        opacity: effectiveFocusIds.has(n.id) ? 1 : 0.15,
         transition: "opacity 120ms",
       },
     }));
-  }, [nodes, focusIds]);
+  }, [nodes, effectiveFocusIds]);
 
   const displayEdges = useMemo(() => {
+    // Search spotlight: only edges between two matched files stay bright.
+    if (searchMatchIds) {
+      return edges.map((e) =>
+        searchMatchIds.has(e.source) && searchMatchIds.has(e.target)
+          ? { ...e, style: { ...e.style, stroke: "#e4e4e7", opacity: 0.95, strokeWidth: 1.6 } }
+          : { ...e, style: { ...e.style, opacity: 0.05 } },
+      );
+    }
     if (!focusNodeId && !selectedEdgeId && !circularOnly && !editsOnly) return edges;
     return edges.map((e) => {
       let on = false;
@@ -538,7 +575,7 @@ export function FilesMapClient({
           { ...e, style: { ...e.style, stroke: "#e4e4e7", opacity: 0.95, strokeWidth: 1.6 } }
         : { ...e, style: { ...e.style, opacity: 0.05 } };
     });
-  }, [edges, focusNodeId, selectedEdgeId, circularOnly, circularEdgeIds, editsOnly, touchedInfo]);
+  }, [edges, focusNodeId, selectedEdgeId, circularOnly, circularEdgeIds, editsOnly, touchedInfo, searchMatchIds]);
 
   // Directory regions are a FAR-ZOOM aid only: zoomed out, the dots are specks, so each
   // cluster renders one labeled summary block. At reading zoom the color groups carry the
@@ -692,13 +729,29 @@ export function FilesMapClient({
           ))}
         </Panel>
 
-        <Panel
-          position="top-right"
-          className="glass flex items-center gap-3 rounded-xl px-3 py-1.5 text-[11px]"
-        >
-          <span className="text-muted-foreground">
-            {files.length} files · {edgePayload.length} imports
-          </span>
+        <Panel position="top-right" className="flex items-center gap-2">
+          <CanvasSearch
+            query={searchQuery}
+            onQuery={setSearchQuery}
+            hits={searchHitList}
+            placeholder="Find a file…"
+            onPick={(id) => {
+              setSearchQuery("");
+              selectAndPan(id);
+            }}
+            onZoomToMatches={() => {
+              if (!searchMatchIds?.size) return;
+              rfRef.current?.fitView({
+                nodes: [...searchMatchIds].map((id) => ({ id })),
+                duration: 600,
+                padding: 0.3,
+              });
+            }}
+          />
+          <div className="glass flex items-center gap-3 rounded-xl px-3 py-1.5 text-[11px]">
+            <span className="text-muted-foreground">
+              {files.length} files · {edgePayload.length} imports
+            </span>
           {circularCount > 0 && (
             <button
               type="button"
@@ -745,6 +798,7 @@ export function FilesMapClient({
               </button>
             </>
           )}
+          </div>
         </Panel>
       </ReactFlow>
 
