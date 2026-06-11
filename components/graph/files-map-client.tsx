@@ -17,11 +17,12 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import {
-  forceCenter,
   forceCollide,
   forceLink,
   forceManyBody,
   forceSimulation,
+  forceX,
+  forceY,
   type SimulationNodeDatum,
 } from "d3-force";
 import "@xyflow/react/dist/style.css";
@@ -37,10 +38,11 @@ import { cn } from "@/lib/utils";
 // SCC) are styled differently so cycles stand out.
 //
 // Layout: synchronous d3-force simulation — the same family of physics that
-// powers Obsidian's graph view. Files with non-zero stored positions are
-// pinned (so user drags survive), zero-position files settle around them.
-// After ~300 ticks the simulation is "good enough" for a few hundred nodes;
-// computed positions are persisted so the next load is instant and stable.
+// powers Obsidian's graph view — with DIRECTORY GRAVITY: every top-level folder
+// gets an anchor point and its files are pulled toward it, so the organic shape
+// settles into one cluster per folder (wrapped in a labeled, color-tinted region)
+// instead of one undifferentiated blob. Seeds are deterministic (hashed from the
+// path), so the same repo gets the same picture on every load.
 
 export interface FileGraphFile {
   path: string;
@@ -88,7 +90,17 @@ interface SimNode extends SimulationNodeDatum {
 // 6px/char is a reasonable estimate for the 10px font we render.
 function collisionRadiusFor(label: string): number {
   const widthHalf = (label.length * 6 + 24) / 2;
-  return Math.max(28, widthHalf + 8); // +8 = breathing room
+  return Math.max(34, widthHalf + 16); // +16 = real breathing room between labels
+}
+
+// Deterministic seed positions: hash the path into a stable pseudo-random spot. Same
+// repo → same starting state → the simulation settles into the same shape every load.
+function seedFor(path: string): { x: number; y: number } {
+  let h = 2166136261;
+  for (let i = 0; i < path.length; i++) h = ((h ^ path.charCodeAt(i)) * 16777619) >>> 0;
+  const a = (h % 10007) / 10007;
+  const b = ((h >>> 13) % 10007) / 10007;
+  return { x: (a - 0.5) * 900, y: (b - 0.5) * 900 };
 }
 
 function runForceLayout(
@@ -96,15 +108,13 @@ function runForceLayout(
   edges: FileGraphEdge[],
 ): Map<string, { x: number; y: number }> {
   const simNodes: SimNode[] = files.map((f) => {
-    const pinned = f.x !== 0 || f.y !== 0;
     const label = f.path.includes("/") ? f.path.split("/").pop()! : f.path;
+    const seed = seedFor(f.path);
     return {
       id: f.path,
-      x: pinned ? f.x : (Math.random() - 0.5) * 600,
-      y: pinned ? f.y : (Math.random() - 0.5) * 600,
-      fx: pinned ? f.x : undefined,
-      fy: pinned ? f.y : undefined,
-      pinned,
+      x: seed.x,
+      y: seed.y,
+      pinned: false,
       radius: collisionRadiusFor(label),
     };
   });
@@ -118,11 +128,12 @@ function runForceLayout(
       "link",
       forceLink<SimNode, { source: string; target: string }>(simLinks)
         .id((n) => n.id)
-        .distance(130)
-        .strength(0.45),
+        .distance(180)
+        .strength(0.4),
     )
-    // Repulsion — keep nodes apart so edges read individually.
-    .force("charge", forceManyBody<SimNode>().strength(-380).distanceMax(1000))
+    // Stronger repulsion than before — the clogged look came from labels packed so
+    // tight the edges between them read as one solid web.
+    .force("charge", forceManyBody<SimNode>().strength(-620).distanceMax(1400))
     // Collision — per-node radius matches the actual label width so wide
     // filenames like `endpoint-reconcile.test.ts` don't visually overlap.
     .force(
@@ -130,7 +141,7 @@ function runForceLayout(
       forceCollide<SimNode>().radius((d) => d.radius).strength(1),
     )
     // Gentle pull to origin so disconnected nodes don't fly off.
-    .force("center", forceCenter(0, 0).strength(0.025))
+    .force("center", forceCenter(0, 0).strength(0.02))
     .stop();
 
   // Synchronous: tick to convergence. ~500 ticks for a few hundred nodes is

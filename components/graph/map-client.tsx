@@ -1339,8 +1339,8 @@ export function MapClient({
               tabs={[
                 { value: "ROADMAP", label: "Roadmap", href: "/map?view=ROADMAP" },
                 { value: "ARCHITECTURE", label: "Architecture", href: "/map?view=ARCHITECTURE" },
-                { value: "FILES", label: "Files", href: "/map?view=FILES" },
                 { value: "DATABASE", label: "Database", href: "/map?view=DATABASE" },
+                { value: "FILES", label: "Files", href: "/map?view=FILES" },
               ]}
             />
           </Panel>

@@ -303,7 +303,7 @@ export function Landing() {
                 className="w-live h-1.5 w-1.5 rounded-full"
                 style={{ background: "#ff7a45", boxShadow: "0 0 8px #ff7a45" }}
               />
-              <span className="w-mono w-eyebrow w-muted">Local · no account · no API key</span>
+              <span className="w-mono w-eyebrow w-muted">See your codebase · steer your agent</span>
             </div>
 
             <h1
@@ -434,7 +434,7 @@ export function Landing() {
                   <span className="w-signal select-none">$ </span>
                   {INSTALL}
                 </code>
-                <span className="note">01 · one binary, no account</span>
+                <span className="note">01 · one binary, nothing to configure</span>
                 {copyBtn("qs")}
               </div>
               <div className="ql">

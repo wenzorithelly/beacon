@@ -183,7 +183,7 @@ export function Docs() {
                 approve or discard with a click. The verdict flows straight back to your session.
               </p>
               <p className="w-muted mt-4 leading-relaxed">
-                It runs entirely on your machine — <span className="text-foreground">local, no account, no API key</span>. One shared
+                It runs entirely on your machine — <span className="text-foreground">local-first, your code never leaves it</span>. One shared
                 server quietly serves every repo you open; each keeps its own data under <span className="w-mono text-foreground">~/.beacon</span>.
               </p>
             </section>
