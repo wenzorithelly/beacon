@@ -36,6 +36,11 @@ function createDbClient(dbUrl: string): DB {
   // SQLite enforces FK cascades only when foreign_keys is ON (per connection). libSQL runs requests
   // serially on the connection, so this lands before any app query.
   void client.execute("PRAGMA foreign_keys = ON;");
+  // Several processes share one workspace file (dev server, intel watcher, CLI, tests). With no
+  // busy timeout a writer that catches another mid-write fails INSTANTLY with "database is
+  // locked" (the arrange's burst of row updates hit this on /map load). 5s of retrying makes
+  // concurrent writers queue instead of crash.
+  void client.execute("PRAGMA busy_timeout = 5000;");
   return drizzle(client, { schema: fullSchema });
 }
 

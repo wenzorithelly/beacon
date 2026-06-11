@@ -96,6 +96,8 @@ export async function provisionDb(
   try {
     await client.execute("PRAGMA journal_mode = WAL;");
     await client.execute("PRAGMA foreign_keys = ON;");
+    // Provisioning can race the live server/watcher on the same file — wait, don't crash.
+    await client.execute("PRAGMA busy_timeout = 5000;");
 
     const hasJournal = await tableExists(client, "__drizzle_migrations");
     const hasTables = await tableExists(client, "Node");
