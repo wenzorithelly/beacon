@@ -9,8 +9,8 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, parse } from "node:path";
 import { count, eq } from "drizzle-orm";
 import { node } from "@/lib/drizzle/schema";
 
@@ -38,6 +38,11 @@ const {
   BEACON_WS_PATH_HEADER,
   runWithWorkspace,
   getPinnedWorkspaceId,
+  isRegistrableWorkspacePath,
+  registerWorkspaceExplicit,
+  isWorkspaceDeleted,
+  tombstoneWorkspace,
+  clearWorkspaceTombstone,
 } = await import("@/lib/workspaces");
 const { pinned } = await import("@/lib/api-workspace");
 
@@ -49,6 +54,59 @@ afterAll(() => {
 beforeEach(() => {
   setActiveId(null);
   for (const w of listWorkspaces()) removeWorkspace(w.id);
+  rmSync(join(HOME, "deleted.json"), { force: true });
+});
+
+describe("registrable-path + deletion tombstone guards", () => {
+  it("refuses the home directory and the filesystem root, allows a real repo path", () => {
+    expect(isRegistrableWorkspacePath(homedir())).toBe(false);
+    expect(isRegistrableWorkspacePath(parse(process.cwd()).root)).toBe(false);
+    expect(isRegistrableWorkspacePath("/repos/alpha")).toBe(true);
+  });
+
+  it("addWorkspace throws for the home dir and never writes the registry", () => {
+    expect(() => addWorkspace(homedir())).toThrow();
+    expect(listWorkspaces()).toHaveLength(0);
+  });
+
+  it("addWorkspace throws for a tombstoned id (implicit re-add is refused)", () => {
+    const id = idForPath("/repos/tomb");
+    tombstoneWorkspace(id);
+    expect(isWorkspaceDeleted(id)).toBe(true);
+    expect(() => addWorkspace("/repos/tomb")).toThrow();
+    expect(getWorkspace(id)).toBeNull();
+  });
+
+  it("registerWorkspaceExplicit clears the tombstone and registers", () => {
+    const id = idForPath("/repos/explicit");
+    tombstoneWorkspace(id);
+    const ws = registerWorkspaceExplicit("/repos/explicit");
+    expect(ws.id).toBe(id);
+    expect(isWorkspaceDeleted(id)).toBe(false);
+    expect(getWorkspace(id)?.path).toBe("/repos/explicit");
+  });
+
+  it("clearWorkspaceTombstone lifts a tombstone on its own", () => {
+    const id = idForPath("/repos/cleared");
+    tombstoneWorkspace(id);
+    clearWorkspaceTombstone(id);
+    expect(isWorkspaceDeleted(id)).toBe(false);
+    expect(() => addWorkspace("/repos/cleared")).not.toThrow();
+  });
+
+  it("resolveRequestWorkspaceId does NOT self-register a tombstoned path header", async () => {
+    const id = idForPath("/repos/tomb-header");
+    tombstoneWorkspace(id);
+    const req = new Request("http://x", { headers: { [BEACON_WS_PATH_HEADER]: "/repos/tomb-header" } });
+    expect(await resolveRequestWorkspaceId(req)).toBeNull();
+    expect(getWorkspace(id)).toBeNull();
+  });
+
+  it("resolveRequestWorkspaceId does NOT self-register the home dir path header", async () => {
+    const req = new Request("http://x", { headers: { [BEACON_WS_PATH_HEADER]: homedir() } });
+    expect(await resolveRequestWorkspaceId(req)).toBeNull();
+    expect(getWorkspace(idForPath(homedir()))).toBeNull();
+  });
 });
 
 describe("workspace registry", () => {

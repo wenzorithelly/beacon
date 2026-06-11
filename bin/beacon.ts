@@ -207,9 +207,15 @@ function openBrowser(url: string) {
 
 async function launchPanel() {
   const repo = gitToplevel() || cwd;
-  const { addWorkspace, idForPath, dataDirFor, ensureWorkspaceDb } = await import(
-    mod("lib/workspaces.ts")
-  );
+  const { registerWorkspaceExplicit, idForPath, dataDirFor, ensureWorkspaceDb, isRegistrableWorkspacePath } =
+    await import(mod("lib/workspaces.ts"));
+  if (!isRegistrableWorkspacePath(repo)) {
+    console.error(
+      `[beacon] refusing to open Beacon in ${repo} — that's your home directory, not a project.\n` +
+        "          cd into a repo (or run `git init` there) and try again.",
+    );
+    process.exit(1);
+  }
   const id = idForPath(repo);
   const data = dataDirFor(id);
 
@@ -253,7 +259,8 @@ async function launchPanel() {
   // Register the repo, ensure the shared server, then open the browser straight onto this
   // repo (activate makes it the server's active workspace). The intel pipeline is MANUAL —
   // the user triggers it from Settings → "Sync code map" when they want fresh data.
-  addWorkspace(repo);
+  // Explicit register: opening a repo with `beacon` clears any prior deletion tombstone.
+  registerWorkspaceExplicit(repo);
   const port = await ensureDaemon();
   void data;
   const activate = `http://localhost:${port}/api/workspace/activate?id=${id}&redirect=/map`;

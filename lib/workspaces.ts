@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, parse, resolve } from "node:path";
 
 // Registry of the repos Beacon knows about. One Beacon server serves them all
 // (multi-workspace): each repo keeps its own per-id data dir + sqlite, and the
@@ -50,6 +50,60 @@ export function repoRootFrom(cwd: string = process.cwd()): string {
   return cwd;
 }
 
+/**
+ * Paths that must NEVER become a workspace. repoRootFrom() falls back to `cwd` when a session
+ * runs OUTSIDE any git repo, so an agent started in the home directory (e.g. `claude` in ~)
+ * would otherwise re-register the home dir on every session — even after the user deletes it.
+ * The home directory and a filesystem root are never repos.
+ */
+export function isRegistrableWorkspacePath(path: string): boolean {
+  const r = resolve(path);
+  return r !== resolve(homedir()) && r !== parse(r).root;
+}
+
+// ── Deletion tombstones ─────────────────────────────────────────────────────
+//
+// Deleting a workspace must STICK: implicit self-heal (the MCP server's startup register and the
+// header self-register below) would otherwise re-add it the next time an agent session runs in
+// that repo. We record deleted ids in a small ~/.beacon/deleted.json denylist; implicit
+// registration refuses a tombstoned id, and ONLY an explicit `beacon` / `/beacon-init`
+// (registerWorkspaceExplicit) clears it. Same JSON-file shape as the registry.
+
+function deletedPath(): string {
+  return join(beaconHome(), "deleted.json");
+}
+
+function readDeleted(): string[] {
+  try {
+    const raw = JSON.parse(readFileSync(deletedPath(), "utf8"));
+    return Array.isArray(raw) ? (raw as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDeleted(ids: string[]): void {
+  mkdirSync(beaconHome(), { recursive: true });
+  writeFileSync(deletedPath(), JSON.stringify(ids, null, 2));
+}
+
+/** True when this workspace id was deleted and not yet explicitly re-added. */
+export function isWorkspaceDeleted(id: string): boolean {
+  return readDeleted().includes(id);
+}
+
+/** Record a deletion so implicit self-heal can't resurrect it. */
+export function tombstoneWorkspace(id: string): void {
+  const ids = readDeleted();
+  if (!ids.includes(id)) writeDeleted([...ids, id]);
+}
+
+/** Clear a deletion tombstone — the user opted back in via `beacon` / `/beacon-init`. */
+export function clearWorkspaceTombstone(id: string): void {
+  const ids = readDeleted();
+  if (ids.includes(id)) writeDeleted(ids.filter((x) => x !== id));
+}
+
 export function dataDirFor(id: string): string {
   return join(beaconHome(), id);
 }
@@ -80,9 +134,25 @@ export function getWorkspace(id: string): Workspace | null {
   return readRegistry().find((w) => w.id === id) ?? null;
 }
 
-/** Add a repo (or refresh its name) and mark it most-recently-opened. Idempotent. */
+/**
+ * Add a repo (or refresh its name) and mark it most-recently-opened. Idempotent.
+ *
+ * Refuses two classes of path so the registry never fills with junk: the home dir / filesystem
+ * root (never a repo — see isRegistrableWorkspacePath) and a DELETED workspace (a tombstone the
+ * user hasn't explicitly cleared). Implicit callers (MCP startup, the header self-register) wrap
+ * this in a try/catch or pre-check; explicit re-adds go through registerWorkspaceExplicit, which
+ * clears the tombstone first.
+ */
 export function addWorkspace(path: string, name?: string, now = new Date().toISOString()): Workspace {
+  if (!isRegistrableWorkspacePath(path)) {
+    throw new Error(`beacon: refusing to register a non-repo path as a workspace: ${path}`);
+  }
   const id = idForPath(path);
+  if (isWorkspaceDeleted(id)) {
+    throw new Error(
+      `beacon: workspace ${id} (${path}) was deleted — run \`beacon\` or /beacon-init to re-add it`,
+    );
+  }
   const list = readRegistry();
   const existing = list.find((w) => w.id === id);
   const ws: Workspace = {
@@ -95,6 +165,16 @@ export function addWorkspace(path: string, name?: string, now = new Date().toISO
   mkdirSync(dataDirFor(id), { recursive: true });
   writeRegistry(next);
   return ws;
+}
+
+/**
+ * Explicit, user-initiated registration: clears any deletion tombstone, then registers. The ONLY
+ * way a deleted workspace comes back — used by `beacon` (launchPanel) and /beacon-init. Implicit
+ * self-heal never calls this, so a workspace deleted in Settings stays gone until the user opts in.
+ */
+export function registerWorkspaceExplicit(path: string, name?: string): Workspace {
+  clearWorkspaceTombstone(idForPath(path));
+  return addWorkspace(path, name);
 }
 
 export function touchWorkspace(id: string, now = new Date().toISOString()): void {
@@ -213,7 +293,14 @@ export async function resolveRequestWorkspaceId(req: Request): Promise<string | 
   const headerId = req.headers.get("x-beacon-workspace");
   if (headerId && getWorkspace(headerId)) return headerId;
   const headerPath = req.headers.get(BEACON_WS_PATH_HEADER);
-  if (headerPath && (!headerId || idForPath(headerPath) === headerId)) {
+  if (
+    headerPath &&
+    isRegistrableWorkspacePath(headerPath) &&
+    !isWorkspaceDeleted(idForPath(headerPath)) &&
+    (!headerId || idForPath(headerPath) === headerId)
+  ) {
+    // Implicit self-heal — only for a never-deleted, real repo. A tombstoned or home path falls
+    // through to the cookie/active fallback instead of silently resurrecting a deleted workspace.
     const ws = addWorkspace(headerPath);
     await ensureWorkspaceDb(ws.id);
     return ws.id;

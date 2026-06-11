@@ -6,6 +6,7 @@ import {
   getActiveId,
   getWorkspace,
   removeWorkspace,
+  tombstoneWorkspace,
 } from "@/lib/workspaces";
 import { closeDb } from "@/lib/db-drizzle";
 import { stopWatcherFor } from "@/intel/watch-manager";
@@ -31,6 +32,9 @@ export async function deleteWorkspace(id: string): Promise<DeleteWorkspaceResult
   // Registry first: a concurrent reconcile() (every 30s) stops watchers whose workspace
   // vanished — so after this point it can only stop the watcher, never restart it.
   removeWorkspace(id);
+  // Tombstone the deletion so implicit self-heal (MCP startup / header self-register) can't
+  // resurrect it on the next agent session — only an explicit `beacon` / `/beacon-init` re-adds it.
+  tombstoneWorkspace(id);
   await stopWatcherFor(id);
   closeDb(dbUrlFor(id));
   forgetWorkspaceDb(id);

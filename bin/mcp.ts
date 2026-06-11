@@ -16,6 +16,8 @@ import {
   BEACON_WS_PATH_HEADER,
   ensureWorkspaceDb,
   idForPath,
+  isRegistrableWorkspacePath,
+  isWorkspaceDeleted,
   repoRootFrom,
 } from "@/lib/workspaces";
 import { mentionsDbSchema } from "@/lib/plan-block";
@@ -59,12 +61,22 @@ const WORKSPACE_ID = idForPath(WORKSPACE_PATH);
 // workspace. Without this, a repo never opened with `beacon` had an UNREGISTERED id → the server
 // ignored the header → the agent's writes fell back to the browser's active repo (cross-workspace
 // corruption). stderr only — stdout is the MCP transport.
-try {
-  addWorkspace(WORKSPACE_PATH);
-  const r = await ensureWorkspaceDb(WORKSPACE_ID);
-  if (!r.ok) console.error(`[beacon mcp] db provisioning failed: ${r.error}`);
-} catch (e) {
-  console.error(`[beacon mcp] workspace registration failed: ${e instanceof Error ? e.message : e}`);
+// Skip registration for a path that's the home dir / root, or a workspace the user deleted —
+// implicit self-heal must never resurrect a tombstoned workspace (only `beacon` / /beacon-init do).
+if (!isRegistrableWorkspacePath(WORKSPACE_PATH)) {
+  console.error(`[beacon mcp] not registering ${WORKSPACE_PATH} — home/non-repo dir.`);
+} else if (isWorkspaceDeleted(WORKSPACE_ID)) {
+  console.error(
+    `[beacon mcp] not registering ${WORKSPACE_PATH} — workspace was deleted; run /beacon-init to re-add it.`,
+  );
+} else {
+  try {
+    addWorkspace(WORKSPACE_PATH);
+    const r = await ensureWorkspaceDb(WORKSPACE_ID);
+    if (!r.ok) console.error(`[beacon mcp] db provisioning failed: ${r.error}`);
+  } catch (e) {
+    console.error(`[beacon mcp] workspace registration failed: ${e instanceof Error ? e.message : e}`);
+  }
 }
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {

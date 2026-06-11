@@ -16,6 +16,8 @@ const {
   ensureWorkspaceDb,
   getActiveId,
   setActiveId,
+  registerWorkspaceExplicit,
+  isWorkspaceDeleted,
 } = await import("@/lib/workspaces");
 const { deleteWorkspace } = await import("@/lib/workspace-delete");
 
@@ -27,6 +29,7 @@ afterAll(() => {
 beforeEach(() => {
   setActiveId(null);
   for (const w of listWorkspaces()) removeWorkspace(w.id);
+  rmSync(join(HOME, "deleted.json"), { force: true });
 });
 
 describe("deleteWorkspace", () => {
@@ -74,6 +77,14 @@ describe("deleteWorkspace", () => {
     expect(second.removed).toBe(false);
   });
 
+  it("tombstones the deleted id so an implicit re-add is refused", async () => {
+    const ws = addWorkspace("/repos/del-tomb");
+    await deleteWorkspace(ws.id);
+    expect(isWorkspaceDeleted(ws.id)).toBe(true);
+    // Implicit re-add (the MCP-startup / header path) is now refused.
+    expect(() => addWorkspace("/repos/del-tomb")).toThrow();
+  });
+
   it("re-adding a deleted workspace re-provisions its db (provision cache evicted)", async () => {
     const path = "/repos/del-readd";
     const ws = addWorkspace(path);
@@ -83,9 +94,10 @@ describe("deleteWorkspace", () => {
     await deleteWorkspace(ws.id);
     expect(existsSync(join(dataDirFor(ws.id), "db.sqlite"))).toBe(false);
 
+    // Re-adding is now an EXPLICIT act (`beacon` / /beacon-init) — it clears the tombstone.
     // Without forgetWorkspaceDb, the per-process provision cache short-circuits here and the
     // first query after re-add hits SQLITE_CANTOPEN on the unlinked file.
-    addWorkspace(path);
+    registerWorkspaceExplicit(path);
     const again = await ensureWorkspaceDb(ws.id);
     expect(again.ok).toBe(true);
     expect(again.created).toBe(true);
