@@ -44,6 +44,7 @@ import { computeGroupRegions, type Region, type RegionInput } from "@/lib/group-
 import { GroupRegions } from "@/components/graph/group-regions";
 import { LayerToggle, layerEmphasisMatch } from "@/components/graph/layer-toggle";
 import { classifyFileLayers } from "@/lib/file-layer";
+import { buildGroupKeys } from "@/lib/file-groups";
 import { LAYER_META, layerStripeCss, type Layer } from "@/lib/layer";
 import { LodReporter, useZoomLOD } from "@/components/graph/use-zoom-lod";
 import { FILES_LOD, type Lod } from "@/lib/zoom-lod";
@@ -97,30 +98,6 @@ function seedFor(path: string): { x: number; y: number } {
   const a = (h % 10007) / 10007;
   const b = ((h >>> 13) % 10007) / 10007;
   return { x: (a - 0.5) * 900, y: (b - 0.5) * 900 };
-}
-
-/** Top-level directory a file belongs to; files at the repo root group together. */
-const topDir = (path: string): string =>
-  path.includes("/") ? path.slice(0, path.indexOf("/")) : "(root)";
-
-/** Adaptive group keys: top-level directories normally, but a DOMINANT one (a single-package
- *  repo where everything lives under `app/` or `src/`) splits one level deeper so the board
- *  shows `app/services`, `app/routers`, … instead of one giant blob plus `tests`. */
-function buildGroupKeys(paths: string[]): Map<string, string> {
-  const counts = new Map<string, number>();
-  for (const p of paths) counts.set(topDir(p), (counts.get(topDir(p)) ?? 0) + 1);
-  const threshold = Math.max(14, paths.length * 0.35);
-  const out = new Map<string, string>();
-  for (const p of paths) {
-    const f = topDir(p);
-    if ((counts.get(f) ?? 0) > threshold && p.startsWith(`${f}/`)) {
-      const rest = p.slice(f.length + 1);
-      out.set(p, rest.includes("/") ? `${f}/${rest.slice(0, rest.indexOf("/"))}` : f);
-    } else {
-      out.set(p, f);
-    }
-  }
-  return out;
 }
 
 // Anchor point per group: biggest folders first, on a wide grid scaled so neighbouring
