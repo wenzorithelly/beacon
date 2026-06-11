@@ -1,6 +1,6 @@
-// Beacon brand mark — the rounded outline triangle in the brand accent (#ff7a45).
-// Hollow, thick stroke, soft corners (the round linejoin at this stroke width IS the
-// corner radius) — replaces the earlier filled triangle + beacon-light variant.
+// Beacon brand mark — the SAME artwork as the favicon (app/icon.svg): the rounded
+// outline triangle with the beacon-light dot above the apex, in the brand accent.
+// Keep the two in lockstep — the favicon is the canonical drawing, not a variant.
 export function BeaconMark({
   size = 18,
   className,
@@ -12,18 +12,20 @@ export function BeaconMark({
     <svg
       width={size}
       height={size}
-      viewBox="0 0 96 96"
+      viewBox="20 22 56 56"
       fill="none"
       className={className}
       aria-hidden="true"
     >
       <path
-        d="M48 16 L83 78 L13 78 Z"
+        d="M48 33 L72.5 73 L23.5 73 Z"
         fill="none"
         stroke="var(--accent-2, #ff7a45)"
-        strokeWidth={13}
+        strokeWidth={7}
         strokeLinejoin="round"
+        strokeLinecap="round"
       />
+      <circle cx="48" cy="29.5" r="7" fill="var(--accent-2, #ff7a45)" />
     </svg>
   );
 }
