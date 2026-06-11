@@ -23,7 +23,53 @@ import {
 // `__pending` pseudo-annotation injected into the renderer below.
 const HIGHLIGHT_API =
   typeof CSS !== "undefined" && "highlights" in CSS && typeof Highlight !== "undefined";
-const PENDING_HL = "beacon-pending";
+const PENDING_HL = "beacon-pending"; // the selection being commented on right now (composer open)
+const ANNOT_HL = "beacon-annotation"; // every saved comment's excerpt, re-located in the rendered DOM
+
+// The HighlightRegistry / Highlight constructor aren't in this TS lib yet — access them through
+// narrow casts behind the HIGHLIGHT_API feature check.
+function highlightRegistry(): Map<string, unknown> | null {
+  if (!HIGHLIGHT_API) return null;
+  return (CSS as unknown as { highlights: Map<string, unknown> }).highlights;
+}
+function makeHighlight(...ranges: Range[]): unknown {
+  const Ctor = (globalThis as unknown as { Highlight: new (...r: Range[]) => unknown }).Highlight;
+  return new Ctor(...ranges);
+}
+
+// Find the first rendered occurrence of `query` (the excerpt's plain text) inside `root`, spanning
+// text nodes as needed, and return a Range for it. Searching the RENDERED text — not the raw
+// markdown — is what lets a comment on text containing inline `code`/**bold** still highlight: the
+// markers aren't in the DOM, so the plain excerpt matches. Skips FENCED code (<pre>) + tables, which
+// aren't annotated; INLINE `code` (a bare <code>, no <pre>) stays searchable — it's part of prose.
+function findFirstTextRange(root: HTMLElement, query: string): Range | null {
+  if (!query) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) =>
+      (n.parentElement?.closest("pre, table") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
+  const nodes: { node: Node; start: number }[] = [];
+  let full = "";
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    nodes.push({ node: n, start: full.length });
+    full += n.nodeValue ?? "";
+  }
+  const idx = full.indexOf(query);
+  if (idx < 0) return null;
+  const locate = (pos: number) => {
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      if (nodes[i].start <= pos) return { node: nodes[i].node, offset: pos - nodes[i].start };
+    }
+    return null;
+  };
+  const s = locate(idx);
+  const e = locate(idx + query.length);
+  if (!s || !e) return null;
+  const range = document.createRange();
+  range.setStart(s.node, s.offset);
+  range.setEnd(e.node, e.offset);
+  return range;
+}
 
 // Native, inline annotation panel. Select text → small floating popover with two icons:
 //   💬 = comment (text bubble anchored above the highlighted span)
@@ -225,19 +271,41 @@ export function AnnotationPanel({
   }, []);
 
   // Paint the captured selection Range while the composer is open (and clear it on close), so the
-  // text stays highlighted as you type. Decoupled from the excerpt-string matcher, so it works for
-  // selections spanning inline `code` / **bold** that the matcher can't re-locate.
+  // text stays highlighted as you type. Decoupled from any excerpt matching, so it works for
+  // selections spanning inline `code` / **bold**.
   useEffect(() => {
-    if (!composer || !HIGHLIGHT_API) return;
+    const reg = highlightRegistry();
+    if (!composer || !reg) return;
     const range = pendingRangeRef.current;
     if (!range) return;
-    const reg = (CSS as unknown as { highlights: Map<string, unknown> }).highlights;
-    const HighlightCtor = (globalThis as unknown as { Highlight: new (r: Range) => unknown }).Highlight;
-    reg.set(PENDING_HL, new HighlightCtor(range));
+    reg.set(PENDING_HL, makeHighlight(range));
     return () => {
       reg.delete(PENDING_HL);
     };
   }, [composer]);
+
+  // Keep every SAVED comment highlighted in the doc by re-locating its excerpt in the RENDERED text
+  // and painting it via the Highlight API — so the highlight survives after "Add" even for excerpts
+  // spanning inline markdown (the raw-markdown indexOf matcher can't find those). Deletions still use
+  // the inline AnnotatedSpan (strikethrough + unmark button). Re-runs when the comments or prose change.
+  useEffect(() => {
+    const reg = highlightRegistry();
+    if (!reg || !docRef.current) return;
+    const ranges: Range[] = [];
+    for (const a of annotations) {
+      if ((a.kind ?? "comment") !== "comment") continue;
+      const r = findFirstTextRange(docRef.current, a.excerpt);
+      if (r) ranges.push(r);
+    }
+    if (!ranges.length) {
+      reg.delete(ANNOT_HL);
+      return;
+    }
+    reg.set(ANNOT_HL, makeHighlight(...ranges));
+    return () => {
+      reg.delete(ANNOT_HL);
+    };
+  }, [annotations, markdown]);
 
   // Dismiss the overall-feedback popover on Escape or a click outside it. The pill's toggle
   // button lives in a different component, so it's tagged data-overall-toggle and excluded
@@ -734,6 +802,10 @@ function AnnotatedInline({
   onRemove: (id: string) => void;
 }) {
   const matches = annotations
+    // Comments are painted via the CSS Highlight API (robust to inline markdown — see the effect in
+    // AnnotationPanel); only deletions need an inline span (strikethrough + unmark button). On
+    // browsers without the API, fall back to wrapping comments here too.
+    .filter((a) => (a.kind ?? "comment") === "deletion" || !HIGHLIGHT_API)
     .map((a) => ({ a, idx: text.indexOf(a.excerpt) }))
     .filter((m) => m.idx >= 0)
     .sort((x, y) => x.idx - y.idx);
