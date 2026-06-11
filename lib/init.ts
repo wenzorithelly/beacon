@@ -78,10 +78,22 @@ export async function persistArchitecture(components: Component[]): Promise<numb
   // Idempotent: replace a previous init-derived architecture.
   await db.delete(node).where(and(eq(node.view, "ARCHITECTURE"), eq(node.source, "INIT")));
 
+  // Survivors are the non-INIT architecture nodes — created by beacon_describe_feature or by
+  // hand on the canvas. A refresh re-describing the same component (by title) must MERGE into
+  // the survivor instead of shadowing it with an INIT duplicate: a board built entirely by
+  // describe_feature would otherwise double every component on its first /beacon-refresh.
+  const survivors = await db.query.node.findMany({
+    where: (t, { eq }) => eq(t.view, "ARCHITECTURE"),
+    with: { bugFlags: true },
+  });
+  const survivorByTitle = new Map(survivors.map((n) => [n.title.toLowerCase(), n]));
+
   const idByTitle = new Map<string, string>();
+  const createdTitles = new Set<string>();
 
   // Layered dependency flow (same layout the /map one-shot applies): foundations left,
   // dependents rightward, domains as contiguous bands. Keyed by title — ids don't exist yet.
+  // Positions apply only to NEWLY created nodes; a survivor keeps where the user put it.
   const titleSet = new Set(components.map((c) => c.title));
   const pos = layeredLayout(
     components.map((c) => ({ id: c.title, group: (c.domain ?? "").trim() || "—" })),
@@ -93,6 +105,29 @@ export async function persistArchitecture(components: Component[]): Promise<numb
   );
   writeBoardLayout("architecture", { sig: BOARD_ALGO_VERSIONS.architecture });
   for (const c of components) {
+    const key = c.title.toLowerCase();
+    const prior = survivorByTitle.get(key);
+    if (prior) {
+      // Merge semantics mirror upsertArchitectureComponents: fresh analysis wins where it
+      // says something, the curated value survives where it doesn't. Source stays MANUAL so
+      // the node remains the user's, and its position/status/flags are untouched.
+      await db
+        .update(node)
+        .set({
+          cluster: c.domain,
+          layer: normalizeLayer(c.layer) ?? prior.layer,
+          role: c.role ?? prior.role,
+          plain: c.plain ?? prior.plain,
+        })
+        .where(eq(node.id, prior.id));
+      const paths = Array.from(new Set(c.files));
+      if (paths.length) {
+        await db.delete(nodeFile).where(eq(nodeFile.nodeId, prior.id));
+        await db.insert(nodeFile).values(paths.map((path) => ({ nodeId: prior.id, path })));
+      }
+      idByTitle.set(key, prior.id);
+      continue;
+    }
     const at = pos.get(c.title) ?? { x: 0, y: 0 };
     const [created] = await db
       .insert(node)
@@ -113,7 +148,8 @@ export async function persistArchitecture(components: Component[]): Promise<numb
     if (paths.length) {
       await db.insert(nodeFile).values(paths.map((path) => ({ nodeId: created.id, path })));
     }
-    idByTitle.set(c.title.toLowerCase(), created.id);
+    idByTitle.set(key, created.id);
+    createdTitles.add(key);
   }
 
   for (const c of components) {
@@ -129,13 +165,15 @@ export async function persistArchitecture(components: Component[]): Promise<numb
     }
   }
 
-  // Re-attach the snapshotted flags to the recreated nodes, then record any newly
-  // reported bugs as agent flags — skipping notes already open on the node so a
-  // refresh re-reporting the same finding stays idempotent.
+  // Re-attach the snapshotted flags to the RECREATED nodes (a survivor kept its own — the
+  // cascade never touched it), then record any newly reported bugs as agent flags — skipping
+  // notes already open on the node so a refresh re-reporting the same finding stays idempotent.
   for (const c of components) {
-    const nodeId = idByTitle.get(c.title.toLowerCase());
+    const key = c.title.toLowerCase();
+    const nodeId = idByTitle.get(key);
     if (!nodeId) continue;
-    const carried = flagsByTitle.get(c.title.toLowerCase()) ?? [];
+    const recreated = createdTitles.has(key);
+    const carried = recreated ? (flagsByTitle.get(key) ?? []) : [];
     if (carried.length) {
       await db.insert(bugFlag).values(
         carried.map((f) => ({
@@ -147,7 +185,10 @@ export async function persistArchitecture(components: Component[]): Promise<numb
         })),
       );
     }
-    const openNotes = new Set(carried.filter((f) => !f.resolvedAt).map((f) => f.note));
+    const liveOpen = recreated ? [] : (survivorByTitle.get(key)?.bugFlags ?? []);
+    const openNotes = new Set(
+      [...carried, ...liveOpen].filter((f) => !f.resolvedAt).map((f) => f.note),
+    );
     for (const b of c.bugs ?? []) {
       if (openNotes.has(b.note)) continue;
       await db.insert(bugFlag).values({ nodeId, by: "agent", note: b.note });

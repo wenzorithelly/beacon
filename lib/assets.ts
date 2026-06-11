@@ -72,9 +72,9 @@ Beacon was already initialized in this repo (\`/beacon-init\` ran at some point)
 
 ## What gets preserved vs replaced
 
-The \`beacon_init_persist\` tool **replaces only init-derived nodes** (\`source=INIT\`). Anything the user added manually on the canvas — manually-created components, hand-edited tables, custom positions, notes, draft feature plans — survives the refresh untouched. So you can re-run this freely; nothing the user curated by hand is at risk.
+The \`beacon_init_persist\` tool **replaces only init-derived nodes** (\`source=INIT\`). A curated architecture node (created by \`beacon_describe_feature\` or by hand) whose title matches a component in your refreshed analysis is **merged in place** — your fresh \`domain\`/\`role\`/\`plain\`/\`layer\`/\`files\` land on it, but it keeps its source, position, status, and bug flags, and no duplicate INIT node is created. Curated nodes your analysis does NOT mention survive untouched, as do hand-edited tables, custom positions, notes, and draft feature plans. So you can re-run this freely.
 
-The one caveat: if the user manually edited an INIT-source node on the canvas (e.g., renamed it, rewrote its role), that edit IS overwritten when you re-persist. If the user mentions hand-curated INIT nodes, ask whether they want those carried into the new analysis verbatim.
+The one caveat: if the user manually edited an INIT-source node on the canvas (e.g., renamed it, rewrote its role), that edit IS overwritten when you re-persist — and a renamed node no longer title-matches, so it survives as its own card. If the user mentions hand-curated INIT nodes, ask whether they want those carried into the new analysis verbatim.
 
 ## How to do it
 
