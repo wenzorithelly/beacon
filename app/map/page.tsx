@@ -154,6 +154,7 @@ export default async function MapPage({
             circular: e.circular,
           }))}
           touched={readTouched()}
+          hasFrontend={await resolveHasFrontend()}
         />
       );
     }
@@ -165,12 +166,11 @@ export default async function MapPage({
     // Whether this workspace has a frontend — gates the layer badge + the "Layer" group-by.
     const hasFrontend = await resolveHasFrontend();
     // The dimension the roadmap is currently grouped by — drives the lane regions on load.
-    // A stale "layer" arrangement in a workspace that no longer has a frontend falls back to null.
+    // A stale stored "layer" (the removed dimension — stripes carry layer now) resolves to null.
     const initialArrangedBy: RoadmapGroupBy | null =
       view === "ROADMAP"
         ? ((): RoadmapGroupBy | null => {
             const by = readBoardLayout("roadmap").arrangedBy;
-            if (by === "layer") return hasFrontend ? by : null;
             return by === "cluster" || by === "status" || by === "priority" ? by : null;
           })()
         : null;

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import { detectFrontendFromPaths, normalizeLayer } from "@/lib/layer";
+import {
+  detectFrontendFromPaths,
+  LAYER_COLORS,
+  layerStripeCss,
+  normalizeLayer,
+} from "@/lib/layer";
 
 describe("normalizeLayer", () => {
   it("accepts the three canonical values case-insensitively", () => {
@@ -49,5 +54,25 @@ describe("detectFrontendFromPaths", () => {
 
   it("does not match the extension mid-path", () => {
     expect(detectFrontendFromPaths(["docs/tsx-notes/readme.md"])).toBe(false);
+  });
+});
+
+describe("layerStripeCss", () => {
+  it("returns the solid layer color for frontend and backend", () => {
+    expect(layerStripeCss("frontend")).toBe(LAYER_COLORS.frontend);
+    expect(layerStripeCss("backend")).toBe(LAYER_COLORS.backend);
+  });
+
+  it("returns a hard-stop split of both colors for fullstack", () => {
+    const css = layerStripeCss("fullstack");
+    expect(css).toContain("linear-gradient");
+    expect(css).toContain(LAYER_COLORS.frontend);
+    expect(css).toContain(LAYER_COLORS.backend);
+    expect(css).toContain("50%"); // hard stop, not a blend
+  });
+
+  it("keeps the two layer hues distinct from each other and the brand accent", () => {
+    expect(LAYER_COLORS.frontend).not.toBe(LAYER_COLORS.backend);
+    expect(Object.values(LAYER_COLORS)).not.toContain("#ff7a45");
   });
 });

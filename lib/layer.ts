@@ -31,6 +31,23 @@ export const LAYER_META: Record<Layer, { label: string; short: string }> = {
   fullstack: { label: "Fullstack", short: "FS" },
 };
 
+// Layer colors — the ONE place the frontend/backend hues live. Cool hues only: the warm
+// half of the wheel (red/orange/amber) stays reserved for priority/status/brand (#ff7a45).
+// Both are mutually distinguishable under common color-vision deficiencies (Okabe-Ito-derived,
+// lightened for thin marks on near-black glass).
+export const LAYER_COLORS: Record<Layer, string> = {
+  frontend: "#5AC8FA", // sky blue
+  backend: "#3ECF8E", // mint / server green
+  fullstack: "#5AC8FA", // base hue; stripes/swatches render the blue+green split below
+};
+
+/** CSS background for a layer stripe/swatch: solid for FE/BE, a hard-stop vertical split
+ *  (frontend blue on top, backend green below) for fullstack — "touches both", no third hue. */
+export function layerStripeCss(layer: Layer): string {
+  if (layer !== "fullstack") return LAYER_COLORS[layer];
+  return `linear-gradient(to bottom, ${LAYER_COLORS.frontend} 0%, ${LAYER_COLORS.frontend} 50%, ${LAYER_COLORS.backend} 50%, ${LAYER_COLORS.backend} 100%)`;
+}
+
 // CodeFile.lang folds .tsx into "ts", so the deterministic "this repo has a frontend" signal
 // is the file extension itself: any UI-component file means a frontend exists.
 export const FRONTEND_FILE_RE = /\.(tsx|jsx|vue|svelte)$/i;

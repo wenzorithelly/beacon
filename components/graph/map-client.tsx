@@ -60,7 +60,8 @@ import {
   PopoverSection,
 } from "@/components/graph/canvas-popover";
 import { ARCH_STATUSES, ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
-import { LAYER_META, normalizeLayer } from "@/lib/layer";
+import { normalizeLayer, type Layer } from "@/lib/layer";
+import { LayerToggle, layerEmphasisMatch } from "@/components/graph/layer-toggle";
 import { layoutRoadmap, type RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { layeredLayout } from "@/lib/layered-layout";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
@@ -81,10 +82,6 @@ const GROUP_BY_OPTIONS: { value: RoadmapGroupBy; label: string }[] = [
 function laneLabel(groupBy: RoadmapGroupBy, d: MapNodeData): string {
   if (groupBy === "status") return STATUS_META[d.status]?.label ?? d.status;
   if (groupBy === "priority") return `P${d.priority}`;
-  if (groupBy === "layer") {
-    const l = normalizeLayer(d.layer);
-    return l ? LAYER_META[l].label : "—";
-  }
   return d.cluster?.trim() || "—";
 }
 
@@ -466,6 +463,9 @@ export function MapClient({
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
   const [clusterFilter, setClusterFilter] = useState<Set<string>>(new Set());
   const [priorityFilter, setPriorityFilter] = useState<Set<number>>(new Set());
+  // Layer emphasis (FE/BE/FS pills): DIMS non-matching cards instead of hiding them, so the
+  // board keeps its shape. Never combined into `passes` — it's a lens, not a filter.
+  const [layerEmphasis, setLayerEmphasis] = useState<Layer | null>(null);
 
   const statusesPresent = useMemo(
     () => Array.from(new Set(nodePayload.map((n) => n.status))),
@@ -547,6 +547,18 @@ export function MapClient({
   // Search takes precedence over the 1-hop click focus while a query is active.
   const effectiveFocusIds = searchMatchIds ?? focusIds;
 
+  // Nodes the layer-emphasis pills push back: visible but not on the highlighted layer
+  // (FE/BE pills keep fullstack bright too; unset-layer cards always dim). Drives both the
+  // node fade and the matching edge fade.
+  const layerDimIds = useMemo(() => {
+    if (!layerEmphasis) return null;
+    return new Set(
+      visibleNodes
+        .filter((n) => !n.hidden && !layerEmphasisMatch(layerEmphasis, normalizeLayer(n.data.layer)))
+        .map((n) => n.id),
+    );
+  }, [layerEmphasis, visibleNodes]);
+
   const displayNodes = useMemo(() => {
     return visibleNodes.map((n) => {
       // Mark the "work on next" card so NodeCard can render its accent ring + badge.
@@ -557,7 +569,22 @@ export function MapClient({
       // An expanded card grows over its neighbours — lift it above every collapsed card
       // (still below annotation chrome at zIndex 30) so its body isn't covered by them.
       if (expandedIds.has(n.id)) base = { ...base, zIndex: 25 };
-      if (!effectiveFocusIds || base.hidden) return base;
+      if (base.hidden) return base;
+      // Layer emphasis is the BASELINE lens: search/click focus takes over while active.
+      if (!effectiveFocusIds) {
+        if (layerDimIds?.has(n.id)) {
+          return {
+            ...base,
+            style: {
+              ...base.style,
+              opacity: 0.3,
+              filter: "saturate(0.3)",
+              transition: "opacity 120ms, filter 120ms",
+            },
+          };
+        }
+        return base;
+      }
       const on = effectiveFocusIds.has(n.id);
       // Search hits get an accent ring + a harder fade so a match clearly reads as "found";
       // click-focus keeps the milder 0.45 fade.
@@ -574,7 +601,7 @@ export function MapClient({
         },
       };
     });
-  }, [visibleNodes, effectiveFocusIds, searchMatchIds, workOnNextId, expandedIds]);
+  }, [visibleNodes, effectiveFocusIds, searchMatchIds, workOnNextId, expandedIds, layerDimIds]);
 
   // Group-region containers (Gestalt common region). Roadmap: shown once the board is arranged,
   // labeled by the dimension it was ACTUALLY arranged by (`arrangedBy`) — never a stale selector.
@@ -626,9 +653,12 @@ export function MapClient({
     // the board reads cleanly instead of piling repeated labels along colliding lines. The
     // relationships surface on demand — hover or select a card to light up just its edges.
     if (!selectedEdgeId && !focusNode) {
-      return visibleEdges.map((e) =>
-        e.hidden ? e : { ...e, label: undefined, style: { ...e.style, opacity: 0.18 } },
-      );
+      return visibleEdges.map((e) => {
+        if (e.hidden) return e;
+        // Layer emphasis: an edge touching a dimmed card fades with it.
+        const layerDim = layerDimIds && (layerDimIds.has(e.source) || layerDimIds.has(e.target));
+        return { ...e, label: undefined, style: { ...e.style, opacity: layerDim ? 0.06 : 0.18 } };
+      });
     }
     return visibleEdges.map((e) => {
       if (e.hidden) return e;
@@ -645,7 +675,7 @@ export function MapClient({
             style: { ...e.style, opacity: 0.06 },
           };
     });
-  }, [visibleEdges, selectedId, selectedEdgeId, hoveredId, searchMatchIds]);
+  }, [visibleEdges, selectedId, selectedEdgeId, hoveredId, searchMatchIds, layerDimIds]);
 
   // ── Canvas annotations — ONE pipeline, two sources ──
   // /plan (feedback): annotations whose excerpt names a feature title, read-only on canvas.
@@ -1022,7 +1052,6 @@ export function MapClient({
         id: n.id,
         parentId: n.data.parentId ?? null,
         cluster: n.data.cluster,
-        layer: n.data.layer ?? null,
         status: n.data.status,
         priority: n.data.priority,
       })),
@@ -1321,11 +1350,7 @@ export function MapClient({
           {view === "ROADMAP" && (
             <div className="glass flex items-center gap-1 rounded-full p-1">
               <span className="pl-2 pr-0.5 text-[11px] text-muted-foreground">Group by</span>
-              {[
-                ...GROUP_BY_OPTIONS,
-                // Only workspaces with a frontend get the frontend/backend dimension.
-                ...(hasFrontend ? [{ value: "layer" as const, label: "Layer" }] : []),
-              ].map((o) => (
+              {GROUP_BY_OPTIONS.map((o) => (
                 <button
                   key={o.value}
                   onClick={() => arrange(o.value)}
@@ -1437,6 +1462,10 @@ export function MapClient({
               });
             }}
           />
+
+          {hasFrontend && (
+            <LayerToggle value={layerEmphasis} onChange={setLayerEmphasis} />
+          )}
 
           {view === "ROADMAP" && workOnNextId && (
             <button

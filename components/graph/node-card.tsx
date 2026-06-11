@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { STATUS_META } from "@/lib/constants";
-import { LAYER_META, normalizeLayer } from "@/lib/layer";
+import { LAYER_META, layerStripeCss, normalizeLayer } from "@/lib/layer";
 import { categoryColorClass } from "@/lib/category-color";
 import { useNodeEdit } from "@/components/graph/node-edit-context";
 import { useZoomLOD } from "@/components/graph/use-zoom-lod";
@@ -83,6 +83,23 @@ const noDrag = "nodrag nopan";
 // Frontend/backend layer badge: a monochrome pill (no new colors — brand stays one-accent)
 // with a Monitor (FE) / Server (BE) / both (fullstack) icon. Rendered only when the
 // workspace has a frontend AND the node carries a layer.
+// Always-on layer stripe down the card's left edge: frontend sky blue, backend mint green,
+// fullstack the blue/green split. The low-ink channel that survives every filter/arrangement
+// (the lanes-based Group-by didn't); the badge below stays as the redundant text channel.
+// An INSET rounded pill (Linear-style), not a flush edge bar — it stays clear of the card's
+// rounded corners and whatever color the priority/status border is wearing.
+function LayerStripe({ layer }: { layer: string | null | undefined }) {
+  const l = normalizeLayer(layer);
+  if (!l) return null;
+  return (
+    <span
+      aria-hidden
+      className="absolute bottom-2 left-1 top-2 w-[3px] rounded-full"
+      style={{ background: layerStripeCss(l) }}
+    />
+  );
+}
+
 function LayerBadge({ layer }: { layer: string | null | undefined }) {
   const l = normalizeLayer(layer);
   if (!l) return null;
@@ -266,6 +283,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
         )}
       >
         <FourDotHandles />
+        {hasFrontend && <LayerStripe layer={data.layer} />}
         <div className="break-words text-[15px] font-semibold leading-snug">{data.title}</div>
       </div>
     );
@@ -295,6 +313,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
       )}
     >
       <FourDotHandles />
+      {hasFrontend && <LayerStripe layer={data.layer} />}
       {isArch && <BugFlagButton nodeId={id} />}
       {(data.pins?.length ?? 0) > 0 ? (
         <PinRail pins={data.pins!} onPinClick={data.onPinClick} />

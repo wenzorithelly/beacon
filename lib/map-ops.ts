@@ -204,7 +204,7 @@ export async function ensureBoardArranged(view: "ROADMAP" | "ARCHITECTURE"): Pro
   const all = await db.query.node.findMany({
     where: (t, { eq }) => eq(t.view, view),
     orderBy: (t, { asc }) => asc(t.createdAt),
-    columns: { id: true, parentId: true, source: true, cluster: true, layer: true, status: true, priority: true, x: true, y: true },
+    columns: { id: true, parentId: true, source: true, cluster: true, status: true, priority: true, x: true, y: true },
   });
   const nodes = all.filter((n) => n.source !== "DRAFT");
   // Nothing worth arranging yet — don't burn the one-shot, so the board still tidies itself
@@ -215,16 +215,15 @@ export async function ensureBoardArranged(view: "ROADMAP" | "ARCHITECTURE"): Pro
   let arrangedBy: string | null = null;
   if (view === "ROADMAP") {
     const by: RoadmapGroupBy =
-      stored.arrangedBy === "status" || stored.arrangedBy === "priority" || stored.arrangedBy === "layer"
+      stored.arrangedBy === "status" || stored.arrangedBy === "priority"
         ? stored.arrangedBy
-        : "cluster";
+        : "cluster"; // includes a stale "layer" — that dimension is gone (stripes carry layer now)
     arrangedBy = by;
     pos = layoutRoadmap(
       nodes.map((n) => ({
         id: n.id,
         parentId: n.parentId,
         cluster: n.cluster,
-        layer: n.layer,
         status: n.status,
         priority: n.priority,
       })),
