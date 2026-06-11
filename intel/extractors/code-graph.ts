@@ -35,6 +35,12 @@ const SKIP_DIRS = new Set([
   ".beacon",
   ".playwright-mcp",
   "generated",
+  // Generated migration files are noise in an import graph, in every language:
+  // drizzle/prisma (JS), alembic (Python), Django/generic "migrations", Rails db/migrate.
+  "migrations",
+  "drizzle",
+  "alembic",
+  "migrate",
 ]);
 
 export interface CodeGraphFile {

@@ -59,3 +59,26 @@ export function categoryRegionClass(category: string | null | undefined): string
   const i = paletteIndex(category);
   return i === null ? NEUTRAL_REGION : REGION_PALETTE[i];
 }
+
+// Raw hex values of the same 12 hues (tailwind 400-ish), for places that need a real color
+// value instead of a class — e.g. SVG/canvas dots on the Files graph.
+const HEX_PALETTE = [
+  "#34d399", // emerald
+  "#38bdf8", // sky
+  "#a78bfa", // violet
+  "#fbbf24", // amber
+  "#fb7185", // rose
+  "#22d3ee", // cyan
+  "#e879f9", // fuchsia
+  "#a3e635", // lime
+  "#fb923c", // orange
+  "#2dd4bf", // teal
+  "#818cf8", // indigo
+  "#f472b6", // pink
+] as const;
+
+/** Hex color for a category, same hash/palette as the badge + region classes. */
+export function categoryHex(category: string | null | undefined): string {
+  const i = paletteIndex(category);
+  return i === null ? "#9ca3af" : HEX_PALETTE[i];
+}

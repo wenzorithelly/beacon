@@ -33,6 +33,9 @@ import { untestedFiles } from "@/lib/test-coverage";
 import { type TouchedMap } from "@/lib/touched-files";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
 import { GroupRegions } from "@/components/graph/group-regions";
+import { LodReporter, useZoomLOD } from "@/components/graph/use-zoom-lod";
+import type { Lod } from "@/lib/zoom-lod";
+import { categoryHex } from "@/lib/category-color";
 import { cn } from "@/lib/utils";
 
 // Files view: the import graph of the repo. One node per source file, one edge
@@ -60,26 +63,6 @@ export interface FileGraphEdge {
   circular: boolean;
 }
 
-// Per-language accent (the small dot on each node). Detected by file extension at
-// ingest; keeps the canvas readable at a glance in polyglot repos. Unknown → grey.
-const LANG_COLORS: Record<string, string> = {
-  ts: "#3178c6",
-  js: "#f7df1e",
-  py: "#3776ab",
-  go: "#00add8",
-  rs: "#dea584",
-  swift: "#f05138",
-  java: "#b07219",
-  ruby: "#cc342d",
-  kotlin: "#a97bff",
-  csharp: "#178600",
-  php: "#4f5d95",
-  cpp: "#f34b7d",
-  c: "#555555",
-};
-function langColor(lang?: string | null): string {
-  return (lang && LANG_COLORS[lang]) || "#9ca3af";
-}
 
 interface SimNode extends SimulationNodeDatum {
   id: string;
@@ -87,12 +70,11 @@ interface SimNode extends SimulationNodeDatum {
   radius: number;
 }
 
-// Approximate the rendered width of a label (text + padding + border) so the
-// collision force matches the actual node card, not a circle around its center.
-// 6px/char is a reasonable estimate for the 10px font we render.
-function collisionRadiusFor(label: string): number {
-  const widthHalf = (label.length * 6 + 24) / 2;
-  return Math.max(34, widthHalf + 16); // +16 = real breathing room between labels
+// Collision radius for a DOT node: the dot itself plus room for its zoom-in label not to
+// sit on the neighbouring dot. Much smaller than the old full-label-width pills — that's
+// what lets the web breathe while staying dense enough to read as one organism.
+function collisionRadiusFor(inDegree: number): number {
+  return dotRadius(inDegree) + 22;
 }
 
 // Deterministic seed positions: hash the path into a stable pseudo-random spot. Same
@@ -106,19 +88,37 @@ function seedFor(path: string): { x: number; y: number } {
 }
 
 /** Top-level directory a file belongs to; files at the repo root group together. */
-export const filesGroupKey = (path: string): string =>
+const topDir = (path: string): string =>
   path.includes("/") ? path.slice(0, path.indexOf("/")) : "(root)";
 
-// Anchor point per directory: biggest folders first, on a wide grid scaled so neighbouring
-// clusters have room to breathe. Deterministic (sorted by size desc, then name).
-function dirAnchors(files: FileGraphFile[]): Map<string, { x: number; y: number }> {
+/** Adaptive group keys: top-level directories normally, but a DOMINANT one (a single-package
+ *  repo where everything lives under `app/` or `src/`) splits one level deeper so the board
+ *  shows `app/services`, `app/routers`, … instead of one giant blob plus `tests`. */
+function buildGroupKeys(paths: string[]): Map<string, string> {
   const counts = new Map<string, number>();
-  for (const f of files) {
-    const d = filesGroupKey(f.path);
-    counts.set(d, (counts.get(d) ?? 0) + 1);
+  for (const p of paths) counts.set(topDir(p), (counts.get(topDir(p)) ?? 0) + 1);
+  const threshold = Math.max(14, paths.length * 0.35);
+  const out = new Map<string, string>();
+  for (const p of paths) {
+    const f = topDir(p);
+    if ((counts.get(f) ?? 0) > threshold && p.startsWith(`${f}/`)) {
+      const rest = p.slice(f.length + 1);
+      out.set(p, rest.includes("/") ? `${f}/${rest.slice(0, rest.indexOf("/"))}` : f);
+    } else {
+      out.set(p, f);
+    }
   }
+  return out;
+}
+
+// Anchor point per group: biggest folders first, on a wide grid scaled so neighbouring
+// clusters have room to breathe. Deterministic (sorted by size desc, then name).
+function dirAnchors(groupKeys: Map<string, string>): Map<string, { x: number; y: number }> {
+  const counts = new Map<string, number>();
+  for (const g of groupKeys.values()) counts.set(g, (counts.get(g) ?? 0) + 1);
   const dirs = Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const cols = Math.max(1, Math.ceil(Math.sqrt(dirs.length * 2.5))); // wide grid (~2:1)
+  // Dots pack far tighter than the old label pills, so clusters need less room.
   const SPACING_X = 1250;
   const SPACING_Y = 950;
   const anchors = new Map<string, { x: number; y: number }>();
@@ -131,49 +131,56 @@ function dirAnchors(files: FileGraphFile[]): Map<string, { x: number; y: number 
 function runForceLayout(
   files: FileGraphFile[],
   edges: FileGraphEdge[],
+  groupKeys: Map<string, string>,
 ): Map<string, { x: number; y: number }> {
-  const anchors = dirAnchors(files);
-  const anchorOf = (path: string) => anchors.get(filesGroupKey(path))!;
+  const anchors = dirAnchors(groupKeys);
+  const anchorOf = (path: string) => anchors.get(groupKeys.get(path) ?? "(root)")!;
   const simNodes: SimNode[] = files.map((f) => {
-    const label = f.path.includes("/") ? f.path.split("/").pop()! : f.path;
     const seed = seedFor(f.path);
     const a = anchorOf(f.path);
     return {
       id: f.path,
-      // Seed near the directory's anchor so the cluster forms there immediately.
-      x: a.x + seed.x * 0.4,
-      y: a.y + seed.y * 0.4,
+      // Seed near the directory's anchor (irregular spread) so the cluster forms
+      // there but keeps an organic silhouette.
+      x: a.x + seed.x * 0.5,
+      y: a.y + seed.y * 0.5,
       pinned: false,
-      radius: collisionRadiusFor(label),
+      radius: collisionRadiusFor(f.inDegree ?? 0),
     };
   });
 
   const simLinks = edges
     .filter((e) => e.from !== e.to)
     .map((e) => ({ source: e.from, target: e.to }));
+  const sameDir = (a: string, b: string) => groupKeys.get(a) === groupKeys.get(b);
 
   const sim = forceSimulation(simNodes)
     .force(
       "link",
       forceLink<SimNode, { source: string; target: string }>(simLinks)
         .id((n) => n.id)
-        .distance(170)
-        // Weak enough that a cross-directory import can't drag a file out of its cluster.
-        .strength(0.15),
+        .distance(100)
+        // INTRA-directory links shape the organic web inside each cluster; CROSS-directory
+        // links barely tug (this repo imports across folders constantly — at full strength
+        // they weld every cluster into one central blob and the regions overlap).
+        .strength((l) => {
+          const s = typeof l.source === "object" ? (l.source as SimNode).id : String(l.source);
+          const t = typeof l.target === "object" ? (l.target as SimNode).id : String(l.target);
+          return sameDir(s, t) ? 0.5 : 0.02;
+        }),
     )
-    // Stronger repulsion than before — the clogged look came from labels packed so
-    // tight the edges between them read as one solid web.
-    .force("charge", forceManyBody<SimNode>().strength(-520).distanceMax(900))
-    // Collision — per-node radius matches the actual label width so wide
-    // filenames like `endpoint-reconcile.test.ts` don't visually overlap.
+    // Repulsion + breathing room so dots and edges read individually.
+    .force("charge", forceManyBody<SimNode>().strength(-260).distanceMax(800))
+    // Soft collision — hard collide hex-packs equal dots into a lattice; soft keeps the
+    // irregular, organic spacing the link structure produces.
     .force(
       "collide",
-      forceCollide<SimNode>().radius((d) => d.radius).strength(1),
+      forceCollide<SimNode>().radius((d) => d.radius).strength(0.6),
     )
-    // Directory gravity: every file is pulled toward its folder's anchor, so the
-    // organic shape resolves into one labeled cluster per folder.
-    .force("clusterX", forceX<SimNode>((d) => anchorOf(d.id).x).strength(0.16))
-    .force("clusterY", forceY<SimNode>((d) => anchorOf(d.id).y).strength(0.18))
+    // Gentle directory gravity: each folder's web settles in its own neighbourhood (the
+    // color groups stay spatially coherent) without flattening into a grid.
+    .force("clusterX", forceX<SimNode>((d) => anchorOf(d.id).x).strength(0.1))
+    .force("clusterY", forceY<SimNode>((d) => anchorOf(d.id).y).strength(0.115))
     .stop();
 
   // Synchronous: tick to convergence. ~500 ticks for a few hundred nodes is
@@ -191,9 +198,10 @@ interface FileNodeData {
   label: string;
   tooltip: string;
   untested?: boolean;
-  // Hub scoring (deterministic, cached at ingest) — high-inDegree files render bigger.
+  // Hub scoring (deterministic, cached at ingest) — high-inDegree files render bigger dots.
   inDegree?: number;
-  lang?: string | null;
+  // The top-level directory's hue (color-group categorization, Obsidian-style).
+  dirColor: string;
   // Touched-Files overlay (driven by the PostToolUse hook via the touched store).
   touched?: boolean;
   count?: number; // edits this session
@@ -201,33 +209,28 @@ interface FileNodeData {
   isNewest?: boolean; // the single most-recently edited file → one-shot pulse
 }
 
+// Dot radius from in-degree (Obsidian: "the more notes reference it, the bigger it gets").
+function dotRadius(inDegree: number): number {
+  return 5 + Math.min(inDegree, 26) * 0.5; // 5..18px
+}
+
 function FileNode({ data }: { data: FileNodeData }) {
-  // Compact: filename only. Full path is in the title tooltip — hover reveals
-  // it without bloating every node card. The two Handles are required for React
-  // Flow to render import edges (error #008 otherwise); styled invisible.
+  // Obsidian-style node: a DOT sized by how many files import it, colored by its top-level
+  // directory (the color-group categorization), with the filename underneath that fades in
+  // with zoom — far out you read shape and color, close in you read names. The two Handles
+  // are required for React Flow to render import edges; styled invisible.
   //
-  // Encodings stack so signals are spottable at a glance AND never color-alone
-  // (the tooltip + icons/badges carry the meaning for colorblind readers):
-  //   • untested → amber border + corner dot
-  //   • touched  → teal border + glow whose intensity scales with recency, an
-  //     edit-count badge, and a one-shot pulse on the most recent edit.
+  // Signal encodings stay non-color-alone (tooltip + badges carry meaning):
+  //   • untested → amber ring around the dot
+  //   • touched  → teal glow scaled by recency + edit-count badge + one-shot pulse
+  const lod = useZoomLOD();
   const touched = !!data.touched;
   const recency = data.recency ?? 0;
   const inDeg = data.inDegree ?? 0;
-  // Hub sizing: high-blast-radius files (imported by many) render bigger so they're
-  // spottable without reading every label. Up to +7px over the 10px base; capped so a
-  // mega-hub doesn't dwarf the canvas. Edited files keep their (usually larger) size.
-  const hubSize = 10 + Math.min(inDeg, 20) * 0.35;
-  const fontSize = touched ? Math.max(13 + recency * 4, hubSize) : hubSize;
-  const style = {
-    fontSize: `${fontSize}px`,
-    ...(touched
-      ? {
-          boxShadow: `0 0 ${6 + Math.round(recency * 12)}px ${1 + Math.round(recency * 3)}px rgba(45,212,191,${(0.25 + recency * 0.5).toFixed(2)})`,
-          zIndex: 10,
-        }
-      : {}),
-  };
+  const r = dotRadius(inDeg);
+  // Text fade threshold, like Obsidian's: every name at reading zoom; only hubs at mid
+  // zoom; none when far (the directory summaries take over).
+  const showLabel = lod === "full" || (lod === "mid" && inDeg >= 4);
   const hubNote = inDeg > 0 ? ` · imported by ${inDeg}` : "";
   const title = touched
     ? `${data.tooltip} · edited ${data.count ?? 0}× this session${hubNote}`
@@ -235,53 +238,54 @@ function FileNode({ data }: { data: FileNodeData }) {
       ? `${data.tooltip} · no test imports this file${hubNote}`
       : `${data.tooltip}${hubNote}`;
   return (
-    <div
-      title={title}
-      style={style}
-      className={cn(
-        "relative rounded-md border bg-card/85 px-2 py-0.5 text-[10px] font-medium backdrop-blur transition-[font-size,box-shadow,border-color] duration-300",
-        touched
-          ? "border-teal-300/80 px-2.5 py-1 font-semibold text-foreground"
-          : data.untested
-            ? "border-amber-400/60 text-foreground/85"
-            : "border-white/10 text-foreground/85",
-        data.isNewest && "animate-touch-pulse",
-      )}
-    >
+    <div title={title} className="relative flex flex-col items-center">
+      {/* Both handles sit at the DOT'S CENTER (not the container edges, which include the
+          label below) so every edge line meets the circle dead-on from any direction. */}
       <Handle
         type="target"
         position={Position.Top}
         isConnectable={false}
         className="!h-0 !w-0 !min-w-0 !border-0 !bg-transparent"
+        style={{ top: r, left: "50%" }}
       />
-      {data.untested && (
-        <span
-          aria-hidden
-          className="absolute -right-1 -top-1 size-1.5 rounded-full bg-amber-400 ring-2 ring-background"
-        />
-      )}
+      <span
+        aria-hidden
+        className={cn("rounded-full", data.isNewest && "animate-touch-pulse")}
+        style={{
+          width: r * 2,
+          height: r * 2,
+          backgroundColor: data.dirColor,
+          boxShadow: touched
+            ? `0 0 ${8 + Math.round(recency * 14)}px ${2 + Math.round(recency * 3)}px rgba(45,212,191,${(0.35 + recency * 0.45).toFixed(2)})`
+            : data.untested
+              ? "0 0 0 2px rgba(251,191,36,0.65)"
+              : "none",
+        }}
+      />
       {touched && (data.count ?? 0) > 0 && (
         <span
           aria-hidden
-          className="absolute -left-1.5 -top-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-teal-400 px-0.5 text-[7px] font-bold text-background ring-1 ring-background"
+          className="absolute -right-2 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-teal-400 px-0.5 text-[8px] font-bold text-background ring-1 ring-background"
         >
           {data.count}
         </span>
       )}
-      {data.lang && (
+      {showLabel && (
         <span
-          aria-hidden
-          title={data.lang}
-          className="absolute -bottom-1 -right-1 size-1.5 rounded-full ring-1 ring-background"
-          style={{ backgroundColor: langColor(data.lang) }}
-        />
+          className={cn(
+            "pointer-events-none mt-1 max-w-44 truncate text-[10px] leading-tight",
+            touched ? "font-semibold text-teal-100" : "text-foreground/75",
+          )}
+        >
+          {data.label}
+        </span>
       )}
-      {data.label}
       <Handle
         type="source"
         position={Position.Bottom}
         isConnectable={false}
         className="!h-0 !w-0 !min-w-0 !border-0 !bg-transparent"
+        style={{ top: r, bottom: "auto", left: "50%" }}
       />
     </div>
   );
@@ -301,7 +305,13 @@ export function FilesMapClient({
   // Run the simulation every load — it's deterministic (seeded from paths), so the picture
   // is stable across reloads, and layout improvements reach existing boards instead of being
   // frozen by stored positions from an older algorithm. Drags still work within a session.
-  const positions = useMemo(() => runForceLayout(files, edgePayload), [files, edgePayload]);
+  // Adaptive grouping: top-level dirs, or one level deeper inside a dominant package
+  // (single-`app/` repos get app/services, app/routers, … instead of one giant blob).
+  const groupKeys = useMemo(() => buildGroupKeys(files.map((f) => f.path)), [files]);
+  const positions = useMemo(
+    () => runForceLayout(files, edgePayload, groupKeys),
+    [files, edgePayload, groupKeys],
+  );
 
   // Test-Coverage Flags: files no test file imports (deterministic, from the import edges).
   const untested = useMemo(
@@ -355,7 +365,7 @@ export function FilesMapClient({
           tooltip: f.path,
           untested: untested.has(f.path),
           inDegree: f.inDegree ?? 0,
-          lang: f.lang ?? null,
+          dirColor: categoryHex(groupKeys.get(f.path) ?? "(root)"),
           touched: !!ti,
           count: ti?.count ?? 0,
           recency: ti?.recency ?? 0,
@@ -375,11 +385,19 @@ export function FilesMapClient({
         // noisy at this density. Arrowheads dropped for the same reason —
         // connectivity matters more than direction at a glance.
         type: "straight",
-        // WHISPER-faint by default — the organic web stays visible as texture, but it can't
-        // clog the labels anymore. Hover/select a file and its edges come up to full strength.
-        style: e.circular
-          ? { stroke: "#f87171", strokeDasharray: "5 3", strokeWidth: 1.5, opacity: 0.5 }
-          : { stroke: "#a1a1aa", strokeWidth: 1, opacity: 0.13 },
+        // NON-INTERACTIVE: an edge passing over a dot used to intercept the pointer when it
+        // brightened, which un-hovered the node, dropped the edge back down, re-hovered the
+        // node… — the blinking glitch. Lines are read-only; interaction lives on the dots.
+        selectable: false,
+        focusable: false,
+        style: {
+          pointerEvents: "none" as const,
+          // VISIBLE but thin — the connections are the point of this canvas. They read
+          // cleanly now that nodes are small dots instead of wide label pills.
+          ...(e.circular
+            ? { stroke: "#f87171", strokeDasharray: "5 3", strokeWidth: 1.5, opacity: 0.6 }
+            : { stroke: "#8b8b94", strokeWidth: 1, opacity: 0.3 }),
+        },
       })),
     [edgePayload],
   );
@@ -401,6 +419,8 @@ export function FilesMapClient({
   // → hydration mismatch. Render the canvas only after mount; the server emits a stable
   // placeholder. Data is still fetched server-side and passed in as props.
   const [mounted, setMounted] = useState(false);
+  // Semantic-zoom level, lifted out of the React Flow context (far → directory summaries).
+  const [lod, setLod] = useState<Lod>("full");
   const rfRef = useRef<ReactFlowInstance | null>(null);
   // Select a file from the summary list + center the canvas on it.
   const selectAndPan = useCallback((path: string) => {
@@ -513,28 +533,31 @@ export function FilesMapClient({
       // canvas isn't a wall of lines.
       else if (editsOnly) on = touchedInfo.has(e.source) && touchedInfo.has(e.target);
       return on
-        ? { ...e, zIndex: 20, style: { ...e.style, opacity: 1, strokeWidth: 2 } }
-        : { ...e, style: { ...e.style, opacity: 0.04 } };
+        ? // No zIndex jump (that re-stacked the svg layer mid-hover and fed the glitch) —
+          // brightness alone separates the focused neighbourhood.
+          { ...e, style: { ...e.style, stroke: "#e4e4e7", opacity: 0.95, strokeWidth: 1.6 } }
+        : { ...e, style: { ...e.style, opacity: 0.05 } };
     });
   }, [edges, focusNodeId, selectedEdgeId, circularOnly, circularEdgeIds, editsOnly, touchedInfo]);
 
-  // Labeled directory containers (the categorization layer) wrapped around each organic
-  // cluster — computed from the LIVE node list so they track drags; label-width estimate
-  // mirrors the pill rendering (≈6px/char + padding).
+  // Directory regions are a FAR-ZOOM aid only: zoomed out, the dots are specks, so each
+  // cluster renders one labeled summary block. At reading zoom the color groups carry the
+  // categorization Obsidian-style — no boxes over the organic web.
   const regions = useMemo(() => {
     const items: RegionInput[] = nodes.map((n) => {
-      const label = (n.data as unknown as FileNodeData).label ?? n.id;
+      const d = n.data as unknown as FileNodeData;
+      const r = dotRadius(d.inDegree ?? 0);
       return {
         id: n.id,
-        group: filesGroupKey(n.id),
+        group: groupKeys.get(n.id) ?? "(root)",
         x: n.position.x,
         y: n.position.y,
-        w: Math.min(240, label.length * 6 + 28),
-        h: 26,
+        w: r * 2,
+        h: r * 2,
       };
     });
-    return computeGroupRegions(items, { pad: 34 });
-  }, [nodes]);
+    return computeGroupRegions(items, { pad: 60 });
+  }, [nodes, groupKeys]);
 
   const circularCount = edgePayload.filter((e) => e.circular).length;
 
@@ -599,8 +622,9 @@ export function FilesMapClient({
         zoomActivationKeyCode={["Meta", "Control"]}
         proOptions={{ hideAttribution: true }}
       >
-        {/* Labeled directory containers around each organic cluster. */}
-        <GroupRegions regions={regions} tone="category" />
+        {/* Far zoom only: one labeled summary block per directory cluster. */}
+        <GroupRegions regions={lod === "far" ? regions : []} tone="category" lod={lod} />
+        <LodReporter onLod={setLod} />
         <Controls
           position="bottom-right"
           className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
