@@ -11,6 +11,13 @@ export type SearchHit = {
   kind: string;
 };
 
+// Spotlight styling shared by every canvas: a search HIT gets a bright accent ring + glow so
+// it clearly reads as "found" (not merely "not dimmed"), and the rest fade hard. The ring is
+// thick + the glow wide so the match still stands out when the board is zoomed out.
+export const SEARCH_HIT_GLOW =
+  "0 0 0 3px var(--accent-2,#ff7a45), 0 0 32px -2px var(--accent-2,#ff7a45)";
+export const SEARCH_DIM_OPACITY = 0.14;
+
 /** True if `q` appears (case-insensitive substring) in any of the provided fields. */
 export function matchesQuery(haystacks: Array<string | null | undefined>, q: string): boolean {
   const needle = q.trim().toLowerCase();

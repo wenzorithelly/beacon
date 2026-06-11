@@ -34,6 +34,7 @@ import {
   fileHaystack,
   matchesQuery,
   searchHits,
+  SEARCH_HIT_GLOW,
   type SearchHit,
 } from "@/lib/canvas-search";
 import { untestedFiles } from "@/lib/test-coverage";
@@ -541,15 +542,22 @@ export function FilesMapClient({
   const effectiveFocusIds = searchMatchIds ?? focusIds;
   const displayNodes = useMemo(() => {
     if (!effectiveFocusIds) return nodes;
-    return nodes.map((n) => ({
-      ...n,
-      style: {
-        ...n.style,
-        opacity: effectiveFocusIds.has(n.id) ? 1 : 0.15,
-        transition: "opacity 120ms",
-      },
-    }));
-  }, [nodes, effectiveFocusIds]);
+    return nodes.map((n) => {
+      const on = effectiveFocusIds.has(n.id);
+      return {
+        ...n,
+        // Search hits get an accent halo so a found file pops, not just "less dimmed".
+        zIndex: on && searchMatchIds ? 10 : n.zIndex,
+        style: {
+          ...n.style,
+          opacity: on ? 1 : 0.15,
+          boxShadow: on && searchMatchIds ? SEARCH_HIT_GLOW : n.style?.boxShadow,
+          borderRadius: on && searchMatchIds ? 9999 : n.style?.borderRadius,
+          transition: "opacity 120ms, box-shadow 120ms",
+        },
+      };
+    });
+  }, [nodes, effectiveFocusIds, searchMatchIds]);
 
   const displayEdges = useMemo(() => {
     // Search spotlight: only edges between two matched files stay bright.

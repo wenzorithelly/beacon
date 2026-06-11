@@ -50,6 +50,8 @@ import {
   matchesQuery,
   roadmapHaystack,
   searchHits,
+  SEARCH_DIM_OPACITY,
+  SEARCH_HIT_GLOW,
   type SearchHit,
 } from "@/lib/canvas-search";
 import {
@@ -545,16 +547,23 @@ export function MapClient({
       // (still below annotation chrome at zIndex 30) so its body isn't covered by them.
       if (expandedIds.has(n.id)) base = { ...base, zIndex: 25 };
       if (!effectiveFocusIds || base.hidden) return base;
+      const on = effectiveFocusIds.has(n.id);
+      // Search hits get an accent ring + a harder fade so a match clearly reads as "found";
+      // click-focus keeps the milder 0.45 fade.
+      const dimmed = searchMatchIds ? SEARCH_DIM_OPACITY : 0.45;
       return {
         ...base,
+        zIndex: on && searchMatchIds ? 24 : base.zIndex,
         style: {
           ...base.style,
-          opacity: effectiveFocusIds.has(n.id) ? 1 : 0.45,
-          transition: "opacity 120ms",
+          opacity: on ? 1 : dimmed,
+          boxShadow: on && searchMatchIds ? SEARCH_HIT_GLOW : base.style?.boxShadow,
+          borderRadius: on && searchMatchIds ? 14 : base.style?.borderRadius,
+          transition: "opacity 120ms, box-shadow 120ms",
         },
       };
     });
-  }, [visibleNodes, effectiveFocusIds, workOnNextId, expandedIds]);
+  }, [visibleNodes, effectiveFocusIds, searchMatchIds, workOnNextId, expandedIds]);
 
   // Group-region containers (Gestalt common region). Roadmap: shown once the board is arranged,
   // labeled by the dimension it was ACTUALLY arranged by (`arrangedBy`) — never a stale selector.
