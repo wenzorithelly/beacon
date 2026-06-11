@@ -12,21 +12,35 @@ export function CanvasPopover({
   title,
   align = "right",
   children,
+  open: openProp,
+  onOpenChange,
 }: {
   trigger: (open: boolean, toggle: () => void) => ReactNode;
   title?: string;
   align?: "left" | "right";
   children: ReactNode;
+  // Optional controlled mode (used by CanvasSearch for type-to-search). Omit both for the
+  // default self-managed behaviour used by the Filters/Legend buttons.
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    if (openProp === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const ref = useRef<HTMLDivElement>(null);
+  // Keep the latest close fn reachable from the window listeners without re-subscribing.
+  const closeRef = useRef<() => void>(() => {});
+  closeRef.current = () => setOpen(false);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      if (!ref.current?.contains(e.target as Node)) closeRef.current();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") closeRef.current();
     };
     // Capture phase: React Flow's d3-zoom calls stopImmediatePropagation() on the board's
     // mousedown during bubbling, so a bubble-phase window listener never sees clicks on the
@@ -41,7 +55,7 @@ export function CanvasPopover({
   }, [open]);
   return (
     <div ref={ref} className="relative">
-      {trigger(open, () => setOpen((o) => !o))}
+      {trigger(open, () => setOpen(!open))}
       {open && (
         <div
           className={cn(
