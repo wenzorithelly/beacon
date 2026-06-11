@@ -1148,6 +1148,9 @@ export function DbMapClient({
           deleteKeyCode={["Backspace", "Delete"]}
           colorMode="dark"
           fitView
+          // Open at readable tables (mid LOD), never on the far-zoom summary blocks — a huge
+          // board gets cropped rather than reduced to specks; panning covers the rest.
+          fitViewOptions={{ padding: 0.15, minZoom: 0.38, maxZoom: 0.9 }}
           minZoom={0.15}
           // Scroll pans the board; hold ⌘/Ctrl while scrolling to zoom (trackpad pinch still zooms).
           panOnScroll

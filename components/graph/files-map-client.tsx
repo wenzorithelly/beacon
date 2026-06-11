@@ -34,7 +34,7 @@ import { type TouchedMap } from "@/lib/touched-files";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
 import { GroupRegions } from "@/components/graph/group-regions";
 import { LodReporter, useZoomLOD } from "@/components/graph/use-zoom-lod";
-import type { Lod } from "@/lib/zoom-lod";
+import { FILES_LOD, type Lod } from "@/lib/zoom-lod";
 import { categoryHex } from "@/lib/category-color";
 import { cn } from "@/lib/utils";
 
@@ -223,7 +223,7 @@ function FileNode({ data }: { data: FileNodeData }) {
   // Signal encodings stay non-color-alone (tooltip + badges carry meaning):
   //   • untested → amber ring around the dot
   //   • touched  → teal glow scaled by recency + edit-count badge + one-shot pulse
-  const lod = useZoomLOD();
+  const lod = useZoomLOD(FILES_LOD);
   const touched = !!data.touched;
   const recency = data.recency ?? 0;
   const inDeg = data.inDegree ?? 0;
@@ -559,6 +559,15 @@ export function FilesMapClient({
     return computeGroupRegions(items, { pad: 60 });
   }, [nodes, groupKeys]);
 
+  // Legend entries: every directory group with its hue and size, biggest first.
+  const legend = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const g of groupKeys.values()) counts.set(g, (counts.get(g) ?? 0) + 1);
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([group, count]) => ({ group, count, color: categoryHex(group) }));
+  }, [groupKeys]);
+
   const circularCount = edgePayload.filter((e) => e.circular).length;
 
   // Detail panel: the selected file's import neighbours (from the live graph edges).
@@ -616,6 +625,9 @@ export function FilesMapClient({
         deleteKeyCode={null}
         colorMode="dark"
         fitView
+        // Land at the colorful dot web, never on the far-zoom summary blocks: the fit can
+        // zoom out to take in the whole graph, but not past the dots' readable range.
+        fitViewOptions={{ padding: 0.1, minZoom: 0.18, maxZoom: 0.9 }}
         minZoom={0.05}
         // Scroll pans the board; hold ⌘/Ctrl while scrolling to zoom (trackpad pinch still zooms).
         panOnScroll
@@ -624,7 +636,7 @@ export function FilesMapClient({
       >
         {/* Far zoom only: one labeled summary block per directory cluster. */}
         <GroupRegions regions={lod === "far" ? regions : []} tone="category" lod={lod} />
-        <LodReporter onLod={setLod} />
+        <LodReporter onLod={setLod} thresholds={FILES_LOD} />
         <Controls
           position="bottom-right"
           className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
@@ -649,6 +661,35 @@ export function FilesMapClient({
               { value: "FILES", label: "Files", href: "/map?view=FILES" },
             ]}
           />
+        </Panel>
+
+        {/* Color legend: which hue is which directory. Click a chip to fly to that cluster. */}
+        <Panel
+          position="top-right"
+          className="glass !mt-14 flex max-w-[300px] flex-wrap items-center justify-end gap-x-2.5 gap-y-1 rounded-xl px-3 py-1.5"
+        >
+          {legend.map((g) => (
+            <button
+              key={g.group}
+              type="button"
+              onClick={() => {
+                const ids = files
+                  .filter((f) => (groupKeys.get(f.path) ?? "(root)") === g.group)
+                  .map((f) => ({ id: f.path }));
+                if (ids.length)
+                  rfRef.current?.fitView({ nodes: ids, duration: 600, padding: 0.3, maxZoom: 1 });
+              }}
+              title={`${g.count} files — click to zoom to ${g.group}`}
+              className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            >
+              <span
+                aria-hidden
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: g.color }}
+              />
+              {g.group}
+            </button>
+          ))}
         </Panel>
 
         <Panel

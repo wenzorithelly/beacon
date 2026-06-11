@@ -1162,6 +1162,9 @@ export function MapClient({
         deleteKeyCode={["Backspace", "Delete"]}
         colorMode="dark"
         fitView
+        // Open at readable cards (mid LOD), never on the far-zoom summary blocks — a huge
+        // board gets cropped rather than reduced to specks; panning covers the rest.
+        fitViewOptions={{ padding: 0.15, minZoom: 0.38, maxZoom: 0.9 }}
         minZoom={0.2}
         // Scroll pans the board (up/down + sideways); hold ⌘/Ctrl while scrolling to zoom — the
         // convention every canvas app uses. Trackpad pinch still zooms.
