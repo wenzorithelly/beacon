@@ -77,10 +77,18 @@ function TypeCell({ c, fkTargets }: { c: DbColumnPayload; fkTargets?: Record<str
 
 // Content-fit card width: column names must NEVER crop. 12px mono ≈ 7.3px/char for the
 // name, 11px mono ≈ 6.7px/char for the type / FK-target cell, ~64px for padding + icons.
-// Clamped to the 320px layout pitch (TABLE_COL_WIDTH) minus a gap so neighbouring layout
-// columns can never overlap — under extreme squeeze the type cell truncates, never the name.
-function contentFitWidth(name: string, columns: DbColumnPayload[], fkTargets?: Record<string, string>): number {
+// Draft rows carry more chrome (PK + FK toggle buttons, delete ×, the fixed 64px type
+// input), so they get a bigger fixed allowance. Clamped to the 320px layout pitch
+// (TABLE_COL_WIDTH) minus a gap so neighbouring layout columns can never overlap — under
+// extreme squeeze the type cell truncates/shrinks, never the name.
+function contentFitWidth(
+  name: string,
+  columns: DbColumnPayload[],
+  fkTargets?: Record<string, string>,
+  draft = false,
+): number {
   const rowPx = (c: DbColumnPayload) => {
+    if (draft) return Math.round(c.name.length * 7.3) + 146;
     const right = fkTargets?.[c.name] ? fkTargets[c.name].length + 2 : c.type.length;
     return Math.round(c.name.length * 7.3 + right * 6.7) + 64;
   };
@@ -119,7 +127,7 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
   const headerPins = (data.pins ?? []).filter((p) => p.column === null);
   const pinsFor = (col: string) => (data.pins ?? []).filter((p) => p.column === col);
   // One width for every zoom variant of this card so edges/regions don't jump between LODs.
-  const cardWidth = contentFitWidth(data.name, draft ? cols : data.columns, data.fkTargets);
+  const cardWidth = contentFitWidth(data.name, draft ? cols : data.columns, data.fkTargets, draft);
   // Shared shell: dark glass card, 12px radius, hairline rows. NO overflow-hidden — the
   // annotation pins ride half-outside the right edge — so the header tints its own top corners.
   const shell = cn(
@@ -321,10 +329,16 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
                 onBlur={() => saveCols(cols)}
                 onKeyDown={stop}
                 placeholder="column"
-                className={cn(noDrag, "min-w-0 flex-1 bg-transparent font-mono outline-none")}
+                // The NAME never shrinks below its content (inputs clip without ellipsis);
+                // the type cell is the one that gives way under pressure.
+                style={{ minWidth: `${Math.max(6, c.name.length + 1)}ch` }}
+                className={cn(noDrag, "flex-1 bg-transparent font-mono outline-none")}
               />
               {data.fkTargets?.[c.name] ? (
-                <span className="w-16 shrink-0 truncate text-right font-mono text-[11px] text-muted-foreground/80">
+                <span
+                  title={`→ ${data.fkTargets[c.name]}`}
+                  className="min-w-0 shrink truncate text-right font-mono text-[11px] text-muted-foreground/80"
+                >
                   &rarr;&nbsp;{data.fkTargets[c.name]}
                 </span>
               ) : (
@@ -334,7 +348,8 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
                   onBlur={() => saveCols(cols)}
                   onKeyDown={stop}
                   placeholder="type"
-                  className={cn(noDrag, "w-16 shrink-0 bg-transparent text-right font-mono text-[11px] text-muted-foreground/80 outline-none")}
+                  title={c.type}
+                  className={cn(noDrag, "w-16 min-w-0 shrink bg-transparent text-right font-mono text-[11px] text-muted-foreground/80 outline-none")}
                 />
               )}
               <button
