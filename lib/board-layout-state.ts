@@ -18,10 +18,10 @@ export type BoardKey = "roadmap" | "architecture" | "db";
 export const BOARD_ALGO_VERSIONS: Record<BoardKey, string> = {
   // grouped-2: aspect-targeted lane columns (wide lanes instead of 4-col towers).
   roadmap: "grouped-2",
-  // arch-layered-2: domain BLOCKS pack across the screen (no vertical band tower).
-  architecture: "arch-layered-2",
-  // db-dock-2: aspect-targeted domain columns + specificity dock tie-break.
-  db: "db-dock-2",
+  // arch-layered-3: band width scales with content (~2:1 wide board overall).
+  architecture: "arch-layered-3",
+  // db-dock-3: square-ish domain blocks + content-scaled band width (roadmap geometry).
+  db: "db-dock-3",
 };
 
 interface BoardEntry {

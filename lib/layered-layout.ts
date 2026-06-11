@@ -131,13 +131,17 @@ export function layeredLayout(
     blocks.push({ d, w: xOff, h: maxRows * ROW_H, local });
   }
 
-  // ── Pack blocks left→right, wrapping into bands (room for the region header in the gaps) ──
+  // ── Pack blocks left→right, wrapping into bands (room for the region header in the gaps).
+  // Band width scales with the content (~2:1 wide board overall) so a big graph fills the
+  // screen horizontally instead of stacking bands into a tower. ──
+  const totalArea = blocks.reduce((s, b) => s + (b.w + BLOCK_GAP_X) * (b.h + BAND_GAP), 0);
+  const bandW = Math.max(MAX_BAND_W, Math.round(Math.sqrt(totalArea * 2.2)));
   const pos = new Map<string, { x: number; y: number }>();
   let blockX = 0;
   let bandTop = 0;
   let bandMaxH = 0;
   for (const b of blocks) {
-    if (blockX > 0 && blockX + b.w > MAX_BAND_W) {
+    if (blockX > 0 && blockX + b.w > bandW) {
       bandTop += bandMaxH + BAND_GAP;
       blockX = 0;
       bandMaxH = 0;

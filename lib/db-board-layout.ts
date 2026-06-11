@@ -140,46 +140,66 @@ export function computeDbBoardLayout(
   const named = domains.filter((d) => d !== "—").sort();
   const domainOrder = domains.includes("—") ? [...named, "—"] : named;
 
+  // Two-phase, same geometry as the roadmap lanes: size each domain block SQUARE-ISH
+  // (masonry into ~√rows columns), then flow the blocks left→right wrapping at a band
+  // width derived from the total content so the WHOLE BOARD comes out ~2× wider than
+  // tall — a 16:9 screen fills horizontally instead of stacking bands into a tower.
+  interface DomainBlock {
+    d: string;
+    w: number;
+    h: number;
+    tableLocal: Map<string, { x: number; y: number }>;
+  }
+  const blocks: DomainBlock[] = [];
+  for (const d of domainOrder) {
+    const members = tables.filter((t) => domainKey(t.domain) === d).sort((a, b) => a.name.localeCompare(b.name));
+    const totalSlotH = members.reduce((sum, t) => sum + slotH(t), 0);
+    const cols = Math.max(
+      1,
+      Math.min(12, members.length, Math.round(Math.sqrt(totalSlotH / TABLE_COL_WIDTH))),
+    );
+    const bottoms = new Array<number>(cols).fill(0);
+    const tableLocal = new Map<string, { x: number; y: number }>();
+    for (const t of members) {
+      let col = 0;
+      for (let i = 1; i < cols; i++) if (bottoms[i] < bottoms[col]) col = i;
+      tableLocal.set(t.id, { x: col * TABLE_COL_WIDTH, y: bottoms[col] });
+      bottoms[col] += slotH(t);
+    }
+    blocks.push({ d, w: cols * TABLE_COL_WIDTH, h: Math.max(...bottoms, 0), tableLocal });
+  }
+
+  // Band width targeting a ~2:1 wide board overall (with a sane floor for small schemas).
+  const totalArea = blocks.reduce((s, b) => s + (b.w + DOMAIN_GAP_X) * (b.h + DOMAIN_GAP_Y), 0);
+  const bandW = Math.max(MAX_BAND_W, Math.round(Math.sqrt(totalArea * 2.2)));
+
   const tablePos = new Map<string, { x: number; y: number }>();
   const epPos = new Map<string, { x: number; y: number }>();
   let blockX = 0;
   let bandTop = 0;
   let bandMaxH = 0;
   let boardBottom = 0;
-  for (const d of domainOrder) {
-    const members = tables.filter((t) => domainKey(t.domain) === d).sort((a, b) => a.name.localeCompare(b.name));
-    // Aspect-targeted column count: pick cols so the block comes out ~2× wider than tall
-    // (screens are wide; the old fixed cap of 4 turned a big domain into a tower the user
-    // had to scroll vertically forever, with acres of horizontal space unused).
-    const totalSlotH = members.reduce((sum, t) => sum + slotH(t), 0);
-    const cols = Math.max(
-      1,
-      Math.min(12, members.length, Math.round(Math.sqrt((1.9 * totalSlotH) / TABLE_COL_WIDTH))),
-    );
-    const blockW = cols * TABLE_COL_WIDTH;
-    if (blockX > 0 && blockX + blockW > MAX_BAND_W) {
+  for (const block of blocks) {
+    if (blockX > 0 && blockX + block.w > bandW) {
       // wrap to a new band
       bandTop += bandMaxH + DOMAIN_GAP_Y;
       blockX = 0;
       bandMaxH = 0;
     }
-    const bottoms = new Array<number>(cols).fill(0);
+    const members = tables.filter((t) => block.tableLocal.has(t.id));
     for (const t of members) {
-      let col = 0;
-      for (let i = 1; i < cols; i++) if (bottoms[i] < bottoms[col]) col = i;
-      const x = blockX + col * TABLE_COL_WIDTH;
-      const y = bandTop + bottoms[col];
+      const p = block.tableLocal.get(t.id)!;
+      const x = blockX + p.x;
+      const y = bandTop + p.y;
       tablePos.set(t.id, { x, y });
       const dock = dockedByTable.get(t.id) ?? [];
       dock.forEach((e, i) => {
         epPos.set(e.id, { x, y: y + estimateTableHeight(t.columnCount) + DOCK_PAD + i * EP_ROW_H });
       });
-      bottoms[col] += slotH(t);
     }
-    const blockH = Math.max(...bottoms, 0);
-    bandMaxH = Math.max(bandMaxH, blockH);
-    boardBottom = Math.max(boardBottom, bandTop + blockH);
-    blockX += blockW + DOMAIN_GAP_X;
+    bandMaxH = Math.max(bandMaxH, block.h);
+    boardBottom = Math.max(boardBottom, bandTop + block.h);
+    blockX += block.w + DOMAIN_GAP_X;
   }
 
   // Unattached strip: a compact grid below everything.

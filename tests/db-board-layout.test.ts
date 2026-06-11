@@ -167,11 +167,25 @@ describe("computeDbBoardLayout", () => {
     const layout = computeDbBoardLayout(many, eps);
     const xs = new Set([...layout.tables.values()].map((p) => p.x));
     expect(xs.size).toBeGreaterThan(4); // wider than the old cap
-    // Wide-screen shape: the block is at least as wide as it is tall.
+    // A single huge domain comes out square-ish (the roadmap-lane shape) — never a tower.
     const positions = many.map((x) => layout.tables.get(x.id)!);
     const w = Math.max(...positions.map((p) => p.x)) + TABLE_COL_WIDTH;
     const h = Math.max(...positions.map((p) => p.y + estimateTableHeight(6)));
-    expect(w).toBeGreaterThanOrEqual(h);
+    expect(w).toBeGreaterThanOrEqual(h * 0.75);
+  });
+
+  it("many domains flow ACROSS into a wide board (roadmap geometry, no band tower)", () => {
+    // The juriscan shape: ~10 domains of mixed size — the old fixed band width wrapped
+    // after ~2 blocks and stacked 5 bands into a tall column.
+    const doms = ["AUTH", "BILLING", "CRAWL", "DOCS", "INFRA", "INTEL", "ORG", "PETITION", "SEARCH", "VERIFY"];
+    const many = doms.flatMap((d, di) =>
+      Array.from({ length: 4 + (di % 5) }, (_, i) => t(`${d}-${i}`, `${d}_tbl_${i}`, d, 6)),
+    );
+    const layout = computeDbBoardLayout(many, []);
+    const ps = many.map((x) => layout.tables.get(x.id)!);
+    const w = Math.max(...ps.map((p) => p.x)) - Math.min(...ps.map((p) => p.x)) + TABLE_COL_WIDTH;
+    const h = Math.max(...ps.map((p) => p.y + estimateTableHeight(6))) - Math.min(...ps.map((p) => p.y));
+    expect(w).toBeGreaterThanOrEqual(h * 1.5); // distinctly wide
   });
 });
 
