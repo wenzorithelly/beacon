@@ -129,13 +129,15 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
           className="group/row relative flex items-center justify-between rounded-t-[11px] px-3 py-2"
           style={{ background: `${color}14` }}
         >
-          <span className="flex items-center gap-1.5 font-mono text-[13px] font-semibold tracking-tight">
+          <span className="flex min-w-0 flex-1 items-center gap-1.5 font-mono text-[13px] font-semibold tracking-tight">
             {data.source === "INTROSPECTION" && (
-              <span title="live — derived from your code" className="inline-block size-1.5 rounded-full bg-emerald-400" />
+              <span title="live — derived from your code" className="inline-block size-1.5 shrink-0 rounded-full bg-emerald-400" />
             )}
-            {data.name}
+            <span className="truncate" title={data.name}>
+              {data.name}
+            </span>
           </span>
-          <span className="flex items-center gap-1.5">
+          <span className="flex shrink-0 items-center gap-1.5">
             {data.source !== "INTROSPECTION" && (
               <span
                 title="planned — not yet detected in code"
