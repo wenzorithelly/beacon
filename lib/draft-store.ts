@@ -9,7 +9,7 @@ import { dataDir } from "@/lib/project";
 import { writeJsonAtomic } from "@/lib/atomic-write";
 import { bumpVersion } from "@/lib/ingest";
 import { accessForMethod } from "@/lib/access";
-import { estimateTableHeight, packTablesMasonry } from "@/lib/table-layout";
+import { computeDbBoardLayout } from "@/lib/db-board-layout";
 import type { DraftGraph } from "@/lib/design";
 import type { DraftDoc, DraftEndpointT, DraftTableT } from "@/components/graph/db-types";
 
@@ -46,18 +46,37 @@ function writeDoc(doc: DraftDoc): void {
  * (default 0 keeps the old behavior for tests and code paths that already pick a position).
  */
 export function graphToDoc(graph: DraftGraph, proposedAt: number, originY = 0): DraftDoc {
+  // Stable ids first so the layout AND the relation/endpoint links all reference the same ones.
   const idByName = new Map<string, string>();
-  // Mirror the persisted /db layout: masonry pack the proposed tables so a tall draft
-  // (10+ columns) doesn't render under its neighbour the moment it shows up on the canvas.
-  const positions = packTablesMasonry(
-    graph.tables.map((t) => ({ key: t.name, columnCount: t.columns.length })),
+  for (const t of graph.tables) idByName.set(t.name, randomUUID());
+  const endpointIds = graph.endpoints.map(() => randomUUID());
+
+  // Use the SAME pure, domain-clustered geometry the live /db board uses (computeDbBoardLayout):
+  // tables group into separated per-domain blocks and each endpoint docks under its primary table.
+  // This keeps the /plan draft's domain regions from overlapping (no "MONITORDATA" colliding label)
+  // and makes the draft read like the eventual board. originY shifts the whole draft below existing
+  // canvas content.
+  const layout = computeDbBoardLayout(
+    graph.tables.map((t) => ({
+      id: idByName.get(t.name)!,
+      name: t.name,
+      domain: t.domain ?? null,
+      columnCount: t.columns.length,
+    })),
+    graph.endpoints.map((e, i) => ({
+      id: endpointIds[i],
+      method: e.method,
+      path: e.path,
+      uses: e.uses.flatMap((u) => {
+        const tableId = idByName.get(u.table);
+        return tableId ? [{ tableId }] : [];
+      }),
+    })),
   );
-  let bottom = 0;
+
   const tables: DraftTableT[] = graph.tables.map((t) => {
-    const id = randomUUID();
-    idByName.set(t.name, id);
-    const p = positions.get(t.name) ?? { x: 0, y: 0 };
-    bottom = Math.max(bottom, p.y + estimateTableHeight(t.columns.length));
+    const id = idByName.get(t.name)!;
+    const p = layout.tables.get(id) ?? { x: 0, y: 0 };
     return {
       id,
       name: t.name,
@@ -92,20 +111,23 @@ export function graphToDoc(graph: DraftGraph, proposedAt: number, originY = 0): 
     ];
   });
 
-  const baseY = originY + bottom + 280;
-  const endpoints: DraftEndpointT[] = graph.endpoints.map((e, i) => ({
-    id: randomUUID(),
-    method: e.method,
-    path: e.path,
-    domain: e.domain ?? null,
-    description: e.description ?? null,
-    x: (i % 3) * 320 + 40,
-    y: baseY + Math.floor(i / 3) * 120,
-    links: e.uses.flatMap((u) => {
-      const tableId = idByName.get(u.table);
-      return tableId ? [{ tableId, access: u.access }] : [];
-    }),
-  }));
+  const endpoints: DraftEndpointT[] = graph.endpoints.map((e, i) => {
+    const id = endpointIds[i];
+    const p = layout.endpoints.get(id) ?? { x: 0, y: 0 };
+    return {
+      id,
+      method: e.method,
+      path: e.path,
+      domain: e.domain ?? null,
+      description: e.description ?? null,
+      x: p.x,
+      y: originY + p.y,
+      links: e.uses.flatMap((u) => {
+        const tableId = idByName.get(u.table);
+        return tableId ? [{ tableId, access: u.access }] : [];
+      }),
+    };
+  });
 
   return { proposedAt, status: "pending", tables, relations, endpoints };
 }
