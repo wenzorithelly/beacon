@@ -31,6 +31,8 @@ import { GlassPanel } from "@/components/ui/glass-panel";
 import { CanvasTabs } from "@/components/graph/canvas-tabs";
 import { untestedFiles } from "@/lib/test-coverage";
 import { type TouchedMap } from "@/lib/touched-files";
+import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
+import { GroupRegions } from "@/components/graph/group-regions";
 import { cn } from "@/lib/utils";
 
 // Files view: the import graph of the repo. One node per source file, one edge
@@ -103,17 +105,44 @@ function seedFor(path: string): { x: number; y: number } {
   return { x: (a - 0.5) * 900, y: (b - 0.5) * 900 };
 }
 
+/** Top-level directory a file belongs to; files at the repo root group together. */
+export const filesGroupKey = (path: string): string =>
+  path.includes("/") ? path.slice(0, path.indexOf("/")) : "(root)";
+
+// Anchor point per directory: biggest folders first, on a wide grid scaled so neighbouring
+// clusters have room to breathe. Deterministic (sorted by size desc, then name).
+function dirAnchors(files: FileGraphFile[]): Map<string, { x: number; y: number }> {
+  const counts = new Map<string, number>();
+  for (const f of files) {
+    const d = filesGroupKey(f.path);
+    counts.set(d, (counts.get(d) ?? 0) + 1);
+  }
+  const dirs = Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const cols = Math.max(1, Math.ceil(Math.sqrt(dirs.length * 2.5))); // wide grid (~2:1)
+  const SPACING_X = 1250;
+  const SPACING_Y = 950;
+  const anchors = new Map<string, { x: number; y: number }>();
+  dirs.forEach(([d], i) => {
+    anchors.set(d, { x: (i % cols) * SPACING_X, y: Math.floor(i / cols) * SPACING_Y });
+  });
+  return anchors;
+}
+
 function runForceLayout(
   files: FileGraphFile[],
   edges: FileGraphEdge[],
 ): Map<string, { x: number; y: number }> {
+  const anchors = dirAnchors(files);
+  const anchorOf = (path: string) => anchors.get(filesGroupKey(path))!;
   const simNodes: SimNode[] = files.map((f) => {
     const label = f.path.includes("/") ? f.path.split("/").pop()! : f.path;
     const seed = seedFor(f.path);
+    const a = anchorOf(f.path);
     return {
       id: f.path,
-      x: seed.x,
-      y: seed.y,
+      // Seed near the directory's anchor so the cluster forms there immediately.
+      x: a.x + seed.x * 0.4,
+      y: a.y + seed.y * 0.4,
       pinned: false,
       radius: collisionRadiusFor(label),
     };
@@ -128,20 +157,23 @@ function runForceLayout(
       "link",
       forceLink<SimNode, { source: string; target: string }>(simLinks)
         .id((n) => n.id)
-        .distance(180)
-        .strength(0.4),
+        .distance(170)
+        // Weak enough that a cross-directory import can't drag a file out of its cluster.
+        .strength(0.15),
     )
     // Stronger repulsion than before — the clogged look came from labels packed so
     // tight the edges between them read as one solid web.
-    .force("charge", forceManyBody<SimNode>().strength(-620).distanceMax(1400))
+    .force("charge", forceManyBody<SimNode>().strength(-520).distanceMax(900))
     // Collision — per-node radius matches the actual label width so wide
     // filenames like `endpoint-reconcile.test.ts` don't visually overlap.
     .force(
       "collide",
       forceCollide<SimNode>().radius((d) => d.radius).strength(1),
     )
-    // Gentle pull to origin so disconnected nodes don't fly off.
-    .force("center", forceCenter(0, 0).strength(0.02))
+    // Directory gravity: every file is pulled toward its folder's anchor, so the
+    // organic shape resolves into one labeled cluster per folder.
+    .force("clusterX", forceX<SimNode>((d) => anchorOf(d.id).x).strength(0.16))
+    .force("clusterY", forceY<SimNode>((d) => anchorOf(d.id).y).strength(0.18))
     .stop();
 
   // Synchronous: tick to convergence. ~500 ticks for a few hundred nodes is
@@ -266,18 +298,10 @@ export function FilesMapClient({
   edges: FileGraphEdge[];
   touched?: TouchedMap;
 }) {
-  // Run the force simulation once whenever the file set changes. Files with
-  // stored positions pin in place; files at (0,0) get positioned around them.
-  // Computed positions are persisted back so the next load skips simulation.
-  const layoutResult = useMemo(() => {
-    const anyUnpositioned = files.some((f) => f.x === 0 && f.y === 0);
-    if (!anyUnpositioned) {
-      const m = new Map<string, { x: number; y: number }>();
-      for (const f of files) m.set(f.path, { x: f.x, y: f.y });
-      return { positions: m, fresh: false };
-    }
-    return { positions: runForceLayout(files, edgePayload), fresh: true };
-  }, [files, edgePayload]);
+  // Run the simulation every load — it's deterministic (seeded from paths), so the picture
+  // is stable across reloads, and layout improvements reach existing boards instead of being
+  // frozen by stored positions from an older algorithm. Drags still work within a session.
+  const positions = useMemo(() => runForceLayout(files, edgePayload), [files, edgePayload]);
 
   // Test-Coverage Flags: files no test file imports (deterministic, from the import edges).
   const untested = useMemo(
@@ -318,7 +342,7 @@ export function FilesMapClient({
 
   const initialNodes = useMemo<Node[]>(() => {
     return files.map((f) => {
-      const pos = layoutResult.positions.get(f.path) ?? { x: f.x, y: f.y };
+      const pos = positions.get(f.path) ?? { x: f.x, y: f.y };
       const slash = f.path.lastIndexOf("/");
       const label = slash >= 0 ? f.path.slice(slash + 1) : f.path;
       const ti = touchedInfo.get(f.path);
@@ -339,28 +363,7 @@ export function FilesMapClient({
         },
       };
     });
-  }, [files, layoutResult, untested, touchedInfo]);
-
-  // Persist freshly-computed positions so the next page load is stable + instant.
-  // Fire-and-forget; failures don't matter because we'll just recompute next time.
-  const persistedRef = useRef(false);
-  useEffect(() => {
-    if (!layoutResult.fresh || persistedRef.current) return;
-    persistedRef.current = true;
-    const updates = files
-      .filter((f) => f.x === 0 && f.y === 0)
-      .map((f) => {
-        const pos = layoutResult.positions.get(f.path);
-        return pos ? { path: f.path, x: pos.x, y: pos.y } : null;
-      })
-      .filter((u): u is { path: string; x: number; y: number } => u !== null);
-    if (!updates.length) return;
-    void fetch("/api/code-graph/position", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ batch: updates }),
-    });
-  }, [layoutResult, files]);
+  }, [files, positions, untested, touchedInfo]);
 
   const initialEdges = useMemo<Edge[]>(
     () =>
@@ -372,9 +375,11 @@ export function FilesMapClient({
         // noisy at this density. Arrowheads dropped for the same reason —
         // connectivity matters more than direction at a glance.
         type: "straight",
+        // WHISPER-faint by default — the organic web stays visible as texture, but it can't
+        // clog the labels anymore. Hover/select a file and its edges come up to full strength.
         style: e.circular
-          ? { stroke: "#f87171", strokeDasharray: "5 3", strokeWidth: 2 }
-          : { stroke: "#a1a1aa", strokeWidth: 1.5, opacity: 0.85 },
+          ? { stroke: "#f87171", strokeDasharray: "5 3", strokeWidth: 1.5, opacity: 0.5 }
+          : { stroke: "#a1a1aa", strokeWidth: 1, opacity: 0.13 },
       })),
     [edgePayload],
   );
@@ -382,6 +387,8 @@ export function FilesMapClient({
   const [nodes, setNodes] = useState(initialNodes);
   const [edges, setEdges] = useState(initialEdges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Hovering a file lights its 1-hop imports without a click (focus+context).
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   // Edge selection focuses just the two endpoints — exclusive with node selection.
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   // "Show only circular" — toggled by clicking the red badge in the top-right.
@@ -459,7 +466,10 @@ export function FilesMapClient({
     return s;
   }, [edgePayload]);
 
-  // Click-to-highlight: edge → focus its two endpoints; node → focus 1-hop
+  // The file whose neighbourhood is in focus: an explicit selection wins, else the hover.
+  const focusNodeId = selectedId ?? hoveredId;
+
+  // Hover/click-to-highlight: edge → focus its two endpoints; node → focus 1-hop
   // neighbours; circular badge → focus every node in a cycle. Fades everything
   // outside the focus set. Matches the pattern used on /map and /db.
   const focusIds = useMemo(() => {
@@ -467,18 +477,18 @@ export function FilesMapClient({
       const e = edges.find((x) => x.id === selectedEdgeId);
       return e ? new Set([e.source, e.target]) : null;
     }
-    if (selectedId) {
-      const s = new Set<string>([selectedId]);
+    if (focusNodeId) {
+      const s = new Set<string>([focusNodeId]);
       for (const e of edgePayload) {
-        if (e.from === selectedId) s.add(e.to);
-        if (e.to === selectedId) s.add(e.from);
+        if (e.from === focusNodeId) s.add(e.to);
+        if (e.to === focusNodeId) s.add(e.from);
       }
       return s;
     }
     if (circularOnly) return circularNodeIds;
     if (editsOnly && hasTouched) return new Set(touchedInfo.keys());
     return null;
-  }, [selectedId, selectedEdgeId, circularOnly, circularNodeIds, edgePayload, edges, editsOnly, hasTouched, touchedInfo]);
+  }, [focusNodeId, selectedEdgeId, circularOnly, circularNodeIds, edgePayload, edges, editsOnly, hasTouched, touchedInfo]);
 
   const displayNodes = useMemo(() => {
     if (!focusIds) return nodes;
@@ -493,20 +503,38 @@ export function FilesMapClient({
   }, [nodes, focusIds]);
 
   const displayEdges = useMemo(() => {
-    if (!selectedId && !selectedEdgeId && !circularOnly && !editsOnly) return edges;
+    if (!focusNodeId && !selectedEdgeId && !circularOnly && !editsOnly) return edges;
     return edges.map((e) => {
       let on = false;
       if (selectedEdgeId) on = e.id === selectedEdgeId;
-      else if (selectedId) on = e.source === selectedId || e.target === selectedId;
+      else if (focusNodeId) on = e.source === focusNodeId || e.target === focusNodeId;
       else if (circularOnly) on = circularEdgeIds.has(e.id);
       // Focus-edits: keep only edges WITHIN the edited set bright; dim the rest so the
       // canvas isn't a wall of lines.
       else if (editsOnly) on = touchedInfo.has(e.source) && touchedInfo.has(e.target);
       return on
         ? { ...e, zIndex: 20, style: { ...e.style, opacity: 1, strokeWidth: 2 } }
-        : { ...e, style: { ...e.style, opacity: 0.05 } };
+        : { ...e, style: { ...e.style, opacity: 0.04 } };
     });
-  }, [edges, selectedId, selectedEdgeId, circularOnly, circularEdgeIds, editsOnly, touchedInfo]);
+  }, [edges, focusNodeId, selectedEdgeId, circularOnly, circularEdgeIds, editsOnly, touchedInfo]);
+
+  // Labeled directory containers (the categorization layer) wrapped around each organic
+  // cluster — computed from the LIVE node list so they track drags; label-width estimate
+  // mirrors the pill rendering (≈6px/char + padding).
+  const regions = useMemo(() => {
+    const items: RegionInput[] = nodes.map((n) => {
+      const label = (n.data as unknown as FileNodeData).label ?? n.id;
+      return {
+        id: n.id,
+        group: filesGroupKey(n.id),
+        x: n.position.x,
+        y: n.position.y,
+        w: Math.min(240, label.length * 6 + 28),
+        h: 26,
+      };
+    });
+    return computeGroupRegions(items, { pad: 34 });
+  }, [nodes]);
 
   const circularCount = edgePayload.filter((e) => e.circular).length;
 
@@ -554,6 +582,8 @@ export function FilesMapClient({
           setSelectedId(null);
           setSelectedEdgeId(null);
         }}
+        onNodeMouseEnter={(_, node) => setHoveredId(node.id)}
+        onNodeMouseLeave={() => setHoveredId(null)}
         onInit={(inst) => {
           rfRef.current = inst;
         }}
@@ -569,6 +599,8 @@ export function FilesMapClient({
         zoomActivationKeyCode={["Meta", "Control"]}
         proOptions={{ hideAttribution: true }}
       >
+        {/* Labeled directory containers around each organic cluster. */}
+        <GroupRegions regions={regions} tone="category" />
         <Controls
           position="bottom-right"
           className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
@@ -589,8 +621,8 @@ export function FilesMapClient({
             tabs={[
               { value: "ROADMAP", label: "Roadmap", href: "/map?view=ROADMAP" },
               { value: "ARCHITECTURE", label: "Architecture", href: "/map?view=ARCHITECTURE" },
-              { value: "FILES", label: "Files", href: "/map?view=FILES" },
               { value: "DATABASE", label: "Database", href: "/map?view=DATABASE" },
+              { value: "FILES", label: "Files", href: "/map?view=FILES" },
             ]}
           />
         </Panel>
