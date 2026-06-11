@@ -63,6 +63,22 @@ export default async function PlanPage({
     const relations: DbRelationPayload[] = [];
     const endpoints: EndpointPayload[] = [];
 
+    // …but the plan-vs-repo diff must still compare against the REAL schema, or a draft of an
+    // existing table reads "new" instead of "modify". Loaded lean, never rendered.
+    const [realTables, realEndpoints] = await Promise.all([
+      db.query.dbTable.findMany({
+        columns: { name: true },
+        with: {
+          columns: { columns: { name: true, type: true, isPk: true, isFk: true, nullable: true } },
+        },
+      }),
+      db.query.endpoint.findMany({ columns: { method: true, path: true } }),
+    ]);
+    const diffBase = {
+      tables: realTables.map((t) => ({ name: t.name, columns: t.columns })),
+      endpoints: realEndpoints.map((e) => ({ method: e.method, path: e.path })),
+    };
+
     // ── /map (ROADMAP) payload ─────────────────────────────────────────────────
     // Draft features the plan proposes — ONLY (no persisted-roadmap fallback, same reasoning
     // as the DB tab above: /plan shows what the plan adds, not what already exists).
@@ -131,7 +147,7 @@ export default async function PlanPage({
 
     return (
       <PlanWorkspace
-        dbProps={{ tables, relations, endpoints, draft, workspaceId }}
+        dbProps={{ tables, relations, endpoints, draft, workspaceId, diffBase }}
         mapProps={{ view: "ROADMAP", nodes: mapNodes, edges: mapEdges }}
         planMarkdown={planMarkdown}
         forceHistory={forceHistory}

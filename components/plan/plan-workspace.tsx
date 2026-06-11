@@ -49,6 +49,12 @@ interface DbProps {
   endpoints: EndpointPayload[];
   draft: DraftDoc | null;
   workspaceId: string;
+  // Live schema the diff overlay compares the draft against (not rendered — /plan shows
+  // only the draft layer, but "new vs modify" must be judged against the real schema).
+  diffBase?: {
+    tables: { name: string; columns: { name: string; type: string; isPk: boolean; isFk: boolean; nullable: boolean }[] }[];
+    endpoints: { method: string; path: string }[];
+  };
 }
 interface MapProps {
   view: "ROADMAP" | "ARCHITECTURE";
@@ -702,6 +708,7 @@ export function PlanWorkspace({
                   endpoints={dbProps.endpoints}
                   draft={dbProps.draft}
                   workspaceId={dbProps.workspaceId}
+                  diffBase={dbProps.diffBase}
                   embedded
                   draftRef={draftRef}
                   onEdit={markBoardEdited}

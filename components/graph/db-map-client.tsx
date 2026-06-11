@@ -161,6 +161,7 @@ export function DbMapClient({
   draft,
   workspaceId,
   embedded = false,
+  diffBase,
   draftRef,
   onEdit,
   controlRef,
@@ -181,6 +182,13 @@ export function DbMapClient({
   // When true (embedded inside /plan), fill the parent box instead of 100vh, and skip the
   // canvas top-center tab strip so it doesn't compete with the outer page's tabs.
   embedded?: boolean;
+  // Diff baseline for the plan-vs-repo overlay. /plan renders ONLY the draft layer (rendered
+  // `tables`/`endpoints` are []), so without this every draft table of an existing table would
+  // read "new". When provided, diffs compare against it instead of the rendered props.
+  diffBase?: {
+    tables: { name: string; columns: { name: string; type: string; isPk: boolean; isFk: boolean; nullable: boolean }[] }[];
+    endpoints: { method: string; path: string }[];
+  };
   // Exposes the live edited DraftDoc to a parent (the /plan workspace) so the Submit
   // Feedback flow can ship the user's current canvas edits back to the agent.
   draftRef?: React.MutableRefObject<DraftDoc | null>;
@@ -387,12 +395,12 @@ export function DbMapClient({
   // /map Database tab stays the committed truth (drafts still show, just without diff coloring).
   const emptyDiff = useMemo(() => new Map<string, NodeDiff>(), []);
   const tableDiffs = useMemo(
-    () => (embedded ? diffDraftTables(tables, draftTables) : emptyDiff),
-    [embedded, tables, draftTables, emptyDiff],
+    () => (embedded ? diffDraftTables(diffBase?.tables ?? tables, draftTables) : emptyDiff),
+    [embedded, diffBase, tables, draftTables, emptyDiff],
   );
   const endpointDiffs = useMemo(
-    () => (embedded ? diffDraftEndpoints(endpoints, draftEndpoints) : emptyDiff),
-    [embedded, endpoints, draftEndpoints, emptyDiff],
+    () => (embedded ? diffDraftEndpoints(diffBase?.endpoints ?? endpoints, draftEndpoints) : emptyDiff),
+    [embedded, diffBase, endpoints, draftEndpoints, emptyDiff],
   );
   const allRelations = useMemo<DbRelationPayload[]>(
     () => [
@@ -567,6 +575,7 @@ export function DbMapClient({
         rev: history.rev,
         diffStatus: tableDiffs.get(t.id)?.status,
         diffChanges: tableDiffs.get(t.id)?.changes,
+        diffColumns: tableDiffs.get(t.id)?.columns,
         fkTargets: fkTargets.get(t.id),
         pins: pinsByTarget.get(t.id),
         onPinClick,

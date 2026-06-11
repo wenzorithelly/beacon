@@ -23,6 +23,8 @@ export type DbTableNodeData = {
   // Plan-vs-Repo diff (draft nodes only): how this proposed table compares to the live schema.
   diffStatus?: DiffStatus;
   diffChanges?: string[];
+  /** Per-column diff (draft nodes only): column name → added | modified, drives row tinting. */
+  diffColumns?: Record<string, "added" | "modified">;
   /** column name → referenced table name, resolved from the FK relations on the board. */
   fkTargets?: Record<string, string>;
   /** Plan-review annotations anchored to this table (column = null → the header). */
@@ -59,14 +61,31 @@ function CommentDot({ onClick, title }: { onClick: () => void; title: string }) 
   );
 }
 
-/** Right-hand cell: the FK's `→ target` when the column references a table, else its type. */
+/** Right-hand cell: the FK's `→ target` when the column references a table, else its type.
+ *  Shrinks/truncates under pressure — the column NAME is the cell that must never crop. */
 function TypeCell({ c, fkTargets }: { c: DbColumnPayload; fkTargets?: Record<string, string> }) {
   const target = fkTargets?.[c.name];
   return (
-    <span className="ml-auto shrink-0 truncate font-mono text-[11px] text-muted-foreground/80">
+    <span
+      title={target ? `→ ${target}` : c.type}
+      className="ml-auto min-w-0 truncate font-mono text-[11px] text-muted-foreground/80"
+    >
       {target ? <>&rarr;&nbsp;{target}</> : c.type}
     </span>
   );
+}
+
+// Content-fit card width: column names must NEVER crop. 12px mono ≈ 7.3px/char for the
+// name, 11px mono ≈ 6.7px/char for the type / FK-target cell, ~64px for padding + icons.
+// Clamped to the 320px layout pitch (TABLE_COL_WIDTH) minus a gap so neighbouring layout
+// columns can never overlap — under extreme squeeze the type cell truncates, never the name.
+function contentFitWidth(name: string, columns: DbColumnPayload[], fkTargets?: Record<string, string>): number {
+  const rowPx = (c: DbColumnPayload) => {
+    const right = fkTargets?.[c.name] ? fkTargets[c.name].length + 2 : c.type.length;
+    return Math.round(c.name.length * 7.3 + right * 6.7) + 64;
+  };
+  const headerPx = Math.round(name.length * 8) + 90; // dot/pill + domain chip allowance
+  return Math.min(312, Math.max(240, headerPx, ...columns.map(rowPx)));
 }
 
 export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
@@ -74,7 +93,7 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
   // Diff accent (draft only): green = new table, amber = modified vs. the live schema, sky = unchanged.
   const accent =
     data.diffStatus === "added" ? "#7bd389" : data.diffStatus === "modified" ? "#ffb86b" : "#4ea1ff";
-  const diffLabel = data.diffStatus === "added" ? "new" : data.diffStatus === "modified" ? "changed" : "draft";
+  const diffLabel = data.diffStatus === "added" ? "new" : data.diffStatus === "modified" ? "modify" : "draft";
   const diffTitle = data.diffChanges?.length ? data.diffChanges.join("\n") : "draft";
   const color = draft ? accent : domainColor(data.domain);
   // Deterministic risk flags from the table's own columns/domain (secrets, auth).
@@ -99,6 +118,8 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
 
   const headerPins = (data.pins ?? []).filter((p) => p.column === null);
   const pinsFor = (col: string) => (data.pins ?? []).filter((p) => p.column === col);
+  // One width for every zoom variant of this card so edges/regions don't jump between LODs.
+  const cardWidth = contentFitWidth(data.name, draft ? cols : data.columns, data.fkTargets);
   // Shared shell: dark glass card, 12px radius, hairline rows. NO overflow-hidden — the
   // annotation pins ride half-outside the right edge — so the header tints its own top corners.
   const shell = cn(
@@ -111,7 +132,10 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
   const lod = useZoomLOD();
   if (lod !== "full") {
     return (
-      <div className={cn(shell, "w-[260px] border-white/10 px-3 py-2.5", lod === "far" && "!opacity-0")}>
+      <div
+        className={cn(shell, "border-white/10 px-3 py-2.5", lod === "far" && "!opacity-0")}
+        style={{ width: cardWidth }}
+      >
         <FourDotHandles />
         <div className="flex items-center gap-2">
           <span className="inline-block size-2 shrink-0 rounded-full" style={{ background: color }} />
@@ -123,7 +147,7 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
 
   if (!draft) {
     return (
-      <div className={cn(shell, "w-[240px]")} style={{ borderColor: `${color}3d` }}>
+      <div className={shell} style={{ width: cardWidth, borderColor: `${color}3d` }}>
         <Handles />
         <div
           className="group/row relative flex items-center justify-between rounded-t-[11px] px-3 py-2"
@@ -173,7 +197,7 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
                 ) : (
                   <span className="size-3 shrink-0" />
                 )}
-                <span className="truncate font-mono">{c.name}</span>
+                <span className="shrink-0 whitespace-nowrap font-mono">{c.name}</span>
                 <TypeCell c={c} fkTargets={data.fkTargets} />
                 {pins.length > 0 ? (
                   <PinRail pins={pins} onPinClick={data.onPinClick} />
@@ -195,7 +219,7 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
 
   // ── Draft: fully editable ──
   return (
-    <div className={cn(shell, "group/card w-[252px]")} style={{ borderColor: `${accent}59` }}>
+    <div className={cn(shell, "group/card")} style={{ width: cardWidth, borderColor: `${accent}59` }}>
       <Handles />
       <div
         className="group/row relative flex items-center gap-1.5 rounded-t-[11px] px-3 py-2"
@@ -253,8 +277,22 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
       <div className="divide-y divide-white/[0.05]">
         {cols.map((c, i) => {
           const pins = pinsFor(c.name);
+          // Row tint mirrors the card accents: green = column being added, amber = column
+          // changed vs. the live schema. Untouched rows keep the plain background.
+          const colDiff = data.diffColumns?.[c.name];
+          const rowTint =
+            colDiff === "added"
+              ? { background: "#7bd38914", boxShadow: "inset 2px 0 0 #7bd389" }
+              : colDiff === "modified"
+                ? { background: "#ffb86b14", boxShadow: "inset 2px 0 0 #ffb86b" }
+                : undefined;
           return (
-            <div key={i} className="group/row relative flex items-center gap-1.5 px-3 py-[5px] text-[12px]">
+            <div
+              key={i}
+              title={colDiff === "added" ? "column being added" : colDiff === "modified" ? "column changed vs. the live schema" : undefined}
+              style={rowTint}
+              className="group/row relative flex items-center gap-1.5 px-3 py-[5px] text-[12px]"
+            >
               <button
                 type="button"
                 onClick={(e) => {
