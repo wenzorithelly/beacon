@@ -66,6 +66,9 @@ export function CanvasSearch({
       title="Search"
       open={open}
       onOpenChange={(o) => (o ? setOpen(true) : close())}
+      // First board click pans/inspects the highlighted matches; a second (within ~1.5s)
+      // dismisses — so you can scroll around to see what matched without losing the search.
+      outsideClicksToClose={2}
       trigger={(open, toggle) => (
         <button
           type="button"

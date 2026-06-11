@@ -14,6 +14,7 @@ export function CanvasPopover({
   children,
   open: openProp,
   onOpenChange,
+  outsideClicksToClose = 1,
 }: {
   trigger: (open: boolean, toggle: () => void) => ReactNode;
   title?: string;
@@ -23,6 +24,10 @@ export function CanvasPopover({
   // default self-managed behaviour used by the Filters/Legend buttons.
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  // How many outside clicks dismiss the popover. Search uses 2 so the FIRST board click can
+  // pan/inspect the highlighted matches without losing the search; a second (within ~1.5s)
+  // closes. Filters/Legend keep the default 1 (immediate close).
+  outsideClicksToClose?: number;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = openProp ?? internalOpen;
@@ -36,11 +41,40 @@ export function CanvasPopover({
   closeRef.current = () => setOpen(false);
   useEffect(() => {
     if (!open) return;
+    // Outside-click dismissal. When >1 clicks are required, count consecutive outside clicks
+    // and only close once the threshold is reached; the count resets after a short idle window
+    // or on any click back inside, so panning the board to inspect matches doesn't close it.
+    let outsideClicks = 0;
+    let resetTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearTimer = () => {
+      if (resetTimer) clearTimeout(resetTimer);
+      resetTimer = null;
+    };
     const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) closeRef.current();
+      const inside = ref.current?.contains(e.target as Node);
+      if (inside) {
+        outsideClicks = 0; // interacting with the popover re-arms the grace click
+        clearTimer();
+        return;
+      }
+      if (outsideClicksToClose <= 1) {
+        closeRef.current();
+        return;
+      }
+      outsideClicks += 1;
+      if (outsideClicks >= outsideClicksToClose) {
+        outsideClicks = 0;
+        clearTimer();
+        closeRef.current();
+      } else {
+        clearTimer();
+        resetTimer = setTimeout(() => {
+          outsideClicks = 0;
+        }, 1500);
+      }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeRef.current();
+      if (e.key === "Escape") closeRef.current(); // Escape always closes immediately
     };
     // Capture phase: React Flow's d3-zoom calls stopImmediatePropagation() on the board's
     // mousedown during bubbling, so a bubble-phase window listener never sees clicks on the
@@ -49,10 +83,11 @@ export function CanvasPopover({
     window.addEventListener("mousedown", onDown, true);
     window.addEventListener("keydown", onKey);
     return () => {
+      clearTimer();
       window.removeEventListener("mousedown", onDown, true);
       window.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [open, outsideClicksToClose]);
   return (
     <div ref={ref} className="relative">
       {trigger(open, () => setOpen(!open))}
