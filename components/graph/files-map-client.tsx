@@ -45,7 +45,7 @@ import { GroupRegions } from "@/components/graph/group-regions";
 import { LayerToggle, layerEmphasisMatch } from "@/components/graph/layer-toggle";
 import { classifyFileLayers } from "@/lib/file-layer";
 import { buildGroupKeys } from "@/lib/file-groups";
-import { LAYER_META, layerStripeCss, type Layer } from "@/lib/layer";
+import { LAYER_COLORS, LAYER_META, layerStripeCss, type Layer } from "@/lib/layer";
 import { LodReporter, useZoomLOD } from "@/components/graph/use-zoom-lod";
 import { FILES_LOD, type Lod } from "@/lib/zoom-lod";
 import { categoryHex } from "@/lib/category-color";
@@ -298,10 +298,11 @@ function FileNode({ data }: { data: FileNodeData }) {
 
 const nodeTypes = { file: FileNode };
 
-// Always-on faint layer tint behind each directory cluster (the architecture-tool "zone"
-// convention): the cluster's dominant layer at ~7% opacity, borderless and label-free so it
-// reads as atmosphere, not a box over the organic web. Far zoom hands over to the opaque
-// labeled GroupRegions summaries.
+// Always-on layer atmosphere behind each directory cluster: a soft radial GLOW in the
+// cluster's dominant layer color, fading to transparent — no edges, no boxes over the
+// organic web (rectangular tints read as UI chrome and overlap badly when clusters
+// interleave). Mixed/shared-dominant clusters get no glow: there's no one side to claim
+// them. Far zoom hands over to the opaque labeled GroupRegions summaries.
 function LayerTintRegions({
   regions,
   dominant,
@@ -313,20 +314,21 @@ function LayerTintRegions({
     <ViewportPortal>
       {regions.map((r) => {
         const layer = dominant.get(r.key);
-        if (!layer) return null;
+        if (!layer || layer === "fullstack") return null;
         return (
           <div
             key={r.key}
-            className="rounded-3xl"
             style={{
               position: "absolute",
-              transform: `translate(${r.x}px, ${r.y}px)`,
-              width: r.w,
-              height: r.h,
+              // Oversize the halo and recenter so the fade extends past the cluster's
+              // bounding box instead of stopping at it.
+              transform: `translate(${r.x - r.w * 0.15}px, ${r.y - r.h * 0.15}px)`,
+              width: r.w * 1.3,
+              height: r.h * 1.3,
               pointerEvents: "none",
               zIndex: 0,
-              background: layerStripeCss(layer),
-              opacity: 0.07,
+              background: `radial-gradient(closest-side, ${LAYER_COLORS[layer]} 0%, transparent 72%)`,
+              opacity: 0.1,
             }}
           />
         );
