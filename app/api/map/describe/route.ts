@@ -1,4 +1,5 @@
 import { describeFeature, describeFeatures, type DescribeFeatureItem } from "@/lib/map-ops";
+import { rootCauseMessage } from "@/lib/root-cause";
 import { runWithWorkspace } from "@/lib/db-drizzle";
 import { writeContextFiles } from "@/lib/context-files";
 import { workspaceIdFromRequest } from "@/lib/workspaces";
@@ -51,8 +52,12 @@ export async function POST(req: Request) {
       return Response.json(result);
     });
   } catch (e) {
-    return new Response(`describe failed: ${e instanceof Error ? e.message : "error"}`, {
-      status: 500,
-    });
+    // Surface the ROOT cause (e.g. "SQLITE_BUSY: database is locked"), never the ORM's
+    // query+params dump — the agent must know what failed, not guess from bound values.
+    const cause = rootCauseMessage(e);
+    const hint = /SQLITE_BUSY|database is locked/i.test(cause)
+      ? " — another Beacon process is holding this workspace's database (often a stale daemon); the request is safe to retry once it's stopped"
+      : "";
+    return new Response(`describe failed: ${cause}${hint}`, { status: 500 });
   }
 }

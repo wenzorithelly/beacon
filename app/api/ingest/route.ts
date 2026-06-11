@@ -1,4 +1,5 @@
 import { ingestSnapshot } from "@/lib/ingest";
+import { rootCauseMessage } from "@/lib/root-cause";
 import { writeContextFiles } from "@/lib/context-files";
 import {
   BEACON_WS_PATH_HEADER,
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
       return Response.json({ ok: true, ...result });
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "error";
-    return new Response(`Invalid snapshot: ${msg}`, { status: 400 });
+    // Root cause, not the ORM's query+params dump — agents act on this text.
+    return new Response(`Ingest failed: ${rootCauseMessage(e)}`, { status: 400 });
   }
 }

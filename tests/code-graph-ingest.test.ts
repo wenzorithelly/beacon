@@ -226,3 +226,25 @@ describe("findCircularEdges", () => {
     expect(findCircularEdges(nodes, edges).size).toBe(0);
   });
 });
+
+describe("ingestCodeGraph — large repos (SQLite variable limit)", () => {
+  // A home-dir / monorepo workspace can hold tens of thousands of files. The stale-file
+  // delete used `NOT IN (?,...one per path)` and the edge insert bound 3 vars per row —
+  // both blow SQLite's variable cap and error on EVERY watcher tick. Must be chunked.
+  it("ingests and prunes a graph with thousands of files without erroring", async () => {
+    const files = Array.from({ length: 1500 }, (_, i) => ({ path: `src/m${i}.ts` }));
+    const edges = Array.from({ length: 1400 }, (_, i) => ({
+      from: `src/m${i}.ts`,
+      to: `src/m${i + 1}.ts`,
+    }));
+    const r1 = await ingestCodeGraph({ files, edges });
+    expect(r1.files).toBe(1500);
+    expect(r1.edges).toBe(1400);
+
+    // Re-ingest with 400 files gone — the stale delete must also survive the cap.
+    const r2 = await ingestCodeGraph({ files: files.slice(0, 1100), edges: edges.slice(0, 1000) });
+    expect(r2.files).toBe(1100);
+    const [{ value: left }] = await db.select({ value: count() }).from(codeFile);
+    expect(left).toBe(1100);
+  });
+});

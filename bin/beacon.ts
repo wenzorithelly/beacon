@@ -269,7 +269,14 @@ function stopDaemon() {
   const info = readJson<{ pid: number }>(SERVER_FILE);
   if (info && isAlive(info.pid)) {
     try {
-      process.kill(info.pid);
+      // The daemon is spawned detached → it leads its own process GROUP. Signal the group:
+      // killing only the leader orphans the next-server child, which keeps holding write
+      // locks on the workspace dbs for hours (agents then see opaque SQLITE_BUSY 500s).
+      try {
+        process.kill(-info.pid);
+      } catch {
+        process.kill(info.pid);
+      }
       console.log(`[beacon] stopped the server (pid ${info.pid}).`);
     } catch {
       console.log("[beacon] could not stop the server.");
