@@ -317,3 +317,9 @@
 .animate-touch-pulse {
   animation: touch-pulse 1.4s ease-out 2;
 }
+
+/* Pending-comment highlight: the selection a reviewer is commenting on stays painted (via the CSS
+   Custom Highlight API) while the composer textarea is focused — see components/plan/annotation-panel. */
+::highlight(beacon-pending) {
+  background-color: color-mix(in oklab, var(--accent-2, #ff7a45) 32%, transparent);
+}

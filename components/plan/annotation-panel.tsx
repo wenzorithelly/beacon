@@ -16,6 +16,15 @@ import {
   type Block,
 } from "@/components/plan/markdown-view";
 
+// The CSS Custom Highlight API paints an arbitrary Range independent of focus/selection, so the
+// selected text stays highlighted while the comment composer (a focused textarea) is open — even
+// when the selection spans inline markdown (`code`, **bold**), which the excerpt-string matcher
+// can't re-locate in the raw markdown. We feature-detect once; older browsers fall back to the
+// `__pending` pseudo-annotation injected into the renderer below.
+const HIGHLIGHT_API =
+  typeof CSS !== "undefined" && "highlights" in CSS && typeof Highlight !== "undefined";
+const PENDING_HL = "beacon-pending";
+
 // Native, inline annotation panel. Select text → small floating popover with two icons:
 //   💬 = comment (text bubble anchored above the highlighted span)
 //   🚫 = mark for deletion (strikethrough on the span; no comment needed)
@@ -87,6 +96,10 @@ export function AnnotationPanel({
   const [submitted, setSubmitted] = useState(false);
   const docRef = useRef<HTMLDivElement | null>(null);
   const globalPopoverRef = useRef<HTMLDivElement | null>(null);
+  // The selection Range captured when the composer opens — painted via the CSS Custom Highlight
+  // API so the selected text stays highlighted while you type (the native selection is cleared
+  // when the textarea takes focus).
+  const pendingRangeRef = useRef<Range | null>(null);
 
   // Hydrate from server — and RE-hydrate whenever the plan's prose changes, i.e. the agent
   // re-presented a revised plan. A new round resets the server's annotation store (see
@@ -195,7 +208,9 @@ export function AnnotationPanel({
       if (ae && /^(TEXTAREA|INPUT)$/.test(ae.tagName)) return;
       if (!isPrintable(e)) return;
       e.preventDefault();
-      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      const range = sel.getRangeAt(0);
+      pendingRangeRef.current = range.cloneRange();
+      const rect = range.getBoundingClientRect();
       setComposer({
         x: rect.right + window.scrollX,
         y: rect.top + window.scrollY,
@@ -208,6 +223,21 @@ export function AnnotationPanel({
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  // Paint the captured selection Range while the composer is open (and clear it on close), so the
+  // text stays highlighted as you type. Decoupled from the excerpt-string matcher, so it works for
+  // selections spanning inline `code` / **bold** that the matcher can't re-locate.
+  useEffect(() => {
+    if (!composer || !HIGHLIGHT_API) return;
+    const range = pendingRangeRef.current;
+    if (!range) return;
+    const reg = (CSS as unknown as { highlights: Map<string, unknown> }).highlights;
+    const HighlightCtor = (globalThis as unknown as { Highlight: new (r: Range) => unknown }).Highlight;
+    reg.set(PENDING_HL, new HighlightCtor(range));
+    return () => {
+      reg.delete(PENDING_HL);
+    };
+  }, [composer]);
 
   // Dismiss the overall-feedback popover on Escape or a click outside it. The pill's toggle
   // button lives in a different component, so it's tagged data-overall-toggle and excluded
@@ -385,11 +415,12 @@ export function AnnotationPanel({
       >
         <RenderedMarkdown
           markdown={markdown}
-          // While the composer is open the native selection is gone (the textarea owns focus),
-          // so the excerpt being commented on rides along as a pending pseudo-annotation —
-          // the text STAYS visibly highlighted until the comment is added or discarded.
+          // While the composer is open the native selection is gone (the textarea owns focus). The
+          // CSS Custom Highlight API keeps the exact Range painted (see the effect above). Only when
+          // that API is unavailable do we fall back to the excerpt pseudo-annotation — which can't
+          // re-locate a selection spanning inline markdown, but is better than nothing on old browsers.
           annotations={
-            composer
+            composer && !HIGHLIGHT_API
               ? [
                   ...annotations,
                   { id: "__pending", excerpt: composer.excerpt, comment: "", kind: "comment" as const },
@@ -415,9 +446,11 @@ export function AnnotationPanel({
         >
           <button
             onClick={() => {
+              const sel = window.getSelection();
+              pendingRangeRef.current = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
               setComposer({ ...popover, seed: "" });
               setPopover(null);
-              window.getSelection()?.removeAllRanges();
+              sel?.removeAllRanges();
             }}
             title="Comment on this text"
             className="rounded p-1 text-sky-300 hover:bg-sky-500/15"
