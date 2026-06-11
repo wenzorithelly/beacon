@@ -106,11 +106,20 @@ export async function buildContext(): Promise<string> {
   return lines.join("\n");
 }
 
-function upsertBlock(file: string, block: string, headerIfNew: string) {
-  const section = `${START}\n${block}\n${END}`;
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+export function upsertBlock(file: string, block: string, headerIfNew: string) {
+  // The generated body must NEVER contain the literal markers: a convention line quoting
+  // them once made the non-greedy replace cut at the EMBEDDED end-marker and leak the
+  // block's tail below the section — one more copy per regeneration. Strip the comment
+  // wrapper from any quoted marker so only the real delimiters exist in the file.
+  const safe = block.replaceAll(START, "`beacon:start`").replaceAll(END, "`beacon:end`");
+  const section = `${START}\n${safe}\n${END}`;
   let content = existsSync(file) ? readFileSync(file, "utf8") : "";
   if (content.includes(START) && content.includes(END)) {
-    content = content.replace(new RegExp(`${START}[\\s\\S]*?${END}`), section);
+    // Greedy first-START → last-END: identical to non-greedy on a healthy file (one block),
+    // and collapses any accumulated duplicated/nested fragments back to a single block.
+    content = content.replace(new RegExp(`${escRe(START)}[\\s\\S]*${escRe(END)}`), () => section);
   } else {
     content = content.trim() ? `${content.trim()}\n\n${section}\n` : `${headerIfNew}\n\n${section}\n`;
   }
