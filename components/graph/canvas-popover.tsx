@@ -28,10 +28,14 @@ export function CanvasPopover({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
-    window.addEventListener("mousedown", onDown);
+    // Capture phase: React Flow's d3-zoom calls stopImmediatePropagation() on the board's
+    // mousedown during bubbling, so a bubble-phase window listener never sees clicks on the
+    // canvas — the popover wouldn't dismiss when you click the board. Capture fires before
+    // React Flow can stop the event.
+    window.addEventListener("mousedown", onDown, true);
     window.addEventListener("keydown", onKey);
     return () => {
-      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mousedown", onDown, true);
       window.removeEventListener("keydown", onKey);
     };
   }, [open]);
