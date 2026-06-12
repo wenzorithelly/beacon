@@ -53,9 +53,9 @@ Beacon is a local visual planning surface for a terminal-side coding agent (Clau
 
 ### Database
 - `Feedback`: id, body, upvotes, downvotes, deleteToken, createdAt
-- `Node`: id, view, kind, cluster, layer, title, status, priority, parentId
+- `Node`: id, title, parentId, x, progress, pinned, createdAt
 - `NodeFile`: id, nodeId, A
-- `ProjectMeta`: id, overview, conventions, hasFrontend
+- `TelemetryMachine`: id, firstSeenAt, lastSeenAt, version, platform, arch, ci, heartbeatCount
 
 ### Endpoints
 - GET /api/board-annotations
