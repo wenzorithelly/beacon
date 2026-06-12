@@ -1,4 +1,4 @@
-.PHONY: install up down build test test-watch lint db-up db-reset studio db-postgres deploy watch dev publish
+.PHONY: install up down build test test-watch lint db-up db-reset studio db-postgres deploy watch dev publish stats
 
 install:    ## install deps
 	bun install
@@ -46,6 +46,13 @@ db-postgres: ## deploy-time: move the Drizzle dialect to postgres for a hosted d
 
 deploy:     ## deploy to Vercel (prod)
 	bunx vercel --prod
+
+stats:      ## telemetry: unique active machines (dau/wau/mau + per-version), from prod
+	@TOKEN=$$(cat ~/.beacon/telemetry-admin-token.txt 2>/dev/null); \
+	  if [ -z "$$TOKEN" ]; then echo "missing ~/.beacon/telemetry-admin-token.txt (the TELEMETRY_ADMIN_TOKEN)"; exit 1; fi; \
+	  curl -sf -H "Authorization: Bearer $$TOKEN" https://www.trybeacon.sh/api/telemetry/stats \
+	  | jq -r '"\n  ◉ Beacon active machines\n  today:  \(.dau)\n  7 days: \(.wau)\n  30 days:\(.mau)\n  CI:     \(.ciMachines)\n\n  by version (30d):", (.byVersion[] | "    \(.version)  \(.machines)"), ""' \
+	  || echo "stats unavailable — check the token and https://www.trybeacon.sh/api/telemetry/stats"
 
 publish:    ## ship edits to the prod default: bump + rebuild + publish to npm, then refresh your global `beacon`
 	@# Bump the version (npm won't republish the same one). No git tag/commit — you control commits.
