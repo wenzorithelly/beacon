@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { decideNav, INITIAL_NAV_STATE, type NavStreamState } from "@/lib/nav-decide";
+import { currentTabWs } from "@/lib/tab-ws";
 
 // Subscribes to the per-workspace sync SSE stream and reacts to each `{ v, nav }` message: a new
 // nav-intent (written by the `beacon` CLI when it reuses this tab instead of opening a new one)
@@ -14,10 +15,7 @@ import { decideNav, INITIAL_NAV_STATE, type NavStreamState } from "@/lib/nav-dec
 export function LiveRefresh() {
   const router = useRouter();
   useEffect(() => {
-    const ws =
-      typeof window !== "undefined"
-        ? new URLSearchParams(window.location.search).get("ws")
-        : null;
+    const ws = currentTabWs();
     const es = new EventSource(ws ? `/api/stream?ws=${encodeURIComponent(ws)}` : "/api/stream");
     let state: NavStreamState = INITIAL_NAV_STATE;
     // Each (re)connection re-primes: the first post-connect message only seeds the trackers, so

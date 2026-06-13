@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { ArrowRight, BookOpen, MessageSquare } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
@@ -7,7 +6,8 @@ import { ContextCard } from "@/components/context-card";
 import { DangerCard } from "@/components/danger-card";
 import { DeleteWorkspaceCard } from "@/components/delete-workspace-card";
 import { PermissionModeCard } from "@/components/permission-mode-card";
-import { activeWorkspace, BEACON_WS_COOKIE, getWorkspace } from "@/lib/workspaces";
+import { activeWorkspace, getWorkspace } from "@/lib/workspaces";
+import { resolveTabWorkspaceId } from "@/lib/request-workspace";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -16,11 +16,16 @@ export const dynamic = "force-dynamic";
 // the cards' own titles (so "Agent behavior" sits above the "Permission mode…" card, etc.).
 const eyebrow = "mb-2 mt-8 text-xs font-semibold uppercase tracking-wider text-muted-foreground";
 
-export default async function SettingsPage() {
-  // The workspace THIS browser is on (cookie pin, validated), else the global active —
-  // same resolution as lib/request-workspace. Drives the delete-workspace card.
-  const cookieId = (await cookies()).get(BEACON_WS_COOKIE)?.value;
-  const ws = (cookieId ? getWorkspace(cookieId) : null) ?? activeWorkspace();
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ws?: string }>;
+}) {
+  // Honor THIS tab's ?ws pin (then cookie, then global active) — same per-tab resolution as /map,
+  // so the delete-workspace card targets the tab's repo, not whatever the shared cookie points at.
+  const sp = await searchParams;
+  const tabWsId = await resolveTabWorkspaceId(sp.ws);
+  const ws = (tabWsId ? getWorkspace(tabWsId) : null) ?? activeWorkspace();
   return (
     <div className="mx-auto w-full max-w-3xl px-6 pb-16 pt-20">
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>

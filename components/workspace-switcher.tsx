@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { FolderGit2 } from "lucide-react";
 import {
   Select,
@@ -11,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { currentTabWs, setTabWs } from "@/lib/tab-ws";
 
 interface Ws {
   id: string;
@@ -35,7 +35,6 @@ function repoLocation(path: string, name: string): string {
 // Nav switcher for the single active workspace. One server, many repos; picking one
 // makes it active for everything (POST /api/workspace), then refreshes the view.
 export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
-  const router = useRouter();
   const [workspaces, setWorkspaces] = useState<Ws[]>([]);
   const [active, setActive] = useState<string | null>(null);
 
@@ -47,7 +46,9 @@ export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
         .then((d) => {
           if (!on || !d) return;
           setWorkspaces(d.workspaces ?? []);
-          setActive(d.active ?? null);
+          // Show THIS tab's workspace (its ?ws pin), falling back to the global active for a
+          // brand-new tab that hasn't been pinned yet.
+          setActive(currentTabWs() ?? d.active ?? null);
         })
         .catch(() => {});
     load();
@@ -67,24 +68,27 @@ export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
 
   async function pick(id: string) {
     setActive(id);
-    // Set the durable per-browser selection cookie up front so the very next request
-    // (router.refresh + any client fetches) is already pinned to this workspace, even
-    // before the POST's Set-Cookie lands. The POST also persists it + heals the db.
-    document.cookie = `beacon_ws=${id}; Path=/; Max-Age=31536000; SameSite=Lax`;
-    // Persist + heal in the background, but NEVER block the switch on it: a slow or hung daemon
-    // must not freeze the dropdown (the bug that showed stale data behind an infinite spinner).
-    // We bound the wait, then refresh regardless — the cookie already pins the right workspace,
-    // so the refresh shows the correct data whether or not the POST has come back.
+    // Pin THIS tab to the picked workspace (per-tab, via ?ws) — NOT the browser-wide cookie that
+    // used to drag every other tab along. Persist to sessionStorage so the pin survives in-tab
+    // navigation that drops the param.
+    setTabWs(id);
+    // Heal/provision the target workspace's db in the background (first switch to a fresh repo),
+    // bounded so a slow/hung daemon never freezes the dropdown. We navigate regardless.
     await Promise.race([
       fetch("/api/workspace", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-beacon-workspace": id },
         body: JSON.stringify({ id }),
         signal: AbortSignal.timeout(8000),
       }).catch(() => {}),
       new Promise((res) => setTimeout(res, 2500)),
     ]);
-    router.refresh();
+    // Full-navigate THIS tab to ?ws=id (preserving other params like view). A full nav re-renders
+    // the RSC AND reconnects the live-refresh SSE stream to the new workspace; other tabs keep
+    // their own ?ws and are untouched.
+    const sp = new URLSearchParams(window.location.search);
+    sp.set("ws", id);
+    window.location.href = `${window.location.pathname}?${sp.toString()}`;
   }
 
   const activeWs = workspaces.find((w) => w.id === active);

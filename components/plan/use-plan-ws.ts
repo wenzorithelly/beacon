@@ -14,13 +14,8 @@ export function currentPlanWs(): string | null {
   return new URLSearchParams(window.location.search).get("ws");
 }
 
-// Spread into a fetch's headers so the request pins to the tab's workspace. The API routes
-// resolve the workspace via workspaceIdFromRequest, which checks `x-beacon-workspace` BEFORE
-// the cookie — so this overrides whatever workspace the shared cookie currently points at.
-// No-op when ws is null (cookie/active fallback).
-export function wsHeaders(ws: string | null): Record<string, string> {
-  return ws ? { "x-beacon-workspace": ws } : {};
-}
+// Re-exported from the shared per-tab util (single implementation, used here + app-wide).
+export { wsHeaders } from "@/lib/tab-ws";
 
 // Build a /plan URL that PRESERVES this tab's `?ws` pin, so in-tab navigations (browse history,
 // back to the current plan) stay on the same repo instead of falling back to the shared cookie.

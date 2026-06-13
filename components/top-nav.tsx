@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { StickyNote } from "lucide-react";
 import { BeaconMark } from "@/components/beacon-mark";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { useNotes } from "@/components/notes/notes-context";
+import { buildTabHref, currentTabWs } from "@/lib/tab-ws";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
@@ -19,6 +21,15 @@ const LINKS = [
 export function TopNav({ repo }: { repo?: string }) {
   const pathname = usePathname();
   const { toggle, open } = useNotes();
+  // Carry this tab's workspace through nav so clicking Plans / Map / Settings keeps the tab
+  // pinned instead of dropping ?ws and falling back to the shared cookie. Read after mount
+  // (window-only) so the initial client render matches SSR (no ?ws), then fills in.
+  const [ws, setWs] = useState<string | null>(null);
+  useEffect(() => {
+    // Deliberate: read the client-only per-tab ws after mount (and on each nav) so links carry it.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWs(currentTabWs());
+  }, [pathname]);
   return (
     <header className="pointer-events-none fixed left-3 top-3 z-30">
       <div className="glass pointer-events-auto flex h-10 items-center gap-1 rounded-full pl-3 pr-1.5">
@@ -38,7 +49,7 @@ export function TopNav({ repo }: { repo?: string }) {
             return (
               <Link
                 key={l.href}
-                href={l.href}
+                href={buildTabHref(l.href, ws)}
                 className={cn(
                   "rounded-full px-3 py-1 text-[13px] tracking-tight transition-colors",
                   active

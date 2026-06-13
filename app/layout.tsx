@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { TopNav } from "@/components/top-nav";
 import { LiveRefresh } from "@/components/live-refresh";
+import { TabWorkspace } from "@/components/tab-workspace";
 import { MainRegion } from "@/components/ai/main-region";
 import { PlanProvider } from "@/components/plan/plan-context";
 import { PlanBar } from "@/components/plan/plan-bar";
@@ -45,6 +46,7 @@ export default function RootLayout({
         ) : (
           <>
             <LiveRefresh />
+            <TabWorkspace />
             <NotesProvider>
               <PlanProvider>
                 <TopNav repo={repoName()} />
