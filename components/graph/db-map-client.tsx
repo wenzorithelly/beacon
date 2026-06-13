@@ -231,9 +231,18 @@ export function DbMapClient({
   boardAnnotations?: BoardAnnotationPayload[];
 }) {
   const router = useRouter();
-  // Endpoints are hidden by default — the schema (tables + FKs) is the primary view; toggle
-  // "endpoints" in Filters to overlay the API surface.
-  const [showEndpoints, setShowEndpoints] = useState(false);
+  // Endpoints are an opt-in overlay on the main /map board — the schema (tables + FKs) is the
+  // primary view; toggle "endpoints" in Filters to overlay the API surface. Two cases start with
+  // them visible instead, so proposed endpoints are never silently hidden:
+  //   • /plan review (embedded): the draft's endpoints ARE part of what the user is approving, so
+  //     show every proposed endpoint up front — even when the plan also has tables.
+  //   • any board with endpoints but NO tables: the board is rendered precisely BECAUSE of those
+  //     endpoints (plan-workspace's dbHasContent counts them); hiding them would leave it blank.
+  const tableCount = tables.length + (draft?.tables.length ?? 0);
+  const endpointCount = endpoints.length + (draft?.endpoints.length ?? 0);
+  const [showEndpoints, setShowEndpoints] = useState(
+    endpointCount > 0 && (embedded || tableCount === 0),
+  );
   const [selected, setSelected] = useState<DbSelection>(null);
   // Edge selection focuses just the two endpoints of the clicked line; exclusive
   // with node selection (clicking either clears the other).
