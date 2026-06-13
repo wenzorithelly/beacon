@@ -110,10 +110,33 @@ export function PlanWorkspace({
     tables: number;
     endpoints: number;
   } | null>(null);
+  // Guards the post-approval auto-nav: a manual button click (or "Done") sets this so the 3s
+  // timer below doesn't override where the user chose to go.
+  const navedRef = useRef(false);
   const doApprove = useCallback(async () => {
     await fetch("/api/plan/approve", { method: "POST", headers: wsHeaders(currentPlanWs()) }).catch(() => {});
     setApprovedSummary({ features: status.features, tables: status.tables, endpoints: status.endpoints });
   }, [status.features, status.tables, status.endpoints]);
+  // After approval, hold the "Plan approved" card for 3s so the user registers what landed, then
+  // auto-navigate to the relevant /map board. A manual button (below) navigates sooner and sets
+  // navedRef so this timer doesn't double-navigate. The side effect lives in an effect (not the
+  // approve handler) so it's cancelled cleanly if the card unmounts first.
+  useEffect(() => {
+    if (!approvedSummary) return;
+    navedRef.current = false;
+    const dest =
+      approvedSummary.features > 0
+        ? "/map?view=ROADMAP"
+        : approvedSummary.tables > 0 || approvedSummary.endpoints > 0
+          ? "/map?view=DATABASE"
+          : "/map?view=ROADMAP";
+    const t = setTimeout(() => {
+      if (navedRef.current) return;
+      navedRef.current = true;
+      router.push(dest);
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [approvedSummary, router]);
   const handleApprove = useCallback(async () => {
     try {
       const r = await fetch("/api/preferences", { cache: "no-store" });
@@ -338,11 +361,15 @@ export function PlanWorkspace({
                 ? "It's committed. Here's where to find it:"
                 : "It's archived to your plan history."}
             </p>
+            <p className="text-xs text-muted-foreground/70">Taking you to the map in 3 seconds…</p>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2">
             {approvedSummary.features > 0 && (
               <button
-                onClick={() => router.push("/map?view=ROADMAP")}
+                onClick={() => {
+                  navedRef.current = true;
+                  router.push("/map?view=ROADMAP");
+                }}
                 className="flex items-center gap-2 rounded-lg border border-white/12 px-3 py-2 text-sm text-foreground transition-colors hover:bg-white/[0.06]"
               >
                 <MapPinned className="size-4 text-sky-300" /> {approvedSummary.features} feature
@@ -351,7 +378,10 @@ export function PlanWorkspace({
             )}
             {(approvedSummary.tables > 0 || approvedSummary.endpoints > 0) && (
               <button
-                onClick={() => router.push("/map?view=DATABASE")}
+                onClick={() => {
+                  navedRef.current = true;
+                  router.push("/map?view=DATABASE");
+                }}
                 className="flex items-center gap-2 rounded-lg border border-white/12 px-3 py-2 text-sm text-foreground transition-colors hover:bg-white/[0.06]"
               >
                 <Database className="size-4 text-violet-300" /> {approvedSummary.tables} table
@@ -362,6 +392,7 @@ export function PlanWorkspace({
           </div>
           <button
             onClick={() => {
+              navedRef.current = true;
               setApprovedSummary(null);
               router.push(planHref({ view: "history" }));
             }}

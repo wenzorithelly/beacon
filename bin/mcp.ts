@@ -24,6 +24,7 @@ import { mentionsDbSchema } from "@/lib/plan-block";
 import { validateProposedFeatures } from "@/lib/feature-rules";
 import { approvedFeaturesContext } from "@/lib/plan-approval-message";
 import type { ApprovedFeature } from "@/lib/plan-verdict";
+import { daemonBaseUrl } from "@/lib/daemon-server";
 import {
   PLAN_POLL_INTERVAL_MS,
   PLAN_TOOL_TIMEOUT_MS,
@@ -45,7 +46,9 @@ import {
 // StdioServerTransport below owns for the MCP protocol).
 await selfHealGlobal();
 
-const BASE = process.env.BEACON_URL || `http://localhost:${process.env.PORT || 4319}`;
+// The daemon's base URL is resolved per call via daemonBaseUrl(): it reads server.json, so this
+// long-lived MCP server follows the daemon's ACTUAL port (which may not be 4319 if that was busy
+// at startup) — and keeps working if the daemon later restarts on a different port.
 
 // The repo this MCP server is serving. The agent CLI spawns `beacon mcp` with the repo as
 // CWD, so the git toplevel (or CWD) identifies it. We pin EVERY request to this repo's
@@ -85,7 +88,7 @@ async function api(path: string, init?: RequestInit): Promise<unknown> {
   // Also send the repo path so the server can self-register us if the id is somehow still unknown
   // (e.g. a freshly-restarted server racing our startup) — a belt-and-suspenders for the line above.
   headers.set(BEACON_WS_PATH_HEADER, WORKSPACE_PATH);
-  const res = await fetch(`${BASE}${path}`, { ...init, headers });
+  const res = await fetch(`${daemonBaseUrl()}${path}`, { ...init, headers });
   const text = await res.text();
   if (!res.ok) throw new Error(`Beacon ${path} -> ${res.status} ${text}`);
   return text ? JSON.parse(text) : null;
@@ -632,7 +635,7 @@ server.registerTool(
     // Make sure the browser shows THIS repo's plan. The ExitPlanMode hook activates the
     // workspace; the MCP path didn't, so a fresh plan stayed invisible until the user
     // switched the dropdown. Activate by id (validated server-side; failures are non-fatal).
-    await fetch(`${BASE}/api/workspace/activate?id=${WORKSPACE_ID}`).catch(() => {});
+    await fetch(`${daemonBaseUrl()}/api/workspace/activate?id=${WORKSPACE_ID}`).catch(() => {});
 
     // Block for the verdict. ONE coherent source now — /api/plan/verdict resolves feedback /
     // approve / discard (whichever the user produced first), so this tool and the ExitPlanMode
@@ -709,7 +712,7 @@ server.registerTool(
     // Push the plan markdown, then make sure the browser shows THIS repo's plan (same as the
     // ExitPlanMode hook / beacon_propose_plan do — the MCP path must activate the workspace).
     await post("/api/plan", { description, markdown });
-    await fetch(`${BASE}/api/workspace/activate?id=${WORKSPACE_ID}`).catch(() => {});
+    await fetch(`${daemonBaseUrl()}/api/workspace/activate?id=${WORKSPACE_ID}`).catch(() => {});
 
     // Block on the single verdict source — same loop as beacon_propose_plan (the verdict persists
     // on disk, so a timeout is resumable by calling again with the same plan).

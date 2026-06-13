@@ -1,30 +1,47 @@
 import { getVersion } from "@/lib/ingest";
 import { runWithWorkspace } from "@/lib/db-drizzle";
-import { workspaceIdFromRequest } from "@/lib/workspaces";
+import { getWorkspace, workspaceIdFromRequest } from "@/lib/workspaces";
+import { recordTabPresence } from "@/lib/tab-presence";
+import { readNavIntent } from "@/lib/nav-intent";
 
 export const dynamic = "force-dynamic";
 
-// Server-Sent Events: emits the sync version whenever it changes (server-side
-// poll feeding a client push). The client refreshes the open map on change.
+// Server-Sent Events: pushes a JSON `{ v, nav }` payload whenever the sync version OR a
+// nav-intent changes. `v` (the SyncState version) drives live-refresh's router.refresh() on
+// every ingest; `nav` carries a "navigate this tab" intent the `beacon` CLI writes when it
+// reuses an already-open tab instead of opening a new one. Each tick ALSO records tab-presence
+// — an open stream IS a live tab — which is exactly what the CLI checks before opening.
 export async function GET(req: Request) {
   const encoder = new TextEncoder();
   let closed = false;
-  // Pin every poll to THIS client's workspace (browser cookie / agent header) so the stream
-  // tracks the open canvas's repo, not the global active one. Captured here and re-applied
-  // per tick — the setTimeout loop outlives the request's async context.
-  const wsId = workspaceIdFromRequest(req);
+  // Pin every tick to THIS tab's workspace. The per-tab `?ws=` param wins (so a tab pinned to
+  // workspace A keeps streaming A even after the browser-wide beacon_ws cookie drifts to B when
+  // another repo is opened); otherwise fall back to the cookie / agent-header resolution.
+  // Captured here and re-applied per tick — the setTimeout loop outlives the request's context.
+  const wsParam = new URL(req.url).searchParams.get("ws");
+  const wsId = wsParam && getWorkspace(wsParam) ? wsParam : workspaceIdFromRequest(req);
 
   const stream = new ReadableStream({
     async start(controller) {
-      let last = -1;
+      let lastV = -1;
+      let lastNavSeq = -1;
       controller.enqueue(encoder.encode("retry: 2000\n\n"));
       const tick = async () => {
         if (closed) return;
         try {
-          const v = await runWithWorkspace(wsId, () => getVersion());
-          if (v !== last) {
-            last = v;
-            controller.enqueue(encoder.encode(`data: ${v}\n\n`));
+          const { v, navSeq, navPath } = await runWithWorkspace(wsId, async () => {
+            recordTabPresence(Date.now());
+            const nav = readNavIntent();
+            return { v: await getVersion(), navSeq: nav?.seq ?? 0, navPath: nav?.path ?? "" };
+          });
+          if (v !== lastV || navSeq !== lastNavSeq) {
+            lastV = v;
+            lastNavSeq = navSeq;
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ v, nav: { seq: navSeq, path: navPath } })}\n\n`,
+              ),
+            );
           }
         } catch {
           // ignore transient DB errors; keep the stream alive

@@ -11,8 +11,10 @@
 import { selfHealGlobal } from "@/lib/global-install";
 import { filesFromToolEvent } from "@/lib/hook-files";
 import { idForPath, repoRootFrom } from "@/lib/workspaces";
+import { daemonBaseUrl } from "@/lib/daemon-server";
 
-const BASE = process.env.BEACON_URL || `http://localhost:${process.env.PORT || 4319}`;
+// Resolved per call from server.json so the hook reaches the daemon on its ACTUAL port (which
+// may not be 4319 if that was busy when it started), not a hardcoded default.
 
 // Every PostToolUse hook firing re-applies the global assets — cheap idempotent
 // file checks that keep Beacon's discoverability healed across sessions even if
@@ -31,7 +33,7 @@ try {
     // background agent) last flipped active. The event carries the session cwd; fall back to
     // this process's cwd (the agent CLI spawns the hook in the repo).
     const wsId = idForPath(repoRootFrom(typeof ev.cwd === "string" ? ev.cwd : undefined));
-    await fetch(`${BASE}/api/map/touch-active`, {
+    await fetch(`${daemonBaseUrl()}/api/map/touch-active`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-beacon-workspace": wsId },
       body: JSON.stringify({ files }),

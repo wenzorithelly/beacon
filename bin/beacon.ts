@@ -164,14 +164,15 @@ async function waitForUrl(url: string, tries = 60): Promise<boolean> {
   return false;
 }
 
-// Start the shared server detached (survives this CLI exiting) and record its pid+port.
-function startDaemon(): { pid: number; port: string } {
+// Start the shared server detached (survives this CLI exiting) and record its pid+port. The
+// port is resolved by the caller (ensureDaemon) so a busy preferred port falls back to a free one.
+function startDaemon(port: string): { pid: number; port: string } {
   mkdirSync(BEACON_HOME, { recursive: true });
   const log = openSync(join(BEACON_HOME, "server.log"), "a");
   // No BEACON_REPO → the server follows the active workspace (multi-workspace mode).
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    PORT,
+    PORT: port,
     BEACON_NO_OPEN: "1",
     BEACON_MIGRATIONS_DIR: join(pkgDir, "drizzle"),
   };
@@ -187,7 +188,7 @@ function startDaemon(): { pid: number; port: string } {
     stdio: ["ignore", log, log],
   });
   child.unref();
-  const info = { pid: child.pid ?? 0, port: PORT };
+  const info = { pid: child.pid ?? 0, port };
   writeFileSync(SERVER_FILE, JSON.stringify(info));
   return info;
 }
@@ -197,11 +198,20 @@ async function ensureDaemon(): Promise<string> {
   if (existing && isAlive(existing.pid) && (await urlOk(`http://localhost:${existing.port}/api/workspace`))) {
     return existing.port;
   }
-  console.log("[beacon] starting the Beacon server…");
-  const { port } = startDaemon();
-  const ready = await waitForUrl(`http://localhost:${port}/api/workspace`);
+  // Pick a free port: if the preferred one (PORT / 4319) is taken by a stray process or another
+  // app, scan upward so launch never wedges on "address in use". The chosen port is recorded in
+  // server.json, which every other client (the MCP server, hooks, `beacon plan`) reads back.
+  const { findAvailablePort } = await import(mod("lib/daemon-port.ts"));
+  const port = String(await findAvailablePort(Number(PORT)));
+  console.log(
+    port === PORT
+      ? "[beacon] starting the Beacon server…"
+      : `[beacon] port ${PORT} is busy — starting the Beacon server on port ${port}…`,
+  );
+  const { port: started } = startDaemon(port);
+  const ready = await waitForUrl(`http://localhost:${started}/api/workspace`);
   if (!ready) console.log("[beacon] (server is taking a while — it may still be compiling)");
-  return port;
+  return started;
 }
 
 function openBrowser(url: string) {
@@ -291,13 +301,37 @@ async function launchPanel() {
   registerWorkspaceExplicit(repo);
   const port = await ensureDaemon();
   void data;
-  const activate = `http://localhost:${port}/api/workspace/activate?id=${id}&redirect=/map`;
+  const base = `http://localhost:${port}`;
+  // Pin the opened tab to THIS repo PER-TAB via `?ws=` (not just the browser-wide cookie) so it
+  // keeps showing this repo even after another `beacon` run opens a different one. The redirect
+  // still goes through activate (sets the cookie + provisions the db) for a freshly-opened tab.
+  const mapPath = `/map?ws=${id}`;
+  const activate = `${base}/api/workspace/activate?id=${id}&redirect=${encodeURIComponent(mapPath)}`;
 
-  console.log(
-    `\n  ◉ Beacon\n  repo:  ${repo}\n  data:  ${data}\n  url:   http://localhost:${port}\n`,
-  );
+  console.log(`\n  ◉ Beacon\n  repo:  ${repo}\n  data:  ${data}\n  url:   ${base}\n`);
   console.log("  (the server keeps running in the background — `beacon stop` to stop it)\n");
-  openBrowser(activate);
+
+  // One tab per workspace: if a Beacon tab is already live for THIS repo, don't open another —
+  // hand it a nav-intent (it picks it up over its SSE stream and navigates to /map) instead of
+  // piling up duplicate tabs on every action. Presence is recorded server-side by the open
+  // tab's stream; pinned to this repo via the x-beacon-workspace header. Unreachable or
+  // never-opened → open a fresh tab as before.
+  const tabLive = await fetch(`${base}/api/tab/presence`, {
+    headers: { "x-beacon-workspace": id },
+  })
+    .then((r) => r.json())
+    .then((p) => !!p?.live)
+    .catch(() => false);
+  if (tabLive) {
+    await fetch(`${base}/api/tab/nav`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-beacon-workspace": id },
+      body: JSON.stringify({ path: mapPath }),
+    }).catch(() => {});
+    console.log("  ↻ reusing your open Beacon tab — switch to your browser.\n");
+  } else {
+    openBrowser(activate);
+  }
 }
 
 // The installed Beacon's own version (pkgDir/package.json), NOT the CWD repo's.

@@ -29,6 +29,7 @@ import { readPreferences } from "@/lib/preferences";
 import { planAllowOutput, type PermissionMode } from "@/lib/permission-modes";
 import { approvedFeaturesContext } from "@/lib/plan-approval-message";
 import type { ApprovedFeature } from "@/lib/plan-verdict";
+import { findAvailablePort } from "@/lib/daemon-port";
 
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BEACON_HOME = process.env.BEACON_HOME || join(homedir(), ".beacon");
@@ -65,10 +66,10 @@ async function waitForUrl(url: string, tries = 60): Promise<boolean> {
   }
   return false;
 }
-function startDaemon(): { pid: number; port: string } {
+function startDaemon(port: string): { pid: number; port: string } {
   mkdirSync(BEACON_HOME, { recursive: true });
   const log = openSync(join(BEACON_HOME, "server.log"), "a");
-  const env: NodeJS.ProcessEnv = { ...process.env, PORT: DEFAULT_PORT, BEACON_NO_OPEN: "1" };
+  const env: NodeJS.ProcessEnv = { ...process.env, PORT: port, BEACON_NO_OPEN: "1" };
   delete env.BEACON_REPO;
   delete env.BEACON_DATA_DIR;
   delete env.DATABASE_URL;
@@ -79,7 +80,7 @@ function startDaemon(): { pid: number; port: string } {
     stdio: ["ignore", log, log],
   });
   child.unref();
-  const info = { pid: child.pid ?? 0, port: DEFAULT_PORT };
+  const info = { pid: child.pid ?? 0, port };
   writeFileSync(SERVER_FILE, JSON.stringify(info));
   return info;
 }
@@ -92,9 +93,12 @@ async function ensureDaemon(): Promise<string> {
   ) {
     return existing.port;
   }
-  const { port } = startDaemon();
-  await waitForUrl(`http://localhost:${port}/api/workspace`);
-  return port;
+  // Preferred port busy (a stray process / another app) → scan upward for a free one so the
+  // hook can still bring the daemon up. The chosen port lands in server.json for every reader.
+  const port = String(await findAvailablePort(Number(DEFAULT_PORT)));
+  const { port: started } = startDaemon(port);
+  await waitForUrl(`http://localhost:${started}/api/workspace`);
+  return started;
 }
 function openBrowser(url: string) {
   if (process.env.BEACON_NO_OPEN) return;

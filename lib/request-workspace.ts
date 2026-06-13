@@ -12,13 +12,18 @@ export async function withBrowserWorkspace<T>(fn: () => Promise<T>): Promise<T> 
   return runWithWorkspace(id && getWorkspace(id) ? id : null, fn);
 }
 
-// Resolve the workspace a /plan render is pinned to. The `?ws=<id>` URL param (opened by the
-// ExitPlanMode hook) wins so the tab is pinned PER-TAB — two concurrent agent plans no longer
-// collide on the single shared cookie, and feedback routes to the repo whose agent is waiting.
-// Falls back to the cookie selection, then the global active workspace. Returns the resolved id
-// (or null) so the caller can hand the SAME id to the client for its fetch headers.
-export async function resolvePlanWorkspaceId(wsParam?: string): Promise<string | null> {
+// Resolve the workspace a TAB render is pinned to. The `?ws=<id>` URL param wins so the tab is
+// pinned PER-TAB — two tabs (even two different repos) no longer collide on the single
+// browser-wide beacon_ws cookie, and a tab keeps showing its repo even after another repo is
+// opened flips that cookie. Falls back to the cookie selection, then the global active workspace
+// (null). Returns the resolved id (or null) so the caller can hand the SAME id to the client for
+// its fetch headers / EventSource `?ws`.
+export async function resolveTabWorkspaceId(wsParam?: string): Promise<string | null> {
   if (wsParam && getWorkspace(wsParam)) return wsParam;
   const cookieId = (await cookies()).get(BEACON_WS_COOKIE)?.value;
   return cookieId && getWorkspace(cookieId) ? cookieId : null;
 }
+
+// /plan opens with `?ws=<id>` from the ExitPlanMode hook and uses the identical per-tab
+// resolution — kept as an alias so existing /plan call sites read intent-first.
+export const resolvePlanWorkspaceId = resolveTabWorkspaceId;

@@ -15,8 +15,8 @@ import { readTouched } from "@/lib/touched-files";
 import { untestedFiles } from "@/lib/test-coverage";
 import { featureSignals } from "@/lib/feature-signals";
 import { pickWorkOnNext } from "@/lib/work-next";
-import { currentWorkspace } from "@/lib/workspaces";
-import { withBrowserWorkspace } from "@/lib/request-workspace";
+import { currentWorkspace, runWithWorkspace } from "@/lib/workspaces";
+import { resolveTabWorkspaceId } from "@/lib/request-workspace";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
 import type {
   DbRelationPayload,
@@ -29,7 +29,7 @@ export const dynamic = "force-dynamic";
 export default async function MapPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; ws?: string }>;
 }) {
   const sp = await searchParams;
   const view =
@@ -41,9 +41,11 @@ export default async function MapPage({
           ? "DATABASE"
           : "ROADMAP";
 
-  // Pin the render to the browser's selected workspace (beacon_ws cookie), not the global
-  // active one — so a background agent activation can't swap the map out from under you.
-  return withBrowserWorkspace(async () => {
+  // Pin the render to THIS tab's workspace: the per-tab `?ws=` param wins (so a /map tab keeps
+  // showing its repo even after opening another repo flips the browser-wide beacon_ws cookie),
+  // then the cookie, then the global active workspace — and a background agent activation can't
+  // swap the map out from under you.
+  return runWithWorkspace(await resolveTabWorkspaceId(sp.ws), async () => {
     // Persistent board annotations (pins + cards on the roadmap/architecture/database boards).
     const boardAnnotations: BoardAnnotationPayload[] = (await listBoardAnnotations()).map((a) => ({
       id: a.id,
