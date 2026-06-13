@@ -37,8 +37,11 @@ export function CanvasPopover({
   };
   const ref = useRef<HTMLDivElement>(null);
   // Keep the latest close fn reachable from the window listeners without re-subscribing.
+  // Assigned in an effect (never during render) so it follows the rules of React.
   const closeRef = useRef<() => void>(() => {});
-  closeRef.current = () => setOpen(false);
+  useEffect(() => {
+    closeRef.current = () => setOpen(false);
+  });
   useEffect(() => {
     if (!open) return;
     // Outside-click dismissal. When >1 clicks are required, count consecutive outside clicks
