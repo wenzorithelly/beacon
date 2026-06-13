@@ -17,7 +17,7 @@
     "dev": "next dev",
     "build": "next build",
     "build:cli": "bun scripts/build-cli.ts",
-    "build:release": "rm -rf .next && next build --webpack && rm -rf .next/cache && bun run build:cli",
+    "build:release": "rm -rf .next && next build --webpack && rm -rf .next/cache .next/dev && find .next -name '*.js.map' -delete && bun run build:cli",
     "prepublishOnly": "bun run build:release",
     "start": "next start",
     "lint": "eslint",
@@ -79,6 +79,11 @@
     "eslint-config-next": "16.2.7",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "postcss": "8.5.15",
+    "@hono/node-server": "1.19.14",
+    "esbuild": "0.28.1"
   },
   "ignoreScripts": [
     "sharp",
