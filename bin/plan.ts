@@ -19,7 +19,7 @@
  */
 import { execSync, spawn } from "node:child_process";
 import { mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir, platform } from "node:os";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
@@ -30,6 +30,7 @@ import { planAllowOutput, type PermissionMode } from "@/lib/permission-modes";
 import { approvedFeaturesContext } from "@/lib/plan-approval-message";
 import type { ApprovedFeature } from "@/lib/plan-verdict";
 import { findAvailablePort } from "@/lib/daemon-port";
+import { openPlanTabIfNone } from "@/lib/plan-open";
 
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BEACON_HOME = process.env.BEACON_HOME || join(homedir(), ".beacon");
@@ -99,15 +100,6 @@ async function ensureDaemon(): Promise<string> {
   const { port: started } = startDaemon(port);
   await waitForUrl(`http://localhost:${started}/api/workspace`);
   return started;
-}
-function openBrowser(url: string) {
-  if (process.env.BEACON_NO_OPEN) return;
-  const opener = platform() === "darwin" ? "open" : platform() === "win32" ? "start" : "xdg-open";
-  try {
-    execSync(`${opener} "${url}"`, { stdio: "ignore" });
-  } catch {
-    /* no opener */
-  }
 }
 function gitToplevel(): string {
   try {
@@ -213,30 +205,11 @@ function emit(out: unknown): never {
     emit(permissionAllow());
   }
 
-  // Open /plan in the browser THROUGH the activate route so this explicit plan present sets
-  // the per-browser `beacon_ws` cookie and switches the view to THIS repo — the one allowed
-  // path that overrides a durable dropdown selection. The PlanWorkspace then picks the new
-  // plan up on its own (PlanProvider polls /api/plan).
-  //
-  // But only when no /plan tab is already live for THIS repo: on a re-present (revision after
-  // feedback) the user is still looking at the tab they opened last round, and it swaps in the
-  // new plan in place — so opening another tab each round is just duplicate-tab noise. Presence
-  // is a heartbeat the open /plan surface writes; pinned to wsId so we check the repo we're
-  // pushing to, not the browser's currently-selected workspace. Unreachable/never-opened → open.
-  const planTabLive = await fetch(`${base}/api/plan/presence`, {
-    headers: { "x-beacon-workspace": wsId },
-  })
-    .then((r) => r.json())
-    .then((p) => !!p?.live)
-    .catch(() => false);
-  if (!planTabLive) {
-    // Redirect to /plan?ws=<id> (through activate, which provisions the db + sets the cookie as a
-    // fallback). The `?ws` param pins THIS tab to THIS repo per-tab, so a second agent presenting
-    // its own plan opens a separate pinned tab instead of hijacking this one via the shared cookie
-    // — and the feedback the user submits here routes back to THIS repo's session.
-    const planPath = encodeURIComponent(`/plan?ws=${wsId}`);
-    openBrowser(`${base}/api/workspace/activate?id=${wsId}&redirect=${planPath}`);
-  }
+  // Open /plan in the browser (through the activate route, which sets the per-browser cookie +
+  // pins the tab to THIS repo via ?ws) — but only when no /plan tab is already live, so a
+  // re-present after feedback swaps in place instead of spawning a duplicate tab. Shared with the
+  // MCP present/propose paths so plan-mode and mode-independent presents behave identically.
+  await openPlanTabIfNone(base, wsId);
 
   // Long-poll the single verdict source — pinned to this repo so reads stay correct even if
   // the user switches the dropdown mid-review. One resolver = no approve/discard ambiguity and

@@ -25,6 +25,7 @@ import { validateProposedFeatures } from "@/lib/feature-rules";
 import { approvedFeaturesContext } from "@/lib/plan-approval-message";
 import type { ApprovedFeature } from "@/lib/plan-verdict";
 import { daemonBaseUrl } from "@/lib/daemon-server";
+import { openPlanTabIfNone } from "@/lib/plan-open";
 import {
   PLAN_POLL_INTERVAL_MS,
   PLAN_TOOL_TIMEOUT_MS,
@@ -632,10 +633,11 @@ server.registerTool(
       return errText(e);
     }
 
-    // Make sure the browser shows THIS repo's plan. The ExitPlanMode hook activates the
-    // workspace; the MCP path didn't, so a fresh plan stayed invisible until the user
-    // switched the dropdown. Activate by id (validated server-side; failures are non-fatal).
+    // Make sure the browser shows THIS repo's plan: activate the workspace (switches an already-
+    // open /plan tab to this repo) AND open a /plan tab if none is live. Without the open, the MCP
+    // path (no plan mode) left a presented plan invisible until the user opened Beacon by hand.
     await fetch(`${daemonBaseUrl()}/api/workspace/activate?id=${WORKSPACE_ID}`).catch(() => {});
+    await openPlanTabIfNone(daemonBaseUrl(), WORKSPACE_ID);
 
     // Block for the verdict. ONE coherent source now — /api/plan/verdict resolves feedback /
     // approve / discard (whichever the user produced first), so this tool and the ExitPlanMode
@@ -710,9 +712,11 @@ server.registerTool(
     const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 
     // Push the plan markdown, then make sure the browser shows THIS repo's plan (same as the
-    // ExitPlanMode hook / beacon_propose_plan do — the MCP path must activate the workspace).
+    // ExitPlanMode hook does): activate the workspace AND open a /plan tab if none is live, so a
+    // plan presented outside plan mode isn't invisible until the user opens Beacon by hand.
     await post("/api/plan", { description, markdown });
     await fetch(`${daemonBaseUrl()}/api/workspace/activate?id=${WORKSPACE_ID}`).catch(() => {});
+    await openPlanTabIfNone(daemonBaseUrl(), WORKSPACE_ID);
 
     // Block on the single verdict source — same loop as beacon_propose_plan (the verdict persists
     // on disk, so a timeout is resumable by calling again with the same plan).
