@@ -14,7 +14,7 @@ import type { BoardAnnotationPayload } from "@/components/graph/annotation-node"
 import { readTouched } from "@/lib/touched-files";
 import { untestedFiles } from "@/lib/test-coverage";
 import { featureSignals } from "@/lib/feature-signals";
-import { pickWorkOnNext } from "@/lib/work-next";
+import { rankWorkOrder } from "@/lib/work-next";
 import { currentWorkspace, runWithWorkspace } from "@/lib/workspaces";
 import { resolveTabWorkspaceId } from "@/lib/request-workspace";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
@@ -245,11 +245,12 @@ export default async function MapPage({
       targetHandle: e.targetHandle,
     }));
 
-    // Deterministically pick the next feature to work on (roadmap only) so the board can mark
-    // it and offer a jump-to. No AI/CLI — pure status/priority/dependency ordering.
-    const workOnNextId =
+    // Deterministically enumerate the next few features to work on (roadmap only) so the board
+    // can number them 1·2·3 and offer a jump-to. No AI/CLI — pure status/priority/dependency
+    // ordering, topologically valid (a dependency never trails the thing that needs it).
+    const workOrder =
       view === "ROADMAP"
-        ? pickWorkOnNext(
+        ? rankWorkOrder(
             payload.map((n) => ({
               id: n.id,
               parentId: n.parentId,
@@ -257,15 +258,16 @@ export default async function MapPage({
               priority: n.priority,
             })),
             edges.map((e) => ({ fromId: e.fromId, toId: e.toId, kind: e.kind })),
+            3,
           )
-        : null;
+        : [];
 
     return (
       <MapClient
         view={view}
         nodes={payload}
         edges={edges}
-        workOnNextId={workOnNextId}
+        workOrder={workOrder}
         boardAnnotations={boardAnnotations}
         initialArrangedBy={initialArrangedBy}
         hasFrontend={hasFrontend}

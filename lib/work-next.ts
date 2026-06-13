@@ -1,13 +1,16 @@
-// "Work on next" — deterministically pick the one feature the user should pick up next, so
-// the board answers "where do I start?" without reading every card. No AI/CLI: pure ordering
-// over the roadmap's own status / priority / dependency data.
+// "Work order" — deterministically enumerate the next few features the user should pick up, so
+// the board answers "where do I start?" (and what comes after) without reading every card. No
+// AI/CLI: pure ordering over the roadmap's own status / priority / dependency data.
 //
-// Rule, over TOP-LEVEL features only:
-//   1. If anything is already IN_PROGRESS, surface that (lowest priority number wins, then the
-//      earliest one in input order) — finish what's started before opening new work.
-//   2. Otherwise the highest-priority (0 = critical first) PENDING feature that is NOT blocked.
-// A feature is blocked when any feature it depends on (DEPENDS edge from→to) is not yet
-// DONE or CANCELLED. Returns the feature id, or null when there's nothing actionable.
+// `rankWorkOrder` returns up to `limit` TOP-LEVEL feature ids as a topologically-valid sequence:
+//   - candidates are PENDING / IN_PROGRESS features (terminal/parked states never get a slot);
+//   - each slot picks the best AVAILABLE candidate — IN_PROGRESS first (you don't re-block work
+//     in flight), then highest-priority (0 = critical) PENDING whose dependencies are all
+//     satisfied, with the earliest in input order breaking ties (caller queries createdAt asc);
+//   - placing a pick marks it satisfied, so it unblocks its dependents for the NEXT slot — the
+//     result is an order you could actually execute (a dependency never trails the thing that
+//     needs it). A dependency is satisfied when the depended-on feature is DONE or CANCELLED.
+// `pickWorkOnNext` is the head of that sequence (or null when nothing is actionable).
 
 export interface WorkNextNode {
   id: string;
@@ -23,37 +26,54 @@ export interface WorkNextEdge {
 }
 
 const SATISFIED = new Set(["DONE", "CANCELLED"]);
+const ELIGIBLE = new Set(["PENDING", "IN_PROGRESS"]);
+
+export function rankWorkOrder(
+  nodes: WorkNextNode[],
+  edges: WorkNextEdge[],
+  limit = 3,
+): string[] {
+  // Actionable top-level features only — sub-tasks and terminal/parked states never get a slot.
+  const pool = nodes.filter((n) => !n.parentId && ELIGIBLE.has(n.status));
+
+  // Ids treated as "done" for dependency purposes: real DONE/CANCELLED to start, then grows as
+  // each pick is placed so its dependents become available for the next slot (topological).
+  const satisfied = new Set(
+    nodes.filter((n) => SATISFIED.has(n.status)).map((n) => n.id),
+  );
+  // IN_PROGRESS is never re-blocked — you keep going on work already in flight.
+  const depsSatisfied = (id: string): boolean =>
+    edges.every(
+      (e) => !(e.kind === "DEPENDS" && e.fromId === id) || satisfied.has(e.toId),
+    );
+
+  const order: string[] = [];
+  const placed = new Set<string>();
+  while (order.length < limit) {
+    const available = pool.filter(
+      (n) =>
+        !placed.has(n.id) && (n.status === "IN_PROGRESS" || depsSatisfied(n.id)),
+    );
+    if (available.length === 0) break; // nothing actionable (or a dependency cycle) → stop
+
+    // Prefer in-progress; among the chosen set, lowest priority number wins (earliest on ties).
+    const inProgress = available.filter((n) => n.status === "IN_PROGRESS");
+    const cands = inProgress.length ? inProgress : available;
+    let best = cands[0];
+    for (const n of cands) {
+      if (n.priority < best.priority) best = n;
+    }
+
+    order.push(best.id);
+    placed.add(best.id);
+    satisfied.add(best.id); // placing it unblocks its dependents for the next slot
+  }
+  return order;
+}
 
 export function pickWorkOnNext(
   nodes: WorkNextNode[],
   edges: WorkNextEdge[],
 ): string | null {
-  const statusById = new Map(nodes.map((n) => [n.id, n.status]));
-
-  const isBlocked = (id: string): boolean =>
-    edges.some(
-      (e) =>
-        e.kind === "DEPENDS" &&
-        e.fromId === id &&
-        !SATISFIED.has(statusById.get(e.toId) ?? ""),
-    );
-
-  // Input order is the tie-breaker ("earliest"); the caller queries by createdAt asc.
-  const topLevel = nodes.filter((n) => !n.parentId);
-  // Lowest priority number wins; on ties the first in input order (only replace on strictly <).
-  const bestByPriority = (cands: WorkNextNode[]): WorkNextNode | null => {
-    let best: WorkNextNode | null = null;
-    for (const n of cands) {
-      if (best === null || n.priority < best.priority) best = n;
-    }
-    return best;
-  };
-
-  const inProgress = bestByPriority(topLevel.filter((n) => n.status === "IN_PROGRESS"));
-  if (inProgress) return inProgress.id;
-
-  const pending = bestByPriority(
-    topLevel.filter((n) => n.status === "PENDING" && !isBlocked(n.id)),
-  );
-  return pending?.id ?? null;
+  return rankWorkOrder(nodes, edges, 1)[0] ?? null;
 }

@@ -55,8 +55,11 @@ export type MapNodeData = {
   isCriterion: boolean;
   isChild: boolean;
   parentId: string | null;
-  // The deterministically-picked "work on next" feature — gets an accent ring + badge.
+  // The deterministically-picked "work on next" feature (#1) — gets an accent ring + badge.
   isNext?: boolean;
+  // 1-based position in the enumerated work order (1·2·3). #1 is `isNext`; #2/#3 get a
+  // subtler ordinal chip so the board reads as a short executable queue.
+  workOrderRank?: number;
   // Deterministic rollup signals for the card badges (untested file count, auth touch).
   signals?: FeatureSignals;
   /** Open bug/investigation flags on this node — renders the bug-count badge. */
@@ -307,6 +310,8 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
         isBug && !draft && "border-rose-400/50 bg-rose-500/[0.05]",
         working && "border-sky-400/60 shadow-[0_0_0_1px_rgba(56,160,255,0.25)]",
         data.isNext && "border-emerald-400/70 shadow-[0_0_0_2px_rgba(52,211,153,0.35)]",
+        // #2/#3 in the work order: a much fainter tint so they read as queued, not focal (#1).
+        data.workOrderRank != null && data.workOrderRank > 1 && "border-emerald-400/25",
         selected && "ring-2 ring-[var(--accent,#f5b942)]",
         cancelled && "opacity-60",
         dimmed && "opacity-70 border-dashed",
@@ -339,6 +344,15 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
       {data.isNext && (
         <div className="mb-1 inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-300">
           work on next
+        </div>
+      )}
+
+      {data.workOrderRank != null && data.workOrderRank > 1 && (
+        <div
+          title={`#${data.workOrderRank} in the work order`}
+          className="mb-1 inline-flex items-center gap-1 rounded bg-white/5 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground"
+        >
+          next · {data.workOrderRank}
         </div>
       )}
 
