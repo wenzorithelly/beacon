@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
 import { ensureBoardArranged } from "@/lib/map-ops";
-import { resolveHasFrontend } from "@/lib/project-meta";
+import { resolveClassificationRoots, resolveHasFrontend } from "@/lib/project-meta";
 import { ensureDbBoardArranged } from "@/lib/board-arrange";
 import { readBoardLayout } from "@/lib/board-layout-state";
 import type { RoadmapGroupBy } from "@/lib/roadmap-layout";
@@ -155,6 +155,7 @@ export default async function MapPage({
           }))}
           touched={readTouched()}
           hasFrontend={await resolveHasFrontend()}
+          classificationRoots={await resolveClassificationRoots()}
         />
       );
     }

@@ -52,6 +52,11 @@ export const initInputSchema = z.object({
   // The agent's explicit answer to "does this repo have a frontend?" — gates the layer
   // requirement + UI. Omitted → unresolved (deterministic code-graph fallback applies).
   hasFrontend: z.boolean().nullish(),
+  // Top-level dirs whose immediate children are the meaningful Files-canvas groups, e.g.
+  // ["frontend","backend/app"]. Where directory grouping STARTS — not every dir. Nullish (not
+  // default-[]) so a /beacon-refresh that DOESN'T re-declare them preserves the prior roots
+  // instead of wiping them — same omit-preserves contract as hasFrontend.
+  classificationRoots: z.array(z.string()).nullish(),
   components: z.array(componentSchema).default([]),
   roadmap: z.array(roadmapItemSchema).default([]),
   // Optional DB extraction in the same call — same shape as the snapshot ingest.
@@ -323,6 +328,7 @@ export async function runInitFromAnalysis(input: unknown): Promise<{
     overview: parsed.overview ?? null,
     conventions: parsed.conventions,
     hasFrontend: parsed.hasFrontend, // undefined/null → leave unresolved
+    classificationRoots: parsed.classificationRoots ?? undefined, // omit/null → keep prior roots
   });
 
   let context: string[] = [];

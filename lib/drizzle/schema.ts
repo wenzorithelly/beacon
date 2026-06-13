@@ -406,6 +406,10 @@ export const projectMeta = sqliteTable("ProjectMeta", {
   // Tri-state: true/false = the agent's explicit answer at init; null = unresolved → fall back
   // to deterministic detection from CodeFile paths (lib/layer.ts detectFrontendFromPaths).
   hasFrontend: integer({ mode: "boolean" }),
+  // JSON-encoded string[] (same list-as-JSON pattern as `conventions`). Top-level dirs whose
+  // immediate children are the meaningful Files-canvas groups, declared by the agent at init,
+  // e.g. ["frontend","backend/app"]. Empty → the canvas falls back to adaptive grouping.
+  classificationRoots: text().default("[]").notNull(),
   updatedAt: integer({ mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date())

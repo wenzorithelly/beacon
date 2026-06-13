@@ -12,16 +12,28 @@ export async function getProjectMeta(prisma: DB = db) {
 }
 
 export async function setProjectMeta(
-  data: { overview?: string | null; conventions?: string[]; hasFrontend?: boolean | null },
+  data: {
+    overview?: string | null;
+    conventions?: string[];
+    hasFrontend?: boolean | null;
+    classificationRoots?: string[];
+  },
   prisma: DB = db,
 ) {
   // Only the explicitly-provided fields are updated (Prisma `update` with `undefined` =
   // leave unchanged). Drizzle drops `undefined` set-values, but rejects a fully-empty set,
   // so fall back to a PK no-op when nothing was provided.
-  const set: { overview?: string | null; conventions?: string; hasFrontend?: boolean | null; id?: string } = {};
+  const set: {
+    overview?: string | null;
+    conventions?: string;
+    hasFrontend?: boolean | null;
+    classificationRoots?: string;
+    id?: string;
+  } = {};
   if (data.overview != null) set.overview = data.overview; // matches Prisma `?? undefined`: null/undefined → unchanged
   if (data.conventions) set.conventions = JSON.stringify(data.conventions);
   if (data.hasFrontend !== undefined) set.hasFrontend = data.hasFrontend;
+  if (data.classificationRoots) set.classificationRoots = JSON.stringify(data.classificationRoots);
   if (Object.keys(set).length === 0) set.id = "singleton";
   const [row] = await prisma
     .insert(projectMeta)
@@ -30,10 +42,24 @@ export async function setProjectMeta(
       overview: data.overview ?? null,
       conventions: JSON.stringify(data.conventions ?? []),
       hasFrontend: data.hasFrontend ?? null,
+      classificationRoots: JSON.stringify(data.classificationRoots ?? []),
     })
     .onConflictDoUpdate({ target: projectMeta.id, set })
     .returning();
   return row;
+}
+
+/** Top-level dirs the agent declared at init as where the Files-canvas grouping starts
+ *  (ProjectMeta.classificationRoots, JSON-encoded). Empty when undeclared — the canvas then
+ *  falls back to adaptive grouping (see lib/file-groups.ts buildGroupKeys). */
+export async function resolveClassificationRoots(prisma: DB = db): Promise<string[]> {
+  const meta = await getProjectMeta(prisma);
+  try {
+    const parsed = JSON.parse(meta.classificationRoots ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((r): r is string => typeof r === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Whether this workspace has a frontend surface — gates the layer (frontend/backend)

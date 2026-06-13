@@ -1,0 +1,1 @@
+ALTER TABLE `ProjectMeta` ADD `classificationRoots` text DEFAULT '[]' NOT NULL;

@@ -342,6 +342,7 @@ export function FilesMapClient({
   edges: edgePayload,
   touched,
   hasFrontend = false,
+  classificationRoots = [],
 }: {
   files: FileGraphFile[];
   edges: FileGraphEdge[];
@@ -349,13 +350,20 @@ export function FilesMapClient({
   /** Gates every layer visual (rings, zone tints, the FE/BE/FS toggle) — a pure-backend
    *  repo renders the canvas exactly as before. */
   hasFrontend?: boolean;
+  /** Top-level dirs (declared at beacon-init, ProjectMeta.classificationRoots) under which
+   *  files group one level deeper — keeps a minority `frontend` from collapsing into one
+   *  flat blob. Empty → adaptive grouping. */
+  classificationRoots?: string[];
 }) {
   // Run the simulation every load — it's deterministic (seeded from paths), so the picture
   // is stable across reloads, and layout improvements reach existing boards instead of being
   // frozen by stored positions from an older algorithm. Drags still work within a session.
   // Adaptive grouping: top-level dirs, or one level deeper inside a dominant package
   // (single-`app/` repos get app/services, app/routers, … instead of one giant blob).
-  const groupKeys = useMemo(() => buildGroupKeys(files.map((f) => f.path)), [files]);
+  const groupKeys = useMemo(
+    () => buildGroupKeys(files.map((f) => f.path), classificationRoots),
+    [files, classificationRoots],
+  );
   const positions = useMemo(
     () => runForceLayout(files, edgePayload, groupKeys),
     [files, edgePayload, groupKeys],

@@ -82,3 +82,69 @@ describe("buildGroupKeys", () => {
     expect(g.get("app/main.py")).toBe("app");
   });
 });
+
+describe("buildGroupKeys with classification roots", () => {
+  it("groups one level below a declared root even when that side is the minority", () => {
+    // The screenshot bug: a small frontend collapses to one flat 'frontend' group because the
+    // dominant backend owns the global threshold. Declaring 'frontend' as a root splits it.
+    const paths = [
+      ...expand("backend/app/services", Array.from({ length: 12 }, (_, i) => `s${i}.py`)),
+      ...expand("backend/app/api", Array.from({ length: 12 }, (_, i) => `a${i}.py`)),
+      ...expand("frontend/components", ["a.tsx", "b.tsx"]),
+      ...expand("frontend/app", ["page.tsx"]),
+    ];
+    const g = buildGroupKeys(paths, ["frontend"]);
+    expect(g.get("frontend/components/a.tsx")).toBe("frontend/components");
+    expect(g.get("frontend/app/page.tsx")).toBe("frontend/app");
+    // Backend is unrooted here, so it keeps the adaptive deep grouping.
+    expect(g.get("backend/app/services/s0.py")).toBe("backend/app/services");
+  });
+
+  it("uses the longest matching root (a deeper root wins)", () => {
+    const paths = [
+      ...expand("frontend/components/ui", ["card.tsx", "button.tsx"]),
+      ...expand("frontend/app", ["page.tsx"]),
+    ];
+    const g = buildGroupKeys(paths, ["frontend", "frontend/components"]);
+    expect(g.get("frontend/components/ui/card.tsx")).toBe("frontend/components/ui");
+    expect(g.get("frontend/app/page.tsx")).toBe("frontend/app");
+  });
+
+  it("keeps a file directly under a root grouped at the root", () => {
+    const g = buildGroupKeys(
+      ["frontend/index.ts", ...expand("frontend/components", ["a.tsx"])],
+      ["frontend"],
+    );
+    expect(g.get("frontend/index.ts")).toBe("frontend");
+    expect(g.get("frontend/components/a.tsx")).toBe("frontend/components");
+  });
+
+  it("normalizes leading/trailing slashes in roots", () => {
+    const g = buildGroupKeys(expand("frontend/app", ["page.tsx"]), ["/frontend/"]);
+    expect(g.get("frontend/app/page.tsx")).toBe("frontend/app");
+  });
+
+  it("classifies files outside every declared root with the adaptive fallback", () => {
+    const paths = [
+      ...expand("frontend/app", ["page.tsx"]),
+      ...expand("scripts", ["x.ts", "y.ts"]),
+      "README.md",
+    ];
+    const g = buildGroupKeys(paths, ["frontend"]);
+    expect(g.get("frontend/app/page.tsx")).toBe("frontend/app");
+    expect(g.get("scripts/x.ts")).toBe("scripts");
+    expect(g.get("README.md")).toBe("(root)");
+  });
+
+  it("is unchanged from the adaptive behavior when roots are empty/undefined", () => {
+    const paths = [
+      ...expand("backend/app/services", Array.from({ length: 12 }, (_, i) => `s${i}.py`)),
+      ...expand("frontend/src/app", ["page.tsx", "layout.tsx"]),
+    ];
+    const adaptive = buildGroupKeys(paths);
+    const empty = buildGroupKeys(paths, []);
+    for (const p of paths) expect(empty.get(p)).toBe(adaptive.get(p));
+    // Without a declared root the minority frontend still collapses (the original behavior).
+    expect(adaptive.get("frontend/src/app/page.tsx")).toBe("frontend");
+  });
+});

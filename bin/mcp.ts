@@ -302,6 +302,12 @@ server.registerTool(
         .describe(
           "Whether this repo has a frontend surface (UI code) — you just read the repo, so you know. Gates the per-item `layer` requirement + the layer UI on the boards. Set it explicitly (true or false); omitting leaves Beacon to detect it from the code graph.",
         ),
+      classificationRoots: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Top-level dirs whose immediate children are the meaningful groups on the Files canvas — e.g. ['frontend','backend/app']. The canvas groups files ONE level below each (so 'frontend' → 'frontend/components', 'frontend/app', …). Pick the dir sitting directly ABOVE the real package dirs (use 'frontend/src' if there's a src/ wrapper). Not every dir — just where grouping should start. Omit for a simple single-root repo (the canvas auto-groups).",
+        ),
       components: z
         .array(
           z.object({

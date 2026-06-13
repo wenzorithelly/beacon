@@ -7,7 +7,13 @@ process.env.BEACON_DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-has-frontend-")
 
 import { db } from "@/lib/db";
 import { codeFile, projectMeta } from "@/lib/drizzle/schema";
-import { getProjectMeta, resolveHasFrontend, setProjectMeta } from "@/lib/project-meta";
+import { initInputSchema } from "@/lib/init";
+import {
+  getProjectMeta,
+  resolveClassificationRoots,
+  resolveHasFrontend,
+  setProjectMeta,
+} from "@/lib/project-meta";
 import { resetDb } from "./helpers";
 
 beforeEach(async () => {
@@ -54,5 +60,31 @@ describe("resolveHasFrontend", () => {
 
   it("returns false with no meta row and no code files", async () => {
     expect(await resolveHasFrontend()).toBe(false);
+  });
+});
+
+describe("classificationRoots", () => {
+  it("defaults to an empty list when unset", async () => {
+    expect(await resolveClassificationRoots()).toEqual([]);
+    expect((await getProjectMeta()).classificationRoots).toBe("[]");
+  });
+
+  it("persists and reads back the declared roots", async () => {
+    await setProjectMeta({ classificationRoots: ["frontend", "backend/app"] });
+    expect(await resolveClassificationRoots()).toEqual(["frontend", "backend/app"]);
+  });
+
+  it("leaves the roots unchanged when a later call omits them", async () => {
+    await setProjectMeta({ classificationRoots: ["frontend"] });
+    await setProjectMeta({ overview: "x" });
+    expect(await resolveClassificationRoots()).toEqual(["frontend"]);
+  });
+
+  it("init/refresh schema omits roots as undefined so a refresh that doesn't re-declare preserves them", () => {
+    // default-[] would be truthy and overwrite prior roots on every refresh — nullish avoids that.
+    expect(initInputSchema.parse({}).classificationRoots).toBeUndefined();
+    expect(initInputSchema.parse({ classificationRoots: ["frontend"] }).classificationRoots).toEqual([
+      "frontend",
+    ]);
   });
 });
