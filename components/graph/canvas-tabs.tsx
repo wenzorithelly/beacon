@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Database, FolderTree, MapPinned, Network } from "lucide-react";
 import type { ComponentType } from "react";
+import { currentTabWs } from "@/lib/tab-ws";
 import { cn } from "@/lib/utils";
 
 // Top-center canvas tabs shared by /map's four views. The strip's container is a glass
@@ -26,6 +28,17 @@ const ICON_BY_VALUE: Record<string, ComponentType<{ className?: string }>> = {
 };
 
 export function CanvasTabs({ tabs, active }: { tabs: CanvasTab[]; active: string }) {
+  // Carry this tab's workspace through the view switch (the hrefs arrive as /map?view=X with no
+  // ?ws) so clicking Roadmap/Architecture/Database/Files keeps the tab pinned to its repo instead
+  // of dropping the pin and falling back to the shared cookie. Read after mount (window-only) so
+  // the initial client render matches SSR.
+  const [ws, setWs] = useState<string | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWs(currentTabWs());
+  }, []);
+  const hrefFor = (href: string) =>
+    ws ? `${href}${href.includes("?") ? "&" : "?"}ws=${ws}` : href;
   return (
     <div className="flex items-center gap-0.5">
       {tabs.map((t) => {
@@ -34,7 +47,7 @@ export function CanvasTabs({ tabs, active }: { tabs: CanvasTab[]; active: string
         return (
           <Link
             key={t.value}
-            href={t.href}
+            href={hrefFor(t.href)}
             className={cn(
               "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium tracking-tight transition-colors",
               on

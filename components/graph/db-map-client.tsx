@@ -1474,6 +1474,18 @@ export function DbMapClient({
             >
               <ul className="space-y-1.5 text-[10.5px] text-muted-foreground">
                 <li className="flex items-center gap-2">
+                  <span className="inline-block rounded border border-white/15 bg-white/[0.06] px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-foreground/80">
+                    table
+                  </span>
+                  <span>a database table · its columns</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="inline-block rounded border border-white/15 bg-white/[0.06] px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-foreground/80">
+                    endpoint
+                  </span>
+                  <span>an API route · reads / writes tables</span>
+                </li>
+                <li className="flex items-center gap-2">
                   <span
                     aria-hidden
                     className="inline-block h-px w-6 bg-[#6b6b6b]"

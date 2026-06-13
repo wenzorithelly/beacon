@@ -60,7 +60,7 @@ import {
   PopoverSection,
 } from "@/components/graph/canvas-popover";
 import { ARCH_STATUSES, ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
-import { normalizeLayer, type Layer } from "@/lib/layer";
+import { layerStripeCss, normalizeLayer, type Layer } from "@/lib/layer";
 import { LayerToggle, layerEmphasisMatch } from "@/components/graph/layer-toggle";
 import { layoutRoadmap, type RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { layeredLayout } from "@/lib/layered-layout";
@@ -175,7 +175,7 @@ export function MapClient({
   view,
   nodes: nodePayload,
   edges: edgePayload,
-  workOnNextId = null,
+  workOrder = [],
   embedded = false,
   commentsContent,
   commentsCount = 0,
@@ -193,9 +193,9 @@ export function MapClient({
   view: "ROADMAP" | "ARCHITECTURE";
   nodes: MapNodePayload[];
   edges: MapEdgePayload[];
-  // Deterministically-picked feature to work on next (roadmap only). Drives the card marker
-  // and the "Work on next" jump button.
-  workOnNextId?: string | null;
+  // Deterministically-enumerated work order (roadmap only): top-N feature ids, #1 first. Drives
+  // the per-card ordinal markers (1·2·3) and the "Work on next" jump button (targets #1).
+  workOrder?: string[];
   // When true (embedded inside /plan), fill the parent box instead of 100vh, and skip the
   // canvas top-center tab strip (the outer page already has its own tabs).
   embedded?: boolean;
@@ -230,6 +230,16 @@ export function MapClient({
   // field in the edit dialog, and the "Layer" Group-by option.
   hasFrontend?: boolean;
 }) {
+  // 1-based work-order rank per feature id (#1, #2, …); #1 also drives the jump button.
+  const workOrderKey = workOrder.join(",");
+  const workOrderRank = useMemo(() => {
+    const m = new Map<string, number>();
+    workOrder.forEach((id, i) => m.set(id, i + 1));
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workOrderKey]);
+  const workOnNextId = workOrder[0] ?? null;
+
   const initialNodes = useMemo(() => buildNodes(nodePayload), [nodePayload]);
   const initialEdges = useMemo(
     () => buildEdges(nodePayload, edgePayload),
@@ -561,11 +571,12 @@ export function MapClient({
 
   const displayNodes = useMemo(() => {
     return visibleNodes.map((n) => {
-      // Mark the "work on next" card so NodeCard can render its accent ring + badge.
-      let base =
-        workOnNextId && n.id === workOnNextId
-          ? { ...n, data: { ...n.data, isNext: true } }
-          : n;
+      // Number the cards in the work order so NodeCard can render its ordinal marker — #1 keeps
+      // the green "work on next" ring + badge; #2/#3 get a subtler ordinal chip.
+      const rank = workOrderRank.get(n.id);
+      let base = rank
+        ? { ...n, data: { ...n.data, workOrderRank: rank, isNext: rank === 1 } }
+        : n;
       // An expanded card grows over its neighbours — lift it above every collapsed card
       // (still below annotation chrome at zIndex 30) so its body isn't covered by them.
       if (expandedIds.has(n.id)) base = { ...base, zIndex: 25 };
@@ -601,7 +612,7 @@ export function MapClient({
         },
       };
     });
-  }, [visibleNodes, effectiveFocusIds, searchMatchIds, workOnNextId, expandedIds, layerDimIds]);
+  }, [visibleNodes, effectiveFocusIds, searchMatchIds, workOrderRank, expandedIds, layerDimIds]);
 
   // Group-region containers (Gestalt common region). Roadmap: shown once the board is arranged,
   // labeled by the dimension it was ACTUALLY arranged by (`arrangedBy`) — never a stale selector.
@@ -1290,18 +1301,59 @@ export function MapClient({
             )}
           >
             <ul className="space-y-1.5 text-[10.5px] text-muted-foreground">
-              <li className="flex items-center gap-2">
-                <span className="inline-block rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-sky-300">
-                  feature
-                </span>
-                <span>top-level card · can have sub-tasks</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="inline-block rounded bg-zinc-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-300">
-                  sub-task
-                </span>
-                <span>child of a feature</span>
-              </li>
+              {view === "ROADMAP" ? (
+                <>
+                  <li className="flex items-center gap-2">
+                    <span className="inline-block rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-sky-300">
+                      feature
+                    </span>
+                    <span>top-level card · can have sub-tasks</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="inline-block rounded bg-zinc-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-300">
+                      sub-task
+                    </span>
+                    <span>child of a feature</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="inline-block rounded bg-rose-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-rose-300">
+                      bug
+                    </span>
+                    <span>a bug to fix · not a feature</span>
+                  </li>
+                </>
+              ) : (
+                <>
+                  <li className="flex items-center gap-2">
+                    <span className="inline-block rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-sky-300">
+                      component
+                    </span>
+                    <span>a subsystem · can have sub-components</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="inline-block rounded bg-zinc-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-300">
+                      sub-component
+                    </span>
+                    <span>part of a component</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="inline-block rounded bg-rose-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-rose-300">
+                      bug
+                    </span>
+                    <span>a flagged issue on a component</span>
+                  </li>
+                </>
+              )}
+              {hasFrontend && (
+                <li className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="inline-block h-3 w-1 shrink-0 rounded-sm"
+                    style={{ background: layerStripeCss("fullstack") }}
+                  />
+                  <span>left stripe · frontend / backend layer</span>
+                </li>
+              )}
               <li className="flex items-center gap-2">
                 <span aria-hidden className="inline-block h-px w-6 bg-[#33333a]" />
                 <span>contains · drag the bottom handle to empty canvas</span>
@@ -1312,7 +1364,7 @@ export function MapClient({
                   className="inline-block h-0 w-6 border-t border-dashed"
                   style={{ borderColor: "#f5b942" }}
                 />
-                <span>depends on · drag between two cards</span>
+                <span>depends on · drag between two {view === "ROADMAP" ? "cards" : "components"}</span>
               </li>
             </ul>
           </CanvasPopover>

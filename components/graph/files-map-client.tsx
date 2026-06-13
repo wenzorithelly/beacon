@@ -27,7 +27,7 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import "@xyflow/react/dist/style.css";
-import { Pencil, X, FileCode2 } from "lucide-react";
+import { Pencil, X, FileCode2, HelpCircle } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { CanvasTabs } from "@/components/graph/canvas-tabs";
 import { CanvasSearch } from "@/components/graph/canvas-search";
@@ -43,6 +43,7 @@ import { type TouchedMap } from "@/lib/touched-files";
 import { computeGroupRegions, type Region, type RegionInput } from "@/lib/group-regions";
 import { GroupRegions } from "@/components/graph/group-regions";
 import { LayerToggle, layerEmphasisMatch } from "@/components/graph/layer-toggle";
+import { CanvasPopover } from "@/components/graph/canvas-popover";
 import { classifyFileLayers } from "@/lib/file-layer";
 import { buildGroupKeys } from "@/lib/file-groups";
 import { LAYER_COLORS, LAYER_META, layerStripeCss, type Layer } from "@/lib/layer";
@@ -804,6 +805,57 @@ export function FilesMapClient({
           position="bottom-right"
           className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
         />
+        {/* Legend popover stacked above the Controls (+/-/fit/lock), matching the other boards. */}
+        <Panel position="bottom-right" style={{ marginBottom: 152 }}>
+          <CanvasPopover
+            title="Legend"
+            trigger={(open, toggle) => (
+              <button
+                type="button"
+                onClick={toggle}
+                title="Legend"
+                className={cn(
+                  "glass flex size-8 items-center justify-center rounded-lg transition-colors",
+                  open ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <HelpCircle className="size-4" />
+              </button>
+            )}
+          >
+            <ul className="space-y-1.5 text-[10.5px] text-muted-foreground">
+              <li className="flex items-center gap-2">
+                <span aria-hidden className="inline-block size-2.5 shrink-0 rounded-full bg-zinc-400" />
+                <span>a file · bigger dot = more files import it</span>
+              </li>
+              {hasFrontend && (
+                <li className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="inline-block size-2.5 shrink-0 rounded-full"
+                    style={{ boxShadow: `inset 0 0 0 2px ${LAYER_COLORS.frontend}` }}
+                  />
+                  <span>colored ring · frontend / backend layer</span>
+                </li>
+              )}
+              <li className="flex items-center gap-2">
+                <span aria-hidden className="inline-block h-px w-6 bg-[#4a4a52]" />
+                <span>line · imports another file</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <span aria-hidden className="inline-block h-px w-6 bg-red-400" />
+                <span>red · part of an import cycle</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <span aria-hidden className="inline-flex shrink-0 gap-0.5">
+                  <span className="inline-block size-2 rounded-full bg-violet-400" />
+                  <span className="inline-block size-2 rounded-full bg-amber-400" />
+                </span>
+                <span>dot color · its directory (chips, top-right)</span>
+              </li>
+            </ul>
+          </CanvasPopover>
+        </Panel>
         <MiniMap
           pannable
           zoomable

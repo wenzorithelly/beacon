@@ -30,6 +30,9 @@ export function CanvasPopover({
   outsideClicksToClose?: number;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
+  // Flip the panel above the trigger when it sits low in the viewport (e.g. the legend button
+  // stacked above the canvas Controls) so it isn't clipped by the bottom of the window.
+  const [placement, setPlacement] = useState<"down" | "up">("down");
   const open = openProp ?? internalOpen;
   const setOpen = (next: boolean) => {
     if (openProp === undefined) setInternalOpen(next);
@@ -42,6 +45,14 @@ export function CanvasPopover({
   useEffect(() => {
     closeRef.current = () => setOpen(false);
   });
+  // On open, measure the TRIGGER (first child) and open upward if there isn't room below it for
+  // the panel — so a legend/filter button near the bottom of the canvas doesn't clip off-screen.
+  useEffect(() => {
+    if (!open) return;
+    const r = (ref.current?.firstElementChild as HTMLElement | null)?.getBoundingClientRect();
+    if (!r) return;
+    setPlacement(window.innerHeight - r.bottom < 260 ? "up" : "down");
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     // Outside-click dismissal. When >1 clicks are required, count consecutive outside clicks
@@ -97,7 +108,8 @@ export function CanvasPopover({
       {open && (
         <div
           className={cn(
-            "glass absolute top-full z-30 mt-1.5 w-64 rounded-xl p-3 shadow-xl",
+            "glass absolute z-30 w-64 rounded-xl p-3 shadow-xl",
+            placement === "up" ? "bottom-full mb-1.5" : "top-full mt-1.5",
             align === "right" ? "right-0" : "left-0",
           )}
         >
