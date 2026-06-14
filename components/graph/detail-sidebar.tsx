@@ -79,8 +79,10 @@ export function DetailSidebar({
   const tab: SidebarTab = activeTab ?? "details";
   return (
     <GlassPanel
-      className="absolute bottom-3 right-3 z-10 flex w-80 flex-col rounded-2xl"
-      style={{ top: topOffset ?? 12 }}
+      // Size to content, capped at the space from `top` to 12px above the canvas bottom, and let
+      // the body scroll past that — never a bottom-stretched empty panel, never cropped.
+      className="absolute right-3 z-10 flex w-80 flex-col rounded-2xl"
+      style={{ top: topOffset ?? 12, maxHeight: `calc(100% - ${(topOffset ?? 12) + 12}px)` }}
     >
       {tabbed ? (
         <div className="flex items-center justify-between border-b border-white/10 px-1 py-1">
@@ -120,7 +122,7 @@ export function DetailSidebar({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="p-3">
           {tab === "comments" && tabbed ? (
             commentsContent

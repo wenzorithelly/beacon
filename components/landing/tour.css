@@ -1,0 +1,43 @@
+/* Styles for the surfaces showcase. The boards are real @xyflow/react instances; node
+   content reuses the product's own Tailwind classes. Only the window chrome, the React Flow
+   surface, the tab switcher and the cross-fade live here. */
+
+/* React Flow surface inside the window frame — opaque dark canvas like the real app */
+.bm-rf {
+  position: relative;
+  width: 100%;
+  background-color: #1b1b1e;
+}
+.bm-rf .react-flow__node { cursor: grab; }
+.bm-rf .react-flow__node:active { cursor: grabbing; }
+/* keep the dragged card crisp over the dot grid */
+.bm-rf .react-flow__edge-path { pointer-events: none; }
+
+/* per-tab copy + board cross-fade on switch */
+@keyframes tour-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.tour-fade { animation: tour-fade-in 0.4s cubic-bezier(0.2, 0.7, 0.2, 1); }
+
+/* tab switcher */
+.tour-tab {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.82rem;
+  padding: 0.42rem 1rem;
+  border-radius: 9999px;
+  color: var(--muted-foreground);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.tour-tab:hover { color: var(--foreground); }
+.tour-tab[data-active="true"] {
+  color: var(--foreground);
+  border-color: rgba(255, 122, 69, 0.4);
+  background: rgba(255, 122, 69, 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-fade { animation: none !important; }
+}

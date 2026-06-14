@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Check, Copy, KeyRound, Link2, MessageSquarePlus, Sparkles, Trash2 } from "lucide-react";
 import { BeaconMark } from "@/components/beacon-mark";
+import { SurfacesShowcase } from "@/components/landing/board-mocks";
 import { INSTALL_COMMAND } from "@/lib/release";
 import "./landing.css";
 
@@ -62,24 +63,6 @@ const LOOP: { n: string; title: string; body: React.ReactNode; code: React.React
         <span style={{ color: "#6ee7b7" }}>✓ approved</span> · drafts persisted
       </>
     ),
-  },
-];
-
-const SURFACES = [
-  {
-    route: "/plan",
-    title: "Review",
-    body: "Split screen: the proposal on the left, live canvases on the right. Every plan archived with your decision and a snapshot of the moment.",
-  },
-  {
-    route: "/map",
-    title: "Roadmap",
-    body: "Features, sub-tasks, and dependencies as a graph. Duplicate features get blocked before they exist.",
-  },
-  {
-    route: "/db",
-    title: "Database",
-    body: "Proposed tables and endpoints land as drafts, diffed against your live schema: new, changed, or untouched.",
   },
 ];
 
@@ -390,8 +373,8 @@ export function Landing() {
       </section>
 
       {/* ===== surfaces ===== */}
-      <section className="px-6 py-12">
-        <div className="mx-auto max-w-5xl">
+      <section className="px-6 py-16 md:py-20">
+        <div className="mx-auto max-w-[88rem]">
           <div className="w-reveal mb-12 text-center">
             <p className="w-mono w-eyebrow w-signal mb-4">The surfaces</p>
             <h2 className="text-[clamp(1.6rem,3.4vw,2.25rem)] font-semibold tracking-tight">
@@ -399,14 +382,8 @@ export function Landing() {
             </h2>
           </div>
 
-          <div className="grid gap-5 md:grid-cols-3">
-            {SURFACES.map((s) => (
-              <div key={s.route} className="w-reveal glass w-hover rounded-lg p-6">
-                <p className="w-mono mb-1 text-[0.82rem] font-semibold w-signal">{s.route}</p>
-                <h3 className="mb-2 font-semibold">{s.title}</h3>
-                <p className="w-muted text-[0.92rem] leading-relaxed">{s.body}</p>
-              </div>
-            ))}
+          <div className="w-reveal">
+            <SurfacesShowcase />
           </div>
         </div>
       </section>

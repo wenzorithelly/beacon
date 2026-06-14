@@ -189,6 +189,7 @@ export function MapClient({
   boardAnnotations,
   initialArrangedBy = null,
   hasFrontend = false,
+  readOnly = false,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   nodes: MapNodePayload[];
@@ -229,6 +230,10 @@ export function MapClient({
   // Whether this workspace has a frontend — gates the per-card layer badge, the layer
   // field in the edit dialog, and the "Layer" Group-by option.
   hasFrontend?: boolean;
+  // When true, render the canvas as a FROZEN read-only snapshot (archived plan history):
+  // dragging, connecting and delete-key removal are disabled (below), and the create/arrange
+  // toolbars are already hidden in `embedded` mode — so nothing mutates the live workspace.
+  readOnly?: boolean;
 }) {
   // 1-based work-order rank per feature id (#1, #2, …); #1 also drives the jump button.
   const workOrderKey = workOrder.join(",");
@@ -311,6 +316,22 @@ export function MapClient({
   useEffect(() => setNodes(initialNodes), [initialNodes]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setEdges(initialEdges), [initialEdges]);
+
+  // readOnly (archived plan history) boards mount inside a flex pane that can size a tick after
+  // init, so the one-shot `fitView` prop may fit a not-yet-sized container — leaving the snapshot
+  // parked off to one side. Re-fit once layout settles (double rAF), and again when a different
+  // plan swaps the nodes in.
+  useEffect(() => {
+    if (!readOnly) return;
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => flowRef.current?.fitView({ padding: 0.2, duration: 0 }));
+    });
+    return () => {
+      cancelAnimationFrame(r1);
+      cancelAnimationFrame(r2);
+    };
+  }, [readOnly, initialNodes]);
 
   // Inline edit: update React Flow state optimistically; persist via the no-revalidate
   // route so the canvas never reflows mid-edit. categories feed the inline picker.
@@ -1211,6 +1232,7 @@ export function MapClient({
         }
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        nodesConnectable={!readOnly}
         connectionMode={ConnectionMode.Loose}
         connectionLineStyle={{
           stroke: "var(--accent-2,#ff7a45)",
@@ -1278,6 +1300,7 @@ export function MapClient({
         onPaneClick={() => {
           if (pickingParent) setPickingParent(false);
           else {
+            setPanelOpen(false); // click the empty canvas to dismiss the detail panel
             setSelectedId(null);
             setSelectedEdgeId(null);
           }
@@ -1289,9 +1312,10 @@ export function MapClient({
               patchBoardAnno(node.id.slice(5), { x: node.position.x, y: node.position.y });
             return;
           }
+          if (readOnly) return; // archived board: dragging declutters locally, never persists
           persistPosition(node.id, node.position.x, node.position.y);
         }}
-        deleteKeyCode={["Backspace", "Delete"]}
+        deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
         colorMode="dark"
         fitView
         // Open at readable cards (mid LOD), never on the far-zoom summary blocks — a huge

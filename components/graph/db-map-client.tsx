@@ -188,6 +188,7 @@ export function DbMapClient({
   onUpdateComment,
   onRemoveComment,
   boardAnnotations,
+  readOnly = false,
 }: {
   tables: DbTablePayload[];
   relations: DbRelationPayload[];
@@ -229,6 +230,10 @@ export function DbMapClient({
   // this prop — even [] — switches the canvas-annotation surface from "plan feedback" to
   // "persisted annotations": created from row hover-dots, edited in the card, position remembered.
   boardAnnotations?: BoardAnnotationPayload[];
+  // When true, render as a FROZEN read-only snapshot (archived plan history): dragging,
+  // connecting and delete-key removal are disabled (below), and the approve/discard/arrange
+  // controls are already hidden in `embedded` mode — so nothing mutates the live workspace.
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   // Endpoints are an opt-in overlay on the main /map board — the schema (tables + FKs) is the
@@ -257,6 +262,22 @@ export function DbMapClient({
   // Captured at <ReactFlow onInit> so search can pan/zoom to a result (the board never
   // needed a flow ref before — selection only opened the side panel).
   const rfRef = useRef<ReactFlowInstance<DbNode, Edge> | null>(null);
+
+  // readOnly (archived plan history) boards mount inside a flex pane that can size a tick after
+  // init, so the one-shot `fitView` prop may fit a not-yet-sized container — leaving the snapshot
+  // parked off to one side. Re-fit once layout settles (double rAF), and again when a different
+  // plan swaps the content or the endpoints overlay toggles.
+  useEffect(() => {
+    if (!readOnly) return;
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => rfRef.current?.fitView({ padding: 0.2, duration: 0 }));
+    });
+    return () => {
+      cancelAnimationFrame(r1);
+      cancelAnimationFrame(r2);
+    };
+  }, [readOnly, draft, showEndpoints]);
 
   // Imperative handle so the /plan toolbar's 💬 button can open this board's Comments tab.
   useEffect(() => {
@@ -477,6 +498,12 @@ export function DbMapClient({
     allEndpoints.forEach((e) => m.set(e.id, e.x));
     return m;
   }, [allTables, allEndpoints]);
+  const posY = useMemo(() => {
+    const m = new Map<string, number>();
+    allTables.forEach((t) => m.set(t.id, t.y));
+    allEndpoints.forEach((e) => m.set(e.id, e.y));
+    return m;
+  }, [allTables, allEndpoints]);
 
   // column → referenced table name per table, so FK rows render "→ users" instead of a type.
   const fkTargets = useMemo(() => {
@@ -591,15 +618,24 @@ export function DbMapClient({
 
   const nodeOnComment = boardMode ? addBoardAnno : onAddComment;
 
+  // Pick the connection handles by the DOMINANT axis between the two nodes, so a line exits the
+  // side that faces its target and enters the facing side — no diagonal that slices across a
+  // node, and endpoints no longer always emit from the right. Horizontal pairs use sl/sr↔tl/tr;
+  // vertical (e.g. an endpoint docked directly under its table) uses st/sb↔tt/tb.
   const sides = useCallback(
     (src: string, tgt: string) => {
-      const ax = posX.get(src) ?? 0;
-      const bx = posX.get(tgt) ?? 0;
-      return ax <= bx
-        ? { sourceHandle: "sr", targetHandle: "tl" }
-        : { sourceHandle: "sl", targetHandle: "tr" };
+      const dx = (posX.get(tgt) ?? 0) - (posX.get(src) ?? 0);
+      const dy = (posY.get(tgt) ?? 0) - (posY.get(src) ?? 0);
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        return dx >= 0
+          ? { sourceHandle: "sr", targetHandle: "tl" }
+          : { sourceHandle: "sl", targetHandle: "tr" };
+      }
+      return dy >= 0
+        ? { sourceHandle: "sb", targetHandle: "tt" }
+        : { sourceHandle: "st", targetHandle: "tb" };
     },
-    [posX],
+    [posX, posY],
   );
 
   // ── React-Flow-owned node list (for smooth dragging), rebuilt from the doc on change ──
@@ -1229,6 +1265,7 @@ export function DbMapClient({
           }
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
+          nodesConnectable={!readOnly}
           connectionMode={ConnectionMode.Loose}
           connectionLineStyle={{
             stroke: "var(--accent-2,#ff7a45)",
@@ -1265,6 +1302,7 @@ export function DbMapClient({
           onPaneClick={() => {
             setSelected(null);
             setSelectedEdgeId(null);
+            setPanelOpen(false); // click the empty canvas to dismiss the detail panel
           }}
           onNodeDragStop={onNodeDragStop}
           onEdgesDelete={(removed) => {
@@ -1292,7 +1330,7 @@ export function DbMapClient({
               }
             }
           }}
-          deleteKeyCode={["Backspace", "Delete"]}
+          deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
           colorMode="dark"
           fitView
           // Open at readable tables (mid LOD), never on the far-zoom summary blocks — a huge

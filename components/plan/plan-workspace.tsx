@@ -320,7 +320,7 @@ export function PlanWorkspace({
 
   // Stay mounted while the post-approval "where to find it" card is up (it navigates on click).
   if ((!status.pending || forceHistory) && !approvedSummary) {
-    return <PlanHistoryView pendingPlan={status.pending} />;
+    return <PlanHistoryView pendingPlan={status.pending} workspaceId={dbProps.workspaceId} />;
   }
 
   // When the plan proposes nothing for the boards (no draft tables/endpoints, no draft
