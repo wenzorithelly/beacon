@@ -1,6 +1,6 @@
 {
   "name": "trybeacon",
-  "version": "0.1.46",
+  "version": "0.1.47",
   "description": "The visual planning surface for the coding agent in your terminal.",
   "homepage": "https://trybeacon.sh",
   "bin": {
