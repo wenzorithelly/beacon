@@ -37,6 +37,25 @@ describe("scanCodeFiles", () => {
     ]);
   });
 
+  it("indexes Drizzle schema source under a drizzle/ dir (only the generated SQL output is excluded, by extension)", async () => {
+    // Regression: `drizzle` was in SKIP_DIRS to drop the generated migration output
+    // dir, but that pruned lib/drizzle/schema.ts — the canonical schema source — so its
+    // tables never reached the /db board. The generated output is .sql + meta/*.json,
+    // neither an indexed extension, so it stays out of the graph WITHOUT a dir skip.
+    const root = fixture({
+      "lib/drizzle/schema.ts": `import { sqliteTable } from "drizzle-orm/sqlite-core";`,
+      "lib/drizzle/relations.ts": "",
+      "drizzle/0000_init.sql": "CREATE TABLE x (id integer);",
+      "drizzle/meta/_journal.json": "{}",
+      "app/page.tsx": "",
+    });
+    const out = await scanCodeFiles(root);
+    expect(out).toContain("lib/drizzle/schema.ts");
+    expect(out).toContain("lib/drizzle/relations.ts");
+    expect(out).not.toContain("drizzle/0000_init.sql");
+    expect(out).not.toContain("drizzle/meta/_journal.json");
+  });
+
   it("returns POSIX-style relative paths sorted", async () => {
     const root = fixture({
       "z/file.ts": "",

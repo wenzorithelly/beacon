@@ -36,9 +36,11 @@ const SKIP_DIRS = new Set([
   ".playwright-mcp",
   "generated",
   // Generated migration files are noise in an import graph, in every language:
-  // drizzle/prisma (JS), alembic (Python), Django/generic "migrations", Rails db/migrate.
+  // alembic (Python), Django/generic "migrations", Rails db/migrate. NOT "drizzle":
+  // its generated output is .sql + meta/*.json (never an indexed extension, so it's
+  // excluded by the ext allow-list anyway), while `drizzle/` is also the canonical home
+  // of schema.ts — skipping it by name pruned the schema source and emptied the /db board.
   "migrations",
-  "drizzle",
   "alembic",
   "migrate",
 ]);
