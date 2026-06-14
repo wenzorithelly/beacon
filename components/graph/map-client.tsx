@@ -1095,6 +1095,40 @@ export function MapClient({
     [nodes],
   );
 
+  // Auto re-arrange when a card's value for the CURRENT group-by dimension changes — e.g. marking
+  // a task Done while grouped by status should move it into the Done lane immediately, without the
+  // user toggling Group-by off and back on. Applies to every dimension (status / priority / theme).
+  // Keyed on each existing card's group VALUE, so it fires on a regroup-worthy edit but never on a
+  // position change (arrange only moves cards → no loop), nor on add/remove or initial mount.
+  const groupValues = useMemo(() => {
+    const m = new Map<string, string>();
+    if (view !== "ROADMAP" || !arrangedBy) return m;
+    const key = (d: MapNodeData): string =>
+      arrangedBy === "status"
+        ? d.status
+        : arrangedBy === "priority"
+          ? `P${d.priority}`
+          : (d.cluster ?? "—");
+    for (const n of nodes) if (n.type !== "annotation") m.set(n.id, key(n.data));
+    return m;
+  }, [nodes, arrangedBy, view]);
+
+  const prevGroupValues = useRef<Map<string, string> | null>(null);
+  useEffect(() => {
+    const prev = prevGroupValues.current;
+    prevGroupValues.current = groupValues;
+    // Skip the first run (seed) and only react to an EXISTING card changing lanes.
+    if (!prev || view !== "ROADMAP" || !arrangedBy) return;
+    let regrouped = false;
+    for (const [id, val] of groupValues) {
+      if (prev.has(id) && prev.get(id) !== val) {
+        regrouped = true;
+        break;
+      }
+    }
+    if (regrouped) arrange(arrangedBy);
+  }, [groupValues, arrangedBy, view, arrange]);
+
   // Architecture "Arrange": layered left→right dependency flow (foundations left, dependents
   // rightward, domains as bands) computed client-side from the live nodes + DEPENDS edges,
   // batch-persisted in one round-trip. Same non-destructive contract as the roadmap Group-by.
