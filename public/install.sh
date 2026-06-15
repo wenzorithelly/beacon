@@ -7,6 +7,11 @@
 # it just updates to the latest version. Nothing here needs root.
 set -eu
 
+# The user's interactive PATH, captured BEFORE we prepend Bun's bin below. A piped `curl … | sh`
+# runs in a child process and can't change the parent shell, so the end-of-script guidance must
+# be decided off this — the shell beacon will actually be typed in — not the PATH we mutate here.
+ORIGINAL_PATH="$PATH"
+
 # ---- pretty output (only when attached to a terminal) --------------------------------------
 if [ -t 1 ]; then
   BOLD='\033[1m'; ORANGE='\033[38;5;208m'; DIM='\033[2m'; RESET='\033[0m'
@@ -44,12 +49,38 @@ bun add -g trybeacon
 BUN_BIN="$(bun pm bin -g 2>/dev/null || echo "${BUN_INSTALL:-$HOME/.bun}/bin")"
 say ""
 say "  ${BOLD}✓ Beacon installed.${RESET}"
-case ":${PATH}:" in
-  *":${BUN_BIN}:"*) : ;;
-  *) say "  ${DIM}Add Bun's global bin to your PATH (then restart your shell):${RESET}"
-     say "      export PATH=\"${BUN_BIN}:\$PATH\"" ;;
+
+# Decide off ORIGINAL_PATH — the shell the user will type `beacon` in. If Bun's global bin is
+# already there, beacon just works. If not (e.g. we only added it to this script's PATH, or Bun's
+# own installer appended an `export PATH` line that this shell hasn't sourced yet), the user would
+# hit `beacon: command not found` despite a clean install — so spell out exactly how to fix it.
+case ":${ORIGINAL_PATH}:" in
+  *":${BUN_BIN}:"*)
+    say ""
+    say "  Next:  cd into any repo and run  ${ORANGE}beacon${RESET}" ;;
+  *)
+    # The rc the user's login shell reads — same file Bun's installer appends its PATH line to.
+    case "${SHELL:-}" in
+      */zsh)  RC="$HOME/.zshrc" ;;
+      */bash) RC="$HOME/.bashrc" ;;
+      */fish) RC="$HOME/.config/fish/config.fish" ;;
+      *)      RC="" ;;
+    esac
+    say ""
+    say "  ${BOLD}One more step${RESET} — beacon isn't on this terminal's PATH yet."
+    # If neither the live PATH nor that rc already points at Bun's bin, the export line is missing.
+    if [ -z "$RC" ] || ! grep -qF "$BUN_BIN" "$RC" 2>/dev/null; then
+      say "  ${DIM}Add Bun's global bin to your shell profile:${RESET}"
+      say "      ${BOLD}export PATH=\"${BUN_BIN}:\$PATH\"${RESET}"
+    fi
+    if [ -n "$RC" ]; then
+      say "  ${DIM}Then reload this shell — or just open a new terminal:${RESET}"
+      say "      ${BOLD}source ${RC}${RESET}"
+    else
+      say "  ${DIM}Then open a new terminal (or re-source your shell profile).${RESET}"
+    fi
+    say ""
+    say "  After that:  cd into any repo and run  ${ORANGE}beacon${RESET}" ;;
 esac
-say ""
-say "  Next:  cd into any repo and run  ${ORANGE}beacon${RESET}"
 say "  Docs:  https://trybeacon.sh"
 say ""
