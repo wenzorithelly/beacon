@@ -269,7 +269,18 @@ export function workspaceIdFromRequest(req: Request): string | null {
   if (header && getWorkspace(header)) return header;
   const cookie = cookieValue(req, BEACON_WS_COOKIE);
   if (cookie && getWorkspace(cookie)) return cookie;
-  return null;
+  return loneWorkspaceId();
+}
+
+// When neither the header nor the cookie (nor, for the async resolver, the path) names a
+// registered workspace, a registry with EXACTLY ONE workspace is unambiguous — pin to it. This
+// makes the common single-project case work even when the MCP client (e.g. Cursor in a
+// multi-folder workspace) launches the server with a cwd that isn't the registered repo, so the
+// agent no longer has to name the project. With several workspaces it stays null (genuinely
+// ambiguous): the caller degrades to the global active one and the MCP logs a hint.
+function loneWorkspaceId(): string | null {
+  const all = listWorkspaces();
+  return all.length === 1 ? all[0].id : null;
 }
 
 // The MCP server / intel watcher also send the repo's PATH on this header. It lets the server
@@ -307,6 +318,9 @@ export async function resolveRequestWorkspaceId(req: Request): Promise<string | 
   }
   const cookie = cookieValue(req, BEACON_WS_COOKIE);
   if (cookie && getWorkspace(cookie)) return cookie;
+  // NB: NO lone-workspace fallback here — this is the WRITE/watcher boundary (the intel ingest),
+  // which must FAIL CLOSED on an unresolvable workspace rather than guess. The lone-workspace
+  // convenience lives in workspaceIdFromRequest, used by the MCP agent-tool routes.
   return null;
 }
 

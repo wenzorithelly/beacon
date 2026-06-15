@@ -333,6 +333,30 @@ describe("workspaceIdFromRequest", () => {
   });
 });
 
+describe("lone-workspace fallback (MCP client cwd not registered, e.g. Cursor)", () => {
+  it("workspaceIdFromRequest pins to the only workspace when the header id is unregistered", () => {
+    const ws = addWorkspace("/repos/only-one");
+    const req = new Request("http://x/api", { headers: { "x-beacon-workspace": "unregistered-hash" } });
+    expect(workspaceIdFromRequest(req)).toBe(ws.id);
+  });
+
+  it("workspaceIdFromRequest stays null when several workspaces exist (ambiguous → name the project)", () => {
+    addWorkspace("/repos/one");
+    addWorkspace("/repos/two");
+    const req = new Request("http://x/api", { headers: { "x-beacon-workspace": "unregistered-hash" } });
+    expect(workspaceIdFromRequest(req)).toBeNull();
+  });
+
+  it("resolveRequestWorkspaceId does NOT apply the lone fallback (write/watcher boundary fails closed)", async () => {
+    // Even with a single workspace, the ingest/write resolver must fail closed on an unresolvable
+    // id — it's the guard against the intel watcher corrupting the wrong repo. The lone-workspace
+    // convenience is deliberately confined to workspaceIdFromRequest (the agent-tool routes).
+    addWorkspace("/repos/only-async");
+    const req = new Request("http://x/api", { headers: { "x-beacon-workspace": "unregistered-hash" } });
+    expect(await resolveRequestWorkspaceId(req)).toBeNull();
+  });
+});
+
 describe("pinned() + currentWorkspace()", () => {
   it("runs the handler pinned to the request's cookie workspace (not the active one)", async () => {
     const active = addWorkspace("/repos/pinned-active");
