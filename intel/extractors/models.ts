@@ -382,6 +382,163 @@ function extractDrizzle(files: SourceFile[]): ModelSchema {
   };
 }
 
+// ── JPA / Spring (Java) ────────────────────────────────────────────────────────
+
+const JAVA_SCALAR: Record<string, string> = {
+  long: "bigint", Long: "bigint", BigInteger: "bigint",
+  int: "integer", Integer: "integer", short: "smallint", Short: "smallint",
+  String: "varchar", char: "varchar", Character: "varchar",
+  boolean: "boolean", Boolean: "boolean",
+  UUID: "uuid",
+  BigDecimal: "numeric",
+  double: "double", Double: "double", float: "float", Float: "float",
+  LocalDate: "date",
+  LocalDateTime: "timestamp", Instant: "timestamp", Timestamp: "timestamp", Date: "timestamp",
+  OffsetDateTime: "timestamptz", ZonedDateTime: "timestamptz",
+  LocalTime: "time",
+};
+const JAVA_COLLECTION = /^(List|Set|Map|Collection|Iterable)$/;
+
+/** java.util.UUID → UUID, List<Foo> → List, byte[] → byte[]. */
+function javaTypeBase(raw: string): string {
+  if (/byte\s*\[\s*\]/.test(raw)) return "byte[]";
+  return (raw.replace(/<.*>/, "").trim().split(".").pop() ?? raw).trim();
+}
+function javaSqlType(raw: string): string {
+  const base = javaTypeBase(raw);
+  if (base === "byte[]") return "bytea";
+  return JAVA_SCALAR[base] ?? base.toLowerCase();
+}
+/** value of `key = "…"` inside an annotation string (e.g. @Column(name = "X") → "X"). */
+function annotArg(annot: string, key: string): string | undefined {
+  return annot.match(new RegExp(`\\b${key}\\s*=\\s*"([^"]*)"`))?.[1];
+}
+/** value of `key = true|false` inside an annotation string. */
+function annotFlag(annot: string, key: string): boolean | undefined {
+  const m = annot.match(new RegExp(`\\b${key}\\s*=\\s*(true|false)`));
+  return m ? m[1] === "true" : undefined;
+}
+/** Pull the leading `@Annotation(...)` tokens off a line, returning them + the remainder. */
+function splitLeadingAnnots(line: string): { annots: string[]; rest: string } {
+  const annots: string[] = [];
+  let rest = line;
+  let m: RegExpMatchArray | null;
+  while ((m = rest.match(/^@[\w.]+(\([^)]*\))?\s*/))) {
+    annots.push(rest.slice(0, m[0].length).trim());
+    rest = rest.slice(m[0].length);
+  }
+  return { annots, rest: rest.trim() };
+}
+
+interface JpaField {
+  annots: string[];
+  type: string;
+  name: string;
+}
+interface JpaEntity {
+  className: string;
+  tableName: string;
+  idColumn: string;
+  fields: JpaField[];
+}
+
+// Java fields, line-based: accumulate annotations (own line OR leading on the field's line) and
+// attach them to the next field declaration. A method (`(`) or brace ends an annotation run.
+function parseJavaFields(body: string): JpaField[] {
+  const out: JpaField[] = [];
+  let buf: string[] = [];
+  for (const raw of body.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("//") || line.startsWith("*") || line.startsWith("/*")) continue;
+    const { annots, rest } = splitLeadingAnnots(line);
+    buf.push(...annots);
+    if (!rest) continue; // line was only annotations — keep accumulating
+    let r = rest;
+    let prev = "";
+    while (r !== prev) {
+      prev = r;
+      r = r.replace(/^(?:public|private|protected|static|final|transient|volatile)\s+/, "");
+    }
+    const fm = !r.includes("(") ? r.match(/^([\w.$]+(?:<[^>]*>)?(?:\s*\[\s*\])?)\s+(\w+)\s*[;=]/) : null;
+    if (fm) out.push({ annots: buf, type: fm[1], name: fm[2] });
+    buf = []; // a field / method / brace line ends this annotation run
+  }
+  return out;
+}
+
+function parseJavaEntities(content: string): JpaEntity[] {
+  const decls: { name: string; at: number }[] = [];
+  const re = /\bclass\s+(\w+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content))) decls.push({ name: m[1], at: m.index });
+  const entities: JpaEntity[] = [];
+  for (let i = 0; i < decls.length; i++) {
+    // Header = the gap before this class decl (its own annotations), excluding the previous class's.
+    const header = content.slice(i === 0 ? 0 : decls[i - 1].at, decls[i].at);
+    if (!/@Entity\b/.test(header)) continue;
+    const tableAnnot = header.match(/@Table\s*\([^)]*\)/)?.[0] ?? "";
+    const tableName = annotArg(tableAnnot, "name") ?? decls[i].name;
+    const body = content.slice(decls[i].at, decls[i + 1]?.at ?? content.length);
+    const fields = parseJavaFields(body);
+    const idField = fields.find((f) => f.annots.some((a) => /@Id\b/.test(a)));
+    const idColumn = idField
+      ? annotArg(idField.annots.find((a) => /@Column\b/.test(a)) ?? "", "name") ?? idField.name
+      : "id";
+    entities.push({ className: decls[i].name, tableName, idColumn, fields });
+  }
+  return entities;
+}
+
+function extractJPA(files: SourceFile[]): ModelSchema {
+  const javaFiles = files.filter((f) => f.path.endsWith(".java") && /@Entity\b/.test(f.content));
+  if (!javaFiles.length) return { tables: [], relations: [] };
+  const entities = javaFiles.flatMap((f) => parseJavaEntities(f.content));
+  if (!entities.length) return { tables: [], relations: [] };
+
+  const classToTable = new Map(entities.map((e) => [e.className, e.tableName]));
+  const classToId = new Map(entities.map((e) => [e.className, e.idColumn]));
+  const tables: ModelTable[] = [];
+  const relations: ModelRelation[] = [];
+
+  for (const e of entities) {
+    const columns: ModelColumn[] = [];
+    for (const fld of e.fields) {
+      const a = fld.annots.join(" ");
+      if (/@Transient\b/.test(a)) continue;
+      const base = javaTypeBase(fld.type);
+      const relAnnotated = /@ManyToOne\b|@OneToOne\b|@OneToMany\b|@ManyToMany\b/.test(a);
+      const isRelation = relAnnotated || classToTable.has(base);
+      if (isRelation) {
+        // Only the OWNING side (a @JoinColumn) puts an FK column on this table; inverse sides
+        // (mappedBy / collections) live on the other table.
+        const joinAnnot = fld.annots.find((x) => /@JoinColumn\b/.test(x));
+        const fk = joinAnnot ? annotArg(joinAnnot, "name") : undefined;
+        if (fk) {
+          columns.push({ name: fk, type: "bigint", isFk: true, nullable: annotFlag(a, "nullable") ?? true });
+          const toTable = classToTable.get(base);
+          if (toTable) {
+            relations.push({ fromTable: e.tableName, fromColumn: fk, toTable, toColumn: classToId.get(base) ?? "id" });
+          }
+        }
+        continue;
+      }
+      if (JAVA_COLLECTION.test(base)) continue; // a non-entity collection isn't a column
+      const colAnnot = fld.annots.find((x) => /@Column\b/.test(x)) ?? "";
+      const name = annotArg(colAnnot, "name") ?? fld.name;
+      const isPk = fld.annots.some((x) => /@Id\b/.test(x));
+      const nullable = annotFlag(colAnnot, "nullable");
+      columns.push({
+        name,
+        type: javaSqlType(fld.type),
+        ...(isPk ? { isPk: true } : {}),
+        ...(nullable !== undefined ? { nullable } : {}),
+      });
+    }
+    tables.push({ name: e.tableName, columns });
+  }
+  return { tables, relations };
+}
+
 // Parse the schema deterministically from whatever ORM the repo uses. Returns empty when no
 // recognizable models are present (then the AI snapshot's tables are kept as-is).
 export function extractModelSchema(files: SourceFile[]): ModelSchema {
@@ -389,5 +546,7 @@ export function extractModelSchema(files: SourceFile[]): ModelSchema {
   if (drizzle.tables.length) return drizzle;
   const prisma = extractPrisma(files);
   if (prisma.tables.length) return prisma;
-  return extractSqlAlchemy(files);
+  const sqlalchemy = extractSqlAlchemy(files);
+  if (sqlalchemy.tables.length) return sqlalchemy;
+  return extractJPA(files);
 }

@@ -17,6 +17,10 @@ export function isSchemaCandidate(rel: string): boolean {
   if (TEST_FILE.test(rel)) return false;
   if (rel.endsWith(".prisma")) return true;
   if (ROUTE_FILE.test(rel)) return true;
+  // JPA/Spring @Entity classes can live in ANY package, so there's no reliable path hint like
+  // "schema"/"model" — treat every .java file as a candidate and let extractJPA emit only the
+  // ones that actually carry @Entity. (Capped by schemaCandidates so a huge repo stays bounded.)
+  if (rel.endsWith(".java")) return true;
   return MODEL_FILE.test(rel) && MODEL_HINT.test(rel);
 }
 
