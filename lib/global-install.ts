@@ -47,6 +47,13 @@ export const GLOBAL_CLAUDE_MD_BLOCK = GLOBAL_AGENT_BLOCK;
 
 export const GLOBAL_HOOKS = [
   {
+    event: "PreToolUse" as const,
+    matcher: "Edit|Write|MultiEdit",
+    command: "beacon guard",
+    description:
+      "Gate edits against the active plan's scope contract (when the scope-guard flag is on): in-scope → allow, off-scope → ask the user to authorize. No-op + fail-open otherwise.",
+  },
+  {
     event: "PostToolUse" as const,
     matcher: "Edit|Write|MultiEdit",
     command: "beacon hook",

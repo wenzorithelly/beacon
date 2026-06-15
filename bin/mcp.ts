@@ -18,6 +18,7 @@ import {
   idForPath,
   isRegistrableWorkspacePath,
   isWorkspaceDeleted,
+  listWorkspaces,
   repoRootFrom,
 } from "@/lib/workspaces";
 import { mentionsDbSchema } from "@/lib/plan-block";
@@ -68,7 +69,21 @@ const WORKSPACE_ID = idForPath(WORKSPACE_PATH);
 // Skip registration for a path that's the home dir / root, or a workspace the user deleted —
 // implicit self-heal must never resurrect a tombstoned workspace (only `beacon` / /beacon-init do).
 if (!isRegistrableWorkspacePath(WORKSPACE_PATH)) {
-  console.error(`[beacon mcp] not registering ${WORKSPACE_PATH} — home/non-repo dir.`);
+  // The MCP client (e.g. Cursor in a multi-folder workspace) launched us with a cwd that isn't a
+  // registered repo. The server resolves the workspace anyway when exactly ONE is registered
+  // (workspaceIdFromRequest's lone-workspace fallback); with several it can't guess — tell the user.
+  const known = listWorkspaces();
+  if (known.length === 1) {
+    console.error(
+      `[beacon mcp] cwd ${WORKSPACE_PATH} isn't a registered repo — falling back to your only Beacon workspace "${known[0].name}".`,
+    );
+  } else if (known.length > 1) {
+    console.error(
+      `[beacon mcp] cwd ${WORKSPACE_PATH} isn't a registered repo and you have ${known.length} Beacon workspaces — can't auto-detect which. Run /beacon-init in this repo, or name the project explicitly in your request.`,
+    );
+  } else {
+    console.error(`[beacon mcp] not registering ${WORKSPACE_PATH} — home/non-repo dir.`);
+  }
 } else if (isWorkspaceDeleted(WORKSPACE_ID)) {
   console.error(
     `[beacon mcp] not registering ${WORKSPACE_PATH} — workspace was deleted; run /beacon-init to re-add it.`,
@@ -573,9 +588,15 @@ server.registerTool(
           }),
         )
         .optional(),
+      contract: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Repo-relative files THIS plan will touch — the scope contract. When the user has the plan scope-guard enabled, these are frozen at approval and you are held to them while implementing: editing an undeclared file pauses for the user's authorization (which adds it to the contract). Safe to always include; ignored when the guard is off.",
+        ),
     },
   },
-  async ({ description, features, tables, relations, endpoints }) => {
+  async ({ description, features, tables, relations, endpoints, contract }) => {
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 
@@ -626,6 +647,7 @@ server.registerTool(
             }
           : undefined,
         features: features?.length ? features : undefined,
+        contract: contract?.length ? contract : undefined,
       });
     } catch (e) {
       // The server is the authoritative gate (e.g. the layer rule when the pre-check was

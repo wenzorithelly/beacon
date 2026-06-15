@@ -29,6 +29,8 @@ import {
   readStoredAnnotations,
 } from "@/lib/plan-annotations-store";
 import { bumpVersion } from "@/lib/ingest";
+import { getFlag } from "@/lib/feature-flags";
+import { writeContract } from "@/lib/scope-contract";
 
 // The unification core for the plan feedback loop. EVERY terminal action (approve / discard)
 // from EVERY entry point (/plan buttons, the /db canvas buttons) routes through approvePlan /
@@ -92,6 +94,13 @@ export async function approvePlan(opts?: { doc?: DraftDoc | null }): Promise<{
   // One id for the whole approval: stamped on every entity the plan creates (lineage for
   // prune-planned) AND used as the archive id, so board ↔ history correlate directly.
   const planId = randomUUID().slice(0, 8);
+
+  // Freeze the agent's declared scope into this plan's contract — but only while the scope-guard
+  // flag is on, so we don't accrue empty contract rows when the feature is unused. Approval is the
+  // human's ratification of the declared scope; from here only the user can widen it.
+  if ((await getFlag("scope-guard")).enabled) {
+    await writeContract({ planId, declaredFiles: meta?.contractFiles ?? [] });
+  }
 
   const dbCount = doc ? await approveDraft(doc, db, { planId }) : null;
   const promoted = await db

@@ -6,6 +6,7 @@ import { ContextCard } from "@/components/context-card";
 import { DangerCard } from "@/components/danger-card";
 import { DeleteWorkspaceCard } from "@/components/delete-workspace-card";
 import { PermissionModeCard } from "@/components/permission-mode-card";
+import { ScopeGuardCard } from "@/components/scope-guard-card";
 import { activeWorkspace, getWorkspace } from "@/lib/workspaces";
 import { resolveTabWorkspaceId } from "@/lib/request-workspace";
 import { cn } from "@/lib/utils";
@@ -75,6 +76,9 @@ export default async function SettingsPage({
 
       <h2 className={eyebrow}>Agent behavior</h2>
       <PermissionModeCard />
+
+      <h2 className={eyebrow}>Plan scope guard</h2>
+      <ScopeGuardCard />
 
       <h2 className={eyebrow}>Project</h2>
       <ContextCard />

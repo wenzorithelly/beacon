@@ -265,6 +265,7 @@ describe("selfHealGlobal", () => {
     expect(before.skills["beacon-init"]).toBe(false);
     expect(before.skills["beacon-refresh"]).toBe(false);
     expect(before.skills["beacon-plan"]).toBe(false);
+    expect(before.hooks.PreToolUse).toBe(false);
     expect(before.hooks.PostToolUse).toBe(false);
     expect(before.hooks.PermissionRequest).toBe(false);
     expect(before.hooks.UserPromptSubmit).toBe(false);
@@ -276,13 +277,14 @@ describe("selfHealGlobal", () => {
     expect(result.skillsAdded).toEqual(
       expect.arrayContaining(["beacon-init", "beacon-refresh", "beacon-plan"]),
     );
-    expect(result.hooksAdded).toBe(4);
+    expect(result.hooksAdded).toBe(5);
     expect(result.claudeMdBlockTouched).toBe(true);
 
     const after = auditGlobal();
     expect(after.skills["beacon-init"]).toBe(true);
     expect(after.skills["beacon-refresh"]).toBe(true);
     expect(after.skills["beacon-plan"]).toBe(true);
+    expect(after.hooks.PreToolUse).toBe(true);
     expect(after.hooks.PostToolUse).toBe(true);
     expect(after.hooks.PermissionRequest).toBe(true);
     expect(after.hooks.UserPromptSubmit).toBe(true);

@@ -43,6 +43,7 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
   - MCP server — stdio MCP server exposing beacon_map / propose_plan / context_for_feature / describe_feature / blast_radius / init_persist (incl. classificationRoots) plus @-mention resources; pins every request to its repo's workspace. (bin/mcp.ts)
 - **PLAN**
   - Plan review loop — Receives proposed plans, blocks for the verdict, bundles inline annotations + /map and /db board edits into structured feedback, and archives every plan. (app/api/plan/annotations/route.ts, app/api/plan/approve/route.ts, app/api/plan/history/route.ts, app/api/plan/markdown/route.ts, app/api/plan/route.ts, lib/annotations.ts)
+  - Plan scope guard — Per-plan scope contracts: declare→freeze→pre-edit gate (ask)→authorize-grows-contract, behind a generalized WorkspaceFlag (app/api/flags/route.ts, app/api/scope-guard/check/route.ts, bin/guard.ts, components/scope-guard-card.tsx, lib/feature-flags.ts, lib/scope-contract.ts)
 - **UI**
   - Notes notebook — Workspace rich-text notebook the agent can @-mention and convert into features. (components/notes/note-editor.tsx, components/notes/notes-drawer.tsx, lib/note-markdown.ts, lib/note-resource.ts, lib/notes.ts)
   - Board annotations — Persistent per-workspace annotation pins + cards on the /map canvases (BoardAnnotation table + /api/board-annotations CRUD); on /plan the same surface renders feedback-bundle annotations instead. (app/api/board-annotations/route.ts, components/graph/annotation-node.tsx, lib/annotation-anchors.ts, lib/board-annotations.ts)
@@ -52,10 +53,31 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
   - Settings & app shell — Layout, top nav, workspace switcher, and the settings page that drives editor choice and code-map sync. (app/layout.tsx, app/settings/page.tsx, components/top-nav.tsx, components/workspace-switcher.tsx, lib/settings.ts)
 
 ### Database
+- `AppSetting`: id, editor, currentFeatureId, updatedAt
+- `BoardAnnotation`: id, targetKind, targetId, columnName, body, x, y, createdAt, updatedAt
+- `BugFlag`: id, nodeId, by, note, resolvedAt, createdAt
+- `CodeFile`: path, root, lang, x, y, mtimeMs, size, inDegree, outDegree, updatedAt
+- `CodeFileEdge`: fromPath, toPath, circular
+- `DbColumn`: id, tableId, name, type, isPk, isFk, nullable, note, ord
+- `DbRelation`: id, fromTableId, toTableId, fromColumn, toColumn, label
+- `DbTable`: id, name, domain, description, source, planId, x, y, createdAt, updatedAt
+- `DraftColumn`: id, tableId, name, type, isPk, isFk, nullable, note, ord
+- `DraftRelation`: id, fromTableId, toTableId, fromColumn, toColumn, label
+- `DraftTable`: id, name, domain, description, x, y, createdAt
+- `Edge`: id, fromId, toId, kind, label, sourceHandle, targetHandle
+- `Endpoint`: id, method, path, domain, description, source, planId, x, y, createdAt, updatedAt
+- `EndpointTable`: id, endpointId, tableId, access
 - `Feedback`: id, body, upvotes, downvotes, deleteToken, createdAt
-- `Node`: id, title, parentId, x, progress, pinned, createdAt
-- `NodeFile`: id, nodeId, A
+- `Node`: id, view, kind, cluster, layer, title, role, plain, status, priority, progress, x
+- `NodeFile`: id, nodeId, path
+- `Note`: id, title, body, ord, pinned, createdAt, updatedAt
+- `PlanContract`: id, planId, declaredFiles, authorizedExtras, active, createdAt, updatedAt
+- `ProjectMeta`: id, overview, conventions, hasFrontend, classificationRoots, updatedAt
+- `SyncState`: id, version, codeGraphSyncedAt, updatedAt
+- `Tag`: id, label, color
 - `TelemetryMachine`: id, firstSeenAt, lastSeenAt, version, platform, arch, ci, heartbeatCount
+- `WorkspaceFlag`: id, key, enabled, config, updatedAt
+- `_NodeTags`: A, B
 
 ### Endpoints
 - GET /api/board-annotations
@@ -90,7 +112,6 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
 - POST /api/map/files
 - POST /api/map/finish
 - POST /api/map/start
-- POST /api/map/touch-active
 - POST /api/nodes/positions
 - POST /api/nodes/subtasks
 - DELETE /api/nodes/{id}
@@ -98,6 +119,7 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
 - POST /api/nodes/{id}/position
 - GET /api/notes
 - DELETE /api/notes/{id}
+- PATCH /api/notes/{id}
 
 ### Conventions & gotchas
 - This is Next.js 16 App Router with breaking changes — read node_modules/next/dist/docs/ before relying on memory; APIs and conventions differ from older App Router.

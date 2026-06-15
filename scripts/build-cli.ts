@@ -18,6 +18,7 @@ const ENTRYPOINTS = [
   "bin/beacon.ts",
   "bin/mcp.ts",
   "bin/hook.ts",
+  "bin/guard.ts",
   "bin/plan.ts",
   "bin/prompt.ts",
   "bin/stop-hook.ts",

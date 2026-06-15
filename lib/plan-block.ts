@@ -20,6 +20,9 @@ export interface ExtractedPlan {
   prose: string;
   draft?: DraftGraph;
   features?: FeatureGraph["features"];
+  // Repo-relative files the agent declares this plan will touch (the scope contract). Captured
+  // from a top-level `"contract"` array in the block; frozen at approval when the guard is on.
+  contract?: string[];
 }
 
 // Strong, low-false-positive signals that a plan TOUCHES THE DATABASE — used to enforce that a
@@ -71,19 +74,24 @@ export function extractBeaconBlock(markdown: string): ExtractedPlan {
   const relations = parseEach(obj.relations, relationSchema);
   const endpoints = parseEach(obj.endpoints, endpointSchema);
   const features = parseEach(obj.features, featureItemSchema);
+  const contract = Array.isArray(obj.contract)
+    ? obj.contract.filter((s): s is string => typeof s === "string" && !!s.trim()).map((s) => s.trim())
+    : undefined;
 
   const draft: DraftGraph | undefined =
     tables.length || endpoints.length || relations.length
       ? { tables, relations, endpoints }
       : undefined;
   const featureList: FeatureGraph["features"] | undefined = features.length ? features : undefined;
+  const contractList = contract?.length ? contract : undefined;
 
   // Nothing usable — leave the prose untouched (and visible) rather than silently dropping it.
-  if (!draft && !featureList) return { prose: markdown };
+  // A contract-only block is still "usable": strip it and carry the declared scope.
+  if (!draft && !featureList && !contractList) return { prose: markdown };
 
   const prose = markdown
     .replace(BEACON_FENCE, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { prose, draft, features: featureList };
+  return { prose, draft, features: featureList, contract: contractList };
 }

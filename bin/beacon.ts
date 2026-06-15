@@ -55,6 +55,8 @@ if (sub === "mcp") {
   await import(mod("bin/mcp.ts"));
 } else if (sub === "hook") {
   await import(mod("bin/hook.ts"));
+} else if (sub === "guard") {
+  await import(mod("bin/guard.ts"));
 } else if (sub === "plan") {
   await import(mod("bin/plan.ts"));
 } else if (sub === "prompt") {

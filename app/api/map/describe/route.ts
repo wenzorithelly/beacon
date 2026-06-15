@@ -2,6 +2,7 @@ import { describeFeature, describeFeatures, type DescribeFeatureItem } from "@/l
 import { rootCauseMessage } from "@/lib/root-cause";
 import { runWithWorkspace } from "@/lib/db-drizzle";
 import { writeContextFiles } from "@/lib/context-files";
+import { retireActiveContract } from "@/lib/scope-contract";
 import { workspaceIdFromRequest } from "@/lib/workspaces";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,8 @@ export async function POST(req: Request) {
         if (ws && items.some((it: DescribeFeatureItem) => it.architecture?.length)) {
           await writeContextFiles({ onlyIfManaged: true }).catch(() => {});
         }
+        // The plan's work is registered done — retire its scope contract (it survives as history).
+        await retireActiveContract().catch(() => {});
         return Response.json(result);
       });
     }
@@ -49,6 +52,8 @@ export async function POST(req: Request) {
       if (ws && Array.isArray(body.architecture) && body.architecture.length) {
         await writeContextFiles({ onlyIfManaged: true }).catch(() => {});
       }
+      // The plan's work is registered done — retire its scope contract (it survives as history).
+      await retireActiveContract().catch(() => {});
       return Response.json(result);
     });
   } catch (e) {

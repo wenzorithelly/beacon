@@ -143,6 +143,12 @@ Beacon extracts that block deterministically, strips it from the prose, and rend
 board on /plan. The board is built ONLY from the block — prose is never parsed — so mirror EVERY
 table/endpoint/feature you mention in the prose into the block, or that board will be empty.
 
+- **Declare your scope.** List the repo-relative files this plan will touch in a top-level
+  \`"contract"\` array in the block (or the \`contract\` arg of \`beacon_propose_plan\`). When the user
+  has the plan scope-guard enabled, those files are frozen at approval and you're held to them while
+  implementing — editing an undeclared file pauses for the user's authorization (which then adds it
+  to the contract). Harmless when the guard is off. Declare the files you genuinely expect to edit.
+
 \`beacon_present_plan\` opens /plan and BLOCKS until the user clicks Approve / Discard / submits
 feedback, then returns their verdict. Implement code or migrations ONLY after it returns approval.
 If it returns feedback, revise and call it again.

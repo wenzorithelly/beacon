@@ -27,6 +27,9 @@ const planSchema = z.object({
   markdown: z.string().optional(),
   draft: draftSchema.optional(),
   features: featureSchema.shape.features.optional(),
+  // Repo-relative files the agent declares this plan will touch (the scope contract). Frozen at
+  // approval when the scope-guard flag is on. Also accepted inside the ```beacon block.
+  contract: z.array(z.string().trim().min(1)).optional(),
 });
 
 // GET — used by the PlanBar (browser) AND the propose_plan poll to ask "is there a plan to
@@ -79,6 +82,7 @@ export async function POST(req: Request) {
       let draftInput = parsed.draft;
       let featureInput = parsed.features;
       let prose = parsed.markdown;
+      let contractInput = parsed.contract;
       const hasStructuredInput =
         (draftInput?.tables.length ?? 0) > 0 ||
         (draftInput?.endpoints.length ?? 0) > 0 ||
@@ -89,6 +93,7 @@ export async function POST(req: Request) {
         prose = extracted.prose;
         draftInput = extracted.draft;
         featureInput = extracted.features;
+        contractInput = contractInput ?? extracted.contract;
       }
       const wantsBoard =
         (draftInput?.tables.length ?? 0) +
@@ -173,6 +178,12 @@ export async function POST(req: Request) {
             ? prevMeta?.markdown
             : undefined,
         originalFeatures: featureInput?.map((f) => f.title) ?? [],
+        // Preserve a prior push's declared scope for the SAME in-flight plan when this push omits
+        // it (e.g. a follow-up propose_plan that only revises the board), so the contract still
+        // freezes at approval. A genuinely different plan (description changed) starts fresh.
+        contractFiles:
+          contractInput ??
+          (prevMeta?.description === parsed.description ? prevMeta?.contractFiles : undefined),
         contentHash,
       });
       // Fresh round = clean slate: drop the previous round's annotation + verdict state so the

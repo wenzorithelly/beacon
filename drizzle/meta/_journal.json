@@ -57,6 +57,13 @@
       "when": 1781353527962,
       "tag": "0007_brainy_george_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1781550451941,
+      "tag": "0008_good_lucky_pierre",
+      "breakpoints": true
     }
   ]
 }

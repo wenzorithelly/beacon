@@ -415,3 +415,48 @@ export const projectMeta = sqliteTable("ProjectMeta", {
     .$defaultFn(() => new Date())
     .$onUpdate(() => new Date()),
 });
+
+// ── Feature gating + plan scope contracts ────────────────────────────────────
+// Generalized per-workspace feature gating, reusable beyond the scope guard: one row per gated
+// capability keyed by `key` (e.g. "scope-guard"); a future gated feature just uses a new key, no
+// migration. `config` is per-feature knobs JSON-encoded (e.g. {"tolerance":0}). Human-only writes.
+export const workspaceFlag = sqliteTable(
+  "WorkspaceFlag",
+  {
+    id: text().primaryKey().$defaultFn(() => createId()),
+    key: text().notNull(),
+    enabled: integer({ mode: "boolean" }).default(false).notNull(),
+    config: text(),
+    updatedAt: integer({ mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date())
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [uniqueIndex("WorkspaceFlag_key_key").on(t.key)],
+);
+
+// One row per APPROVED plan = durable history of that plan's scope contract. `declaredFiles` is
+// frozen at approval; `authorizedExtras` grows ONLY when the user authorizes an off-scope edit at
+// the pre-edit prompt. `planId` ties it to the archived plan + the lineage stamped on the entities
+// the plan created. Exactly one row is `active` per workspace (the one the gate enforces) — that
+// invariant is held in code (writeContract retires prior actives), not a partial index, to stay
+// Postgres-portable. Rows are never deleted, so the history is browsable.
+export const planContract = sqliteTable(
+  "PlanContract",
+  {
+    id: text().primaryKey().$defaultFn(() => createId()),
+    planId: text().notNull(),
+    declaredFiles: text().default("[]").notNull(),
+    authorizedExtras: text().default("[]").notNull(),
+    active: integer({ mode: "boolean" }).default(false).notNull(),
+    createdAt: integer({ mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer({ mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date())
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("PlanContract_planId_key").on(t.planId),
+    index("PlanContract_active_idx").on(t.active),
+  ],
+);
