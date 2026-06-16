@@ -34,7 +34,7 @@ describe("endpoint layout helpers", () => {
       endpointsOverlap([
         { x: 0, y: 0 },
         { x: 0, y: 60 },
-        { x: 280, y: 0 },
+        { x: 300, y: 0 },
       ]),
     ).toBe(false);
   });

@@ -83,16 +83,17 @@ export function AnnotationCardNode({ data, selected }: NodeProps<AnnotationFlowN
           value={body}
           autoFocus={!data.text.trim()}
           placeholder="Type your annotation…"
-          rows={Math.max(2, Math.min(6, body.split("\n").length))}
           onChange={(e) => setBody(e.target.value)}
           onBlur={() => {
             if (body !== data.text) data.onChangeText?.(data.annotationId, body);
           }}
           onKeyDown={(e) => e.stopPropagation()}
-          className="nodrag nopan mt-1.5 w-full resize-none bg-transparent text-[13px] leading-snug text-foreground/95 outline-none placeholder:text-muted-foreground/60"
+          // field-sizing-content grows the box to fit the text (wrapping included), max-h caps it,
+          // then thin-scroll takes over — no spurious default scrollbar on short notes.
+          className="nodrag nopan thin-scroll field-sizing-content mt-1.5 max-h-40 min-h-[2.25rem] w-full resize-none overflow-y-auto bg-transparent text-[13px] leading-snug text-foreground/95 outline-none placeholder:text-muted-foreground/60"
         />
       ) : (
-        <div className="mt-1.5 text-[13px] leading-snug text-foreground/95">
+        <div className="thin-scroll mt-1.5 max-h-40 overflow-y-auto text-[13px] leading-snug text-foreground/95">
           {data.text.trim() ? data.text : <span className="text-muted-foreground">…</span>}
         </div>
       )}

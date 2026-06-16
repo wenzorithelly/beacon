@@ -1,10 +1,10 @@
 import { db, type DB } from "@/lib/db-drizzle";
 
-// Endpoint cards are uniform ~240×50px pills on /db. Their PLACEMENT now lives in
+// Endpoint cards are uniform ~300×50px pills on /db. Their PLACEMENT now lives in
 // lib/db-board-layout (each endpoint docks beneath its primary table); this module keeps the
 // overlap check ingest uses to decide whether to self-heal, and the draft-origin helper.
 
-const EP_CARD_WIDTH = 240;
+const EP_CARD_WIDTH = 300;
 const EP_CARD_HEIGHT = 50;
 
 /**

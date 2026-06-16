@@ -51,3 +51,20 @@ export function getFloatingEdgeParams(source: FlNode, target: FlNode) {
     targetPos: sideOf(target, tp),
   };
 }
+
+/** The point on rectangle `r`'s border where a ray from its center toward `from` exits. Used by
+ *  the annotation connector to land the line on the card edge NEAREST its pin (a floating target
+ *  with a fixed source), so dragging the card re-routes the line instead of kinking it through a
+ *  fixed corner. Returns the center when `from` coincides with it. Pure + deterministic. */
+export function rectBorderPointToward(
+  r: { x: number; y: number; w: number; h: number },
+  from: { x: number; y: number },
+): { x: number; y: number } {
+  const cx = r.x + r.w / 2;
+  const cy = r.y + r.h / 2;
+  const dx = from.x - cx;
+  const dy = from.y - cy;
+  if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  const k = 1 / Math.max(Math.abs(dx) / (r.w / 2 || 1), Math.abs(dy) / (r.h / 2 || 1));
+  return { x: cx + dx * k, y: cy + dy * k };
+}

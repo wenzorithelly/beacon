@@ -128,7 +128,7 @@ describe("endpointsOverlap", () => {
 
   it("treats a docked column (one row pitch apart) as non-overlapping", () => {
     const positions = Array.from({ length: 30 }, (_, i) => ({
-      x: (i % 3) * 280,
+      x: (i % 3) * 300,
       y: Math.floor(i / 3) * 60,
     }));
     expect(endpointsOverlap(positions)).toBe(false);

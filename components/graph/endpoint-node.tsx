@@ -62,7 +62,7 @@ export function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
     return (
       <div
         className={cn(
-          "relative flex w-[240px] items-center gap-2 rounded-lg border border-white/10 bg-[#161618]/95 px-2.5 py-2 text-card-foreground backdrop-blur",
+          "relative flex w-[300px] items-center gap-2 rounded-lg border border-white/10 bg-[#161618]/95 px-2.5 py-2 text-card-foreground backdrop-blur",
           selected && "ring-2 ring-[var(--accent,#f5b942)]",
           lod === "far" && "!opacity-0",
         )}
@@ -71,7 +71,7 @@ export function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
         <span className="shrink-0 font-mono text-[12px] font-bold" style={{ color }}>
           {data.method}
         </span>
-        <span className="truncate font-mono text-[13px]">{data.path}</span>
+        <span title={data.path} className="truncate font-mono text-[13px]">{data.path}</span>
       </div>
     );
   }
@@ -79,7 +79,7 @@ export function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
   return (
     <div
       className={cn(
-        "group relative flex w-[240px] items-center gap-2 rounded-lg border bg-[#161618]/95 px-2.5 py-1.5 text-card-foreground shadow-[0_12px_36px_-18px_rgba(0,0,0,0.9)] backdrop-blur",
+        "group relative flex w-[300px] items-center gap-2 rounded-lg border bg-[#161618]/95 px-2.5 py-1.5 text-card-foreground shadow-[0_12px_36px_-18px_rgba(0,0,0,0.9)] backdrop-blur",
         draft ? "border-dashed" : "border-white/10",
         selected && "ring-2 ring-[var(--accent,#f5b942)]",
       )}
@@ -111,6 +111,7 @@ export function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
           </select>
           <input
             value={path}
+            title={path}
             onChange={(e) => setPath(e.target.value)}
             onBlur={() => {
               const v = path.trim();
@@ -156,7 +157,12 @@ export function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
           >
             {data.method}
           </span>
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{data.path}</span>
+          <span
+            title={data.path}
+            className="min-w-0 flex-1 break-all font-mono text-[11px] leading-tight [-webkit-box-orient:vertical] [-webkit-line-clamp:2] [display:-webkit-box] overflow-hidden"
+          >
+            {data.path}
+          </span>
           {data.source !== "INTROSPECTION" && (
             <span
               title="planned — not yet detected in code"
