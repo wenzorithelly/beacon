@@ -294,7 +294,7 @@ function MockBoard({ label, height, nodes, edges }: { label: string; height: num
 const RM_NODES: Node[] = [
   { id: "lane-a", type: "lane", position: { x: 0, y: 0 }, data: { w: 360, h: 580, label: "auth", count: 3, colored: true }, draggable: false, selectable: false, zIndex: 0 },
   { id: "lane-b", type: "lane", position: { x: 390, y: 0 }, data: { w: 360, h: 580, label: "billing", count: 3, colored: true }, draggable: false, selectable: false, zIndex: 0 },
-  { id: "lane-c", type: "lane", position: { x: 780, y: 0 }, data: { w: 360, h: 580, label: "search", count: 2, colored: true }, draggable: false, selectable: false, zIndex: 0 },
+  { id: "lane-c", type: "lane", position: { x: 780, y: 0 }, data: { w: 360, h: 580, label: "search", count: 3, colored: true }, draggable: false, selectable: false, zIndex: 0 },
   { id: "magic", type: "road", position: { x: 30, y: 54 }, zIndex: 1, data: { w: 300, title: "Magic-link sign-in", role: "Email a one-time link, no passwords", kind: "feature", category: "auth", status: "IN_PROGRESS", priority: 1, layer: "FE", ring: "next", working: true } },
   { id: "verify", type: "road", position: { x: 52, y: 250 }, zIndex: 1, data: { w: 268, title: "Issue + verify token", kind: "sub-task", status: "PENDING", priority: 2, layer: "FE" } },
   { id: "pwreset", type: "road", position: { x: 30, y: 392 }, zIndex: 1, data: { w: 300, title: "Password reset", role: "Reuse the magic-link issuer", kind: "feature", category: "auth", status: "DONE", priority: 2, layer: "FE" } },
@@ -303,6 +303,7 @@ const RM_NODES: Node[] = [
   { id: "invoices", type: "road", position: { x: 420, y: 432 }, zIndex: 1, data: { w: 300, title: "Invoice PDF export", kind: "feature", category: "billing", status: "DONE", priority: 2, layer: "BE" } },
   { id: "rate", type: "road", position: { x: 810, y: 54 }, zIndex: 1, data: { w: 300, title: "Rate limiter", role: "Token bucket on the public API", kind: "feature", category: "search", status: "PENDING", priority: 2, layer: "BE" } },
   { id: "audit", type: "road", position: { x: 832, y: 250 }, zIndex: 1, data: { w: 268, title: "Write audit log rows", kind: "sub-task", status: "DONE", priority: 3, layer: "BE" } },
+  { id: "bug", type: "road", position: { x: 810, y: 392 }, zIndex: 1, data: { w: 300, title: "Token leaks into request logs", kind: "bug", category: "search", status: "PENDING", priority: 0, layer: "BE", signals: { auth: true } } },
 ];
 const RM_EDGES: Edge[] = [
   mkEdge("e1", "magic", "sb", "verify", "tt", "contains"),
@@ -367,47 +368,74 @@ const AR_EDGES: Edge[] = [
    on lib/db.ts + lib/utils.ts the way they really do. Positions are a deterministic
    golden-angle spiral per directory so each cluster reads as a neighbourhood. */
 const FILE_DIRS: Record<string, { color: string; cx: number; cy: number }> = {
-  lib: { color: "#7bd389", cx: 690, cy: 300 },
-  graph: { color: "#c792ea", cx: 250, cy: 180 },
-  plan: { color: "#7dd3fc", cx: 210, cy: 520 },
-  api: { color: "#ffb86b", cx: 560, cy: 650 },
-  intel: { color: "#2dd4bf", cx: 1040, cy: 470 },
-  bin: { color: "#ff8a5b", cx: 1060, cy: 150 },
+  lib: { color: "#7bd389", cx: 220, cy: 170 },
+  graph: { color: "#c792ea", cx: 720, cy: 150 },
+  plan: { color: "#7dd3fc", cx: 1200, cy: 180 },
+  api: { color: "#ffb86b", cx: 220, cy: 580 },
+  intel: { color: "#2dd4bf", cx: 720, cy: 560 },
+  notes: { color: "#ff9ec7", cx: 1200, cy: 580 },
+  bin: { color: "#ff8a5b", cx: 220, cy: 980 },
+  drizzle: { color: "#5eead4", cx: 720, cy: 980 },
+  tests: { color: "#9aa6b2", cx: 1200, cy: 980 },
 };
 type FileDef = { id: string; label: string; dir: keyof typeof FILE_DIRS; deg: number; layer?: "FE" | "BE"; untested?: boolean };
 // hub of each directory listed FIRST (it lands at the cluster centre).
 const FILES: FileDef[] = [
+  // lib
   { id: "db", label: "lib/db.ts", dir: "lib", deg: 18, layer: "BE" },
   { id: "utils", label: "lib/utils.ts", dir: "lib", deg: 12 },
   { id: "ws", label: "lib/workspaces.ts", dir: "lib", deg: 8, layer: "BE" },
   { id: "consts", label: "lib/constants.ts", dir: "lib", deg: 6 },
   { id: "layer", label: "lib/layer.ts", dir: "lib", deg: 5 },
   { id: "mut", label: "lib/mutations.ts", dir: "lib", deg: 3, layer: "BE", untested: true },
-  { id: "mapops", label: "lib/map-ops.ts", dir: "lib", deg: 3, layer: "BE" },
   { id: "catcolor", label: "lib/category-color.ts", dir: "lib", deg: 3 },
-  { id: "emb", label: "lib/embeddings.ts", dir: "lib", deg: 2, layer: "BE" },
-  { id: "rel", label: "lib/release.ts", dir: "lib", deg: 2 },
-  { id: "ncard", label: "node-card.tsx", dir: "graph", deg: 6, layer: "FE" },
-  { id: "handles", label: "handles.tsx", dir: "graph", deg: 5, layer: "FE" },
+  // components/graph
+  { id: "ncard", label: "node-card.tsx", dir: "graph", deg: 7, layer: "FE" },
+  { id: "handles", label: "handles.tsx", dir: "graph", deg: 6, layer: "FE" },
   { id: "dbtable", label: "db-table-node.tsx", dir: "graph", deg: 3, layer: "FE" },
   { id: "mapc", label: "map-client.tsx", dir: "graph", deg: 2, layer: "FE" },
   { id: "dbmapc", label: "db-map-client.tsx", dir: "graph", deg: 2, layer: "FE" },
-  { id: "filesc", label: "files-map-client.tsx", dir: "graph", deg: 2, layer: "FE", untested: true },
   { id: "epnode", label: "endpoint-node.tsx", dir: "graph", deg: 2, layer: "FE" },
+  { id: "dsidebar", label: "detail-sidebar.tsx", dir: "graph", deg: 2, layer: "FE" },
+  // components/plan
   { id: "mdview", label: "markdown-view.tsx", dir: "plan", deg: 4, layer: "FE" },
   { id: "planws", label: "plan-workspace.tsx", dir: "plan", deg: 2, layer: "FE" },
   { id: "annop", label: "annotation-panel.tsx", dir: "plan", deg: 2, layer: "FE" },
+  { id: "planbar", label: "plan-bar.tsx", dir: "plan", deg: 2, layer: "FE" },
+  { id: "planhist", label: "plan-history-view.tsx", dir: "plan", deg: 1, layer: "FE" },
+  // app/api
   { id: "ingR", label: "api/ingest/route.ts", dir: "api", deg: 1, layer: "BE" },
   { id: "draftR", label: "api/draft/route.ts", dir: "api", deg: 1, layer: "BE" },
   { id: "planR", label: "api/plan/route.ts", dir: "api", deg: 1, layer: "BE" },
-  { id: "featR", label: "api/context/feature/route.ts", dir: "api", deg: 1, layer: "BE" },
+  { id: "streamR", label: "api/stream/route.ts", dir: "api", deg: 1, layer: "BE" },
+  { id: "nodesR", label: "api/nodes/route.ts", dir: "api", deg: 1, layer: "BE" },
+  { id: "baR", label: "api/board-annotations/route.ts", dir: "api", deg: 1, layer: "BE" },
+  // intel
   { id: "cgraph", label: "intel/code-graph.ts", dir: "intel", deg: 6, layer: "BE" },
-  { id: "ingI", label: "intel/ingest.ts", dir: "intel", deg: 3, layer: "BE" },
+  { id: "iingest", label: "intel/ingest.ts", dir: "intel", deg: 3, layer: "BE" },
   { id: "pipe", label: "intel/pipeline.ts", dir: "intel", deg: 2, layer: "BE" },
+  { id: "merge", label: "intel/merge.ts", dir: "intel", deg: 2, layer: "BE" },
   { id: "watch", label: "intel/watch-inline.ts", dir: "intel", deg: 2, layer: "BE", untested: true },
+  { id: "iconfig", label: "intel/config.ts", dir: "intel", deg: 2, layer: "BE" },
+  // components/notes
+  { id: "notes", label: "lib/notes.ts", dir: "notes", deg: 3, layer: "BE" },
+  { id: "neditor", label: "note-editor.tsx", dir: "notes", deg: 2, layer: "FE" },
+  { id: "ndrawer", label: "notes-drawer.tsx", dir: "notes", deg: 2, layer: "FE" },
+  { id: "nmark", label: "note-markdown.ts", dir: "notes", deg: 2 },
+  // bin
   { id: "mcp", label: "bin/mcp.ts", dir: "bin", deg: 1, layer: "BE" },
   { id: "beacon", label: "bin/beacon.ts", dir: "bin", deg: 1, layer: "BE" },
   { id: "hook", label: "bin/hook.ts", dir: "bin", deg: 1, layer: "BE" },
+  { id: "stophook", label: "bin/stop-hook.ts", dir: "bin", deg: 1, layer: "BE" },
+  { id: "doctor", label: "bin/doctor.ts", dir: "bin", deg: 1, layer: "BE" },
+  // drizzle
+  { id: "schema", label: "drizzle/schema.ts", dir: "drizzle", deg: 3, layer: "BE" },
+  { id: "provision", label: "drizzle/provision.ts", dir: "drizzle", deg: 2, layer: "BE" },
+  // tests
+  { id: "tmapops", label: "map-ops.test.ts", dir: "tests", deg: 0 },
+  { id: "tingest", label: "ingest.test.ts", dir: "tests", deg: 0 },
+  { id: "tdbdiff", label: "db-diff.test.ts", dir: "tests", deg: 0 },
+  { id: "trisk", label: "risk-badges.test.ts", dir: "tests", deg: 0 },
 ];
 const FILE_NODES: Node[] = (() => {
   const seen: Record<string, number> = {};
@@ -425,16 +453,24 @@ const FILE_NODES: Node[] = (() => {
   });
 })();
 const FILE_LINKS: [string, string][] = [
-  ["mapc", "ncard"], ["mapc", "utils"], ["mapc", "handles"],
-  ["dbmapc", "dbtable"], ["dbmapc", "db"], ["dbmapc", "utils"],
-  ["filesc", "handles"], ["filesc", "layer"], ["filesc", "cgraph"],
+  // lib internals
+  ["mut", "db"], ["mut", "utils"], ["ws", "utils"], ["layer", "utils"], ["db", "ws"], ["db", "schema"],
+  // graph → lib + each other
   ["ncard", "handles"], ["ncard", "consts"], ["ncard", "layer"], ["ncard", "catcolor"],
-  ["dbtable", "handles"], ["dbtable", "consts"], ["epnode", "handles"],
-  ["planws", "ncard"], ["planws", "mdview"], ["planws", "utils"], ["annop", "mdview"],
-  ["mut", "db"], ["mut", "utils"], ["mapops", "db"],
-  ["ingR", "db"], ["ingR", "ws"], ["draftR", "db"], ["planR", "ws"], ["featR", "emb"],
-  ["ingI", "db"], ["ingI", "cgraph"], ["pipe", "cgraph"], ["watch", "cgraph"], ["cgraph", "utils"],
-  ["mcp", "db"], ["mcp", "ws"], ["beacon", "ws"], ["hook", "ws"], ["db", "ws"], ["emb", "utils"],
+  ["mapc", "ncard"], ["mapc", "utils"], ["dbmapc", "dbtable"], ["dbmapc", "db"],
+  ["dbtable", "handles"], ["dbtable", "consts"], ["epnode", "handles"], ["dsidebar", "ncard"],
+  // plan
+  ["planws", "ncard"], ["planws", "mdview"], ["planws", "utils"], ["annop", "mdview"], ["planbar", "utils"], ["planhist", "mdview"],
+  // notes
+  ["ndrawer", "neditor"], ["ndrawer", "notes"], ["neditor", "nmark"], ["notes", "db"],
+  // api → lib
+  ["ingR", "db"], ["ingR", "ws"], ["draftR", "db"], ["planR", "ws"], ["streamR", "ws"], ["nodesR", "db"], ["baR", "db"],
+  // intel
+  ["iingest", "db"], ["iingest", "cgraph"], ["pipe", "cgraph"], ["merge", "cgraph"], ["watch", "cgraph"], ["cgraph", "utils"], ["iconfig", "utils"],
+  // bin
+  ["mcp", "db"], ["mcp", "ws"], ["beacon", "ws"], ["hook", "ws"], ["stophook", "ws"], ["doctor", "ws"],
+  // drizzle + tests
+  ["provision", "schema"], ["tmapops", "db"], ["tingest", "iingest"], ["tdbdiff", "db"], ["trisk", "ncard"],
 ];
 const FILE_EDGES: Edge[] = FILE_LINKS.map(([a, b], i) => mkEdge(`g${i}`, a, "sb", b, "tt", "file"));
 
@@ -443,7 +479,7 @@ const SURFACE_TABS = [
   { key: "Roadmap", route: "/map", title: "Steer the agent's work order", body: "Features, sub-tasks and dependencies as a graph — priority on the border, a layer stripe for frontend or backend, and the work-on-next ring marking the agent's next move.", board: <MockBoard label="/map · roadmap" height={600} nodes={RM_NODES} edges={RM_EDGES} /> },
   { key: "Database", route: "/db", title: "Schema as a draft, diffed", body: "Proposed tables and endpoints diffed against your live schema — new in green, changed in amber. Foreign keys and endpoint→table usage draw themselves.", board: <MockBoard label="/db · plan vs. repo" height={520} nodes={DB_NODES} edges={DB_EDGES} /> },
   { key: "Architecture", route: "/map", title: "The subsystems, mapped", body: "Real architecture components grouped into domain regions, each with the role it plays — the high-level map the agent keeps current as the codebase grows.", board: <MockBoard label="/map · architecture" height={640} nodes={AR_NODES} edges={AR_EDGES} /> },
-  { key: "Files", route: "code-graph", title: "See your codebase, live", body: "A polyglot import graph, Obsidian-style: every file a dot sized by how many files import it, colored by directory, with a layer ring and an amber ring on anything no test imports.", board: <MockBoard label="code-graph · files" height={640} nodes={FILE_NODES} edges={FILE_EDGES} /> },
+  { key: "Files", route: "code-graph", title: "See your codebase, live", body: "A polyglot import graph, Obsidian-style: every file a dot sized by how many files import it, colored by directory, with a layer ring and an amber ring on anything no test imports.", board: <MockBoard label="code-graph · 46 files · 52 imports" height={720} nodes={FILE_NODES} edges={FILE_EDGES} /> },
 ] as const;
 
 export function SurfacesShowcase() {
