@@ -89,11 +89,11 @@ export function AnnotationCardNode({ data, selected }: NodeProps<AnnotationFlowN
           }}
           onKeyDown={(e) => e.stopPropagation()}
           // field-sizing-content grows the box to fit the text (wrapping included), max-h caps it,
-          // then thin-scroll takes over — no spurious default scrollbar on short notes.
-          className="nodrag nopan thin-scroll field-sizing-content mt-1.5 max-h-40 min-h-[2.25rem] w-full resize-none overflow-y-auto bg-transparent text-[13px] leading-snug text-foreground/95 outline-none placeholder:text-muted-foreground/60"
+          // then the global subtle scrollbar takes over — no spurious default scrollbar on short notes.
+          className="nodrag nopan field-sizing-content mt-1.5 max-h-40 min-h-[2.25rem] w-full resize-none overflow-y-auto bg-transparent text-[13px] leading-snug text-foreground/95 outline-none placeholder:text-muted-foreground/60"
         />
       ) : (
-        <div className="thin-scroll mt-1.5 max-h-40 overflow-y-auto text-[13px] leading-snug text-foreground/95">
+        <div className="mt-1.5 max-h-40 overflow-y-auto text-[13px] leading-snug text-foreground/95">
           {data.text.trim() ? data.text : <span className="text-muted-foreground">…</span>}
         </div>
       )}
