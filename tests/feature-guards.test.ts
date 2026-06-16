@@ -63,6 +63,64 @@ describe("startFeature creation guard", () => {
   });
 });
 
+describe("startFeature status (backlog vs active create)", () => {
+  it("creates a PENDING card when status is 'backlog'", async () => {
+    const r = await startFeature({ title: "Backlog idea zzz", cluster: "DATA", status: "backlog" });
+    expect(r.action).toBe("created");
+    if (r.action === "created") {
+      const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, r.id) });
+      expect(n!.status).toBe("PENDING");
+    }
+  });
+
+  it("creates an IN_PROGRESS card when status is 'active'", async () => {
+    const r = await startFeature({ title: "Active idea zzz", cluster: "DATA", status: "active" });
+    expect(r.action).toBe("created");
+    if (r.action === "created") {
+      const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, r.id) });
+      expect(n!.status).toBe("IN_PROGRESS");
+    }
+  });
+
+  it("tolerates a raw DB status value ('PENDING') on create", async () => {
+    const r = await startFeature({ title: "Raw status zzz", cluster: "DATA", status: "PENDING" });
+    expect(r.action).toBe("created");
+    if (r.action === "created") {
+      const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, r.id) });
+      expect(n!.status).toBe("PENDING");
+    }
+  });
+
+  it("defaults to IN_PROGRESS when no status is given (back-compat)", async () => {
+    const r = await startFeature({ title: "Default status zzz", cluster: "DATA" });
+    expect(r.action).toBe("created");
+    if (r.action === "created") {
+      const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, r.id) });
+      expect(n!.status).toBe("IN_PROGRESS");
+    }
+  });
+});
+
+describe("startFeature add intent (flagExisting: false)", () => {
+  it("returns 'exists' for a matching card and does NOT change its status", async () => {
+    await db
+      .insert(node)
+      .values({ view: "ROADMAP", title: "Expand corpus coverage", cluster: "DATA", status: "PENDING" });
+    const r = await startFeature({ title: "Expand corpus coverage", flagExisting: false });
+    expect(r.action).toBe("exists");
+    const n = await db.query.node.findFirst({
+      where: (t, { eq }) => eq(t.title, "Expand corpus coverage"),
+    });
+    expect(n!.status).toBe("PENDING"); // untouched — add never flips an existing card to IN_PROGRESS
+  });
+
+  it("still rejects a brand-new add with no category", async () => {
+    const r = await startFeature({ title: "Brand new backlog zzz", status: "backlog", flagExisting: false });
+    expect(r.action).toBe("rejected");
+    if (r.action === "rejected") expect(r.message).toContain("category");
+  });
+});
+
 describe("startFeature places the new card in its group without moving anything", () => {
   it("existing cards keep their positions; the new card joins its theme's region", async () => {
     const [a] = await db

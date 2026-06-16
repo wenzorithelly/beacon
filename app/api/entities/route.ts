@@ -10,15 +10,25 @@ export async function GET(req: Request) {
   return runWithWorkspace(workspaceIdFromRequest(req), () => handle(req));
 }
 
+// Descriptions are truncated by default so the tool result can't overflow the agent's
+// context (this used to dump every feature's full `plain` → a ~124k-char result). `full=1`
+// returns complete text; `limit=N` caps the row count. For just titles+categories+status the
+// lighter beacon_map is preferred.
+const PLAIN_PREVIEW = 160;
+
 async function handle(req: Request) {
-  const kind = new URL(req.url).searchParams.get("kind") || "features";
+  const params = new URL(req.url).searchParams;
+  const kind = params.get("kind") || "features";
 
   if (kind === "features" || kind === "architecture") {
+    const full = params.get("full") === "1" || params.get("full") === "true";
+    const limit = Math.min(Math.max(Number(params.get("limit")) || 0, 0), 500); // 0 = no cap
     const view = kind === "architecture" ? "ARCHITECTURE" : "ROADMAP";
-    const nodes = await db.query.node.findMany({
+    const all = await db.query.node.findMany({
       where: (t, { eq }) => eq(t.view, view),
       orderBy: (t, { asc }) => [asc(t.cluster), asc(t.y)],
     });
+    const nodes = limit > 0 ? all.slice(0, limit) : all;
     return Response.json({
       items: nodes.map((n) => ({
         id: n.id,
@@ -26,8 +36,15 @@ async function handle(req: Request) {
         cluster: n.cluster,
         status: n.status,
         priority: n.priority,
+        layer: n.layer,
+        kind: n.kind,
         role: n.role,
-        plain: n.plain,
+        plain:
+          full || !n.plain
+            ? n.plain
+            : n.plain.length > PLAIN_PREVIEW
+              ? n.plain.slice(0, PLAIN_PREVIEW) + "…"
+              : n.plain,
       })),
     });
   }

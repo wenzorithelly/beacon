@@ -10,7 +10,7 @@ import { repoRoot } from "@/lib/project";
 export const dynamic = "force-dynamic";
 
 // Attach files to the feature the session is currently working on (set by the most
-// recent beacon_start_feature). Called by the auto-report hook on each edit. Also records
+// recent beacon_feature start/add). Called by the auto-report hook on each edit. Also records
 // the edit into the touched-files store (independent of any active feature) so the Files
 // canvas can light up what the agent is touching live.
 export const POST = pinned(async (req: Request) => {

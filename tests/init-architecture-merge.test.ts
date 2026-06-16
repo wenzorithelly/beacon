@@ -18,7 +18,7 @@ async function archNodes() {
   });
 }
 
-// A refresh must MERGE into architecture nodes that beacon_describe_feature created
+// A refresh must MERGE into architecture nodes that beacon_feature action:done created
 // (source=MANUAL) instead of shadowing them with fresh INIT duplicates — the exact failure
 // a board built entirely by describe_feature hit on its first /beacon-refresh.
 describe("persistArchitecture — merges with describe_feature-created (MANUAL) nodes", () => {

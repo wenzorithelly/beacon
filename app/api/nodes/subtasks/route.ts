@@ -3,7 +3,7 @@ import { addSubtasksUnder } from "@/lib/map-ops";
 import { runWithWorkspace } from "@/lib/db-drizzle";
 import { workspaceIdFromRequest } from "@/lib/workspaces";
 
-// Bulk sub-task creation under a parent. Used by the `beacon_add_subtasks` MCP tool so
+// Bulk sub-task creation under a parent. Used by `beacon_feature({ action: "subtasks" })` so
 // a terminal session can attach N follow-ups to a feature in one call (instead of N
 // position-fiddling /api/nodes POSTs). Parent resolves by id (preferred) or fuzzy title.
 

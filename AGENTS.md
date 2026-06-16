@@ -40,7 +40,7 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
   - Live code-intelligence daemon — Per-workspace watchers (recently-opened subset + lazy warm-up) → registry-driven polyglot, multi-root, incremental code-graph build → pinned ingest. Degrades gracefully. (instrumentation.ts, intel/config.ts, intel/ingest.ts, intel/merge.ts, intel/pipeline.ts, intel/watch-inline.ts)
   - Code graph & files canvas — Polyglot, multi-root import-edge index (per-language resolver registry) with cached degrees + cycle flags; transitive depth-N blast-radius; hub/lang-aware files canvas with init-declared classification-root grouping. (app/api/code-graph/route.ts, components/graph/files-map-client.tsx, intel/extractors/code-graph.ts, intel/extractors/languages/index.ts, lib/code-graph.ts, lib/file-groups.ts)
 - **MCP**
-  - MCP server — stdio MCP server exposing beacon_map / propose_plan / context_for_feature / describe_feature / blast_radius / init_persist (incl. classificationRoots) plus @-mention resources; pins every request to its repo's workspace. (bin/mcp.ts)
+  - MCP server — stdio MCP server; feature lifecycle now via one beacon_feature({action}) tool (add/start/subtasks/done); beacon_map carries categories; beacon_entities is paginated/truncated (bin/mcp.ts)
 - **PLAN**
   - Plan review loop — Receives proposed plans, blocks for the verdict, bundles inline annotations + /map and /db board edits into structured feedback, and archives every plan. (app/api/plan/annotations/route.ts, app/api/plan/approve/route.ts, app/api/plan/history/route.ts, app/api/plan/markdown/route.ts, app/api/plan/route.ts, lib/annotations.ts)
   - Plan scope guard — Per-plan scope contracts: declare→freeze→pre-edit gate (ask)→authorize-grows-contract, behind a generalized WorkspaceFlag (app/api/flags/route.ts, app/api/scope-guard/check/route.ts, bin/guard.ts, components/scope-guard-card.tsx, lib/feature-flags.ts, lib/scope-contract.ts)
@@ -160,13 +160,23 @@ When listing endpoints, give each `uses: [{ table, access }]` so the endpoint→
 
 EVERY feature MUST carry `category` (e.g. AUTH | SEARCH | DATA | INTEL | BILLING | …; `cluster` is accepted as an alias) and `priority` (0 = P0 critical, 1 = P1 high, 2 = P2 medium, 3 = P3 low). Beacon REJECTS a plan whose features omit either — `beacon_propose_plan` returns the list of what's missing, and an ExitPlanMode ```beacon block is denied — so set both on every feature instead of relying on defaults.
 
-When the workspace HAS A FRONTEND (Beacon knows — the agent set `hasFrontend` at init, or frontend files were detected), every feature must ALSO carry `layer`: `"frontend" | "backend" | "fullstack"` — which side of the stack the work lands on. Plans omitting it are REJECTED the same way category/priority are. It works on every surface that creates roadmap cards (`beacon_propose_plan`, the ```beacon block, `beacon_start_feature`, `beacon_add_subtasks` — sub-tasks default to the parent's layer) and on architecture components (`beacon_describe_feature` / `beacon_init_persist`). In a pure-backend repo, never set it — the boards don't show it there.
+When the workspace HAS A FRONTEND (Beacon knows — the agent set `hasFrontend` at init, or frontend files were detected), every feature must ALSO carry `layer`: `"frontend" | "backend" | "fullstack"` — which side of the stack the work lands on. Plans omitting it are REJECTED the same way category/priority are. It works on every surface that creates roadmap cards (`beacon_propose_plan`, the ```beacon block, `beacon_feature` — sub-tasks default to the parent's layer) and on architecture components (`beacon_feature` action:done / `beacon_init_persist`). In a pure-backend repo, never set it — the boards don't show it there.
 
-REUSE before you create. Call `beacon_map` to see the features + categories that already exist. Beacon HARD-BLOCKS a feature that duplicates an existing one (it returns the existing feature to use instead) and one created without a category — so don't re-create work that's already on the board, and reuse an existing category rather than a near-synonym. `category` is the ONLY domain field. `front` (in `beacon_start_feature`) nests a feature UNDER an existing parent feature — it is NOT a domain tag; a `front` that matches no real feature is rejected.
+### Adding a card directly — `beacon_feature` (no review gate)
+
+To put a card on the board WITHOUT the plan-review flow, call `beacon_feature` — ONE tool for a feature's whole lifecycle:
+- `{ action: "add" }` creates a card in a SINGLE call. It defaults to `status: "backlog"` (a PENDING item you're NOT working on yet); pass `status: "active"` to start it IN_PROGRESS now. A title that matches an existing card returns `exists` (reuse it) — `add` never activates or demotes a card already on the board.
+- `{ action: "start" }` marks an existing card IN_PROGRESS (create-or-flag).
+- `{ action: "subtasks" }` adds child tasks under a card.
+- `{ action: "done" }` completes feature(s) and registers the files/architecture touched.
+
+A NEW card REQUIRES `category` + `priority` (and `layer` where the workspace has a frontend). Use `beacon_propose_plan` / `beacon_present_plan` only when you want the user to REVIEW before the card lands.
+
+REUSE before you create. Call `beacon_map` FIRST — it lists every card with its `category`, `priority`, `layer` and `status`, so you reuse an existing category (don't invent a near-synonym) and spot duplicates WITHOUT calling `beacon_entities`. Beacon HARD-BLOCKS a feature that duplicates an existing one (it returns the existing feature to use instead) and one created without a category. `category` is the ONLY domain field. `front` (in `beacon_feature`) nests a card UNDER an existing parent feature — it is NOT a domain tag; a `front` that matches no real feature is rejected.
 
 When listing features, give each `dependsOn: ["Other feature title", …]` for any feature that must ship after another in the same plan. Beacon draws these as "depends on" links so the roadmap shows the dependency chain instead of loose, disconnected cards.
 
-A roadmap item that is a BUG to fix (not a feature to build) should carry `kind: "BUG"` — it renders as a typed bug card. This works everywhere roadmap cards are created: `beacon_propose_plan` features, the ```beacon block, `beacon_start_feature` (when the user says they're starting on a bug), `beacon_add_subtasks` items (a bug discovered mid-work), and `beacon_init_persist` roadmap items. Default is FEATURE.
+A roadmap item that is a BUG to fix (not a feature to build) should carry `kind: "BUG"` — it renders as a typed bug card. This works everywhere roadmap cards are created: `beacon_propose_plan` features, the ```beacon block, `beacon_feature` (add/start when the user is working on a bug; or `subtasks` items for a bug discovered mid-work), and `beacon_init_persist` roadmap items. Default is FEATURE.
 
 ### 2b. Presenting a plan in plan mode (ExitPlanMode)
 
@@ -184,11 +194,11 @@ Beacon extracts it deterministically and **strips the block from the prose** (it
 
 ### 3. At the end, register the work — in ONE call
 
-Call `beacon_describe_feature` **ONCE** with a `features` array — one entry per feature the plan created — each with the files you touched and a short markdown description. This flips each one to **Done** — including its sub-tasks (the cascade completes every PENDING/IN_PROGRESS child; a sub-task you did NOT finish must be set BLOCKED or CANCELLED before registering, so it survives visibly) — and keeps `beacon_context_for_feature` accurate for the next session.
+Call `beacon_feature({ action: "done" })` **ONCE** with a `features` array — one entry per feature the plan created — each with the files you touched and a short markdown description. This flips each one to **Done** — including its sub-tasks (the cascade completes every PENDING/IN_PROGRESS child; a sub-task you did NOT finish must be set BLOCKED or CANCELLED before registering, so it survives visibly) — and keeps `beacon_context_for_feature` accurate for the next session.
 
 Key each entry by its node `id`: the ids are handed back to you when the plan is approved (in the approval message / additionalContext), so you don't fuzzy-match titles or pay a disambiguation round-trip. If you don't have an id, `title` still works.
 
-Register them all in that single batched call. If a plan added five features, that's ONE `beacon_describe_feature` call with five entries — NOT five calls, and NOT just an umbrella ("Harden auth"), which leaves the individual features stuck on **Pending**.
+Register them all in that single batched call. If a plan added five features, that's ONE `beacon_feature({ action: "done" })` call with five entries — NOT five calls, and NOT just an umbrella ("Harden auth"), which leaves the individual features stuck on **Pending**.
 
 If the feature added or materially changed a REAL architectural component (a subsystem — NOT a file), also pass `architecture: [{ title, domain, role, … }]` so the Architecture map stays accurate. It upserts curated components by title; never list files as components. If you found a bug or something worth investigating in a component's code, add `bugs: [{ note }]` to its architecture entry — it renders as a bug flag on the node (attributed to the agent); identical open flags are not duplicated. Only flag what you actually saw in the code.
 

@@ -22,6 +22,7 @@ import {
   repoRootFrom,
 } from "@/lib/workspaces";
 import { mentionsDbSchema } from "@/lib/plan-block";
+import { planFeatureRequest, type FeatureAction } from "@/lib/feature-tool";
 import { validateProposedFeatures } from "@/lib/feature-rules";
 import { approvedFeaturesContext } from "@/lib/plan-approval-message";
 import type { ApprovedFeature } from "@/lib/plan-verdict";
@@ -139,102 +140,13 @@ const server = new McpServer({ name: "beacon", version: "0.1.0" });
 
 server.registerTool(
   "beacon_map",
-  { description: "List existing features on the roadmap. Call before starting work." },
+  {
+    description:
+      "List the roadmap: every feature + its sub-tasks with `category`, `priority`, `layer`, `kind`, and `status`. Call this BEFORE creating anything with `beacon_feature` — it's the cheap way to learn which categories already exist (reuse one instead of inventing a synonym) and whether a card already exists. You do NOT need `beacon_entities` just to see categories.",
+  },
   async () => {
     const map = await api("/api/map");
     return { content: [{ type: "text" as const, text: JSON.stringify(map) }] };
-  },
-);
-
-server.registerTool(
-  "beacon_start_feature",
-  {
-    description:
-      "Flag that you're working on a feature. If the title matches an existing feature it just marks it IN_PROGRESS (no category needed); if it's NEW it creates the node — and a new feature REQUIRES a `category`. Call beacon_map first so you reuse an existing feature/category instead of duplicating one.",
-    inputSchema: {
-      title: z.string(),
-      id: z.string().optional().describe("node id from beacon_map (preferred)"),
-      category: z
-        .string()
-        .optional()
-        .describe(
-          "Domain lane for a NEW feature: AUTH | SEARCH | DATA | INTEL | BILLING | INFRA | UI | … REQUIRED when this creates a new top-level feature; reuse a category already on the board. Ignored when flagging an existing feature or nesting under a `front` (inherits the parent's).",
-        ),
-      front: z
-        .string()
-        .optional()
-        .describe(
-          "Title of an EXISTING parent feature to nest this under (draws the parent → child edge). It must match a real feature — it is NOT a domain tag (use `category` for the domain). A `front` that matches nothing is REJECTED; create the parent first via beacon_propose_plan.",
-        ),
-      detail: z
-        .string()
-        .optional()
-        .describe(
-          "One-line plain-language description shown on the canvas card. Replaced later by beacon_describe_feature's markdown when the work is done.",
-        ),
-      kind: z
-        .enum(["FEATURE", "BUG"])
-        .optional()
-        .describe(
-          "Card type when this CREATES a new node: BUG renders a typed bug card on the roadmap (use when the user is starting work on a bug, not a feature). Defaults to FEATURE; ignored when flagging an existing node.",
-        ),
-      layer: z
-        .enum(["frontend", "backend", "fullstack"])
-        .optional()
-        .describe(
-          "Which side of the stack a NEW feature lands on. REQUIRED for a new top-level feature when the workspace has a frontend; a feature nested under a `front` inherits the parent's. Omit in pure-backend repos.",
-        ),
-    },
-  },
-  async ({ title, id, front, detail, category, kind, layer }) => {
-    try {
-      const r = await post("/api/map/start", { title, id, front, detail, category, kind, layer });
-      return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
-    } catch (e) {
-      return errText(e);
-    }
-  },
-);
-
-server.registerTool(
-  "beacon_add_subtasks",
-  {
-    description:
-      "Add N sub-tasks under an existing feature in one call. Use when the user says 'add these as subtasks to <feature>' or you want to record follow-ups discovered during work. Parent resolves by `parentId` (preferred — get it from beacon_map / beacon_entities) or by `parentTitle` (fuzzy-matched against top-level features). Children inherit the parent's view and cluster and land in a row beneath it; bumps the sync version so an open /map canvas refreshes.",
-    inputSchema: {
-      parentId: z.string().optional().describe("node id of the parent feature (preferred)"),
-      parentTitle: z
-        .string()
-        .optional()
-        .describe("fuzzy title of the parent feature; ignored if parentId is provided"),
-      items: z
-        .array(
-          z.object({
-            title: z.string().describe("short sub-task title"),
-            plain: z
-              .string()
-              .optional()
-              .describe("one-paragraph description / why / acceptance hint"),
-            kind: z
-              .enum(["FEATURE", "BUG"])
-              .optional()
-              .describe("BUG for a bug discovered during work — renders as a typed bug card; defaults to FEATURE"),
-            layer: z
-              .enum(["frontend", "backend", "fullstack"])
-              .optional()
-              .describe("which side of the stack the sub-task lands on; defaults to the parent's layer"),
-          }),
-        )
-        .describe("the sub-tasks to add"),
-    },
-  },
-  async ({ parentId, parentTitle, items }) => {
-    try {
-      const r = await post("/api/nodes/subtasks", { parentId, parentTitle, items });
-      return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
-    } catch (e) {
-      return errText(e);
-    }
   },
 );
 
@@ -261,13 +173,92 @@ const architectureItemSchema = z
   .optional()
   .describe("Only when the feature adds/changes a REAL architectural component — upserts curated nodes, never one-per-file");
 
+// ONE tool for a feature's whole lifecycle — replaces the old beacon_start_feature /
+// beacon_add_subtasks / beacon_describe_feature trio. `action` picks the verb; the per-action
+// fields are documented below. No approval gate (that's beacon_propose_plan / beacon_present_plan).
 server.registerTool(
-  "beacon_describe_feature",
+  "beacon_feature",
   {
     description:
-      "Register shipped feature(s) at the end of the work: marks status=DONE, records the files touched (kept on the FEATURE for context), and replaces each node's description with your markdown. Subsumes touch_files + finish_feature. A feature's unfinished SUB-TASKS are completed along with it (cascade; reported as `subtasksCompleted`) — if a sub-task is genuinely NOT done, set it BLOCKED or CANCELLED via the nodes API/board FIRST, those are left alone (`subtasksBlocked` lists what stayed). REGISTER ALL FEATURES A PLAN CREATED IN ONE CALL via the `features` array (one entry per feature) — do NOT call this once per feature. Pass each feature's `id` (returned to you at plan approval) so no title-matching is needed. For a single feature you may pass the top-level fields instead. Pass `architecture` only when a feature added/changed a REAL subsystem (never a file).",
+      "Manage a roadmap feature's whole lifecycle in ONE tool — no approval gate (that's `beacon_propose_plan`/`beacon_present_plan`). `action:\"add\"` puts a card on the board, defaulting to BACKLOG/PENDING (pass `status:\"active\"` to start it now); `\"start\"` marks an existing card IN_PROGRESS (create-or-flag); `\"subtasks\"` adds child tasks under a card; `\"done\"` completes feature(s) and registers the files/architecture touched (marks DONE + cascades to sub-tasks). A NEW card REQUIRES `category` + `priority` (and `layer` when the workspace has a frontend). Call `beacon_map` FIRST — it lists every card's category/priority/layer/status, so reuse a category and don't duplicate a card. `add` never activates an existing match — it returns `exists` so you can reuse it.",
     inputSchema: {
-      // Batch form (preferred): register every feature the plan created in ONE round-trip.
+      action: z
+        .enum(["add", "start", "subtasks", "done"])
+        .describe(
+          "add = put a card on the board (defaults to BACKLOG/PENDING); start = mark an existing card IN_PROGRESS; subtasks = add child tasks under a card; done = complete feature(s) + register files/architecture.",
+        ),
+      // ── add / start ──
+      title: z
+        .string()
+        .optional()
+        .describe("card title (add/start); for done's single form, the feature title (id preferred)."),
+      id: z
+        .string()
+        .optional()
+        .describe("node id from beacon_map (preferred over title) — start/done, or add to reference a known card."),
+      category: z
+        .string()
+        .optional()
+        .describe(
+          "REQUIRED for a NEW card (add/start): domain lane — AUTH | SEARCH | DATA | INTEL | BILLING | INFRA | UI | … Reuse one from beacon_map; ignored when matching an existing card or nesting under a `front`.",
+        ),
+      priority: z
+        .number()
+        .int()
+        .min(0)
+        .max(3)
+        .optional()
+        .describe("priority of a NEW card (add/start): 0=P0 critical .. 3=P3 low. Defaults to P2."),
+      front: z
+        .string()
+        .optional()
+        .describe(
+          "title of an EXISTING parent feature to nest a NEW card under (add/start). NOT a domain tag (use `category`); a `front` matching nothing is REJECTED.",
+        ),
+      detail: z
+        .string()
+        .optional()
+        .describe("one-line plain-language description shown on the card (add/start)."),
+      kind: z
+        .enum(["FEATURE", "BUG"])
+        .optional()
+        .describe("BUG renders a typed bug card; defaults to FEATURE (add/start)."),
+      layer: z
+        .enum(["frontend", "backend", "fullstack"])
+        .optional()
+        .describe(
+          "which side of the stack a NEW card lands on (add/start). REQUIRED when the workspace has a frontend; a card nested under a `front` inherits the parent's. Omit in pure-backend repos.",
+        ),
+      status: z
+        .enum(["backlog", "active"])
+        .optional()
+        .describe(
+          "add only: \"backlog\" (default) creates a PENDING card you're not working on yet; \"active\" creates it IN_PROGRESS.",
+        ),
+      // ── subtasks ──
+      parentId: z.string().optional().describe("subtasks: node id of the parent card (preferred)."),
+      parentTitle: z
+        .string()
+        .optional()
+        .describe("subtasks: fuzzy title of the parent card; ignored if parentId is given."),
+      items: z
+        .array(
+          z.object({
+            title: z.string().describe("short sub-task title"),
+            plain: z.string().optional().describe("one-paragraph description / why / acceptance hint"),
+            kind: z
+              .enum(["FEATURE", "BUG"])
+              .optional()
+              .describe("BUG for a bug discovered during work; defaults to FEATURE"),
+            layer: z
+              .enum(["frontend", "backend", "fullstack"])
+              .optional()
+              .describe("which side of the stack the sub-task lands on; defaults to the parent's layer"),
+          }),
+        )
+        .optional()
+        .describe("subtasks: the child tasks to add under the parent."),
+      // ── done ──
       features: z
         .array(
           z.object({
@@ -279,25 +270,25 @@ server.registerTool(
           }),
         )
         .optional()
-        .describe("Register many features at once — one entry per feature, each id-keyed. Use this instead of N separate calls."),
-      // Single form (back-compat): one feature via the top-level fields.
+        .describe(
+          "done: register MANY features at once — one entry per feature the plan created, each id-keyed. Use this instead of N separate calls.",
+        ),
       description: z
         .string()
         .optional()
-        .describe("Single-feature markdown (omit when using `features`): ### Overview ... ### Files - `path` — what it does"),
-      files: z.array(z.string()).optional().describe("repo-relative files this feature touches (single form)"),
-      id: z.string().optional().describe("node id from plan approval / beacon_map (preferred over title)"),
-      title: z.string().optional().describe("feature title (fuzzy-matched if no id)"),
+        .describe("done (single form, omit when using `features`): the markdown summary of the shipped feature."),
+      files: z.array(z.string()).optional().describe("done (single form): repo-relative files the feature touched."),
       architecture: architectureItemSchema,
     },
   },
-  async ({ features, description, files, id, title, architecture }) => {
-    const body =
-      features?.length
-        ? { features }
-        : { description, files, id, title, architecture };
-    const r = await post("/api/map/describe", body);
-    return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
+  async (args) => {
+    try {
+      const { path, body } = planFeatureRequest(args.action as FeatureAction, args);
+      const r = await post(path, body);
+      return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
+    } catch (e) {
+      return errText(e);
+    }
   },
 );
 
@@ -481,13 +472,21 @@ server.registerTool(
   "beacon_entities",
   {
     description:
-      "Read planning data. `features` = roadmap, `architecture` = components, `tables`/`endpoints` = DB map.",
+      "Read raw planning data: `features` (roadmap), `architecture` (components), `tables`/`endpoints` (DB map). Descriptions are truncated to ~160 chars by default to stay within the tool-result limit — pass `full:true` for complete text and `limit` to cap rows. For just titles + categories + status, prefer the lighter `beacon_map`.",
     inputSchema: {
       kind: z.enum(["features", "architecture", "tables", "endpoints"]),
+      full: z
+        .boolean()
+        .optional()
+        .describe("return complete descriptions instead of the truncated default (features/architecture)"),
+      limit: z.number().int().positive().optional().describe("cap the number of rows returned"),
     },
   },
-  async ({ kind }) => {
-    const r = await api(`/api/entities?kind=${kind}`);
+  async ({ kind, full, limit }) => {
+    const qs = new URLSearchParams({ kind });
+    if (full) qs.set("full", "1");
+    if (limit) qs.set("limit", String(limit));
+    const r = await api(`/api/entities?${qs.toString()}`);
     return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
   },
 );
@@ -794,7 +793,9 @@ interface NodeRow {
   role?: string | null;
 }
 async function nodeItems(kind: "features" | "architecture"): Promise<NodeRow[]> {
-  return ((await api(`/api/entities?kind=${kind}`)) as { items: NodeRow[] }).items;
+  // full=1: the @-mention card renders the matched node's COMPLETE description, so it must not get
+  // the truncated default the agent-facing beacon_entities now returns.
+  return ((await api(`/api/entities?kind=${kind}&full=1`)) as { items: NodeRow[] }).items;
 }
 function nodeResources(items: NodeRow[], scheme: string) {
   return {
@@ -839,7 +840,7 @@ async function readNode(uri: URL, s: string | string[], kind: "features" | "arch
       "## Beacon feature loop — follow IN ORDER (do not jump to Glob/Grep/Read)",
       "1. **Load context FIRST.** Call `beacon_context_for_feature({ title })` for this feature BEFORE any Glob/Grep/Read. It returns the attached files, 1-hop import blast radius, the domain's endpoints + tables + FK relations, sibling components, and the project conventions — and marks this feature active so your edits attach to it. That bundle replaces the discovery phase; Glob is a last resort.",
       "2. **Design data before code.** Identify the tables this feature needs. If ANY are missing from the list above, design the schema and call `beacon_propose_plan` (tables + relations + endpoints, each endpoint with `uses:[{table,access}]`). It BLOCKS until the user approves on /plan — do NOT write migrations or code until it returns approval.",
-      "3. **Register at the end — in ONE call.** When the work is done, call `beacon_describe_feature` ONCE with a `features` array (one entry per feature the plan created, each keyed by the `id` you got back at approval, with the files you touched + a short markdown summary). Don't make one call per feature, and don't register only the umbrella — that leaves the rest Pending.",
+      "3. **Register at the end — in ONE call.** When the work is done, call `beacon_feature({ action: \"done\" })` ONCE with a `features` array (one entry per feature the plan created, each keyed by the `id` you got back at approval, with the files you touched + a short markdown summary). Don't make one call per feature, and don't register only the umbrella — that leaves the rest Pending.",
     );
   }
 

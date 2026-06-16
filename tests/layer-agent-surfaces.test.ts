@@ -84,7 +84,7 @@ describe("beacon_init_persist — roadmap items + components with layer", () => 
   });
 });
 
-describe("beacon_describe_feature — architecture upsert layer", () => {
+describe("beacon_feature (done) — architecture upsert layer", () => {
   it("sets layer on insert and keeps the prior layer when an update omits it", async () => {
     await upsertArchitectureComponents([{ title: "MCP server", domain: "MCP", layer: "backend" }]);
     let n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.title, "MCP server") });
@@ -102,7 +102,7 @@ describe("beacon_describe_feature — architecture upsert layer", () => {
   });
 });
 
-describe("beacon_start_feature — layer", () => {
+describe("beacon_feature (add/start) — layer", () => {
   it("creates a new node with the given layer", async () => {
     const r = await startFeature({ title: "Share token API", cluster: "PLAN", layer: "backend" });
     expect(r.action).toBe("created");
@@ -136,7 +136,7 @@ describe("beacon_start_feature — layer", () => {
   });
 });
 
-describe("beacon_add_subtasks — layer per item", () => {
+describe("beacon_feature (subtasks) — layer per item", () => {
   it("items inherit the parent's layer unless they override it", async () => {
     const parent = await createNode({
       view: "ROADMAP",

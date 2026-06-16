@@ -124,8 +124,8 @@ export function validateFeatureCreation(input: {
     const status = f?.status ? ` (${f.status})` : "";
     return (
       `⛔ "${title}" already exists as the feature "${f?.title ?? dup.best.title}"${status}. Don't ` +
-      `create a duplicate — mark progress on it with \`beacon_start_feature({ id })\`, add sub-tasks ` +
-      `with \`beacon_add_subtasks\`, or finish it with \`beacon_describe_feature\`.`
+      `create a duplicate — start it with \`beacon_feature({ action: "start", id })\`, add sub-tasks ` +
+      `with \`beacon_feature({ action: "subtasks" })\`, or finish it with \`beacon_feature({ action: "done" })\`.`
     );
   }
   return null;
@@ -153,11 +153,11 @@ export function validateNoDuplicateFeatures(
       .map((d) => `  • "${d.title}" → existing "${d.hit.title}"${d.hit.status ? ` (${d.hit.status})` : ""}`)
       .join("\n") +
     "\n\nDrop the duplicate(s) from the plan; to add work to an existing feature, ship sub-tasks " +
-    "or update it via beacon_describe_feature. Keep only genuinely new features in the proposal."
+    "or update it via `beacon_feature({ action: \"done\" })`. Keep only genuinely new features in the proposal."
   );
 }
 
-/** Guard for the `front` param of beacon_start_feature: it must reference an EXISTING parent
+/** Guard for the `front` param of beacon_feature (add/start): it must reference an EXISTING parent
  *  feature, NOT a domain label. Returns a rejection message, or null when front matches (or is
  *  empty — no front means the feature lands top-level, which is fine). */
 export function validateFront(front: string, existingFronts: Candidate[]): string | null {

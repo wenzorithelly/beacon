@@ -18,6 +18,11 @@ export async function POST(req: Request) {
         detail: typeof body.detail === "string" ? body.detail : null,
         kind: typeof body.kind === "string" ? body.kind : null,
         layer: typeof body.layer === "string" ? body.layer : null,
+        priority: typeof body.priority === "number" ? body.priority : null,
+        // create status ("backlog"→PENDING / "active"→IN_PROGRESS) — beacon_feature's add vs start.
+        status: typeof body.status === "string" ? body.status : null,
+        // false = "add" intent: a match is reported (`exists`), not flagged IN_PROGRESS.
+        flagExisting: typeof body.flagExisting === "boolean" ? body.flagExisting : undefined,
         // category / cluster / domain all accepted (aliases); the guard requires one on a new feature.
         cluster:
           typeof body.cluster === "string"

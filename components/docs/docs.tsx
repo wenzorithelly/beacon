@@ -42,8 +42,8 @@ const MCP_TOOLS: { name: string; what: string }[] = [
   { name: "beacon_context_for_feature", what: "Before touching code, the agent pulls the files attached to a feature plus their imports, the endpoints in that domain, the tables those endpoints touch, and the surrounding components — one round-trip instead of a blind Glob/Grep scan." },
   { name: "beacon_blast_radius", what: "Mid-feature, the agent runs this on a file it's about to edit to see what imports it and what it imports — so it can judge whether a change is safe." },
   { name: "beacon_propose_plan", what: "When the agent has a feature plan (tables + relations + endpoints), this opens it on /plan and BLOCKS the session until you Approve, Discard, or Submit feedback." },
-  { name: "beacon_describe_feature", what: "When a feature is done, the agent records a short markdown summary and the files it touched, keeping the next session's context accurate." },
-  { name: "beacon_map", what: "A quick list of features already on the roadmap. The agent calls it near the start of work to avoid duplicating what's planned." },
+  { name: "beacon_feature", what: "One tool for a feature's whole lifecycle: add a card (defaults to backlog), start one, break it into sub-tasks, or mark it done with a markdown summary + the files it touched — keeping the next session's context accurate." },
+  { name: "beacon_map", what: "A quick list of features already on the roadmap, with each card's category/priority/layer/status. The agent calls it near the start of work to reuse a category and avoid duplicating what's planned." },
   { name: "beacon_entities", what: "A raw readout of everything mapped — features, architecture, tables, endpoints — when the agent just needs the planning data." },
 ];
 
@@ -231,7 +231,7 @@ export function Docs() {
                   <><span className="text-foreground">Review.</span> The plan renders on <span className="text-foreground">/plan</span>: a native annotation panel on the left, the roadmap and database boards on the right. Select text to comment; edit the boards directly.</>,
                   <><span className="text-foreground">Decide.</span> Approve, Discard, or Submit feedback. Feedback bundles your inline notes plus any board edits.</>,
                   <><span className="text-foreground">Return.</span> The verdict flows back to the terminal. On feedback, the agent revises and re-proposes — the loop continues.</>,
-                  <><span className="text-foreground">Record.</span> On approval the schema and roadmap drafts persist, and when the work is done the agent calls <span className="w-mono text-foreground">beacon_describe_feature</span> so the next session has accurate context.</>,
+                  <><span className="text-foreground">Record.</span> On approval the schema and roadmap drafts persist, and when the work is done the agent calls <span className="w-mono text-foreground">beacon_feature</span> (action: done) so the next session has accurate context.</>,
                 ].map((body, i) => (
                   <li key={i} className="glass w-hover rounded-lg p-4">
                     <p className="w-muted text-[0.95rem] leading-relaxed">{body}</p>

@@ -604,7 +604,7 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
       </div>
 
       {/* Expanded: details, inline. The description renders as MARKDOWN when not being
-          edited so an agent's `beacon_describe_feature` update (with headings + file
+          edited so an agent's `beacon_feature` done update (with headings + file
           bullets) reads naturally. Click the preview to switch to a textarea. */}
       {expanded && (
         <div className="mt-2 w-0 min-w-full space-y-2 border-t border-white/10 pt-2">

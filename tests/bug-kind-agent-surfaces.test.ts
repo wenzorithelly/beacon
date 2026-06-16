@@ -71,7 +71,7 @@ describe("beacon_init_persist — roadmap items with kind", () => {
   });
 });
 
-describe("beacon_start_feature — kind", () => {
+describe("beacon_feature (add/start) — kind", () => {
   it("creates a new node as a BUG when kind is passed", async () => {
     const r = await startFeature({
       title: "Crash when approving an empty plan",
@@ -87,7 +87,7 @@ describe("beacon_start_feature — kind", () => {
   });
 });
 
-describe("beacon_add_subtasks — kind per item", () => {
+describe("beacon_feature (subtasks) — kind per item", () => {
   it("creates a BUG sub-task under a roadmap feature", async () => {
     const parent = await createNode({ view: "ROADMAP", title: "Parent feature", cluster: "PLAN" });
     const r = await addSubtasksUnder({

@@ -33,8 +33,8 @@ const MCP_TOOLS: { name: string; what: string }[] = [
     what: "When the agent has a feature plan (tables + relations + endpoints), this opens the plan on Beacon's /plan page and BLOCKS the session. You review, annotate, then Approve / Discard / Submit feedback — and the agent only continues after you've decided.",
   },
   {
-    name: "beacon_describe_feature",
-    what: "When a feature is done, the agent calls this with a short markdown summary and the files it touched. That keeps the next session's beacon_context_for_feature accurate.",
+    name: "beacon_feature",
+    what: "One tool for a feature's whole lifecycle — add a card (defaults to backlog), start one (in-progress), break it into sub-tasks, or mark it done with a markdown summary + the files it touched. Keeps the next session's beacon_context_for_feature accurate.",
   },
   {
     name: "beacon_entities",
@@ -42,15 +42,7 @@ const MCP_TOOLS: { name: string; what: string }[] = [
   },
   {
     name: "beacon_map",
-    what: "Quick list of features on the roadmap. The agent calls this near the start of work to see what's already planned.",
-  },
-  {
-    name: "beacon_start_feature",
-    what: "Optional: the agent flags which feature it's working on. The /map view shows it as in-progress while edits happen.",
-  },
-  {
-    name: "beacon_add_subtasks",
-    what: "Breaks a feature into smaller child nodes on the /map view. Useful when one feature naturally splits into several pieces.",
+    what: "Quick list of features on the roadmap — with each card's category, priority, layer and status. The agent calls this near the start of work to see what's already planned and reuse a category.",
   },
   {
     name: "beacon_init_persist",
@@ -162,8 +154,8 @@ export default function HelpPage() {
           </li>
           <li>
             When done, the agent calls{" "}
-            <span className="font-mono text-foreground">beacon_describe_feature</span> so the next
-            session has accurate context.
+            <span className="font-mono text-foreground">beacon_feature</span> (action: done) so the
+            next session has accurate context.
           </li>
           <li>
             Every few weeks, run <span className="font-mono text-foreground">/beacon-refresh</span>{" "}

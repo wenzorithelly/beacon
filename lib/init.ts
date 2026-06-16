@@ -83,7 +83,7 @@ export async function persistArchitecture(components: Component[]): Promise<numb
   // Idempotent: replace a previous init-derived architecture.
   await db.delete(node).where(and(eq(node.view, "ARCHITECTURE"), eq(node.source, "INIT")));
 
-  // Survivors are the non-INIT architecture nodes — created by beacon_describe_feature or by
+  // Survivors are the non-INIT architecture nodes — created by beacon_feature({ action: "done" }) or by
   // hand on the canvas. A refresh re-describing the same component (by title) must MERGE into
   // the survivor instead of shadowing it with an INIT duplicate: a board built entirely by
   // describe_feature would otherwise double every component on its first /beacon-refresh.

@@ -10,7 +10,7 @@ import { POST as describePost } from "@/app/api/map/describe/route";
 import { POST as approvePost } from "@/app/api/plan/approve/route";
 
 // The architecture map / AGENTS.md should auto-refresh at the end of a plan run (a
-// beacon_describe_feature that updates architecture, or a plan approval that changes the DB)
+// beacon_feature action:done that updates architecture, or a plan approval that changes the DB)
 // — deterministically, without a manual /beacon-refresh. We verify the regen against a
 // throwaway BEACON_REPO so the real repo's AGENTS.md is never touched.
 

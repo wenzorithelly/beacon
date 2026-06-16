@@ -29,13 +29,21 @@ async function setCurrent(id: string) {
 // session see the roadmap and register what it's working on: flag an existing
 // feature as "being worked on", or add a new one under the right front (or a new front).
 
+// Each card carries the discovery fields (category/priority/layer/kind) so `beacon_map` —
+// the "call before creating" tool — is the cheap way to learn existing categories + dedupe,
+// without pulling every feature's full description via beacon_entities.
+interface MapCard {
+  id: string;
+  title: string;
+  status: string;
+  category: string | null;
+  priority: number;
+  layer: string | null;
+  kind: string;
+}
+
 export interface MapView {
-  fronts: Array<{
-    id: string;
-    title: string;
-    status: string;
-    tasks: Array<{ id: string; title: string; status: string; workingOn: boolean }>;
-  }>;
+  fronts: Array<MapCard & { tasks: Array<MapCard & { workingOn: boolean }> }>;
 }
 
 export async function listMap(): Promise<MapView> {
@@ -43,20 +51,22 @@ export async function listMap(): Promise<MapView> {
     where: (t, { eq }) => eq(t.view, "ROADMAP"),
     orderBy: (t, { asc }) => asc(t.createdAt),
   });
+  const card = (n: (typeof nodes)[number]): MapCard => ({
+    id: n.id,
+    title: n.title,
+    status: n.status,
+    category: n.cluster,
+    priority: n.priority,
+    layer: n.layer,
+    kind: n.kind,
+  });
   const fronts = nodes.filter((n) => !n.parentId);
   return {
     fronts: fronts.map((f) => ({
-      id: f.id,
-      title: f.title,
-      status: f.status,
+      ...card(f),
       tasks: nodes
         .filter((n) => n.parentId === f.id)
-        .map((t) => ({
-          id: t.id,
-          title: t.title,
-          status: t.status,
-          workingOn: t.status === "IN_PROGRESS",
-        })),
+        .map((t) => ({ ...card(t), workingOn: t.status === "IN_PROGRESS" })),
     })),
   };
 }
@@ -64,6 +74,7 @@ export async function listMap(): Promise<MapView> {
 export type StartResult =
   | { action: "flagged"; id: string; title: string; via: "id" | "match"; score?: number }
   | { action: "created"; id: string; title: string; front: string | null }
+  | { action: "exists"; id: string; title: string; status: string }
   | { action: "ambiguous"; candidates: Scored[] }
   | { action: "rejected"; message: string };
 
@@ -265,15 +276,26 @@ export async function startFeature(input: {
   /** frontend | backend | fullstack — only used when the call CREATES a new node;
    *  a sub-task nested under a front inherits the front's layer. */
   layer?: string | null;
+  /** 0=P0 .. 3=P3 — only used when the call CREATES a new node; defaults to P2 (the column default). */
+  priority?: number | null;
+  /** Status for a CREATED card: "backlog" | "pending" → PENDING, anything else (incl.
+   *  unset) → IN_PROGRESS. Tolerant of raw DB values. Ignored when matching an existing card. */
+  status?: string | null;
+  /** The "start" intent (default true) flips a matched card to IN_PROGRESS. The "add" intent
+   *  (false) leaves a match untouched and returns `exists` — adding a backlog card must never
+   *  demote/activate a card that's already on the board. */
+  flagExisting?: boolean;
 }): Promise<StartResult> {
   const title = input.title.trim();
   if (!title) throw new Error("title required");
+  const flagExisting = input.flagExisting ?? true;
 
   const nodes = await db.query.node.findMany({ where: (t, { eq }) => eq(t.view, "ROADMAP") });
 
   if (input.id) {
     const n = nodes.find((x) => x.id === input.id);
     if (n) {
+      if (!flagExisting) return { action: "exists", id: n.id, title: n.title, status: n.status };
       await setStatus(n.id, "IN_PROGRESS");
       await setCurrent(n.id);
       return { action: "flagged", id: n.id, title: n.title, via: "id" };
@@ -285,6 +307,10 @@ export async function startFeature(input: {
     nodes.map((n) => ({ id: n.id, title: n.title })),
   );
   if (best) {
+    if (!flagExisting) {
+      const status = nodes.find((n) => n.id === best.id)?.status ?? "PENDING";
+      return { action: "exists", id: best.id, title: best.title, status };
+    }
     await setStatus(best.id, "IN_PROGRESS");
     await setCurrent(best.id);
     return { action: "flagged", id: best.id, title: best.title, via: "match", score: best.score };
@@ -349,6 +375,10 @@ export async function startFeature(input: {
           .map((n) => ({ x: n.x, y: n.y })),
         nodes.map((n) => ({ x: n.x, y: n.y })),
       );
+  // "backlog"/"pending" lands the card in the backlog (PENDING); anything else (incl. the
+  // default "start" intent) starts it IN_PROGRESS.
+  const s = (input.status ?? "").trim().toLowerCase();
+  const createStatus = s === "backlog" || s === "pending" ? "PENDING" : "IN_PROGRESS";
   const [task] = await db
     .insert(node)
     .values({
@@ -358,7 +388,8 @@ export async function startFeature(input: {
       plain: input.detail ?? null,
       cluster,
       layer,
-      status: "IN_PROGRESS",
+      priority: typeof input.priority === "number" ? input.priority : undefined,
+      status: createStatus,
       source: "SESSION",
       parentId,
       x: pos.x,
@@ -690,8 +721,8 @@ export async function touchFiles(input: {
 }
 
 // ── Bulk sub-task creation under a parent ───────────────────────────────────
-// Lets a terminal session add N sub-tasks under a feature in one call (used by the
-// `beacon_add_subtasks` MCP tool). Parent is resolved by id (preferred) or by
+// Lets a terminal session add N sub-tasks under a feature in one call (used by
+// `beacon_feature({ action: "subtasks" })`). Parent is resolved by id (preferred) or by
 // fuzzy-title match. Children inherit the parent's view + cluster; positioning lands
 // them in a row directly below the parent so they don't pile on top of existing nodes.
 

@@ -17,7 +17,7 @@ export interface PlanVerdict {
   // when the approved plan carried a DB draft.
   detail?: string;
   // The roadmap features this plan created, each with its promoted node id. Echoed back on
-  // approval so the agent registers them done (beacon_describe_feature) BY EXACT ID in one
+  // approval so the agent registers them done (beacon_feature action:"done") BY EXACT ID in one
   // batched call — no fuzzy title-matching, no candidate-disambiguation round-trips, and it
   // can't register only the umbrella and leave the rest Pending. (Legacy verdict files may
   // hold bare title strings; consumers normalize those — see resolvePlanVerdict.)

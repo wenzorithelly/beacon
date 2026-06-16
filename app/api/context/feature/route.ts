@@ -122,7 +122,7 @@ async function handle(req: Request) {
 
   // A confident match (by id, or exact title) == "the agent is working on this
   // feature". Auto-mark it active so edits attach to it and the loop is "started"
-  // without a separate beacon_start_feature call. Fuzzy query matches are NOT
+  // without a separate beacon_feature({ action: "start" }) call. Fuzzy query matches are NOT
   // auto-started — too easy to resolve the wrong node and mis-attribute edits.
   const confident =
     !!id || (!!title && feature.title.trim().toLowerCase() === title.trim().toLowerCase());
@@ -283,7 +283,7 @@ async function handle(req: Request) {
   if (!files.length) {
     response.note =
       "This feature has no files attached yet. The map is still useful for tables/endpoints/components. " +
-      "Call beacon_describe_feature at the end of work to attach files.";
+      'Call beacon_feature({ action: "done" }) at the end of work to attach files.';
   }
   return Response.json(response);
 }
