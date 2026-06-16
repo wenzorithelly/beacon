@@ -65,6 +65,7 @@ export function SharedBoardView({ snapshot }: { snapshot: BoardsSnapshot }) {
             hasFrontend={snapshot.roadmap.hasFrontend}
             embedded
             readOnly
+            firstTapHighlightsOnly
           />
         )}
         {active === "ARCHITECTURE" && snapshot.architecture && (
@@ -75,6 +76,7 @@ export function SharedBoardView({ snapshot }: { snapshot: BoardsSnapshot }) {
             hasFrontend={snapshot.architecture.hasFrontend}
             embedded
             readOnly
+            firstTapHighlightsOnly
           />
         )}
         {active === "DATABASE" && snapshot.database && (

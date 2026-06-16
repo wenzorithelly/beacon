@@ -259,6 +259,9 @@ export function DbMapClient({
   // without committing the selection (mirrors the roadmap board's hover reveal).
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  // Drop expensive per-frame paint (table-card shadows) while a pan/zoom gesture runs, restore on
+  // settle — keeps finger-dragging the DB board smooth on a phone. See `.rf-panning` in globals.
+  const [panning, setPanning] = useState(false);
   const [panelTab, setPanelTab] = useState<"details" | "comments">("details");
   const [busy, setBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1260,7 +1263,13 @@ export function DbMapClient({
 
   return (
     <DbEditContext.Provider value={dbEdit}>
-      <div className={cn("canvas-dots relative w-full", embedded ? "h-full" : "h-screen")}>
+      <div
+        className={cn(
+          "canvas-dots relative w-full",
+          embedded ? "h-full" : "h-screen",
+          panning && "rf-panning",
+        )}
+      >
         <ReactFlow
           nodes={displayNodes}
           edges={
@@ -1287,6 +1296,8 @@ export function DbMapClient({
             rfRef.current = inst;
           }}
           onNodesChange={onNodesChange}
+          onMoveStart={() => setPanning(true)}
+          onMoveEnd={() => setPanning(false)}
           onConnect={onConnect}
           onNodeMouseEnter={(_, node) => {
             if (node.type !== "annotation") setHoveredId(node.id);

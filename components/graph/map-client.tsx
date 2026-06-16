@@ -198,6 +198,7 @@ export function MapClient({
   initialCollapsed = [],
   hasFrontend = false,
   readOnly = false,
+  firstTapHighlightsOnly = false,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   nodes: MapNodePayload[];
@@ -246,6 +247,10 @@ export function MapClient({
   // dragging, connecting and delete-key removal are disabled (below), and the create/arrange
   // toolbars are already hidden in `embedded` mode — so nothing mutates the live workspace.
   readOnly?: boolean;
+  // Public shared board (touch-first): the FIRST tap on a node only highlights/selects it — a
+  // SECOND tap on the already-selected node opens its detail panel. Keeps the small phone screen
+  // clear for navigating. Other embedded boards (/plan review) still open the panel on first tap.
+  firstTapHighlightsOnly?: boolean;
 }) {
   // 1-based work-order rank per feature id (#1, #2, …); #1 also drives the jump button.
   const workOrderKey = workOrder.join(",");
@@ -273,6 +278,10 @@ export function MapClient({
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelTab, setPanelTab] = useState<"details" | "comments">("details");
+  // True only while a pan/zoom gesture is in flight. We drop expensive per-frame paint (card
+  // shadows, transitions) for the duration via a `.rf-panning` class, then restore on settle —
+  // this is what makes finger-dragging a big board on a phone feel smooth instead of stuttery.
+  const [panning, setPanning] = useState(false);
 
   // Mirror panel state in refs so the imperative controlRef can inspect it without
   // capturing stale closure values.
@@ -657,7 +666,11 @@ export function MapClient({
   // A live tour step takes precedence over search, which takes precedence over the click focus.
   const effectiveFocusIds = tourFocusIds ?? searchMatchIds ?? focusIds;
   // Search hits AND tour steps get the bright accent halo + the hard fade (not the click 0.45).
-  const spotlightIds = searchMatchIds ?? tourFocusIds;
+  // Tapping a node/edge now gets the SAME strong spotlight as search — the selected card + its
+  // direct neighbors glow and pop forward, everything else fades (SEARCH_DIM_OPACITY). On touch
+  // there's no hover, so a deliberate tap is the only way to ask "what's wired to this"; the
+  // spotlight makes the answer instantly legible. (focusIds = selected node + its neighbors.)
+  const spotlightIds = searchMatchIds ?? tourFocusIds ?? focusIds;
 
   // Nodes the layer-emphasis pills push back: visible but not on the highlighted layer
   // (FE/BE pills keep fullstack bright too; unset-layer cards always dim). Drives both the
@@ -1309,7 +1322,11 @@ export function MapClient({
   return (
     <NodeEditContext.Provider value={editApi}>
     <div
-      className={cn("canvas-dots relative w-full", embedded ? "h-full" : "h-screen")}
+      className={cn(
+        "canvas-dots relative w-full",
+        embedded ? "h-full" : "h-screen",
+        panning && "rf-panning",
+      )}
       onDragOver={(e) => {
         // Allow dropping the "+ Feature/Component" pill anywhere on the board.
         if (!e.dataTransfer.types.includes("application/beacon-node")) return;
@@ -1347,6 +1364,10 @@ export function MapClient({
         }}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        // Drop expensive paint while the viewport is moving (pan/zoom), restore on settle — keeps
+        // finger-dragging a dense board smooth. Fires for touch + mouse + programmatic fitView.
+        onMoveStart={() => setPanning(true)}
+        onMoveEnd={() => setPanning(false)}
         onConnect={onConnect}
         onConnectEnd={onConnectEnd}
         onNodeMouseEnter={(_, node) => setHoveredId(node.id)}
@@ -1381,6 +1402,7 @@ export function MapClient({
             void createChildOf(n, node.position.x + 300, node.position.y + 60);
             return;
           }
+          const alreadySelected = selectedId === node.id;
           setSelectedId(node.id);
           setSelectedEdgeId(null);
           setPanelTab("details"); // switching focus always lands back on Details
@@ -1390,7 +1412,13 @@ export function MapClient({
           // input, status select, a button) so editing the card doesn't also pop the panel.
           if (embedded) {
             const t = e.target as HTMLElement | null;
-            if (!t?.closest("input, textarea, select, button, [role='combobox']")) {
+            const onControl = t?.closest("input, textarea, select, button, [role='combobox']");
+            // Public shared board: the first tap on a fresh card only highlights it — open the
+            // panel only when re-tapping the already-selected card (or if it's already open), so
+            // the phone screen stays clear while you navigate.
+            const holdForReselect =
+              firstTapHighlightsOnly && !alreadySelected && !panelOpenRef.current;
+            if (!onControl && !holdForReselect) {
               setPanelOpen(true);
             }
           }

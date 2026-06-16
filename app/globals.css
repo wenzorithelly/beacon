@@ -189,6 +189,21 @@
   }
 }
 
+/* ── Smooth pan/zoom: cheap paint while the viewport is moving ─────────────────────────
+   While a pan/zoom gesture is in flight the canvas root gets `.rf-panning` (set on React Flow's
+   move-start, cleared on move-end). Card shadows, edge filters and transitions are the per-frame
+   compositing cost that makes finger-dragging a dense board stutter — especially on phones — so
+   we drop them for the duration of the gesture and restore them the instant it settles. The
+   static board keeps its full depth; you only lose shadows while actively dragging, when you
+   can't read fine detail anyway. */
+.rf-panning .react-flow__node,
+.rf-panning .react-flow__node *,
+.rf-panning .react-flow__edge-path {
+  box-shadow: none !important;
+  filter: none !important;
+  transition: none !important;
+}
+
 /* Canvas dot grid — SCREEN-space (constant size/spacing at every zoom level), unlike
    React Flow's <Background>, whose world-space pattern shrinks into invisibility the
    moment the board is zoomed out to fit. Applied to the WRAPPER behind the canvas —
