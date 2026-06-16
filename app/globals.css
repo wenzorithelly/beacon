@@ -166,6 +166,29 @@
   }
 }
 
+/* ── Touch devices: drop live backdrop blur ───────────────────────────────────────────
+   iOS Safari re-rasterizes `backdrop-filter` on EVERY frame during pan/zoom — on the shared
+   board canvas that turned panning/zooming on iPhone into a nightmare (dozens of blurred
+   cards + the glass tab switcher all re-blurring per frame). On coarse-pointer devices we
+   drop the live blur entirely and fall back to a near-solid tint. The glass aesthetic is a
+   desktop affordance; touch gets clean, cheap fills. The universal rule also neutralizes
+   every Tailwind `backdrop-blur*` utility on the node cards / controls, not just .glass. */
+@media (hover: none) and (pointer: coarse) {
+  *,
+  *::before,
+  *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  /* Bump the tint toward opaque so panels stay legible now that nothing blurs behind them. */
+  .glass {
+    background: color-mix(in oklab, var(--card) 97%, transparent);
+  }
+  .glass-soft {
+    background: color-mix(in oklab, var(--card) 95%, transparent);
+  }
+}
+
 /* Canvas dot grid — SCREEN-space (constant size/spacing at every zoom level), unlike
    React Flow's <Background>, whose world-space pattern shrinks into invisibility the
    moment the board is zoomed out to fit. Applied to the WRAPPER behind the canvas —
