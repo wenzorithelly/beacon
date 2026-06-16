@@ -24,7 +24,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { selfHealGlobal } from "@/lib/global-install";
-import { PLAN_HOOK_TIMEOUT_MS, PLAN_POLL_INTERVAL_MS } from "@/lib/constants";
+import { PLAN_HOOK_REARM_MS, PLAN_POLL_INTERVAL_MS } from "@/lib/constants";
 import { readPreferences } from "@/lib/preferences";
 import { planAllowOutput, type PermissionMode } from "@/lib/permission-modes";
 import { approvedFeaturesContext } from "@/lib/plan-approval-message";
@@ -213,8 +213,10 @@ function emit(out: unknown): never {
 
   // Long-poll the single verdict source — pinned to this repo so reads stay correct even if
   // the user switches the dropdown mid-review. One resolver = no approve/discard ambiguity and
-  // no stale-feedback replay on a re-presented plan. 4-day ceiling matches what plannotator used.
-  const deadline = Date.now() + PLAN_HOOK_TIMEOUT_MS;
+  // no stale-feedback replay on a re-presented plan. We poll only until PLAN_HOOK_REARM_MS (well
+  // under Claude Code's hard 600s hook wall) and then RE-ARM rather than be killed silently — see
+  // the re-arm emit below.
+  const deadline = Date.now() + PLAN_HOOK_REARM_MS;
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   while (Date.now() < deadline) {
     await sleep(PLAN_POLL_INTERVAL_MS);
@@ -256,10 +258,18 @@ function emit(out: unknown): never {
     // kind === "pending" → keep polling.
   }
 
-  // Timed out without a verdict — fail open with a note so the agent isn't stuck.
+  // Reached the re-arm point without a verdict. Claude Code KILLS this hook at a hard ~10-min wall,
+  // so we return BEFORE it (PLAN_HOOK_REARM_MS) with a re-arm instruction instead of being killed
+  // silently (which drops the user to a terminal permission prompt — the staling bug). Re-presenting
+  // the SAME plan resumes the SAME review: the /api/plan resume guard preserves any in-flight
+  // annotations and the on-disk verdict, so the user's approval is picked up whenever it lands.
   emit(
     permissionDeny(
-      "Beacon plan review timed out without a verdict. Re-present the plan and ask the user to review it.",
+      "⏳ Still awaiting your review in Beacon — the plan is open on /plan and nothing was lost. " +
+        "Claude Code caps a single plan-review hook at ~10 minutes, so to keep waiting you MUST " +
+        "call ExitPlanMode again now with the SAME plan. Re-presenting resumes the same review " +
+        "(your in-progress annotations and any decision are preserved). Do NOT implement, and do " +
+        "NOT ask in the terminal — just re-present.",
     ),
   );
 })();

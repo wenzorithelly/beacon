@@ -107,9 +107,10 @@ async function setupRepo(repo: string, quiet = false) {
   // skills under .agents/skills are per-repo.
   const codexSkills: string[] = codexDetected() ? installCodexRepoSkills(repo) : [];
   if (quiet) {
-    if (mcp.added) {
+    if (mcp.added || mcp.updated) {
       console.log(
-        `[beacon] registered Beacon MCP in ${mcp.path} — restart your agent CLI to use @beacon mentions.`,
+        `[beacon] ${mcp.added ? "registered" : "updated"} Beacon MCP in ${mcp.path} — restart your agent CLI` +
+          (mcp.updated ? " to apply the longer plan-review timeout." : " to use @beacon mentions."),
       );
     }
   } else {

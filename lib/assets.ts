@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { BEACON_MCP_TIMEOUT_MS } from "@/lib/constants";
 
 // Assets Beacon installs into a target repo so its agent sessions (Claude Code, Codex)
 // can use Beacon: the init + refresh skills and the MCP server registration. Database
@@ -288,8 +289,13 @@ export function ensureWorkflowDoc(repo: string): void {
   }
 }
 
-/** Ensure <repo>/.mcp.json registers the Beacon MCP server (idempotent). */
-export function ensureMcp(repo: string): { path: string; added: boolean } {
+/** Ensure <repo>/.mcp.json registers the Beacon MCP server WITH a per-tool `timeout` (idempotent).
+ *  The timeout matters: Claude Code's MCP client kills a tool call at its default (~10 min) when no
+ *  `timeout` is set, which staled long plan reviews (beacon_present_plan / propose_plan block on the
+ *  user's verdict). We pin BEACON_MCP_TIMEOUT_MS so the blocking plan tools out-live that wall and
+ *  return their own resumable "call again" message instead. Older installs registered beacon with no
+ *  timeout, so we SELF-HEAL an existing entry too — without lowering a higher value the user chose. */
+export function ensureMcp(repo: string): { path: string; added: boolean; updated: boolean } {
   const path = join(repo, ".mcp.json");
   let cfg: { mcpServers?: Record<string, unknown> } = {};
   try {
@@ -298,10 +304,20 @@ export function ensureMcp(repo: string): { path: string; added: boolean } {
     /* new file */
   }
   cfg.mcpServers = cfg.mcpServers ?? {};
-  if (cfg.mcpServers.beacon) return { path, added: false };
-  cfg.mcpServers.beacon = { command: "beacon", args: ["mcp"] };
+  const existing = cfg.mcpServers.beacon as
+    | { command?: string; args?: string[]; timeout?: number }
+    | undefined;
+  if (existing) {
+    if (!existing.timeout || existing.timeout < BEACON_MCP_TIMEOUT_MS) {
+      existing.timeout = BEACON_MCP_TIMEOUT_MS;
+      writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
+      return { path, added: false, updated: true };
+    }
+    return { path, added: false, updated: false };
+  }
+  cfg.mcpServers.beacon = { command: "beacon", args: ["mcp"], timeout: BEACON_MCP_TIMEOUT_MS };
   writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
-  return { path, added: true };
+  return { path, added: true, updated: false };
 }
 
 // ── Audit + remove (used by `beacon doctor` / `beacon uninstall`) ────────────

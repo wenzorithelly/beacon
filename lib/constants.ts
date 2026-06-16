@@ -49,13 +49,24 @@ export const STATUS_META: Record<string, Meta> = {
 };
 
 // ── Plan review loop timing ──────────────────────────────────────────────────
-// How often the blocking pollers check for the user's verdict, and how long they wait.
-// The ExitPlanMode hook can wait days (the user may step away mid-review); the MCP tool
-// call is bounded — on timeout it returns a resumable message, and because the verdict now
-// persists on disk, re-calling beacon_propose_plan picks the decision back up.
+// How often the blocking pollers check for the user's verdict, and how long each blocking call
+// runs before it must hand back a RESUMABLE signal. Both surfaces are bounded by Claude Code, not
+// by us: it KILLS the ExitPlanMode `command` hook at a hard 600s (10-min) wall, and kills an MCP
+// tool call at its own wall. The verdict persists on disk and a re-push of the SAME plan hits the
+// /api/plan resume guard (no reset), so re-arming resumes the SAME review losslessly — that's what
+// lets a slow review outlive these walls instead of staling the session.
 export const PLAN_POLL_INTERVAL_MS = 1500;
-export const PLAN_HOOK_TIMEOUT_MS = 4 * 24 * 60 * 60 * 1000; // 4 days — ExitPlanMode hook
-export const PLAN_TOOL_TIMEOUT_MS = 30 * 60 * 1000; // 30 min — MCP tool call (resumable)
+// The ExitPlanMode hook polls only until here, then returns a "call ExitPlanMode again to keep
+// waiting" decision — deliberately BEFORE Claude Code's hard 600s hook wall (which can't be raised
+// and, when hit, kills the hook silently and drops the user to a terminal permission prompt). The
+// gap to 600s is headroom for hook startup (self-heal + daemon boot).
+export const PLAN_HOOK_REARM_MS = 8 * 60 * 1000; // 8 min
+export const PLAN_TOOL_TIMEOUT_MS = 30 * 60 * 1000; // 30 min — MCP tool call internal loop (resumable)
+// Per-tool wall-clock timeout written into each repo's .mcp.json for the Beacon MCP server. MUST
+// exceed PLAN_TOOL_TIMEOUT_MS so the blocking plan tools finish their loop and return a resumable
+// "call again" message BEFORE Claude Code's MCP client gives up. With no timeout set, that client
+// default (~10 min) fired mid-review and staled the session.
+export const BEACON_MCP_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 
 // How often the `beacon mcp` process polls the daemon's per-workspace sync version to
 // forward a resources/list_changed to the @-mention client. Runs for the whole session, so
