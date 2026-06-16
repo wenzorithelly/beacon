@@ -297,7 +297,10 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
           working && "border-sky-400/60",
           selected && "ring-2 ring-[var(--accent,#f5b942)]",
           cancelled && "opacity-60",
-          lod === "far" && "!opacity-0",
+          // At far zoom cards normally hide so the group-region SUMMARIES take over. Read-only
+          // boards (the public shared view) have no regions to fall back on, so hiding the cards
+          // just blanks the board — keep them visible (tiny title-only) as the zoomed-out overview.
+          lod === "far" && !readOnly && "!opacity-0",
         )}
       >
         <FourDotHandles />

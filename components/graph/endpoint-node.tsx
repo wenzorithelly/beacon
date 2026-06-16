@@ -65,7 +65,8 @@ export const EndpointNode = memo(function EndpointNode({ id, data, selected }: N
         className={cn(
           "relative flex w-[300px] items-center gap-2 rounded-lg border border-white/10 bg-[#161618]/95 px-2.5 py-2 text-card-foreground backdrop-blur",
           selected && "ring-2 ring-[var(--accent,#f5b942)]",
-          lod === "far" && "!opacity-0",
+          // Keep visible at far zoom on read-only boards (no region summaries to fall back on).
+          lod === "far" && !edit.readOnly && "!opacity-0",
         )}
       >
         <FourDotHandles />

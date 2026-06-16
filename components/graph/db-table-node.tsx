@@ -145,7 +145,12 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
   if (lod !== "full") {
     return (
       <div
-        className={cn(shell, "border-white/10 px-3 py-2.5", lod === "far" && "!opacity-0")}
+        className={cn(
+          shell,
+          "border-white/10 px-3 py-2.5",
+          // Keep visible at far zoom on read-only boards (no region summaries to fall back on).
+          lod === "far" && !edit.readOnly && "!opacity-0",
+        )}
         style={{ width: cardWidth }}
       >
         <FourDotHandles />

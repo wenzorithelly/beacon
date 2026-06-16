@@ -7,6 +7,9 @@ import type { DbColumnPayload } from "@/components/graph/db-types";
 // call mutates the client-held draft document (with undo/redo history) in db-map-client —
 // nothing is persisted to the database until the user hits "Aprovar".
 export interface DbEditApi {
+  /** Read-only board (shared public view / archived plan history): tables/endpoints render but
+      can't be edited, and they stay visible at far zoom (no region summaries to fall back on). */
+  readOnly?: boolean;
   patchEndpoint: (
     id: string,
     fields: { method?: string; path?: string; domain?: string | null; description?: string | null },

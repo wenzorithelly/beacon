@@ -1165,6 +1165,7 @@ export function DbMapClient({
   // ── Inline edits from draft nodes (local, undoable) ──
   const dbEdit = useMemo<DbEditApi>(
     () => ({
+      readOnly,
       patchEndpoint: (id, fields) =>
         commit((doc) => ({
           ...doc,
@@ -1193,7 +1194,7 @@ export function DbMapClient({
         });
       },
     }),
-    [commit, router],
+    [readOnly, commit, router],
   );
 
   // ── Keyboard undo/redo (ignored while typing in a node field) ──
