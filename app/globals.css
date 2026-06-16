@@ -282,6 +282,88 @@
   cursor: pointer;
 }
 
+/* Node-description editor (Tiptap, components/graph/rich-node-editor) — a compact sibling of
+   .note-prose: same list/heading/code treatment scaled down for the canvas card + side panel. */
+.node-prose:focus {
+  outline: none;
+}
+.node-prose > * + * {
+  margin-top: 0.35rem;
+}
+.node-prose ul,
+.node-prose ol {
+  padding-left: 1.1rem;
+}
+.node-prose ul {
+  list-style: disc;
+}
+.node-prose ol {
+  list-style: decimal;
+}
+.node-prose h1 {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.node-prose h2 {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.node-prose h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.node-prose strong {
+  font-weight: 600;
+}
+.node-prose em {
+  font-style: italic;
+}
+.node-prose code {
+  background: oklch(1 0 0 / 0.06);
+  border-radius: 4px;
+  padding: 0 0.25rem;
+  font-family: var(--font-geist-mono);
+  font-size: 0.85em;
+}
+.node-prose ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+.node-prose ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+.node-prose ul[data-type="taskList"] input[type="checkbox"] {
+  margin-top: 0.2rem;
+  cursor: pointer;
+}
+/* Empty-state hint (Placeholder extension marks the empty node). */
+.node-prose p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: oklch(1 0 0 / 0.34);
+}
+
+/* @-mention chips — a slim accent pill the editor renders for a beacon:// reference, so a
+   description visibly links files / features / tables instead of showing a raw URL. */
+.beacon-mention {
+  display: inline;
+  border-radius: 4px;
+  padding: 0 0.25rem;
+  background: var(--accent-2, #ff7a45);
+  background: color-mix(in oklch, var(--accent-2, #ff7a45) 18%, transparent);
+  color: var(--accent-2, #ff7a45);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.beacon-mention:hover {
+  background: color-mix(in oklch, var(--accent-2, #ff7a45) 28%, transparent);
+}
+
 /* Figma-style connection dots: invisible until the node is hovered/selected or a
    connection drag is in progress (so the user sees where to drop). Targets every
    node type (NodeCard, DbTableNode, EndpointNode) via React Flow's shared

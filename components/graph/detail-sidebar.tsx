@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bug, MessageSquarePlus, Sparkles, X } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
-import { MarkdownView } from "@/components/plan/markdown-view";
+import { RichNodeEditor } from "@/components/graph/rich-node-editor";
 import {
   ARCH_STATUSES,
   ROADMAP_STATUSES,
@@ -39,6 +39,7 @@ import {
   deleteNodeAction,
   deprioritizeAction,
   setStatusAction,
+  updateNodeAction,
 } from "@/app/actions/nodes";
 import { cn } from "@/lib/utils";
 import type { MapNodePayload } from "@/components/graph/types";
@@ -185,6 +186,11 @@ function NodeDetail({
   const [pending, startTransition] = useTransition();
   const [editOpen, setEditOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
+  // Editable description (rich + @-mentions); reset when a different node is selected or the
+  // value changes upstream (an agent edit arriving via refresh).
+  const [plain, setPlain] = useState(node.plain ?? "");
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setPlain(node.plain ?? ""), [node.id, node.plain]);
   const { hasFrontend } = useNodeEdit();
   const layer = normalizeLayer(node.layer);
 
@@ -261,11 +267,16 @@ function NodeDetail({
         </Select>
       </div>
 
-      {node.plain && (
-        <div className="rounded-md border border-white/5 bg-card/40 px-2.5 py-2 text-sm">
-          <MarkdownView markdown={node.plain} variant="compact" className="text-[12.5px]" />
-        </div>
-      )}
+      <div className="rounded-md border border-white/5 bg-card/40 px-2.5 py-2 text-sm">
+        <RichNodeEditor
+          value={plain}
+          onChange={setPlain}
+          onBlur={() => {
+            const v = plain.trim() || null;
+            if (v !== (node.plain ?? null)) run(() => updateNodeAction(node.id, { plain: v }));
+          }}
+        />
+      </div>
       {node.sourceRef && (
         <div className="rounded-md border border-border bg-card px-2 py-1.5 font-mono text-xs text-muted-foreground">
           {node.sourceRef}

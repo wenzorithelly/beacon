@@ -17,22 +17,34 @@ const MarkdownUnderline = Underline.extend({
 // editor saves and what the tests assert come from ONE definition. StarterKit v3 already
 // bundles Bold/Italic/Strike/Underline/lists/headings; we disable its Underline to swap in
 // the <u>-serializing one, and add task lists for the clickable checkboxes.
-const contentExtensions = [
+// Shared base — everything EXCEPT a mention node. The node editor appends the full MentionNode
+// (with the @ suggestion popup); the manager + notes editor append the markdown serializer node.
+// Two nodes named "mention" can't coexist in one schema, so the mention node is added per-surface.
+const baseExtensions = [
   // `underline: false` removes StarterKit's bundled underline so MarkdownUnderline owns it.
   StarterKit.configure({ underline: false } as never),
   MarkdownUnderline,
   TaskList,
   TaskItem.configure({ nested: true }),
+];
+
+const contentExtensions = [
+  ...baseExtensions,
   // The serializer mention node — its renderMarkdown turns a chip into a `beacon://` link; parsing
-  // is handled by restoreMentions below. The live editor uses MentionNode (with the suggestion
+  // is handled by restoreMentions below. The live node editor uses MentionNode (with the suggestion
   // popup) instead, but both share the same name + attrs so the JSON is interchangeable.
   MentionMarkdownNode,
 ];
 
-/** Extensions for the live Tiptap editor. The editor works in ProseMirror JSON: it loads
- *  content from markdownToEditorDoc() and the drawer saves via docToMarkdown(editor.getJSON()),
- *  so the markdown engine below is the single serialization path (no in-editor getMarkdown). */
+/** Extensions for the live notes editor. Works in ProseMirror JSON: loads from
+ *  markdownToEditorDoc() and saves via docToMarkdown(editor.getJSON()), so the markdown engine
+ *  below is the single serialization path. Includes the (suggestion-less) mention node so a
+ *  beacon:// mention renders as a chip if one appears. */
 export const noteEditorExtensions = contentExtensions;
+
+/** Mention-less base for the NODE editor, which appends the full MentionNode (with the @ picker)
+ *  itself — see components/graph/rich-node-editor.tsx. */
+export const nodeEditorBaseExtensions = baseExtensions;
 
 // One markdown engine, built from the same content extensions the editor uses, so what the
 // editor renders and what we store stay in lockstep. No DOM needed.
@@ -46,7 +58,8 @@ export function docToMarkdown(doc: unknown): string {
 type JsonNode = {
   type?: string;
   text?: string;
-  marks?: Array<{ type: string }>;
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
+  attrs?: Record<string, unknown>;
   content?: JsonNode[];
 };
 

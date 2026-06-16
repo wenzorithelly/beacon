@@ -59,8 +59,10 @@ export const MentionMarkdownNode = Node.create({
     mergeAttributes({ "data-mention": "", class: "beacon-mention" }, HTMLAttributes),
     `@${node.attrs.label ?? ""}`,
   ],
-  renderMarkdown: (node: { attrs: { kind?: string; ref?: string; label?: string } }) =>
-    mentionLink(node.attrs.kind ?? "feature", node.attrs.ref ?? "", node.attrs.label ?? ""),
+  renderMarkdown: (node) => {
+    const a = (node as { attrs?: { kind?: string; ref?: string; label?: string } }).attrs ?? {};
+    return mentionLink(a.kind ?? "feature", a.ref ?? "", a.label ?? "");
+  },
 });
 
 // ── Live-editor node ────────────────────────────────────────────────────────────────────

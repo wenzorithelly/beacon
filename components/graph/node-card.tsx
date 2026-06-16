@@ -12,6 +12,8 @@ import {
   Sparkles,
   Maximize2,
   Minimize2,
+  ChevronDown,
+  ChevronRight,
   PanelRight,
   Trash2,
   MessageCircleQuestion,
@@ -34,7 +36,7 @@ import { LAYER_META, layerStripeCss, normalizeLayer } from "@/lib/layer";
 import { categoryColorClass } from "@/lib/category-color";
 import { useNodeEdit } from "@/components/graph/node-edit-context";
 import { useZoomLOD } from "@/components/graph/use-zoom-lod";
-import { MarkdownView } from "@/components/plan/markdown-view";
+import { RichNodeEditor } from "@/components/graph/rich-node-editor";
 import { cn } from "@/lib/utils";
 import type { FeatureSignals } from "@/lib/feature-signals";
 
@@ -69,6 +71,12 @@ export type MapNodeData = {
   onPinClick?: (annotationId: string) => void;
   /** Start an annotation on this card (plan feedback or persisted board annotation). */
   onComment?: (excerpt: string) => void;
+  /** Direct sub-task count — when > 0 the card shows a collapse toggle that folds the subtree. */
+  childCount?: number;
+  /** Whether this card's sub-tasks are currently folded behind it. */
+  collapsed?: boolean;
+  /** Toggle the collapse state for this card's sub-tasks (view-only; not persisted). */
+  onToggleCollapse?: (id: string) => void;
 };
 
 export type MapNode = Node<MapNodeData>;
@@ -235,7 +243,6 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
     useNodeEdit();
   const expanded = isExpanded(id);
   const [confirmDel, setConfirmDel] = useState(false);
-  const [editingPlain, setEditingPlain] = useState(false);
 
   // Text fields are edited in LOCAL state (seeded from data) and only persisted on blur.
   // Routing every keystroke through the global map state re-rendered the input mid-edit,
@@ -396,6 +403,34 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
             cancelled && "line-through",
           )}
         />
+        {(data.childCount ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={(e) => {
+              stop(e);
+              data.onToggleCollapse?.(id);
+            }}
+            title={
+              data.collapsed
+                ? `Show ${data.childCount} sub-task${data.childCount === 1 ? "" : "s"}`
+                : `Hide ${data.childCount} sub-task${data.childCount === 1 ? "" : "s"}`
+            }
+            className={cn(
+              noDrag,
+              "mt-0.5 flex shrink-0 items-center gap-0.5 rounded px-1 text-[10px] font-semibold transition-colors",
+              data.collapsed
+                ? "bg-white/[0.06] text-foreground hover:bg-white/10"
+                : "text-muted-foreground hover:bg-white/5 hover:text-foreground",
+            )}
+          >
+            {data.collapsed ? (
+              <ChevronRight className="size-3" />
+            ) : (
+              <ChevronDown className="size-3" />
+            )}
+            {data.childCount}
+          </button>
+        )}
         <button
           type="button"
           onClick={(e) => {
@@ -603,41 +638,20 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
         </Select>
       </div>
 
-      {/* Expanded: details, inline. The description renders as MARKDOWN when not being
-          edited so an agent's `beacon_feature` done update (with headings + file
-          bullets) reads naturally. Click the preview to switch to a textarea. */}
+      {/* Expanded: details, inline. A rich Tiptap editor (markdown shortcuts as you type +
+          @-mentions of any Beacon entity) that doubles as the formatted view when unfocused —
+          an agent's `beacon_feature` done update (headings + file bullets) renders naturally. */}
       {expanded && (
         <div className="mt-2 w-0 min-w-full space-y-2 border-t border-white/10 pt-2">
-          {editingPlain || !plain.trim() ? (
-            <textarea
-              autoFocus={editingPlain}
-              value={plain}
-              placeholder="Description (markdown)…"
-              onChange={(e) => setPlain(e.target.value)}
-              onBlur={() => {
-                setEditingPlain(false);
-                const v = plain.trim() || null;
-                if (v !== (data.plain ?? null)) save({ plain: v });
-              }}
-              onKeyDown={stop}
-              rows={3}
-              className={cn(
-                noDrag,
-                "field-sizing-content max-h-[24rem] min-h-[4.5rem] w-full resize-y rounded bg-white/[0.04] px-1.5 py-1 text-xs outline-none placeholder:text-muted-foreground/50 focus:bg-white/[0.08]",
-              )}
-            />
-          ) : (
-            <div
-              onClick={(e) => {
-                stop(e);
-                setEditingPlain(true);
-              }}
-              title="Click to edit"
-              className="cursor-text rounded bg-white/[0.02] px-1.5 py-1 text-xs hover:bg-white/[0.05]"
-            >
-              <MarkdownView markdown={plain} variant="compact" className="text-[12px]" />
-            </div>
-          )}
+          <RichNodeEditor
+            compact
+            value={plain}
+            onChange={setPlain}
+            onBlur={() => {
+              const v = plain.trim() || null;
+              if (v !== (data.plain ?? null)) save({ plain: v });
+            }}
+          />
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1">
               <Select value={String(data.priority)} onValueChange={(v) => save({ priority: Number(v) })}>
