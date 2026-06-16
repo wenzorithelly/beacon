@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   applyEdgeChanges,
   applyNodeChanges,
@@ -211,7 +211,9 @@ function dotRadius(inDegree: number): number {
   return 5 + Math.min(inDegree, 26) * 0.5; // 5..18px
 }
 
-function FileNode({ data }: { data: FileNodeData }) {
+// memo: the files graph can hold hundreds of nodes; without this every dot re-rendered on
+// every pan/zoom/drag frame. Props (just `data`) are stable per node, so memo bails out.
+const FileNode = memo(function FileNode({ data }: { data: FileNodeData }) {
   // Obsidian-style node: a DOT sized by how many files import it, colored by its top-level
   // directory (the color-group categorization), with the filename underneath that fades in
   // with zoom — far out you read shape and color, close in you read names. The two Handles
@@ -299,7 +301,7 @@ function FileNode({ data }: { data: FileNodeData }) {
       />
     </div>
   );
-}
+});
 
 const nodeTypes = { file: FileNode };
 
@@ -790,6 +792,9 @@ export function FilesMapClient({
         nodes={displayNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}
+        // Cull off-screen nodes/edges — the files graph can be hundreds of dots; only render
+        // what's in the viewport so pan/zoom on a large repo (and on mobile) stays smooth.
+        onlyRenderVisibleElements
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={(_, node) => {

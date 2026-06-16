@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { KeyRound, Link2, MessageSquarePlus, Plus, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -97,7 +97,10 @@ function contentFitWidth(
   return Math.min(312, Math.max(240, headerPx, ...columns.map(rowPx)));
 }
 
-export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
+// memo: skip re-rendering an unchanged table card on every canvas re-render / drag frame.
+// The DbEditContext value is stable (commit/router callbacks), so an untouched card's props
+// don't change and memo can bail out.
+export const DbTableNode = memo(function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
   const draft = data.source === "DRAFT";
   // Diff accent (draft only): green = new table, amber = modified vs. the live schema, sky = unchanged.
   const accent =
@@ -393,4 +396,4 @@ export function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
       </div>
     </div>
   );
-}
+});

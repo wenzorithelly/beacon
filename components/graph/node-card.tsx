@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { memo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { FourDotHandles } from "@/components/graph/handles";
@@ -238,7 +238,11 @@ const PRIORITY_BORDER = [
   "border-border",
 ] as const;
 
-export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
+// memo: during a drag React Flow re-renders the canvas ~60×/s. Without this, every card
+// (each a heavy Tiptap editor + Select dropdowns) re-rendered every frame even when only one
+// node moved. memo skips a card whose props (id/data/selected) are unchanged — which they are
+// for non-dragged cards, since the NodeEditContext value is stabilized (categories ref-guard).
+export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
   const { categories, statuses, patch, isExpanded, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent, hasFrontend } =
     useNodeEdit();
   const expanded = isExpanded(id);
@@ -750,4 +754,4 @@ export function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
       {/* connection dots are rendered once at the top of the card via <FourDotHandles /> */}
     </div>
   );
-}
+});

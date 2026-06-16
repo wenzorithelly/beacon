@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { MessageSquarePlus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -35,7 +35,8 @@ export type EndpointNode = Node<EndpointNodeData>;
 const noDrag = "nodrag nopan";
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
-export function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
+// memo: skip re-rendering an unchanged endpoint pill on every canvas re-render / drag frame.
+export const EndpointNode = memo(function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
   const color = METHOD_COLOR[data.method] ?? "#8a8a8a";
   const draft = data.source === "DRAFT";
   // Diff accent (draft only): green = new endpoint vs. the live schema, sky = already exists.
@@ -213,4 +214,4 @@ export function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
       )}
     </div>
   );
-}
+});

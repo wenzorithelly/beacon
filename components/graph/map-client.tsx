@@ -363,13 +363,22 @@ export function MapClient({
     }
   }, []);
 
-  const categories = useMemo(
+  // Distinct clusters in this view, for the inline category picker. This value flows into
+  // `editApi` (the NodeEditContext value), and during a drag `nodes` changes ~60×/s — a fresh
+  // array every frame would recreate editApi and re-render every memoized card. So we gate the
+  // array's identity on a STRING key: the key recomputes each frame but its VALUE is unchanged
+  // when the cluster set is, and a primitive useMemo dep compares by value (Object.is) — so the
+  // parsed array keeps its reference until the clusters actually change.
+  const categoriesKey = useMemo(
     () =>
-      Array.from(
-        new Set(nodes.map((n) => n.data.cluster).filter((c): c is string => !!c)),
-      ).sort(),
+      JSON.stringify(
+        Array.from(
+          new Set(nodes.map((n) => n.data.cluster).filter((c): c is string => !!c)),
+        ).sort(),
+      ),
     [nodes],
   );
+  const categories = useMemo<string[]>(() => JSON.parse(categoriesKey), [categoriesKey]);
 
   const toggleExpand = useCallback(
     (id: string) =>
@@ -1326,6 +1335,9 @@ export function MapClient({
         }
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        // Cull off-screen nodes/edges: only DOM for what's in the viewport (+ React Flow's
+        // margin) is mounted. Keeps drag/pan/zoom cheap on big boards and weak mobile GPUs.
+        onlyRenderVisibleElements
         nodesConnectable={!readOnly}
         connectionMode={ConnectionMode.Loose}
         connectionLineStyle={{
