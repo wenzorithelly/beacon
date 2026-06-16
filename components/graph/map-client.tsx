@@ -346,7 +346,13 @@ export function MapClient({
     if (!readOnly) return;
     let r2 = 0;
     const r1 = requestAnimationFrame(() => {
-      r2 = requestAnimationFrame(() => flowRef.current?.fitView({ padding: 0.2, duration: 0 }));
+      // Clamp to the SAME minZoom/maxZoom the fitView prop uses. Without minZoom, a large board on
+      // a small (phone) viewport zooms past the far-LOD threshold (ZOOM_FAR = 0.3), where cards
+      // render at opacity:0 — so they'd "appear then vanish". Clamping at 0.38 keeps cards visible
+      // (mid LOD, title-only); panning covers whatever doesn't fit. Matches the readable-cards rule.
+      r2 = requestAnimationFrame(() =>
+        flowRef.current?.fitView({ padding: 0.2, duration: 0, minZoom: 0.38, maxZoom: 0.9 }),
+      );
     });
     return () => {
       cancelAnimationFrame(r1);
@@ -495,6 +501,7 @@ export function MapClient({
   const editApi: NodeEditApi = useMemo(
     () => ({
       view,
+      readOnly,
       categories,
       statuses: view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES,
       patch,
@@ -506,7 +513,7 @@ export function MapClient({
       onAskAgent,
       hasFrontend,
     }),
-    [view, categories, patch, expandedIds, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent, hasFrontend],
+    [view, readOnly, categories, patch, expandedIds, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent, hasFrontend],
   );
 
   // Group-by lanes + the search box. `arrangedBy` is the dimension the board is currently laid

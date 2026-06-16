@@ -6,6 +6,9 @@ import { createContext, useContext } from "react";
 // implementation (optimistic local update + a no-revalidate PATCH); the node calls it.
 export interface NodeEditApi {
   view: "ROADMAP" | "ARCHITECTURE";
+  /** Read-only board (shared public view / archived plan history): cards render but can't be
+      edited — title, category, status, description and the delete/ask actions are all locked. */
+  readOnly?: boolean;
   categories: string[]; // distinct clusters in this view, for the inline picker
   statuses: readonly string[];
   /** Update fields. persist=false → local only (mid-typing); persist=true → save. */

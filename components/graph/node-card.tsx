@@ -243,7 +243,7 @@ const PRIORITY_BORDER = [
 // node moved. memo skips a card whose props (id/data/selected) are unchanged — which they are
 // for non-dragged cards, since the NodeEditContext value is stabilized (categories ref-guard).
 export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
-  const { categories, statuses, patch, isExpanded, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent, hasFrontend } =
+  const { categories, statuses, patch, isExpanded, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent, hasFrontend, readOnly } =
     useNodeEdit();
   const expanded = isExpanded(id);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -268,7 +268,11 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
   const working = data.status === "IN_PROGRESS";
   const suggested = data.source === "INIT" && data.view === "ROADMAP";
 
-  const save = (fields: Record<string, unknown>) => patch(id, fields, true);
+  // Read-only boards (shared view / archived plan history) never persist edits. Belt-and-suspenders
+  // alongside the disabled/read-only controls below, so nothing can mutate a snapshot.
+  const save = (fields: Record<string, unknown>) => {
+    if (!readOnly) patch(id, fields, true);
+  };
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
   // Accept an AI-suggested (INIT) card in place — same action the Details panel runs
@@ -384,6 +388,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
         <textarea
           rows={1}
           value={title}
+          readOnly={readOnly}
           autoFocus={editingTitleId === id}
           placeholder="Title…"
           onFocus={(e) => {
@@ -565,6 +570,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
             <input
               list={`cats-${id}`}
               value={cluster}
+              readOnly={readOnly}
               placeholder="category"
               onChange={(e) => setCluster(e.target.value)}
               onBlur={() => {
@@ -598,6 +604,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
             <input
               list={`cats-${id}`}
               value={cluster}
+              readOnly={readOnly}
               placeholder="domain"
               title="Architecture domain — the lane this component lives in"
               onChange={(e) => setCluster(e.target.value)}
@@ -622,7 +629,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
             <option key={c} value={c} />
           ))}
         </datalist>
-        <Select value={data.status} onValueChange={(v) => save({ status: v })}>
+        <Select value={data.status} onValueChange={(v) => save({ status: v })} disabled={readOnly}>
           <SelectTrigger
             className={cn(
               noDrag,
@@ -649,6 +656,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
         <div className="mt-2 w-0 min-w-full space-y-2 border-t border-white/10 pt-2">
           <RichNodeEditor
             compact
+            editable={!readOnly}
             value={plain}
             onChange={setPlain}
             onBlur={() => {
@@ -658,7 +666,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
           />
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1">
-              <Select value={String(data.priority)} onValueChange={(v) => save({ priority: Number(v) })}>
+              <Select value={String(data.priority)} onValueChange={(v) => save({ priority: Number(v) })} disabled={readOnly}>
                 <SelectTrigger className={cn(noDrag, "h-6 gap-1 rounded border-white/10 px-1.5 py-0 text-[10px]")}>
                   <SelectValue>
                     {(v: string) => PRIORITIES.find((p) => String(p.v) === v)?.l ?? v}
@@ -676,6 +684,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
                 <Select
                   value={normalizeLayer(data.layer) ?? "none"}
                   onValueChange={(v) => save({ layer: v === "none" ? null : v })}
+                  disabled={readOnly}
                 >
                   <SelectTrigger
                     title="Which side of the stack this lands on"
@@ -697,26 +706,28 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
               )}
             </div>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={(e) => {
-                  stop(e);
-                  if (confirmDel) removeNode(id);
-                  else setConfirmDel(true);
-                }}
-                onBlur={() => setConfirmDel(false)}
-                title="Delete node"
-                className={cn(
-                  noDrag,
-                  "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] transition-colors",
-                  confirmDel
-                    ? "bg-red-500/20 text-red-300"
-                    : "text-muted-foreground hover:bg-white/5 hover:text-red-300",
-                )}
-              >
-                <Trash2 className="size-3" />
-                {confirmDel && "Delete?"}
-              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    stop(e);
+                    if (confirmDel) removeNode(id);
+                    else setConfirmDel(true);
+                  }}
+                  onBlur={() => setConfirmDel(false)}
+                  title="Delete node"
+                  className={cn(
+                    noDrag,
+                    "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] transition-colors",
+                    confirmDel
+                      ? "bg-red-500/20 text-red-300"
+                      : "text-muted-foreground hover:bg-white/5 hover:text-red-300",
+                  )}
+                >
+                  <Trash2 className="size-3" />
+                  {confirmDel && "Delete?"}
+                </button>
+              )}
               {onAskAgent && (
                 <button
                   type="button"

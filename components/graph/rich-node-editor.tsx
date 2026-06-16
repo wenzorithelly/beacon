@@ -25,6 +25,7 @@ export function RichNodeEditor({
   compact,
   className,
   placeholder = "Description (markdown)… type @ to mention a file, feature, table…",
+  editable = true,
 }: {
   value: string;
   onChange: (markdown: string) => void;
@@ -33,8 +34,12 @@ export function RichNodeEditor({
   compact?: boolean;
   className?: string;
   placeholder?: string;
+  // When false (read-only boards: shared view, archived plan history) the editor renders its
+  // content but can't be typed into, and the formatting toolbar is hidden.
+  editable?: boolean;
 }) {
   const editor = useEditor({
+    editable,
     extensions: [
       ...nodeEditorBaseExtensions,
       Placeholder.configure({ placeholder }),
@@ -53,6 +58,11 @@ export function RichNodeEditor({
     onBlur: () => onBlur?.(),
   });
 
+  // Keep the editor's editable flag in sync if it ever flips after mount.
+  useEffect(() => {
+    editor?.setEditable(editable);
+  }, [editor, editable]);
+
   // Keep external value changes (e.g. an agent's update arriving via live-refresh) in sync when
   // the editor isn't focused, without clobbering what the user is typing.
   useEffect(() => {
@@ -64,7 +74,7 @@ export function RichNodeEditor({
   if (!editor) return null;
   return (
     <div className="flex flex-col gap-1">
-      <Toolbar editor={editor} compact={compact} />
+      {editable && <Toolbar editor={editor} compact={compact} />}
       <EditorContent
         editor={editor}
         // Stop keystrokes bubbling to the canvas (delete/space/etc. are canvas shortcuts).
