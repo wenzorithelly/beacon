@@ -2,8 +2,10 @@
 // block (domains flow left→right, wrapping into bands); each endpoint sits directly beneath the
 // table it touches most (its "primary" table), so endpoint↔table adjacency replaces the old
 // invisible leftward endpoint gutter. Endpoints that touch no known table go to a trailing
-// "Unattached" strip. PURE — no imports — so the same math runs on the server (arrange, ingest
-// slots) AND in the browser (the /db region grouping) without dragging the db client along.
+// "Unattached" strip. Pure (its only import is the equally-pure lib/band-flow) — so the same math
+// runs on the server (arrange, ingest slots) AND in the browser without dragging the db client along.
+
+import { flowBlocksIntoBands } from "@/lib/band-flow";
 
 export interface DockTable {
   id: string;
@@ -30,7 +32,7 @@ export interface PlacedDockEndpoint extends DockEndpoint {
 
 // Canonical card dimensions (lib/table-layout re-exports these for its callers).
 export const TABLE_COL_WIDTH = 320;
-export const TABLE_GAP_PX = 50;
+export const TABLE_GAP_PX = 30;
 const TABLE_HEADER_PX = 36;
 const TABLE_ROW_PX = 30;
 const TABLE_PADDING_PX = 16;
@@ -39,14 +41,19 @@ export function estimateTableHeight(columnCount: number): number {
 }
 
 export const EP_ROW_H = 60;
-export const EP_COL_W = 280;
+export const EP_COL_W = 300;
 /** Gap between a table's bottom edge and its first docked endpoint. */
-const DOCK_PAD = 14;
+const DOCK_PAD = 10;
 /** Horizontal gap between adjacent domain blocks. */
-const DOMAIN_GAP_X = 120;
-/** Vertical gap between bands of domain blocks (room for the region header). */
-const DOMAIN_GAP_Y = 170;
-const MAX_BAND_W = 8 * TABLE_COL_WIDTH;
+const DOMAIN_GAP_X = 84;
+/** Vertical gap between bands of domain blocks (room for the region header). Kept tight so a
+ *  tall endpoint-heavy domain doesn't open a canyon of empty space before the next band. */
+const DOMAIN_GAP_Y = 72;
+/** Never wrap narrower than ~3 columns, so a tiny schema doesn't tower. */
+const MIN_BAND_W = 3 * TABLE_COL_WIDTH;
+/** Endpoint docks make domain-block heights very uneven, so bands pack looser — bias wider so the
+ *  realized board lands near the viewport aspect (tuned on real boards). */
+const ASPECT_SLACK = 1.7;
 export const UNATTACHED_GROUP = "Unattached";
 
 export const domainKey = (d: string | null | undefined): string => (d ?? "").trim() || "—";
@@ -111,6 +118,7 @@ const epSort = (a: DockEndpoint, b: DockEndpoint) =>
 export function computeDbBoardLayout(
   tables: DockTable[],
   endpoints: DockEndpoint[],
+  opts: { viewportAspect?: number } = {},
 ): {
   tables: Map<string, { x: number; y: number }>;
   endpoints: Map<string, { x: number; y: number }>;
@@ -169,37 +177,36 @@ export function computeDbBoardLayout(
     blocks.push({ d, w: cols * TABLE_COL_WIDTH, h: Math.max(...bottoms, 0), tableLocal });
   }
 
-  // Band width targeting a ~2:1 wide board overall (with a sane floor for small schemas).
-  const totalArea = blocks.reduce((s, b) => s + (b.w + DOMAIN_GAP_X) * (b.h + DOMAIN_GAP_Y), 0);
-  const bandW = Math.max(MAX_BAND_W, Math.round(Math.sqrt(totalArea * 2.2)));
+  // Flow the domain blocks into viewport-sized bands (shared with every band board), then place
+  // each table at its block origin + its in-block offset, and dock its endpoints beneath it.
+  const origins = flowBlocksIntoBands(
+    blocks.map((b) => ({ id: b.d, w: b.w, h: b.h })),
+    {
+      gapX: DOMAIN_GAP_X,
+      gapY: DOMAIN_GAP_Y,
+      viewportAspect: opts.viewportAspect,
+      minBandW: MIN_BAND_W,
+      aspectSlack: ASPECT_SLACK,
+    },
+  );
 
   const tablePos = new Map<string, { x: number; y: number }>();
   const epPos = new Map<string, { x: number; y: number }>();
-  let blockX = 0;
-  let bandTop = 0;
-  let bandMaxH = 0;
   let boardBottom = 0;
   for (const block of blocks) {
-    if (blockX > 0 && blockX + block.w > bandW) {
-      // wrap to a new band
-      bandTop += bandMaxH + DOMAIN_GAP_Y;
-      blockX = 0;
-      bandMaxH = 0;
-    }
+    const origin = origins.get(block.d)!;
     const members = tables.filter((t) => block.tableLocal.has(t.id));
     for (const t of members) {
       const p = block.tableLocal.get(t.id)!;
-      const x = blockX + p.x;
-      const y = bandTop + p.y;
+      const x = origin.x + p.x;
+      const y = origin.y + p.y;
       tablePos.set(t.id, { x, y });
       const dock = dockedByTable.get(t.id) ?? [];
       dock.forEach((e, i) => {
         epPos.set(e.id, { x, y: y + estimateTableHeight(t.columnCount) + DOCK_PAD + i * EP_ROW_H });
       });
     }
-    bandMaxH = Math.max(bandMaxH, block.h);
-    boardBottom = Math.max(boardBottom, bandTop + block.h);
-    blockX += block.w + DOMAIN_GAP_X;
+    boardBottom = Math.max(boardBottom, origin.y + block.h);
   }
 
   // Unattached strip: a compact grid below everything.

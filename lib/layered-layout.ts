@@ -8,6 +8,8 @@
 // rows — the classic crossing-reduction heuristic. Hand-rolled (~140 lines) instead of
 // dagre/elkjs: the graphs are small (<100 nodes) and the repo avoids layout deps.
 
+import { flowBlocksIntoBands } from "@/lib/band-flow";
+
 export interface LayeredNode {
   id: string;
   /** Domain/category — drives the horizontal banding. */
@@ -23,11 +25,11 @@ export interface LayeredEdge {
 export const LAYER_W = 360;
 export const ROW_H = 150;
 /** Vertical gap between bands of domain blocks (room for the region header). */
-export const BAND_GAP = 170;
+export const BAND_GAP = 80;
 /** Horizontal gap between adjacent domain blocks. */
-export const BLOCK_GAP_X = 140;
-/** Wrap domain blocks to a new band past this width. */
-export const MAX_BAND_W = 8 * LAYER_W;
+export const BLOCK_GAP_X = 84;
+/** Never wrap narrower than ~3 layers (a floor under the viewport-derived band width). */
+export const MIN_BAND_W = 3 * LAYER_W;
 
 /** Drop back-edges via DFS over id-sorted adjacency so the layering terminates. Deterministic:
  *  the same graph always keeps/drops the same edges regardless of input order. */
@@ -80,6 +82,7 @@ export function assignLayers(nodes: LayeredNode[], dag: LayeredEdge[]): Map<stri
 export function layeredLayout(
   nodes: LayeredNode[],
   edges: LayeredEdge[],
+  opts: { viewportAspect?: number } = {},
 ): Map<string, { x: number; y: number }> {
   if (nodes.length === 0) return new Map();
   const dag = breakCycles(nodes, edges);
@@ -131,24 +134,16 @@ export function layeredLayout(
     blocks.push({ d, w: xOff, h: maxRows * ROW_H, local });
   }
 
-  // ── Pack blocks left→right, wrapping into bands (room for the region header in the gaps).
-  // Band width scales with the content (~2:1 wide board overall) so a big graph fills the
-  // screen horizontally instead of stacking bands into a tower. ──
-  const totalArea = blocks.reduce((s, b) => s + (b.w + BLOCK_GAP_X) * (b.h + BAND_GAP), 0);
-  const bandW = Math.max(MAX_BAND_W, Math.round(Math.sqrt(totalArea * 2.2)));
+  // Flow the domain blocks into viewport-sized bands (shared with the roadmap + db boards), then
+  // offset each node by its block origin — so a big graph fills the screen instead of towering.
+  const origins = flowBlocksIntoBands(
+    blocks.map((b) => ({ id: b.d, w: b.w, h: b.h })),
+    { gapX: BLOCK_GAP_X, gapY: BAND_GAP, viewportAspect: opts.viewportAspect, minBandW: MIN_BAND_W, aspectSlack: 1.5 },
+  );
   const pos = new Map<string, { x: number; y: number }>();
-  let blockX = 0;
-  let bandTop = 0;
-  let bandMaxH = 0;
   for (const b of blocks) {
-    if (blockX > 0 && blockX + b.w > bandW) {
-      bandTop += bandMaxH + BAND_GAP;
-      blockX = 0;
-      bandMaxH = 0;
-    }
-    for (const [id, p] of b.local) pos.set(id, { x: blockX + p.x, y: bandTop + p.y });
-    bandMaxH = Math.max(bandMaxH, b.h);
-    blockX += b.w + BLOCK_GAP_X;
+    const origin = origins.get(b.d)!;
+    for (const [id, p] of b.local) pos.set(id, { x: origin.x + p.x, y: origin.y + p.y });
   }
   return pos;
 }

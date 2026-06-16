@@ -13,9 +13,9 @@ const f = (
   ...over,
 });
 
-// Wide band + fixed dims so single-feature lanes land at predictable x's: each lane is one
-// column wide (colW) plus a laneGap before the next.
-const OPTS = { colW: 300, rowH: 100, laneGap: 50, maxBandW: 100000 };
+// Huge minBandW + fixed dims so every lane stays on ONE band and single-feature lanes land at
+// predictable x's: each lane is one column wide (colW) plus a laneGap before the next.
+const OPTS = { colW: 300, rowH: 100, laneGap: 50, minBandW: 100000 };
 
 describe("layoutRoadmap (grid-block lanes)", () => {
   it("places each cluster lane as its own block, alphabetical with unset last", () => {
@@ -84,18 +84,22 @@ describe("layoutRoadmap (grid-block lanes)", () => {
     expect(pos.get("p2")!.x).toBe(0);
   });
 
-  it("wraps lane blocks into a new band once a band fills up", () => {
-    const nodes = [
-      f("a", { cluster: "AAA" }),
-      f("b", { cluster: "BBB" }),
-      f("c", { cluster: "CCC" }),
-    ];
-    // Each lane is 300 wide; maxBandW 350 fits one lane per band → b and c wrap down.
-    const pos = layoutRoadmap(nodes, "cluster", { ...OPTS, maxBandW: 350 });
-    expect(pos.get("a")).toEqual({ x: 0, y: 0 });
-    expect(pos.get("b")!.x).toBe(0);
-    expect(pos.get("b")!.y).toBeGreaterThan(0); // wrapped to band 2
-    expect(pos.get("c")!.y).toBeGreaterThan(pos.get("b")!.y); // band 3
+  it("wraps lane blocks into new bands when they can't fit one band", () => {
+    // Many single-feature lanes (300 wide each) can't fit one band on a normal viewport, so they
+    // wrap — more than one distinct band-top proves the wrapping (exact width is viewport-derived).
+    const nodes = Array.from({ length: 12 }, (_, i) =>
+      f(`n${i}`, { cluster: `C${String(i).padStart(2, "0")}` }),
+    );
+    const pos = layoutRoadmap(nodes, "cluster", {
+      colW: 300,
+      rowH: 100,
+      laneGap: 50,
+      viewportAspect: 1.0,
+    });
+    const bandTops = new Set([...pos.values()].map((p) => p.y));
+    expect(bandTops.size).toBeGreaterThan(1);
+    // First lane anchors the first band at the origin.
+    expect(pos.get("n0")).toEqual({ x: 0, y: 0 });
   });
 
   it("treats a child whose parent isn't on the board as a top-level feature", () => {

@@ -8,8 +8,10 @@ import { BOARD_ALGO_VERSIONS, readBoardLayout, writeBoardLayout } from "@/lib/bo
 // Domain-clustered tables with DOCKED endpoints — the layout math lives in lib/db-board-layout;
 // this module just reads the workspace, applies the positions, and gates the one-shot.
 
-/** Apply the domain-clustered + docked layout to every table + endpoint. Returns how many moved. */
-export async function arrangeDbBoard(prisma: DB = db): Promise<number> {
+/** Apply the domain-clustered + docked layout to every table + endpoint. Returns how many moved.
+ *  `viewportAspect` (width/height of the reviewer's canvas, passed from the client) sizes the board
+ *  to the screen; omitted for the server-side one-shot / self-heal, which uses a wide default. */
+export async function arrangeDbBoard(prisma: DB = db, viewportAspect?: number): Promise<number> {
   const [tablesRaw, endpointsRaw] = await Promise.all([
     prisma.query.dbTable.findMany({
       with: { columns: { columns: { id: true } } },
@@ -30,6 +32,7 @@ export async function arrangeDbBoard(prisma: DB = db): Promise<number> {
       path: e.path,
       uses: e.tables.map((u) => ({ tableId: u.tableId })),
     })),
+    { viewportAspect },
   );
   let moved = 0;
   for (const t of tablesRaw) {
