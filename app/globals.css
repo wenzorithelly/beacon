@@ -218,11 +218,60 @@
   background: transparent;
 }
 
-/* Notes editor (Tiptap ProseMirror) content — Tailwind v4's base resets list markers,
-   so re-declare them here, plus flatten task lists into a checkbox + content row. */
-.note-prose:focus {
+/* Tiptap (ProseMirror) editor content — shared by the notes editor (.note-prose) and the node
+   editor (.node-prose). Tailwind v4 resets list markers, so re-declare them; task lists flatten
+   to a checkbox + content row. Rules identical to both live here once; the size/spacing that
+   differs per surface is overridden below. */
+.note-prose:focus,
+.node-prose:focus {
   outline: none;
 }
+.note-prose ul,
+.node-prose ul {
+  list-style: disc;
+}
+.note-prose ol,
+.node-prose ol {
+  list-style: decimal;
+}
+.note-prose h1,
+.note-prose h2,
+.note-prose h3,
+.node-prose h1,
+.node-prose h2,
+.node-prose h3,
+.note-prose strong,
+.node-prose strong {
+  font-weight: 600;
+}
+.note-prose em,
+.node-prose em {
+  font-style: italic;
+}
+.note-prose code,
+.node-prose code {
+  background: oklch(1 0 0 / 0.06);
+  border-radius: 4px;
+  padding: 0 0.25rem;
+  font-family: var(--font-geist-mono);
+  font-size: 0.85em;
+}
+.note-prose ul[data-type="taskList"],
+.node-prose ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+.note-prose ul[data-type="taskList"] li,
+.node-prose ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+}
+.note-prose ul[data-type="taskList"] input[type="checkbox"],
+.node-prose ul[data-type="taskList"] input[type="checkbox"] {
+  cursor: pointer;
+}
+
+/* Notes editor — full size. */
 .note-prose > * + * {
   margin-top: 0.5rem;
 }
@@ -230,44 +279,16 @@
 .note-prose ol {
   padding-left: 1.25rem;
 }
-.note-prose ul {
-  list-style: disc;
-}
-.note-prose ol {
-  list-style: decimal;
-}
 .note-prose h1 {
   font-size: 1.1rem;
-  font-weight: 600;
 }
 .note-prose h2 {
   font-size: 1rem;
-  font-weight: 600;
 }
 .note-prose h3 {
   font-size: 0.95rem;
-  font-weight: 600;
-}
-.note-prose strong {
-  font-weight: 600;
-}
-.note-prose em {
-  font-style: italic;
-}
-.note-prose code {
-  background: oklch(1 0 0 / 0.06);
-  border-radius: 4px;
-  padding: 0 0.25rem;
-  font-family: var(--font-geist-mono);
-  font-size: 0.85em;
-}
-.note-prose ul[data-type="taskList"] {
-  list-style: none;
-  padding-left: 0;
 }
 .note-prose ul[data-type="taskList"] li {
-  display: flex;
-  align-items: flex-start;
   gap: 0.5rem;
 }
 .note-prose ul[data-type="taskList"] li > label {
@@ -278,15 +299,9 @@
   flex: 1 1 auto;
   min-width: 0;
 }
-.note-prose ul[data-type="taskList"] input[type="checkbox"] {
-  cursor: pointer;
-}
 
-/* Node-description editor (Tiptap, components/graph/rich-node-editor) — a compact sibling of
-   .note-prose: same list/heading/code treatment scaled down for the canvas card + side panel. */
-.node-prose:focus {
-  outline: none;
-}
+/* Node-description editor (components/graph/rich-node-editor) — compact, for the canvas card +
+   detail side panel. */
 .node-prose > * + * {
   margin-top: 0.35rem;
 }
@@ -294,49 +309,20 @@
 .node-prose ol {
   padding-left: 1.1rem;
 }
-.node-prose ul {
-  list-style: disc;
-}
-.node-prose ol {
-  list-style: decimal;
-}
 .node-prose h1 {
   font-size: 0.95rem;
-  font-weight: 600;
 }
 .node-prose h2 {
   font-size: 0.9rem;
-  font-weight: 600;
 }
 .node-prose h3 {
   font-size: 0.85rem;
-  font-weight: 600;
-}
-.node-prose strong {
-  font-weight: 600;
-}
-.node-prose em {
-  font-style: italic;
-}
-.node-prose code {
-  background: oklch(1 0 0 / 0.06);
-  border-radius: 4px;
-  padding: 0 0.25rem;
-  font-family: var(--font-geist-mono);
-  font-size: 0.85em;
-}
-.node-prose ul[data-type="taskList"] {
-  list-style: none;
-  padding-left: 0;
 }
 .node-prose ul[data-type="taskList"] li {
-  display: flex;
-  align-items: flex-start;
   gap: 0.4rem;
 }
 .node-prose ul[data-type="taskList"] input[type="checkbox"] {
   margin-top: 0.2rem;
-  cursor: pointer;
 }
 /* Empty-state hint (Placeholder extension marks the empty node). */
 .node-prose p.is-editor-empty:first-child::before {

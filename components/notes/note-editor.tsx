@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useReducer } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import {
@@ -13,7 +12,7 @@ import {
   Underline as UnderlineIcon,
 } from "lucide-react";
 import { docToMarkdown, markdownToEditorDoc, noteEditorExtensions } from "@/lib/note-markdown";
-import { cn } from "@/lib/utils";
+import { ToolbarButton, useEditorTick } from "@/components/editor/editor-toolbar";
 
 // WYSIWYG note editor. Works in ProseMirror JSON: loads from the stored markdown via
 // markdownToEditorDoc(), and reports changes back as markdown via docToMarkdown() — the
@@ -50,79 +49,40 @@ export function NoteEditor({
 }
 
 function Toolbar({ editor }: { editor: Editor }) {
-  // Re-render the toolbar on every transaction so isActive() highlights stay current.
-  const [, force] = useReducer((x: number) => x + 1, 0);
-  useEffect(() => {
-    const update = () => force();
-    editor.on("transaction", update);
-    return () => {
-      editor.off("transaction", update);
-    };
-  }, [editor]);
-
+  useEditorTick(editor); // keep isActive() highlights current
   const c = () => editor.chain().focus();
   return (
     <div className="flex items-center gap-0.5 border-b border-white/10 pb-2">
-      <TBtn label="Bold" active={editor.isActive("bold")} onClick={() => c().toggleBold().run()}>
+      <ToolbarButton label="Bold" active={editor.isActive("bold")} onClick={() => c().toggleBold().run()}>
         <Bold className="size-4" />
-      </TBtn>
-      <TBtn label="Italic" active={editor.isActive("italic")} onClick={() => c().toggleItalic().run()}>
+      </ToolbarButton>
+      <ToolbarButton label="Italic" active={editor.isActive("italic")} onClick={() => c().toggleItalic().run()}>
         <Italic className="size-4" />
-      </TBtn>
-      <TBtn
+      </ToolbarButton>
+      <ToolbarButton
         label="Underline"
         active={editor.isActive("underline")}
         onClick={() => c().toggleUnderline().run()}
       >
         <UnderlineIcon className="size-4" />
-      </TBtn>
-      <TBtn label="Strikethrough" active={editor.isActive("strike")} onClick={() => c().toggleStrike().run()}>
+      </ToolbarButton>
+      <ToolbarButton label="Strikethrough" active={editor.isActive("strike")} onClick={() => c().toggleStrike().run()}>
         <Strikethrough className="size-4" />
-      </TBtn>
+      </ToolbarButton>
       <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
-      <TBtn label="Checklist" active={editor.isActive("taskList")} onClick={() => c().toggleTaskList().run()}>
+      <ToolbarButton label="Checklist" active={editor.isActive("taskList")} onClick={() => c().toggleTaskList().run()}>
         <ListChecks className="size-4" />
-      </TBtn>
-      <TBtn label="Bullet list" active={editor.isActive("bulletList")} onClick={() => c().toggleBulletList().run()}>
+      </ToolbarButton>
+      <ToolbarButton label="Bullet list" active={editor.isActive("bulletList")} onClick={() => c().toggleBulletList().run()}>
         <List className="size-4" />
-      </TBtn>
-      <TBtn
+      </ToolbarButton>
+      <ToolbarButton
         label="Numbered list"
         active={editor.isActive("orderedList")}
         onClick={() => c().toggleOrderedList().run()}
       >
         <ListOrdered className="size-4" />
-      </TBtn>
+      </ToolbarButton>
     </div>
-  );
-}
-
-function TBtn({
-  label,
-  active,
-  onClick,
-  children,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={active}
-      title={label}
-      // preventDefault keeps the editor selection while clicking the button.
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-      className={cn(
-        "rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground",
-        active && "bg-white/[0.12] text-foreground",
-      )}
-    >
-      {children}
-    </button>
   );
 }

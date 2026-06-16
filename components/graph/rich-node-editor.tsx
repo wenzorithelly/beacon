@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useReducer,
-  useState,
-  type ReactNode,
-} from "react";
+import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 import { EditorContent, ReactRenderer, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import { Placeholder } from "@tiptap/extensions";
@@ -15,6 +8,7 @@ import { Bold, Italic, List, ListChecks, ListOrdered } from "lucide-react";
 import { docToMarkdown, markdownToEditorDoc, nodeEditorBaseExtensions } from "@/lib/note-markdown";
 import { MentionNode } from "@/lib/node-mention";
 import type { MentionHit } from "@/lib/mention-search";
+import { ToolbarButton, useEditorTick } from "@/components/editor/editor-toolbar";
 import { currentTabWs, wsHeaders } from "@/lib/tab-ws";
 import { cn } from "@/lib/utils";
 
@@ -87,62 +81,28 @@ export function RichNodeEditor({
 // Slim formatting toolbar — markdown shortcuts cover most typing, so this only surfaces the
 // common toggles. Kept compact for the node card.
 function Toolbar({ editor, compact }: { editor: Editor; compact?: boolean }) {
-  const [, force] = useReducer((x: number) => x + 1, 0);
-  useEffect(() => {
-    const update = () => force();
-    editor.on("transaction", update);
-    return () => void editor.off("transaction", update);
-  }, [editor]);
+  useEditorTick(editor); // keep isActive() highlights current
   const c = () => editor.chain().focus();
   const size = compact ? "size-3" : "size-3.5";
   return (
     <div className="flex items-center gap-0.5">
-      <TBtn label="Bold" active={editor.isActive("bold")} onClick={() => c().toggleBold().run()}>
+      <ToolbarButton label="Bold" active={editor.isActive("bold")} onClick={() => c().toggleBold().run()}>
         <Bold className={size} />
-      </TBtn>
-      <TBtn label="Italic" active={editor.isActive("italic")} onClick={() => c().toggleItalic().run()}>
+      </ToolbarButton>
+      <ToolbarButton label="Italic" active={editor.isActive("italic")} onClick={() => c().toggleItalic().run()}>
         <Italic className={size} />
-      </TBtn>
+      </ToolbarButton>
       <span aria-hidden className="mx-0.5 h-3.5 w-px bg-white/10" />
-      <TBtn label="Checklist" active={editor.isActive("taskList")} onClick={() => c().toggleTaskList().run()}>
+      <ToolbarButton label="Checklist" active={editor.isActive("taskList")} onClick={() => c().toggleTaskList().run()}>
         <ListChecks className={size} />
-      </TBtn>
-      <TBtn label="Bullet list" active={editor.isActive("bulletList")} onClick={() => c().toggleBulletList().run()}>
+      </ToolbarButton>
+      <ToolbarButton label="Bullet list" active={editor.isActive("bulletList")} onClick={() => c().toggleBulletList().run()}>
         <List className={size} />
-      </TBtn>
-      <TBtn label="Numbered list" active={editor.isActive("orderedList")} onClick={() => c().toggleOrderedList().run()}>
+      </ToolbarButton>
+      <ToolbarButton label="Numbered list" active={editor.isActive("orderedList")} onClick={() => c().toggleOrderedList().run()}>
         <ListOrdered className={size} />
-      </TBtn>
+      </ToolbarButton>
     </div>
-  );
-}
-
-function TBtn({
-  label,
-  active,
-  onClick,
-  children,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={active}
-      title={label}
-      onMouseDown={(e) => e.preventDefault()} // keep the editor selection
-      onClick={onClick}
-      className={cn(
-        "nodrag nopan rounded p-1 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground",
-        active && "bg-white/[0.12] text-foreground",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 

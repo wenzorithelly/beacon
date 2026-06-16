@@ -41,6 +41,22 @@ const mentionAttributes = {
   },
 };
 
+// Shared DOM (de)serialization for the chip — both nodes render an identical `@label` pill, so
+// the schema/HTML stays in one place.
+const mentionParseHTML = () => [{ tag: "span[data-mention]" }];
+const mentionRenderHTML = ({
+  node,
+  HTMLAttributes,
+}: {
+  node: { attrs: { label?: string | null } };
+  HTMLAttributes: Record<string, unknown>;
+}) =>
+  [
+    "span",
+    mergeAttributes({ "data-mention": "", class: "beacon-mention" }, HTMLAttributes),
+    `@${node.attrs.label ?? ""}`,
+  ] as const;
+
 // ── Serializer node (headless) ──────────────────────────────────────────────────────────
 // A MINIMAL inline-atom node for @tiptap/markdown's MarkdownManager only. renderMarkdown (keyed
 // by node type) turns it into a beacon:// link; we deliberately register NO markdownName and
@@ -53,12 +69,8 @@ export const MentionMarkdownNode = Node.create({
   inline: true,
   atom: true,
   addAttributes: () => mentionAttributes,
-  parseHTML: () => [{ tag: "span[data-mention]" }],
-  renderHTML: ({ node, HTMLAttributes }) => [
-    "span",
-    mergeAttributes({ "data-mention": "", class: "beacon-mention" }, HTMLAttributes),
-    `@${node.attrs.label ?? ""}`,
-  ],
+  parseHTML: mentionParseHTML,
+  renderHTML: mentionRenderHTML,
   renderMarkdown: (node) => {
     const a = (node as { attrs?: { kind?: string; ref?: string; label?: string } }).attrs ?? {};
     return mentionLink(a.kind ?? "feature", a.ref ?? "", a.label ?? "");
@@ -73,10 +85,6 @@ export const MentionMarkdownNode = Node.create({
 export const MentionNode = Mention.extend({
   name: "mention",
   addAttributes: () => mentionAttributes,
-  parseHTML: () => [{ tag: "span[data-mention]" }],
-  renderHTML: ({ node, HTMLAttributes }) => [
-    "span",
-    mergeAttributes({ "data-mention": "", class: "beacon-mention" }, HTMLAttributes),
-    `@${node.attrs.label ?? ""}`,
-  ],
+  parseHTML: mentionParseHTML,
+  renderHTML: mentionRenderHTML,
 });
