@@ -1335,9 +1335,6 @@ export function MapClient({
         }
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        // Cull off-screen nodes/edges: only DOM for what's in the viewport (+ React Flow's
-        // margin) is mounted. Keeps drag/pan/zoom cheap on big boards and weak mobile GPUs.
-        onlyRenderVisibleElements
         nodesConnectable={!readOnly}
         connectionMode={ConnectionMode.Loose}
         connectionLineStyle={{

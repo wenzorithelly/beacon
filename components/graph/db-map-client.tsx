@@ -1276,8 +1276,6 @@ export function DbMapClient({
           }
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          // Cull off-screen nodes/edges — keeps drag/pan/zoom cheap on big boards & mobile.
-          onlyRenderVisibleElements
           nodesConnectable={!readOnly}
           connectionMode={ConnectionMode.Loose}
           connectionLineStyle={{

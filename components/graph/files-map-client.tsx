@@ -792,9 +792,6 @@ export function FilesMapClient({
         nodes={displayNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}
-        // Cull off-screen nodes/edges — the files graph can be hundreds of dots; only render
-        // what's in the viewport so pan/zoom on a large repo (and on mobile) stays smooth.
-        onlyRenderVisibleElements
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={(_, node) => {
