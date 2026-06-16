@@ -6,6 +6,7 @@ import { ensureDbBoardArranged } from "@/lib/board-arrange";
 import { readBoardLayout } from "@/lib/board-layout-state";
 import type { RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { MapClient } from "@/components/graph/map-client";
+import { MapTabsShell } from "@/components/graph/map-tabs-shell";
 import { FilesMapClient } from "@/components/graph/files-map-client";
 import { DbMapClient } from "@/components/graph/db-map-client";
 import { readDraftDoc } from "@/lib/draft-store";
@@ -49,29 +50,11 @@ export default async function MapPage({
       y: a.y,
     }));
 
-    if (view === "DATABASE") {
-      // Organized by default: one-shot domain-clustered + docked arrange (sig-gated).
-      await ensureDbBoardArranged();
-      // DB-designer view: the same payload the old /db route fetched (shared with the share builder).
-      const { tables, relations, endpoints } = await readDbBoard();
-      const draft = readDraftDoc();
-      const workspaceId = currentWorkspace()?.id ?? "default";
-      return (
-        <DbMapClient
-          tables={tables}
-          relations={relations}
-          endpoints={endpoints}
-          draft={draft}
-          workspaceId={workspaceId}
-          boardAnnotations={boardAnnotations}
-        />
-      );
-    }
-
     if (view === "FILES") {
-      // Code-graph view: every TS/JS file is a node, every static/dynamic import
-      // is an edge. Circular edges are precomputed at ingest (Tarjan's SCC over
-      // the full graph) so the renderer is purely presentational.
+      // Code-graph view: every TS/JS file is a node, every static/dynamic import is an edge.
+      // Kept as a STANDALONE page (not in the tab shell) because its node count scales with the
+      // repo — eager-loading it on every roadmap/db visit would regress large monorepos. Circular
+      // edges are precomputed at ingest (Tarjan's SCC) so the renderer is purely presentational.
       const [files, edges] = await Promise.all([
         db.query.codeFile.findMany({
           columns: { path: true, x: true, y: true, lang: true, inDegree: true, outDegree: true },
@@ -112,56 +95,87 @@ export default async function MapPage({
       );
     }
 
-    // Organized by default: the one-shot arrange (sig-gated, see ensureBoardArranged) tidies the
-    // board into labeled groups the first time this algo version sees it; after that the user's
-    // arrangement is never auto-moved. Runs before the read so the payload reflects it immediately.
-    if (view === "ROADMAP" || view === "ARCHITECTURE") await ensureBoardArranged(view);
-    // Whether this workspace has a frontend — gates the layer badge + the "Layer" group-by.
+    // Roadmap + Architecture + Database all live in ONE shell so switching between them is instant
+    // (client-side toggle, no remount/refetch/fitView). All three are bounded by curated planning
+    // entities — modest payloads — so we render every board up front and let the shell keep the
+    // visited ones mounted. `view` only seeds which one starts active.
+
+    // Organized by default: the one-shot arrange (sig-gated) tidies each board into labeled groups
+    // the first time this algo version sees it; after that the user's arrangement is never moved.
+    await ensureBoardArranged("ROADMAP");
+    await ensureBoardArranged("ARCHITECTURE");
+    await ensureDbBoardArranged();
+
     const hasFrontend = await resolveHasFrontend();
-    // The dimension the roadmap is currently grouped by — drives the lane regions on load.
-    // A stale stored "layer" (the removed dimension — stripes carry layer now) resolves to null.
-    const initialArrangedBy: RoadmapGroupBy | null =
-      view === "ROADMAP"
-        ? ((): RoadmapGroupBy | null => {
-            const by = readBoardLayout("roadmap").arrangedBy;
-            return by === "cluster" || by === "status" || by === "priority" ? by : null;
-          })()
-        : null;
 
-    // Nodes + view-internal edges + per-card signals — shared with the share-snapshot builder.
-    const { nodes, edges } = await readRoadmapBoard(view);
+    // ── Roadmap board ────────────────────────────────────────────────────────────────────────
+    const { nodes: roadmapNodes, edges: roadmapEdges } = await readRoadmapBoard("ROADMAP");
+    // The dimension the roadmap is currently grouped by — drives the lane regions on load. A stale
+    // stored "layer" (the removed dimension — stripes carry layer now) resolves to null.
+    const initialArrangedBy: RoadmapGroupBy | null = ((): RoadmapGroupBy | null => {
+      const by = readBoardLayout("roadmap").arrangedBy;
+      return by === "cluster" || by === "status" || by === "priority" ? by : null;
+    })();
+    const roadmapCollapsed = readBoardLayout("roadmap").collapsed;
+    // Deterministically enumerate the next few features to work on so the board can number them
+    // 1·2·3 and offer a jump-to. No AI/CLI — pure status/priority/dependency ordering.
+    const workOrder = rankWorkOrder(
+      roadmapNodes.map((n) => ({
+        id: n.id,
+        parentId: n.parentId,
+        status: n.status,
+        priority: n.priority,
+      })),
+      roadmapEdges.map((e) => ({ fromId: e.fromId, toId: e.toId, kind: e.kind })),
+      3,
+    );
 
-    // Persisted collapse lens (which features have their sub-tasks folded) — survives refresh AND
-    // killing/reopening the session, since it lives in the per-workspace board-layout-state file.
-    const initialCollapsed = readBoardLayout(view === "ROADMAP" ? "roadmap" : "architecture").collapsed;
+    // ── Architecture board ───────────────────────────────────────────────────────────────────
+    const { nodes: archNodes, edges: archEdges } = await readRoadmapBoard("ARCHITECTURE");
+    const archCollapsed = readBoardLayout("architecture").collapsed;
 
-    // Deterministically enumerate the next few features to work on (roadmap only) so the board
-    // can number them 1·2·3 and offer a jump-to. No AI/CLI — pure status/priority/dependency
-    // ordering, topologically valid (a dependency never trails the thing that needs it).
-    const workOrder =
-      view === "ROADMAP"
-        ? rankWorkOrder(
-            nodes.map((n) => ({
-              id: n.id,
-              parentId: n.parentId,
-              status: n.status,
-              priority: n.priority,
-            })),
-            edges.map((e) => ({ fromId: e.fromId, toId: e.toId, kind: e.kind })),
-            3,
-          )
-        : [];
+    // ── Database board ───────────────────────────────────────────────────────────────────────
+    const { tables, relations, endpoints } = await readDbBoard();
+    const draft = readDraftDoc();
+    const workspaceId = currentWorkspace()?.id ?? "default";
 
     return (
-      <MapClient
-        view={view}
-        nodes={nodes}
-        edges={edges}
-        workOrder={workOrder}
-        boardAnnotations={boardAnnotations}
-        initialArrangedBy={initialArrangedBy}
-        initialCollapsed={initialCollapsed}
-        hasFrontend={hasFrontend}
+      <MapTabsShell
+        initialView={view}
+        roadmap={
+          <MapClient
+            view="ROADMAP"
+            nodes={roadmapNodes}
+            edges={roadmapEdges}
+            workOrder={workOrder}
+            boardAnnotations={boardAnnotations}
+            initialArrangedBy={initialArrangedBy}
+            initialCollapsed={roadmapCollapsed}
+            hasFrontend={hasFrontend}
+          />
+        }
+        architecture={
+          <MapClient
+            view="ARCHITECTURE"
+            nodes={archNodes}
+            edges={archEdges}
+            workOrder={[]}
+            boardAnnotations={boardAnnotations}
+            initialArrangedBy={null}
+            initialCollapsed={archCollapsed}
+            hasFrontend={hasFrontend}
+          />
+        }
+        database={
+          <DbMapClient
+            tables={tables}
+            relations={relations}
+            endpoints={endpoints}
+            draft={draft}
+            workspaceId={workspaceId}
+            boardAnnotations={boardAnnotations}
+          />
+        }
       />
     );
   });
