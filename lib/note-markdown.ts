@@ -2,6 +2,7 @@ import { StarterKit } from "@tiptap/starter-kit";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { Underline } from "@tiptap/extension-underline";
 import { MarkdownManager } from "@tiptap/markdown";
+import { MentionMarkdownNode, parseMentionHref } from "@/lib/node-mention";
 
 // Underline has no Markdown equivalent, so it serializes to inline <u> HTML — GFM keeps raw
 // HTML, so the agent sees the emphasis verbatim. `marked` splits a paired tag into three
@@ -22,6 +23,10 @@ const contentExtensions = [
   MarkdownUnderline,
   TaskList,
   TaskItem.configure({ nested: true }),
+  // The serializer mention node — its renderMarkdown turns a chip into a `beacon://` link; parsing
+  // is handled by restoreMentions below. The live editor uses MentionNode (with the suggestion
+  // popup) instead, but both share the same name + attrs so the JSON is interchangeable.
+  MentionMarkdownNode,
 ];
 
 /** Extensions for the live Tiptap editor. The editor works in ProseMirror JSON: it loads
@@ -79,8 +84,31 @@ function restoreUnderline(node: JsonNode): JsonNode {
   return node;
 }
 
+// A `[@label](beacon://kind/ref)` mention serializes through marked as a text node carrying a
+// `link` mark whose href starts with beacon:// (StarterKit bundles Link). Convert those back into
+// mention nodes — the node-side twin of renderMarkdown in lib/node-mention. Mirrors restoreUnderline.
+function restoreMentions(node: JsonNode): JsonNode {
+  if (node.type === "text") {
+    const link = (node.marks ?? []).find(
+      (m): m is { type: string; attrs?: { href?: string } } =>
+        m.type === "link" && typeof (m as { attrs?: { href?: string } }).attrs?.href === "string",
+    );
+    const parsed = link?.attrs?.href ? parseMentionHref(link.attrs.href) : null;
+    if (parsed) {
+      return {
+        type: "mention",
+        attrs: { kind: parsed.kind, ref: parsed.ref, label: (node.text ?? "").replace(/^@/, "") },
+      };
+    }
+  }
+  if (Array.isArray(node.content)) {
+    return { ...node, content: node.content.map(restoreMentions) };
+  }
+  return node;
+}
+
 /** GFM markdown → Tiptap JSON doc for loading into the editor. Runs the default parser
- *  (tasks, bold/italic/strike, lists all round-trip) then restores underline marks. */
+ *  (tasks, bold/italic/strike, lists all round-trip) then restores underline marks + mentions. */
 export function markdownToEditorDoc(markdown: string): unknown {
-  return restoreUnderline(manager.parse(markdown) as JsonNode);
+  return restoreMentions(restoreUnderline(manager.parse(markdown) as JsonNode));
 }
