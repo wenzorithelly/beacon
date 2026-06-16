@@ -81,9 +81,10 @@ import {
 export type { DbSelection };
 
 import { DeletableEdge } from "@/components/graph/deletable-edge";
+import { AnnotationEdge } from "@/components/graph/annotation-edge";
 
 const nodeTypes = { dbTable: DbTableNode, endpoint: EndpointNode, annotation: AnnotationCardNode };
-const edgeTypes = { deletable: DeletableEdge };
+const edgeTypes = { deletable: DeletableEdge, annotation: AnnotationEdge };
 const STORAGE_KEY = "beacon:db-draft";
 const EMPTY_DOC: DraftDoc = {
   proposedAt: 0,
@@ -846,7 +847,9 @@ export function DbMapClient({
         sourceHandle: `pin-${a.id}`,
         target: `anno-${a.id}`,
         targetHandle: "in",
-        type: "default",
+        // Floating-target connector: leaves the pin, lands on the card edge nearest it, re-routing
+        // as the card is dragged (see annotation-edge.tsx).
+        type: "annotation",
         selectable: false,
         zIndex: 30,
         style: { stroke: ANNOTATION_ACCENT, strokeWidth: 1.5, opacity: 0.9 },
@@ -1355,7 +1358,7 @@ export function DbMapClient({
               zoomable
               position="bottom-left"
               style={{ width: 140, height: 90 }}
-              className="!rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
+              className="!overflow-hidden !rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
               nodeColor="#555"
             />
           )}
@@ -1372,7 +1375,14 @@ export function DbMapClient({
                   onClick={async () => {
                     setBusy(true);
                     try {
-                      await fetch("/api/db/arrange", { method: "POST" });
+                      // Size the board to THIS screen — a wider viewport lays out wider (fewer,
+                      // shorter bands → less vertical scroll).
+                      const viewportAspect = window.innerWidth / window.innerHeight;
+                      await fetch("/api/db/arrange", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ viewportAspect }),
+                      });
                       router.refresh();
                     } finally {
                       setBusy(false);

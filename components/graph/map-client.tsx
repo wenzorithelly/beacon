@@ -23,6 +23,7 @@ import "@xyflow/react/dist/style.css";
 
 import {
   Bug as BugIcon,
+  Compass,
   GitBranch,
   HelpCircle,
   LayoutGrid,
@@ -41,6 +42,7 @@ import {
 import { anchorAnnotations } from "@/lib/annotation-anchors";
 import type { TextAnnotation } from "@/lib/annotations";
 import { DeletableEdge } from "@/components/graph/deletable-edge";
+import { AnnotationEdge } from "@/components/graph/annotation-edge";
 import { DetailSidebar } from "@/components/graph/detail-sidebar";
 import { NodeEditContext, type NodeEditApi } from "@/components/graph/node-edit-context";
 import { neighborIds } from "@/components/graph/db-types";
@@ -54,6 +56,9 @@ import {
   SEARCH_HIT_GLOW,
   type SearchHit,
 } from "@/lib/canvas-search";
+import { buildArchTour } from "@/lib/canvas-tour";
+import { useCanvasTour } from "@/components/graph/use-canvas-tour";
+import { TourOverlay } from "@/components/graph/tour-overlay";
 import {
   CanvasPopover,
   Chip,
@@ -88,7 +93,7 @@ function laneLabel(groupBy: RoadmapGroupBy, d: MapNodeData): string {
 const PERSIST_FIELDS = new Set(["title", "role", "plain", "cluster", "layer", "status", "priority"]);
 
 const nodeTypes = { roadmapNode: NodeCard, archNode: NodeCard, annotation: AnnotationCardNode };
-const edgeTypes = { deletable: DeletableEdge };
+const edgeTypes = { deletable: DeletableEdge, annotation: AnnotationEdge };
 
 const EDGE_STYLE: Record<string, { stroke: string; dash?: string }> = {
   // CONTAINS (parent → subtask) is the most common edge; it was nearly the background
@@ -575,8 +580,32 @@ export function MapClient({
       if (passes(n.data) && matchesQuery(roadmapHaystack(n.data), searchQuery)) s.add(n.id);
     return s;
   }, [nodes, searchQuery, passes, searchActive]);
-  // Search takes precedence over the 1-hop click focus while a query is active.
-  const effectiveFocusIds = searchMatchIds ?? focusIds;
+  // Guided architecture tour (ARCHITECTURE view only): deterministic, domain-by-domain
+  // walkthrough computed client-side from the components already in memory.
+  const tourSteps = useMemo(
+    () => (view === "ARCHITECTURE" ? buildArchTour(nodePayload) : []),
+    [view, nodePayload],
+  );
+  const focusTourStep = useCallback((step: { focusIds: string[] }) => {
+    if (!flowRef.current) return;
+    if (step.focusIds.length) {
+      flowRef.current.fitView({
+        nodes: step.focusIds.map((id) => ({ id })),
+        duration: 700,
+        padding: 0.3,
+        maxZoom: 1.1,
+      });
+    } else {
+      flowRef.current.fitView({ duration: 700, padding: 0.2 });
+    }
+  }, []);
+  const tour = useCanvasTour(tourSteps, focusTourStep);
+  const tourFocusIds = tour.focusIds;
+
+  // A live tour step takes precedence over search, which takes precedence over the click focus.
+  const effectiveFocusIds = tourFocusIds ?? searchMatchIds ?? focusIds;
+  // Search hits AND tour steps get the bright accent halo + the hard fade (not the click 0.45).
+  const spotlightIds = searchMatchIds ?? tourFocusIds;
 
   // Nodes the layer-emphasis pills push back: visible but not on the highlighted layer
   // (FE/BE pills keep fullstack bright too; unset-layer cards always dim). Drives both the
@@ -618,22 +647,22 @@ export function MapClient({
         return base;
       }
       const on = effectiveFocusIds.has(n.id);
-      // Search hits get an accent ring + a harder fade so a match clearly reads as "found";
-      // click-focus keeps the milder 0.45 fade.
-      const dimmed = searchMatchIds ? SEARCH_DIM_OPACITY : 0.45;
+      // Search hits and tour steps get an accent ring + a harder fade so the focused card
+      // clearly reads as "found"; click-focus keeps the milder 0.45 fade.
+      const dimmed = spotlightIds ? SEARCH_DIM_OPACITY : 0.45;
       return {
         ...base,
-        zIndex: on && searchMatchIds ? 24 : base.zIndex,
+        zIndex: on && spotlightIds ? 24 : base.zIndex,
         style: {
           ...base.style,
           opacity: on ? 1 : dimmed,
-          boxShadow: on && searchMatchIds ? SEARCH_HIT_GLOW : base.style?.boxShadow,
-          borderRadius: on && searchMatchIds ? 14 : base.style?.borderRadius,
+          boxShadow: on && spotlightIds ? SEARCH_HIT_GLOW : base.style?.boxShadow,
+          borderRadius: on && spotlightIds ? 14 : base.style?.borderRadius,
           transition: "opacity 120ms, box-shadow 120ms",
         },
       };
     });
-  }, [visibleNodes, effectiveFocusIds, searchMatchIds, workOrderRank, expandedIds, layerDimIds]);
+  }, [visibleNodes, effectiveFocusIds, spotlightIds, workOrderRank, expandedIds, layerDimIds]);
 
   // Group-region containers (Gestalt common region). Roadmap: shown once the board is arranged,
   // labeled by the dimension it was ACTUALLY arranged by (`arrangedBy`) — never a stale selector.
@@ -670,6 +699,16 @@ export function MapClient({
     view === "ARCHITECTURE" || arrangedBy === "cluster" ? ("category" as const) : ("neutral" as const);
 
   const displayEdges = useMemo(() => {
+    // Tour spotlight: while a step frames a domain, only edges within it stay bright.
+    if (tourFocusIds) {
+      return visibleEdges.map((e) => {
+        if (e.hidden) return e;
+        const on = tourFocusIds.has(e.source) && tourFocusIds.has(e.target);
+        return on
+          ? { ...e, style: { ...e.style, opacity: 1 } }
+          : { ...e, label: undefined, style: { ...e.style, opacity: 0.06 } };
+      });
+    }
     // Search spotlight: keep only edges between two matched cards bright; dim the rest.
     if (searchMatchIds) {
       return visibleEdges.map((e) => {
@@ -707,7 +746,7 @@ export function MapClient({
             style: { ...e.style, opacity: 0.06 },
           };
     });
-  }, [visibleEdges, selectedId, selectedEdgeId, hoveredId, searchMatchIds, layerDimIds]);
+  }, [visibleEdges, selectedId, selectedEdgeId, hoveredId, searchMatchIds, layerDimIds, tourFocusIds]);
 
   // ── Canvas annotations — ONE pipeline, two sources ──
   // /plan (feedback): annotations whose excerpt names a feature title, read-only on canvas.
@@ -877,7 +916,9 @@ export function MapClient({
         sourceHandle: `pin-${a.id}`,
         target: `anno-${a.id}`,
         targetHandle: "in",
-        type: "default",
+        // Floating-target connector: leaves the pin, lands on the card edge nearest it, re-routing
+        // as the card is dragged (see annotation-edge.tsx).
+        type: "annotation",
         selectable: false,
         zIndex: 30,
         style: { stroke: ANNOTATION_ACCENT, strokeWidth: 1.5, opacity: 0.9 },
@@ -1088,6 +1129,8 @@ export function MapClient({
         priority: n.data.priority,
       })),
       by,
+      // Size the board to THIS screen — wider viewport lays out wider (less vertical scroll).
+      { viewportAspect: window.innerWidth / window.innerHeight },
     );
     setNodes((nds) =>
       nds.map((n) => {
@@ -1160,6 +1203,8 @@ export function MapClient({
       edgePayload
         .filter((e) => e.kind === "DEPENDS")
         .map((e) => ({ fromId: e.fromId, toId: e.toId })),
+      // Size the board to THIS screen — wider viewport lays out wider (less vertical scroll).
+      { viewportAspect: window.innerWidth / window.innerHeight },
     );
     setNodes((nds) =>
       nds.map((n) => {
@@ -1433,7 +1478,7 @@ export function MapClient({
             zoomable
             position="bottom-left"
             style={{ width: 140, height: 90 }}
-            className="!rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
+            className="!overflow-hidden !rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
             nodeColor={(n) => ((n.data as MapNodeData)?.priority === 0 ? "#ff3860" : "#555")}
           />
         )}
@@ -1531,6 +1576,22 @@ export function MapClient({
             </button>
           </div>
         </Panel>
+
+        {/* Guided architecture tour entry — top-left, clear of the nav. Hidden while touring
+            (the left-docked overlay covers this spot and carries its own exit). */}
+        {!embedded && tourSteps.length > 0 && !tour.active && (
+          <Panel position="top-left" className="!mt-14">
+            <button
+              type="button"
+              onClick={tour.start}
+              title="Guided, domain-by-domain walkthrough of the architecture"
+              className="glass flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Compass className="size-3.5" />
+              Start tour
+            </button>
+          </Panel>
+        )}
 
         {!embedded && (
           <Panel position="top-center" className="glass rounded-full px-1 py-0.5">
@@ -1691,6 +1752,18 @@ export function MapClient({
           onTabChange={setPanelTab}
           onAddComment={effectiveAddComment}
           topOffset={embedded ? 64 : undefined}
+        />
+      )}
+
+      {/* Guided architecture tour: left-docked steps panel (the detail sidebar is right-docked). */}
+      {tour.active && tour.step && (
+        <TourOverlay
+          steps={tourSteps}
+          index={tour.index}
+          onPrev={tour.prev}
+          onNext={tour.next}
+          onExit={tour.stop}
+          onGoto={tour.goto}
         />
       )}
     </div>

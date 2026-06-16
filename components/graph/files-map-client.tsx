@@ -27,10 +27,13 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import "@xyflow/react/dist/style.css";
-import { Pencil, X, FileCode2, HelpCircle } from "lucide-react";
+import { Pencil, X, FileCode2, HelpCircle, Compass } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { CanvasTabs } from "@/components/graph/canvas-tabs";
 import { CanvasSearch } from "@/components/graph/canvas-search";
+import { buildFileTour } from "@/lib/canvas-tour";
+import { useCanvasTour } from "@/components/graph/use-canvas-tour";
+import { TourOverlay } from "@/components/graph/tour-overlay";
 import {
   fileHaystack,
   matchesQuery,
@@ -513,6 +516,28 @@ export function FilesMapClient({
     }
   }, [editsOnly, touchedInfo]);
 
+  // Guided architecture tour: deterministic, dependency-ordered walkthrough computed entirely
+  // client-side from the import graph already in memory (no LLM, no fetch). Each step frames its
+  // node(s); the overview step frames the whole board.
+  const tourSteps = useMemo(
+    () => buildFileTour(files, edgePayload, groupKeys),
+    [files, edgePayload, groupKeys],
+  );
+  const focusTourStep = useCallback((step: { focusIds: string[] }) => {
+    if (!rfRef.current) return;
+    if (step.focusIds.length) {
+      rfRef.current.fitView({
+        nodes: step.focusIds.map((id) => ({ id })),
+        duration: 700,
+        padding: 0.3,
+        maxZoom: 1.1,
+      });
+    } else {
+      rfRef.current.fitView({ duration: 700, padding: 0.1 });
+    }
+  }, []);
+  const tour = useCanvasTour(tourSteps, focusTourStep);
+
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -597,8 +622,12 @@ export function FilesMapClient({
     return null;
   }, [focusNodeId, selectedEdgeId, circularOnly, circularNodeIds, edgePayload, edges, editsOnly, hasTouched, touchedInfo]);
 
-  // Search takes precedence over the hover/click focus while a query is active.
-  const effectiveFocusIds = searchMatchIds ?? focusIds;
+  // A live tour step takes precedence over search, which takes precedence over hover/click.
+  // (Null on the overview step → nothing dims.)
+  const tourFocusIds = tour.focusIds;
+  const effectiveFocusIds = tourFocusIds ?? searchMatchIds ?? focusIds;
+  // Search hits AND tour steps get the bright accent halo, not merely "less dimmed".
+  const spotlightIds = searchMatchIds ?? tourFocusIds;
 
   // Files the layer-emphasis pills push back (FE/BE keep fullstack bright; unclassified
   // files always dim while a pill is on). Baseline lens only — focus/search take over.
@@ -623,20 +652,29 @@ export function FilesMapClient({
       const on = effectiveFocusIds.has(n.id);
       return {
         ...n,
-        // Search hits get an accent halo so a found file pops, not just "less dimmed".
-        zIndex: on && searchMatchIds ? 10 : n.zIndex,
+        // Search hits and tour steps get an accent halo so the focused file pops, not just
+        // "less dimmed".
+        zIndex: on && spotlightIds ? 10 : n.zIndex,
         style: {
           ...n.style,
           opacity: on ? 1 : 0.15,
-          boxShadow: on && searchMatchIds ? SEARCH_HIT_GLOW : n.style?.boxShadow,
-          borderRadius: on && searchMatchIds ? 9999 : n.style?.borderRadius,
+          boxShadow: on && spotlightIds ? SEARCH_HIT_GLOW : n.style?.boxShadow,
+          borderRadius: on && spotlightIds ? 9999 : n.style?.borderRadius,
           transition: "opacity 120ms, box-shadow 120ms",
         },
       };
     });
-  }, [nodes, effectiveFocusIds, searchMatchIds, layerDimIds]);
+  }, [nodes, effectiveFocusIds, spotlightIds, layerDimIds]);
 
   const displayEdges = useMemo(() => {
+    // Tour spotlight: while a step frames a subset, only edges within it stay bright.
+    if (tourFocusIds) {
+      return edges.map((e) =>
+        tourFocusIds.has(e.source) && tourFocusIds.has(e.target)
+          ? { ...e, style: { ...e.style, stroke: "#e4e4e7", opacity: 0.9, strokeWidth: 1.4 } }
+          : { ...e, style: { ...e.style, opacity: 0.05 } },
+      );
+    }
     // Search spotlight: only edges between two matched files stay bright.
     if (searchMatchIds) {
       return edges.map((e) =>
@@ -668,7 +706,7 @@ export function FilesMapClient({
           { ...e, style: { ...e.style, stroke: "#e4e4e7", opacity: 0.95, strokeWidth: 1.6 } }
         : { ...e, style: { ...e.style, opacity: 0.05 } };
     });
-  }, [edges, focusNodeId, selectedEdgeId, circularOnly, circularEdgeIds, editsOnly, touchedInfo, searchMatchIds, layerDimIds]);
+  }, [edges, focusNodeId, selectedEdgeId, circularOnly, circularEdgeIds, editsOnly, touchedInfo, searchMatchIds, layerDimIds, tourFocusIds]);
 
   // Directory regions are a FAR-ZOOM aid only: zoomed out, the dots are specks, so each
   // cluster renders one labeled summary block. At reading zoom the color groups carry the
@@ -861,10 +899,26 @@ export function FilesMapClient({
           zoomable
           position="bottom-left"
           style={{ width: 140, height: 90 }}
-          className="!rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
+          className="!overflow-hidden !rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
           nodeColor={() => "#555"}
         />
 
+
+        {/* Guided tour entry — top-left, clear of the top nav. Hidden while touring (the
+            left-docked overlay covers this spot and carries its own exit). */}
+        {tourSteps.length > 0 && !tour.active && (
+          <Panel position="top-left" className="!mt-14">
+            <button
+              type="button"
+              onClick={tour.start}
+              title="Guided, dependency-ordered walkthrough of the codebase"
+              className="glass flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Compass className="size-3.5" />
+              Start tour
+            </button>
+          </Panel>
+        )}
 
         <Panel position="top-center" className="glass rounded-full px-1 py-0.5">
           <CanvasTabs
@@ -1062,6 +1116,18 @@ export function FilesMapClient({
             )}
           </div>
         </GlassPanel>
+      )}
+
+      {/* Guided tour: left-docked steps panel (clear of the right-docked detail panel). */}
+      {tour.active && tour.step && (
+        <TourOverlay
+          steps={tourSteps}
+          index={tour.index}
+          onPrev={tour.prev}
+          onNext={tour.next}
+          onExit={tour.stop}
+          onGoto={tour.goto}
+        />
       )}
     </div>
   );
