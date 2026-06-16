@@ -48,6 +48,7 @@ import { NodeEditContext, type NodeEditApi } from "@/components/graph/node-edit-
 import { neighborIds } from "@/components/graph/db-types";
 import { CanvasTabs } from "@/components/graph/canvas-tabs";
 import { CanvasSearch } from "@/components/graph/canvas-search";
+import { ShareBoardButton } from "@/components/share/share-dialog";
 import {
   matchesQuery,
   roadmapHaystack,
@@ -71,6 +72,7 @@ import { layoutRoadmap, type RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { layeredLayout } from "@/lib/layered-layout";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
 import { placeInGroup } from "@/lib/node-placement";
+import { collapsedDescendants, childCounts } from "@/lib/node-collapse";
 import { GroupRegions } from "@/components/graph/group-regions";
 import { LodReporter } from "@/components/graph/use-zoom-lod";
 import type { Lod } from "@/lib/zoom-lod";
@@ -193,6 +195,7 @@ export function MapClient({
   onRemoveComment,
   boardAnnotations,
   initialArrangedBy = null,
+  initialCollapsed = [],
   hasFrontend = false,
   readOnly = false,
 }: {
@@ -232,6 +235,10 @@ export function MapClient({
   // The dimension the roadmap is currently arranged by on the server (board-layout-state) —
   // lets the lane regions render on first paint instead of only after a Group-by click.
   initialArrangedBy?: RoadmapGroupBy | null;
+  // Node ids whose sub-tasks start folded — the persisted collapse lens (board-layout-state),
+  // so a fold survives refresh + killing/reopening the session. Standalone /map only; embedded
+  // boards pass nothing (collapse stays ephemeral there).
+  initialCollapsed?: string[];
   // Whether this workspace has a frontend — gates the per-card layer badge, the layer
   // field in the edit dialog, and the "Layer" Group-by option.
   hasFrontend?: boolean;
@@ -537,9 +544,45 @@ export function MapClient({
     setPriorityFilter(new Set());
   }, []);
 
+  // Collapse a feature to fold its sub-tasks behind it (parent stays, subtree hides). A view lens
+  // like the filters — but it STICKS: persisted SERVER-SIDE (board-layout-state, per workspace+view)
+  // so a fold survives a refresh AND killing/reopening the session (localStorage couldn't — its key
+  // hung off the session-scoped tab workspace). Seeded from the server on load; standalone /map
+  // persists each toggle, embedded review/shared boards stay ephemeral. Toggle lives on each card.
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set(initialCollapsed));
+  const toggleCollapse = useCallback(
+    (id: string) => {
+      setCollapsedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        if (!embedded) {
+          // The global fetch interceptor pins this to the workspace the tab is viewing.
+          void fetch("/api/board-layout", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              board: view === "ROADMAP" ? "roadmap" : "architecture",
+              collapsed: [...next],
+            }),
+          }).catch(() => {});
+        }
+        return next;
+      });
+    },
+    [embedded, view],
+  );
+  // Direct-child count per node (drives whether a card shows the toggle + its N).
+  const childCountById = useMemo(() => childCounts(nodePayload), [nodePayload]);
+  // The subtree ids hidden by the current collapse set — folded into the `hidden` flag below.
+  const collapseHiddenIds = useMemo(
+    () => collapsedDescendants(nodePayload, collapsedIds),
+    [nodePayload, collapsedIds],
+  );
+
   const visibleNodes = useMemo(
-    () => nodes.map((n) => ({ ...n, hidden: !passes(n.data) })),
-    [nodes, passes],
+    () => nodes.map((n) => ({ ...n, hidden: !passes(n.data) || collapseHiddenIds.has(n.id) })),
+    [nodes, passes, collapseHiddenIds],
   );
   const hiddenIds = useMemo(
     () => new Set(visibleNodes.filter((n) => n.hidden).map((n) => n.id)),
@@ -624,9 +667,15 @@ export function MapClient({
       // Number the cards in the work order so NodeCard can render its ordinal marker — #1 keeps
       // the green "work on next" ring + badge; #2/#3 get a subtler ordinal chip.
       const rank = workOrderRank.get(n.id);
-      let base = rank
-        ? { ...n, data: { ...n.data, workOrderRank: rank, isNext: rank === 1 } }
-        : n;
+      // A card with sub-tasks carries the collapse toggle (count + handler + current state).
+      const kids = childCountById.get(n.id) ?? 0;
+      const extra = {
+        ...(rank ? { workOrderRank: rank, isNext: rank === 1 } : {}),
+        ...(kids > 0
+          ? { childCount: kids, collapsed: collapsedIds.has(n.id), onToggleCollapse: toggleCollapse }
+          : {}),
+      };
+      let base = rank || kids > 0 ? { ...n, data: { ...n.data, ...extra } } : n;
       // An expanded card grows over its neighbours — lift it above every collapsed card
       // (still below annotation chrome at zIndex 30) so its body isn't covered by them.
       if (expandedIds.has(n.id)) base = { ...base, zIndex: 25 };
@@ -662,7 +711,7 @@ export function MapClient({
         },
       };
     });
-  }, [visibleNodes, effectiveFocusIds, spotlightIds, workOrderRank, expandedIds, layerDimIds]);
+  }, [visibleNodes, effectiveFocusIds, spotlightIds, workOrderRank, expandedIds, layerDimIds, childCountById, collapsedIds, toggleCollapse]);
 
   // Group-region containers (Gestalt common region). Roadmap: shown once the board is arranged,
   // labeled by the dimension it was ACTUALLY arranged by (`arrangedBy`) — never a stale selector.
@@ -1483,6 +1532,11 @@ export function MapClient({
           />
         )}
 
+        {/* Create/arrange toolbar — only on the standalone /map board. Hidden on every embedded
+            mount (/plan review, plan history, shared read-only views): creating here POSTs a
+            MANUAL node that isn't part of the plan's DRAFT layer, so it vanishes on the next
+            /plan re-render AND leaks a stray card into the real roadmap. */}
+        {!embedded && (
         <Panel position="bottom-center" className="!mb-4 flex flex-col items-center gap-2">
           {pickingParent && (
             <div className="glass rounded-full px-3 py-1 text-[11px] text-muted-foreground">
@@ -1576,6 +1630,7 @@ export function MapClient({
             </button>
           </div>
         </Panel>
+        )}
 
         {/* Guided architecture tour entry — top-left, clear of the nav. Hidden while touring
             (the left-docked overlay covers this spot and carries its own exit). */}
@@ -1648,6 +1703,8 @@ export function MapClient({
               <Target className="size-4" />
             </button>
           )}
+
+          <ShareBoardButton defaultSelection={view} />
 
           <CanvasPopover
             title="Filters"

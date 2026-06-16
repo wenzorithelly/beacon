@@ -16,6 +16,8 @@ import { MarkdownView } from "@/components/plan/markdown-view";
 import { planHref } from "@/components/plan/use-plan-ws";
 import { MapClient } from "@/components/graph/map-client";
 import { DbMapClient } from "@/components/graph/db-map-client";
+import { SharePlanButton } from "@/components/share/share-plan-button";
+import { TabBtn } from "@/components/ui/tab-button";
 import { archivedFeaturesToBoard } from "@/lib/archived-plan-board";
 import { cn } from "@/lib/utils";
 import type { DraftDoc } from "@/components/graph/db-types";
@@ -174,6 +176,12 @@ export function PlanHistoryView({
           <span className="text-[10px] text-muted-foreground">
             {new Date(selected.archivedAt).toLocaleString()}
           </span>
+          <span aria-hidden className="h-4 w-px bg-white/10" />
+          {/* Share THIS past plan as a read-only link. */}
+          <SharePlanButton
+            planId={selected.id}
+            className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          />
         </div>
       )}
 
@@ -329,31 +337,6 @@ export function PlanHistoryView({
         </section>
       )}
     </div>
-  );
-}
-
-function TabBtn({
-  active,
-  onClick,
-  icon,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
-        active ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {icon}
-      {children}
-    </button>
   );
 }
 

@@ -12,6 +12,7 @@ import {
   clusterLabel,
 } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
+import { TabBtn } from "@/components/ui/tab-button";
 import {
   Select,
   SelectContent,
@@ -147,31 +148,6 @@ export function DetailSidebar({
         </div>
       </div>
     </GlassPanel>
-  );
-}
-
-function TabBtn({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
-        active
-          ? "bg-white/10 text-foreground"
-          : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 

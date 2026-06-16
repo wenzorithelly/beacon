@@ -1,0 +1,63 @@
+import { z } from "zod";
+import { pinned } from "@/lib/api-workspace";
+import { buildBoardsSnapshot } from "@/lib/share-builder";
+import { buildPendingPlanSnapshot, buildArchivedPlanSnapshot } from "@/lib/plan-share";
+import { BOARD_TABS, type ShareSnapshot } from "@/lib/share-snapshot";
+import { SITE_URL } from "@/lib/release";
+
+// LOCAL daemon route the Share affordances call. Workspace-pinned: it serializes what the user is
+// viewing (a board selection, or one plan) and relays the snapshot to the deploy's public
+// /api/share (the local install can't store it). Returns the public link to copy. NEVER served on
+// the deploy (proxy.ts only allows the exact /api/share), so it can't be abused there.
+export const dynamic = "force-dynamic";
+
+const bodySchema = z.discriminatedUnion("kind", [
+  // "boards": share the live boards — All resolves to all three tabs client-side.
+  z.object({ kind: z.literal("boards"), tabs: z.array(z.enum(BOARD_TABS)).min(1) }),
+  // "plan": share ONE plan — the open/pending one (no planId) or a past archived one (planId).
+  z.object({ kind: z.literal("plan"), planId: z.string().optional() }),
+]);
+
+export const POST = pinned(async (req: Request) => {
+  let body: z.infer<typeof bodySchema>;
+  try {
+    body = bodySchema.parse(await req.json());
+  } catch {
+    return Response.json({ error: "Invalid share request." }, { status: 400 });
+  }
+
+  let snapshot: ShareSnapshot | null;
+  try {
+    snapshot =
+      body.kind === "boards"
+        ? await buildBoardsSnapshot(body.tabs)
+        : body.planId
+          ? await buildArchivedPlanSnapshot(body.planId)
+          : await buildPendingPlanSnapshot();
+  } catch {
+    return Response.json({ error: "Could not build the snapshot." }, { status: 500 });
+  }
+  if (!snapshot) {
+    return Response.json(
+      { error: body.kind === "plan" ? "There's no plan to share." : "Nothing to share." },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const res = await fetch(`${SITE_URL}/api/share`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(snapshot),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      const detail = res.status === 413 ? "This is too large to share." : `Share service error (${res.status}).`;
+      return Response.json({ error: detail }, { status: 502 });
+    }
+    const data = (await res.json()) as { token: string; url: string };
+    return Response.json({ url: data.url, token: data.token });
+  } catch {
+    return Response.json({ error: "Could not reach the share service." }, { status: 502 });
+  }
+});

@@ -27,6 +27,10 @@ export const BOARD_ALGO_VERSIONS: Record<BoardKey, string> = {
 interface BoardEntry {
   sig?: string | null;
   arrangedBy?: string | null;
+  // Node ids whose sub-tasks are folded behind them (the collapse lens). Persisted per board so a
+  // fold survives a refresh AND killing/reopening the session — localStorage couldn't (its key
+  // depended on the session-scoped tab workspace, which resets on close).
+  collapsed?: string[];
 }
 
 type State = Partial<Record<BoardKey, BoardEntry>>;
@@ -56,11 +60,19 @@ function readState(): State | null {
   }
 }
 
-export function readBoardLayout(board: BoardKey): { sig: string | null; arrangedBy: string | null } {
+export function readBoardLayout(board: BoardKey): {
+  sig: string | null;
+  arrangedBy: string | null;
+  collapsed: string[];
+} {
   const state = readState();
   const entry = state?.[board];
   const sig = entry?.sig ?? (board === "roadmap" && !state ? legacyRoadmapSig() : null);
-  return { sig: sig ?? null, arrangedBy: entry?.arrangedBy ?? null };
+  return {
+    sig: sig ?? null,
+    arrangedBy: entry?.arrangedBy ?? null,
+    collapsed: Array.isArray(entry?.collapsed) ? entry.collapsed : [],
+  };
 }
 
 export function writeBoardLayout(board: BoardKey, patch: BoardEntry): void {

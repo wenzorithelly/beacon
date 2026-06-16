@@ -31,6 +31,7 @@ import { Pencil, X, FileCode2, HelpCircle, Compass } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { CanvasTabs } from "@/components/graph/canvas-tabs";
 import { CanvasSearch } from "@/components/graph/canvas-search";
+import { FileTree } from "@/components/file-tree/file-tree";
 import { buildFileTour } from "@/lib/canvas-tour";
 import { useCanvasTour } from "@/components/graph/use-canvas-tour";
 import { TourOverlay } from "@/components/graph/tour-overlay";
@@ -402,18 +403,9 @@ export function FilesMapClient({
     return m;
   }, [touched]);
   const hasTouched = touchedInfo.size > 0;
-  // Readable summary list of edited files (newest first) for the side panel — clicking one
-  // selects + pans to it, so you don't have to find it in the dense graph.
+  // Files edited this session, for the side-panel tree (FileTree groups + sorts them by path).
   const editedList = useMemo(
-    () =>
-      Array.from(touchedInfo.entries())
-        .map(([path, v]) => ({
-          path,
-          label: path.slice(path.lastIndexOf("/") + 1),
-          count: v.count,
-          recency: v.recency,
-        }))
-        .sort((a, b) => b.recency - a.recency),
+    () => Array.from(touchedInfo.entries()).map(([path, v]) => ({ path, count: v.count })),
     [touchedInfo],
   );
 
@@ -1099,20 +1091,12 @@ export function FilesMapClient({
                 <FileLinkList label="Imported by" paths={selectedImportedBy} onPick={selectAndPan} />
               </div>
             ) : (
-              <ul className="space-y-0.5">
-                {editedList.map((e) => (
-                  <li key={e.path}>
-                    <button
-                      onClick={() => selectAndPan(e.path)}
-                      title={e.path}
-                      className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left transition-colors hover:bg-white/[0.06]"
-                    >
-                      <span className="truncate text-[11px] text-foreground/90">{e.label}</span>
-                      <span className="shrink-0 text-[9px] text-teal-300/80">{e.count}×</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              // Same "edited this session" data, now as the shared visual file tree (grouped by
+              // directory, edit count as right-aligned meta). Click opens the file in the editor.
+              <FileTree
+                files={editedList.map((e) => ({ path: e.path, meta: `${e.count}×` }))}
+                emptyLabel="No files edited this session yet."
+              />
             )}
           </div>
         </GlassPanel>
@@ -1133,8 +1117,8 @@ export function FilesMapClient({
   );
 }
 
-// A labelled, scrollable list of file paths (imports / imported-by) — each row jumps to that
-// file on the canvas. Shows nothing when empty.
+// A labelled file list (imports / imported-by) rendered as the shared file tree — each row
+// jumps to that file on the canvas. Shows nothing when empty.
 function FileLinkList({
   label,
   paths,
@@ -1150,19 +1134,7 @@ function FileLinkList({
       <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label} ({paths.length})
       </h3>
-      <ul className="space-y-0.5">
-        {paths.map((p) => (
-          <li key={p}>
-            <button
-              onClick={() => onPick(p)}
-              title={p}
-              className="block w-full truncate rounded px-1.5 py-0.5 text-left font-mono text-[10px] text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
-            >
-              {p.slice(p.lastIndexOf("/") + 1)}
-            </button>
-          </li>
-        ))}
-      </ul>
+      <FileTree files={paths.map((p) => ({ path: p }))} onSelect={onPick} />
     </div>
   );
 }

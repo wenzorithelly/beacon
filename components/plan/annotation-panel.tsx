@@ -457,7 +457,8 @@ export function AnnotationPanel({
                   onChange={(e) => setGlobalComment(e.target.value)}
                   onKeyDown={(e) => {
                     e.stopPropagation();
-                    if (e.key === "Enter" && e.shiftKey) {
+                    // ⌘/Ctrl+Enter submits; plain Enter and Shift+Enter insert a newline.
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                       e.preventDefault();
                       if (!submitting && liveCount > 0) {
                         void onSubmit();
@@ -473,7 +474,7 @@ export function AnnotationPanel({
                   className="w-full resize-y rounded border border-white/5 bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-sky-400/40"
                 />
                 <div className="mt-1 text-right text-[9px] text-muted-foreground/70">
-                  Shift+Enter to submit · Esc to close
+                  ⌘/Ctrl+Enter to submit · Esc to close
                 </div>
               </div>
             )}

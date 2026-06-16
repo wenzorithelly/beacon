@@ -15,22 +15,30 @@ import type { NextRequest } from "next/server";
 const PUBLIC =
   process.env.BEACON_PUBLIC === "1" || process.env.VERCEL === "1";
 
+// The exact set of paths that stay reachable on the public deploy. `/` is the landing; `/docs`
+// the public guide; `/install.sh` the install script (served from public/); `/api/feedback*` the
+// global feedback board API and `/api/telemetry*` the anonymous heartbeat ingest — both called by
+// every distributed install cross-origin. `/s/*` is a shared read-only board view and `/api/share`
+// (exact — NOT the local-only `/api/share/create`) is the snapshot ingest those links post to.
+// Everything else (the local tool's routes + the rest of /api, which read the developer's own repo
+// data) stays hidden and redirects to `/`.
+export function publicPathAllowed(pathname: string): boolean {
+  return (
+    pathname === "/" ||
+    pathname === "/docs" ||
+    pathname === "/install.sh" ||
+    pathname === "/api/share" ||
+    pathname.startsWith("/s/") ||
+    pathname.startsWith("/api/feedback") ||
+    pathname.startsWith("/api/telemetry")
+  );
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (PUBLIC) {
-    // `/` is the landing; `/docs` is the public guide; `/install.sh` is the public install
-    // script (served from public/); `/api/feedback*` is the global feedback board API and
-    // `/api/telemetry*` the anonymous heartbeat ingest + private stats — both called by every
-    // distributed install cross-origin. Everything else (the local tool's routes + the
-    // rest of /api, which read the developer's own repo data) stays hidden and redirects to `/`.
-    if (
-      pathname === "/" ||
-      pathname === "/docs" ||
-      pathname === "/install.sh" ||
-      pathname.startsWith("/api/feedback") ||
-      pathname.startsWith("/api/telemetry")
-    ) {
+    if (publicPathAllowed(pathname)) {
       return NextResponse.next();
     }
     return NextResponse.redirect(new URL("/", request.url));

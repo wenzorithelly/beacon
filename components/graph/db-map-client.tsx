@@ -36,6 +36,7 @@ import {
   PopoverSection,
 } from "@/components/graph/canvas-popover";
 import { CanvasSearch } from "@/components/graph/canvas-search";
+import { ShareBoardButton } from "@/components/share/share-dialog";
 import {
   endpointHaystack,
   matchesQuery,
@@ -56,6 +57,7 @@ import {
 import { GroupRegions } from "@/components/graph/group-regions";
 import { LodReporter } from "@/components/graph/use-zoom-lod";
 import { DB_LOD, type Lod } from "@/lib/zoom-lod";
+import { canvasDragPersistTarget } from "@/lib/canvas-readonly";
 import { diffDraftTables, diffDraftEndpoints, type NodeDiff } from "@/lib/db-diff";
 import { cn } from "@/lib/utils";
 import type {
@@ -773,12 +775,18 @@ export function DbMapClient({
   const onNodeDragStop = useCallback(
     (_e: unknown, node: Node) => {
       const { x, y } = node.position;
-      if (node.id.startsWith("anno-")) {
+      // Read-only (shared view / archived plan) → "none": never persist. The decision (incl. the
+      // readOnly guard) lives in canvasDragPersistTarget so the write site can't drift from it.
+      const target = canvasDragPersistTarget({
+        readOnly,
+        nodeId: node.id,
+        isDraft: draftIds.has(node.id),
+        boardMode,
+      });
+      if (target === "annotation") {
         // Board annotations remember where you parked the card; plan cards are session-local.
-        if (boardMode) patchBoardAnno(node.id.slice(5), { x, y });
-        return;
-      }
-      if (draftIds.has(node.id)) {
+        patchBoardAnno(node.id.slice(5), { x, y });
+      } else if (target === "draft") {
         // Position lives in the draft doc, but moving a node isn't an undoable edit.
         silent((doc) => {
           if (doc.tables.some((t) => t.id === node.id))
@@ -790,11 +798,11 @@ export function DbMapClient({
             };
           return doc;
         });
-      } else {
+      } else if (target === "real") {
         persistReal(node.type === "endpoint" ? "endpoint" : "table", node.id, x, y);
       }
     },
-    [draftIds, silent, persistReal, boardMode, patchBoardAnno],
+    [readOnly, draftIds, silent, persistReal, boardMode, patchBoardAnno],
   );
 
   // ── Edges (real + draft FKs and endpoint→table links) ──
@@ -1434,6 +1442,8 @@ export function DbMapClient({
                 });
               }}
             />
+
+            <ShareBoardButton defaultSelection="DATABASE" />
 
             <CanvasPopover
               title="Filters"

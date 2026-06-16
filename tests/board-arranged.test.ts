@@ -54,6 +54,7 @@ describe("ensureBoardArranged", () => {
     expect(readBoardLayout("roadmap")).toEqual({
       sig: BOARD_ALGO_VERSIONS.roadmap,
       arrangedBy: "cluster",
+      collapsed: [],
     });
   });
 

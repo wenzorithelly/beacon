@@ -27,6 +27,8 @@ import {
 } from "@/components/plan/annotation-panel";
 import type { MapClientHandle } from "@/components/graph/map-client";
 import { PlanHistoryView } from "@/components/plan/plan-history-view";
+import { SharePlanButton } from "@/components/share/share-plan-button";
+import { TabBtn } from "@/components/ui/tab-button";
 import { PlanToc } from "@/components/plan/plan-toc";
 import { PermissionModeSetup } from "@/components/plan/permission-mode-setup";
 import { MapClient } from "@/components/graph/map-client";
@@ -451,6 +453,8 @@ export function PlanWorkspace({
         >
           <Archive className="size-3.5" />
         </button>
+        {/* Share THIS (currently-open) plan as a read-only link. */}
+        <SharePlanButton className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground" />
         <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
         <button
           onClick={toggleSidePanel}
@@ -834,32 +838,5 @@ function AskComposer({
         Add question
       </button>
     </div>
-  );
-}
-
-function TabBtn({
-  active,
-  onClick,
-  icon,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
-        active
-          ? "bg-white/10 text-foreground"
-          : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {icon}
-      {children}
-    </button>
   );
 }

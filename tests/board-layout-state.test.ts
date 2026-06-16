@@ -13,21 +13,35 @@ const { readBoardLayout, writeBoardLayout, BOARD_ALGO_VERSIONS } = await import(
 
 describe("board layout state", () => {
   it("returns nulls for a board never arranged", () => {
-    expect(readBoardLayout("architecture")).toEqual({ sig: null, arrangedBy: null });
+    expect(readBoardLayout("architecture")).toEqual({ sig: null, arrangedBy: null, collapsed: [] });
   });
 
   it("round-trips sig + arrangedBy per board independently", () => {
     writeBoardLayout("roadmap", { sig: "grouped-1", arrangedBy: "cluster" });
     writeBoardLayout("db", { sig: "db-dock-1" });
-    expect(readBoardLayout("roadmap")).toEqual({ sig: "grouped-1", arrangedBy: "cluster" });
-    expect(readBoardLayout("db")).toEqual({ sig: "db-dock-1", arrangedBy: null });
-    expect(readBoardLayout("architecture")).toEqual({ sig: null, arrangedBy: null });
+    expect(readBoardLayout("roadmap")).toEqual({ sig: "grouped-1", arrangedBy: "cluster", collapsed: [] });
+    expect(readBoardLayout("db")).toEqual({ sig: "db-dock-1", arrangedBy: null, collapsed: [] });
+    expect(readBoardLayout("architecture")).toEqual({ sig: null, arrangedBy: null, collapsed: [] });
   });
 
   it("partial writes preserve the other fields", () => {
     writeBoardLayout("roadmap", { sig: "grouped-1", arrangedBy: "cluster" });
     writeBoardLayout("roadmap", { arrangedBy: "status" });
-    expect(readBoardLayout("roadmap")).toEqual({ sig: "grouped-1", arrangedBy: "status" });
+    expect(readBoardLayout("roadmap")).toEqual({ sig: "grouped-1", arrangedBy: "status", collapsed: [] });
+  });
+
+  it("persists the collapse set without clobbering arrangedBy (and vice-versa)", () => {
+    writeBoardLayout("roadmap", { sig: "grouped-1", arrangedBy: "cluster" });
+    // A collapse write touches only `collapsed`.
+    writeBoardLayout("roadmap", { collapsed: ["a", "b"] });
+    expect(readBoardLayout("roadmap")).toEqual({
+      sig: "grouped-1",
+      arrangedBy: "cluster",
+      collapsed: ["a", "b"],
+    });
+    // A later arrangedBy write leaves the fold in place.
+    writeBoardLayout("roadmap", { arrangedBy: "status" });
+    expect(readBoardLayout("roadmap").collapsed).toEqual(["a", "b"]);
   });
 
   it("migrates the legacy roadmap-layout-sig.json once", () => {
