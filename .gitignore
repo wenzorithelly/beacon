@@ -60,3 +60,6 @@ playwright-mcp/
 
 # superdesign (local design mockups / exploration)
 .superdesign/
+
+# local scratch / unrelated experiments
+/social_network/
