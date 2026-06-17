@@ -52,7 +52,7 @@ const manager = new MarkdownManager({ extensions: contentExtensions as never });
 
 /** Tiptap JSON doc → GFM markdown (the bytes stored in Note.body, read by the agent). */
 export function docToMarkdown(doc: unknown): string {
-  return manager.serialize(doc as never);
+  return manager.serialize(fillEmptyParagraphs(doc as JsonNode) as never);
 }
 
 type JsonNode = {
@@ -62,6 +62,38 @@ type JsonNode = {
   attrs?: Record<string, unknown>;
   content?: JsonNode[];
 };
+
+// Markdown has no token for an empty paragraph (a blank line the user added for spacing): the
+// serializer drops it and consecutive blank lines collapse on parse, so a blank line between
+// blocks — e.g. after a list — vanishes on a save→reload round-trip. Preserve them by serializing
+// each empty paragraph as a zero-width space — an invisible, non-blank line `marked` keeps even
+// after a list (a non-breaking space gets treated as blank there and dropped) — then stripping it
+// back out on load so the editor shows a genuinely empty line.
+const BLANK_PARA = "\u200B";
+
+function fillEmptyParagraphs(node: JsonNode): JsonNode {
+  if (node.type === "paragraph" && (node.content?.length ?? 0) === 0) {
+    return { ...node, content: [{ type: "text", text: BLANK_PARA }] };
+  }
+  if (Array.isArray(node.content)) {
+    return { ...node, content: node.content.map(fillEmptyParagraphs) };
+  }
+  return node;
+}
+
+function stripBlankParagraphs(node: JsonNode): JsonNode {
+  if (node.type === "paragraph" && node.content?.length) {
+    const onlyText = node.content.every((c) => c.type === "text");
+    const text = node.content.map((c) => c.text ?? "").join("");
+    if (onlyText && text.includes(BLANK_PARA) && text.replace(/\u200B/g, "").trim() === "") {
+      return { ...node, content: [] };
+    }
+  }
+  if (Array.isArray(node.content)) {
+    return { ...node, content: node.content.map(stripBlankParagraphs) };
+  }
+  return node;
+}
 
 // Split a text node on <u>…</u>, applying the underline mark to the inner runs. Keeps any
 // marks the node already had (so underline composes with bold/italic on the same run).
@@ -123,5 +155,5 @@ function restoreMentions(node: JsonNode): JsonNode {
 /** GFM markdown → Tiptap JSON doc for loading into the editor. Runs the default parser
  *  (tasks, bold/italic/strike, lists all round-trip) then restores underline marks + mentions. */
 export function markdownToEditorDoc(markdown: string): unknown {
-  return restoreMentions(restoreUnderline(manager.parse(markdown) as JsonNode));
+  return stripBlankParagraphs(restoreMentions(restoreUnderline(manager.parse(markdown) as JsonNode)));
 }
