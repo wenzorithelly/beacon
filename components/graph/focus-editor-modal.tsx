@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, X } from "lucide-react";
 import { RichNodeEditor } from "@/components/graph/rich-node-editor";
 import { GlassPanel } from "@/components/ui/glass-panel";
@@ -36,6 +36,21 @@ export function FocusEditorModal({
     setDraft(payload?.value ?? "");
   }
 
+  // Esc / ⌘↵ close — on a CAPTURE-phase document listener so it fires BEFORE the Tiptap editor's
+  // onKeyDown stopPropagation (which otherwise swallows Esc while the cursor is in the editor).
+  useEffect(() => {
+    if (!payload) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" || ((e.metaKey || e.ctrlKey) && e.key === "Enter")) {
+        e.preventDefault();
+        payload.onCommit(draft);
+        onDismiss();
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [payload, draft, onDismiss]);
+
   if (!payload) return null;
 
   const commit = () => {
@@ -50,15 +65,6 @@ export function FocusEditorModal({
       aria-label={`Edit description — ${payload.title}`}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) commit();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          commit();
-        } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-          e.preventDefault();
-          commit();
-        }
       }}
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 backdrop-blur-[5px] animate-in fade-in duration-150"
     >
