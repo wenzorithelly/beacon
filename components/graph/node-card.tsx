@@ -56,7 +56,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { STATUS_META } from "@/lib/constants";
-import { LAYER_META, layerStripeCss, normalizeLayer } from "@/lib/layer";
+import { LAYER_META, normalizeLayer } from "@/lib/layer";
 import { categoryColorClass, categoryHex } from "@/lib/category-color";
 import { useNodeEdit } from "@/components/graph/node-edit-context";
 import { useZoomLOD } from "@/components/graph/use-zoom-lod";
@@ -210,16 +210,29 @@ function LayerSelect({
   );
 }
 
-// Always-on layer stripe down a card's left edge (architecture + the LOD title-card); the roadmap
-// Spine carries its own layer-tinted divider instead.
-function LayerStripe({ layer }: { layer: string | null | undefined }) {
-  const l = normalizeLayer(layer);
-  if (!l) return null;
+// Status → stripe color for the zoomed-out (title-only) card. When a card is too small to show its
+// status pill, this left stripe carries the status at a glance — the signal you scan a zoomed-out
+// board for. Roadmap statuses + architecture dispositions both map here.
+const STATUS_STRIPE: Record<string, string> = {
+  DONE: "#34d399",
+  IN_PROGRESS: "#38bdf8",
+  PENDING: "#fbbf24",
+  BLOCKED: "#fb923c",
+  CANCELLED: "#71717a",
+  DEPRIORITIZED: "#52525b",
+  KEEP: "#34d399",
+  REBUILD: "#a78bfa",
+  REPLACE: "#fb7185",
+  DROP: "#71717a",
+};
+
+function StatusStripe({ status }: { status: string }) {
   return (
     <span
       aria-hidden
+      title={STATUS_META[status]?.label ?? status}
       className="absolute bottom-2 left-1 top-2 w-[3px] rounded-full"
-      style={{ background: layerStripeCss(l) }}
+      style={{ background: STATUS_STRIPE[status] ?? "#71717a" }}
     />
   );
 }
@@ -551,7 +564,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
         )}
       >
         <FourDotHandles />
-        {hasFrontend && <LayerStripe layer={data.layer} />}
+        <StatusStripe status={data.status} />
         <div className="break-words text-[15px] font-semibold leading-snug">{data.title}</div>
       </div>
     );
