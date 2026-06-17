@@ -178,10 +178,10 @@ function LayerSelect({
         title="Which side of the stack this lands on"
         className={cn(
           noDrag,
-          // The dropdown chevron (trigger's direct-child svg) stays hidden until the card is
-          // hovered, so the pill reads as a clean badge at rest; the layer icon lives inside the
-          // value span, so it's unaffected.
-          "!h-5 shrink-0 gap-1 rounded !border-0 !bg-white/10 !px-1.5 !py-0 text-[9px] font-semibold uppercase tracking-wide text-zinc-300 [&_svg]:size-2.5 [&>svg]:hidden group-hover/nc:[&>svg]:block",
+          // The dropdown chevron (trigger's direct-child svg) stays hidden until the PILL itself is
+          // hovered (like the category chip), so it reads as a clean badge at rest; the layer icon
+          // lives inside the value span, so it's unaffected.
+          "!h-5 shrink-0 gap-1 rounded !border-0 !bg-white/10 !px-1.5 !py-0 text-[9px] font-semibold uppercase tracking-wide text-zinc-300 [&_svg]:size-2.5 [&>svg]:hidden hover:[&>svg]:block",
         )}
       >
         <SelectValue>
