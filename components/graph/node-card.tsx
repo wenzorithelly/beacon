@@ -159,19 +159,54 @@ const noDrag = "nodrag nopan";
 
 // Frontend/backend layer badge: a monochrome pill (brand stays one-accent) with a Monitor (FE) /
 // Server (BE) / both (fullstack) icon. Rendered only when the workspace has a frontend.
-function LayerBadge({ layer }: { layer: string | null | undefined }) {
+// Inline, editable layer control — the FE/BE/FS pill IS the picker, so the layer is set at the top
+// next to the category (no separate control down in the expand body). Shown when the workspace has
+// a frontend; an unset layer reads as a faint "layer" placeholder you click to set.
+function LayerSelect({
+  layer,
+  onSave,
+  readOnly,
+}: {
+  layer: string | null | undefined;
+  onSave: (v: string | null) => void;
+  readOnly?: boolean;
+}) {
   const l = normalizeLayer(layer);
-  if (!l) return null;
-  const meta = LAYER_META[l];
   return (
-    <span
-      title={`${meta.label} — which side of the stack this lands on`}
-      className="flex shrink-0 items-center gap-1 rounded bg-white/10 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-300"
-    >
-      {l !== "backend" && <Monitor className="size-2.5" />}
-      {l !== "frontend" && <Server className="size-2.5" />}
-      {meta.short}
-    </span>
+    <Select value={l ?? "none"} onValueChange={(v) => onSave(v === "none" ? null : v)} disabled={readOnly}>
+      <SelectTrigger
+        title="Which side of the stack this lands on"
+        className={cn(
+          noDrag,
+          // The dropdown chevron (trigger's direct-child svg) stays hidden until the card is
+          // hovered, so the pill reads as a clean badge at rest; the layer icon lives inside the
+          // value span, so it's unaffected.
+          "!h-5 shrink-0 gap-1 rounded !border-0 !bg-white/10 !px-1.5 !py-0 text-[9px] font-semibold uppercase tracking-wide text-zinc-300 [&_svg]:size-2.5 [&>svg]:hidden group-hover/nc:[&>svg]:block",
+        )}
+      >
+        <SelectValue>
+          {(v: string) =>
+            v === "none" ? (
+              <span className="text-muted-foreground/70">layer</span>
+            ) : (
+              <span className="flex items-center gap-1">
+                {v !== "backend" && <Monitor className="size-2.5" />}
+                {v !== "frontend" && <Server className="size-2.5" />}
+                {LAYER_META[v as keyof typeof LAYER_META]?.short ?? v}
+              </span>
+            )
+          }
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent alignItemWithTrigger={false}>
+        <SelectItem value="none">— no layer</SelectItem>
+        {Object.entries(LAYER_META).map(([v, m]) => (
+          <SelectItem key={v} value={v}>
+            {m.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -741,30 +776,6 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
               </SelectContent>
             </Select>
           )}
-          {hasFrontend && (
-            <Select
-              value={normalizeLayer(data.layer) ?? "none"}
-              onValueChange={(v) => save({ layer: v === "none" ? null : v })}
-              disabled={readOnly}
-            >
-              <SelectTrigger
-                title="Which side of the stack this lands on"
-                className={cn(noDrag, "!h-6 gap-1 rounded border-white/10 !px-1.5 !py-0 text-[10px] [&_svg]:size-3")}
-              >
-                <SelectValue>
-                  {(v: string) => (v === "none" ? "layer · —" : LAYER_META[v as keyof typeof LAYER_META]?.label ?? v)}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                <SelectItem value="none">—</SelectItem>
-                {Object.entries(LAYER_META).map(([v, m]) => (
-                  <SelectItem key={v} value={v}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
         </div>
         <div className="flex items-center gap-1">
           {!readOnly && (
@@ -842,7 +853,9 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               {categoryChip}
-              {hasFrontend && <LayerBadge layer={data.layer} />}
+              {hasFrontend && (
+            <LayerSelect layer={data.layer} onSave={(v) => save({ layer: v })} readOnly={readOnly} />
+          )}
             </div>
           </div>
           <div className="shrink-0">{statusSelect}</div>
@@ -930,7 +943,9 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
             {isBug && <Bug className="size-2.5" />}
             {isBug ? "bug" : data.isChild ? "sub-task" : "feature"}
           </span>
-          {hasFrontend && <LayerBadge layer={data.layer} />}
+          {hasFrontend && (
+            <LayerSelect layer={data.layer} onSave={(v) => save({ layer: v })} readOnly={readOnly} />
+          )}
           {suggested && (
             <span className={cn("flex items-center gap-1 rounded bg-violet-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-300", accepting && "opacity-50")}>
               <Sparkles className="size-2.5" /> IA
