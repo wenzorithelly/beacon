@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCanvasTool, CanvasToolToggle } from "@/components/graph/canvas-tool";
 import { useRouter } from "next/navigation";
 import {
   ConnectionMode,
@@ -268,6 +269,7 @@ export function DbMapClient({
   // Captured at <ReactFlow onInit> so search can pan/zoom to a result (the board never
   // needed a flow ref before — selection only opened the side panel).
   const rfRef = useRef<ReactFlowInstance<DbNode, Edge> | null>(null);
+  const { tool: canvasTool, setTool: setCanvasTool, flowProps: canvasToolProps } = useCanvasTool();
 
   // readOnly (archived plan history) boards mount inside a flex pane that can size a tick after
   // init, so the one-shot `fitView` prop may fit a not-yet-sized container — leaving the snapshot
@@ -1272,6 +1274,7 @@ export function DbMapClient({
         )}
       >
         <ReactFlow
+          {...canvasToolProps}
           nodes={displayNodes}
           edges={
             // Far zoom: hide edges entirely — noise between invisible cards. Cast to Edge[]
@@ -1383,6 +1386,9 @@ export function DbMapClient({
             />
           )}
 
+          <Panel position="bottom-left" style={{ marginBottom: 118 }}>
+            <CanvasToolToggle tool={canvasTool} onChange={setCanvasTool} />
+          </Panel>
           {/* Explicit reorganize — same full arrange as the toolbar icon, but where the other
               boards put their Arrange/Group-by pills, so it's discoverable on demand. */}
           {!embedded && (

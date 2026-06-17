@@ -20,15 +20,19 @@ export function LayerToggle({
   value,
   onChange,
   options = LAYERS,
+  bare = false,
 }: {
   value: Layer | null;
   onChange: (next: Layer | null) => void;
   /** Which pills to render. The FILES canvas passes only frontend+backend — a FILE is never
    *  "fullstack"; one imported by both sides is shared, and both pills keep it bright. */
   options?: readonly Layer[];
+  /** Drop the glass chrome so the pills sit flush inside another surface (e.g. the Filters
+   *  popover, which is itself glass — nesting two would double the frost + drop-shadow). */
+  bare?: boolean;
 }) {
   return (
-    <div className="glass flex items-center gap-0.5 rounded-lg p-0.5">
+    <div className={cn("flex items-center gap-0.5", !bare && "glass rounded-lg p-0.5")}>
       {options.map((l) => {
         const on = value === l;
         return (

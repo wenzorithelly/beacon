@@ -164,6 +164,17 @@
     -webkit-backdrop-filter: blur(28px) saturate(160%);
     border: 1px solid oklch(1 0 0 / 0.08);
   }
+
+  /* Cursor tool: the "select" (pointer) tool box-selects on an empty-pane drag — show a
+     crosshair so the mode reads at a glance (the "pan" tool keeps React Flow's grab cursor). */
+  .rf-tool-select .react-flow__pane {
+    cursor: crosshair !important;
+  }
+
+  /* Arming a node from the create palette ("+ Feature/Bug/Sub-task") — the next click drops it. */
+  .rf-placing .react-flow__pane {
+    cursor: copy !important;
+  }
 }
 
 /* ── Touch devices: drop live backdrop blur ───────────────────────────────────────────

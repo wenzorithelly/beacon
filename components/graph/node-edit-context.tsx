@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
+import type { FocusEditPayload } from "@/components/graph/focus-editor-modal";
 
 // Lets a React Flow node edit itself inline without prop-drilling. The map provides the
 // implementation (optimistic local update + a no-revalidate PATCH); the node calls it.
@@ -16,6 +17,8 @@ export interface NodeEditApi {
   isExpanded: (id: string) => boolean;
   toggleExpand: (id: string) => void;
   openDetailed: (id: string) => void; // the "super detailed" panel (sidebar)
+  /** Open the distraction-free focus editor for a node's description (blurred-board modal). */
+  openFocus: (payload: FocusEditPayload) => void;
   removeNode: (id: string) => void; // delete (no revalidate; local + DELETE)
   editingTitleId: string | null; // a freshly-created node to autofocus
   /** Ask the agent a question scoped to this node — opens the plan's ask composer pre-targeted

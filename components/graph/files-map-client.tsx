@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCanvasTool, CanvasToolToggle } from "@/components/graph/canvas-tool";
 import {
   applyEdgeChanges,
   applyNodeChanges,
@@ -487,6 +488,7 @@ export function FilesMapClient({
   // Semantic-zoom level, lifted out of the React Flow context (far → directory summaries).
   const [lod, setLod] = useState<Lod>("full");
   const rfRef = useRef<ReactFlowInstance | null>(null);
+  const { tool: canvasTool, setTool: setCanvasTool, flowProps: canvasToolProps } = useCanvasTool();
   // Select a file from the summary list + center the canvas on it.
   const selectAndPan = useCallback((path: string) => {
     setSelectedId(path);
@@ -789,6 +791,7 @@ export function FilesMapClient({
   return (
     <div className="canvas-dots relative h-screen w-full">
       <ReactFlow
+        {...canvasToolProps}
         nodes={displayNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}
@@ -837,6 +840,9 @@ export function FilesMapClient({
           position="bottom-right"
           className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
         />
+        <Panel position="bottom-left" style={{ marginBottom: 118 }}>
+          <CanvasToolToggle tool={canvasTool} onChange={setCanvasTool} />
+        </Panel>
         {/* Legend popover stacked above the Controls (+/-/fit/lock), matching the other boards. */}
         <Panel position="bottom-right" style={{ marginBottom: 152 }}>
           <CanvasPopover

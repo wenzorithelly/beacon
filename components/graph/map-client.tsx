@@ -44,6 +44,8 @@ import type { TextAnnotation } from "@/lib/annotations";
 import { DeletableEdge } from "@/components/graph/deletable-edge";
 import { AnnotationEdge } from "@/components/graph/annotation-edge";
 import { DetailSidebar } from "@/components/graph/detail-sidebar";
+import { FocusEditorModal, type FocusEditPayload } from "@/components/graph/focus-editor-modal";
+import { useCanvasTool, CanvasToolToggle } from "@/components/graph/canvas-tool";
 import { NodeEditContext, type NodeEditApi } from "@/components/graph/node-edit-context";
 import { neighborIds } from "@/components/graph/db-types";
 import { CanvasTabs } from "@/components/graph/canvas-tabs";
@@ -128,6 +130,9 @@ function buildNodes(payload: MapNodePayload[]): Node<MapNodeData>[] {
       isChild: n.parentId != null,
       parentId: n.parentId,
       signals: n.signals,
+      fileCount: n.files.length,
+      importsIn: n.importsIn,
+      importsOut: n.importsOut,
       openBugs: n.bugFlags.filter((f) => !f.resolved).length,
     },
   }));
@@ -278,6 +283,12 @@ export function MapClient({
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelTab, setPanelTab] = useState<"details" | "comments">("details");
+  // Desktop-style cursor tool: hand (pan the board) vs pointer (rubber-band multi-select + move many).
+  const { tool: canvasTool, setTool: setCanvasTool, flowProps: canvasToolProps, paneClass } = useCanvasTool();
+  // Click-to-place: "+ Feature"/"+ Bug" arm a ghost that follows the cursor; the next canvas click
+  // drops the new node there. Esc cancels.
+  const [placing, setPlacing] = useState<null | "FEATURE" | "BUG">(null);
+  const [ghostPos, setGhostPos] = useState<{ x: number; y: number } | null>(null);
   // True only while a pan/zoom gesture is in flight. We drop expensive per-frame paint (card
   // shadows, transitions) for the duration via a `.rf-panning` class, then restore on settle —
   // this is what makes finger-dragging a big board on a phone feel smooth instead of stuttery.
@@ -477,6 +488,38 @@ export function MapClient({
     [view],
   );
 
+  // Drop the armed node where the canvas was clicked (screenToFlowPosition accounts for pan/zoom).
+  const placeAt = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!placing || !flowRef.current) return;
+      const pos = flowRef.current.screenToFlowPosition({ x: clientX, y: clientY });
+      void createNodeAt(pos.x, pos.y, placing);
+      setPlacing(null);
+      setGhostPos(null);
+    },
+    [placing, createNodeAt],
+  );
+
+  // While a node is armed (a free Feature/Bug, or a Sub-task picking its parent), a ghost follows
+  // the cursor and Esc cancels.
+  useEffect(() => {
+    if (!placing && !pickingParent) return;
+    const onMove = (e: MouseEvent) => setGhostPos({ x: e.clientX, y: e.clientY });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPlacing(null);
+        setPickingParent(false);
+        setGhostPos(null);
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [placing, pickingParent]);
+
   // "+ Feature/Component/Bug" buttons: a fresh card has no category yet, so it lands in the
   // uncategorized ("—") group's region — stacked with its peers instead of piling at top-left.
   const placeNewCard = useCallback(() => {
@@ -487,16 +530,21 @@ export function MapClient({
     return placeInGroup(members, real.map((n) => n.position));
   }, [nodes]);
 
+  // The "+ Feature"/"+ Component" and "+ Bug" buttons arm click-to-place (drop on the next click);
+  // arming one clears the sub-task parent-pick so the two modes never overlap.
   const addNode = useCallback(() => {
-    const p = placeNewCard();
-    void createNodeAt(p.x, p.y);
-  }, [createNodeAt, placeNewCard]);
-
-  // "+ Bug" (roadmap only): a typed bug card the user plans to work on.
+    setPickingParent(false);
+    setPlacing("FEATURE");
+  }, []);
   const addBug = useCallback(() => {
-    const p = placeNewCard();
-    void createNodeAt(p.x, p.y, "BUG");
-  }, [createNodeAt, placeNewCard]);
+    setPickingParent(false);
+    setPlacing("BUG");
+  }, []);
+
+  // Distraction-free description editor: any card (or the detail panel) opens it via the context's
+  // openFocus; it commits the edited markdown back through the same patch path on close.
+  const [focusEdit, setFocusEdit] = useState<FocusEditPayload | null>(null);
+  const openFocus = useCallback((p: FocusEditPayload) => setFocusEdit(p), []);
 
   const editApi: NodeEditApi = useMemo(
     () => ({
@@ -508,12 +556,13 @@ export function MapClient({
       isExpanded: (id: string) => expandedIds.has(id),
       toggleExpand,
       openDetailed,
+      openFocus,
       removeNode,
       editingTitleId,
       onAskAgent,
       hasFrontend,
     }),
-    [view, readOnly, categories, patch, expandedIds, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent, hasFrontend],
+    [view, readOnly, categories, patch, expandedIds, toggleExpand, openDetailed, openFocus, removeNode, editingTitleId, onAskAgent, hasFrontend],
   );
 
   // Group-by lanes + the search box. `arrangedBy` is the dimension the board is currently laid
@@ -531,8 +580,10 @@ export function MapClient({
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
   const [clusterFilter, setClusterFilter] = useState<Set<string>>(new Set());
   const [priorityFilter, setPriorityFilter] = useState<Set<number>>(new Set());
-  // Layer emphasis (FE/BE/FS pills): DIMS non-matching cards instead of hiding them, so the
-  // board keeps its shape. Never combined into `passes` — it's a lens, not a filter.
+  // Layer emphasis (FE/BE/FS pills, shown inside the Filters popover): DIMS non-matching cards
+  // instead of hiding them, so the board keeps its shape. Never combined into `passes` — it's a
+  // lens, not a filter — but it DOES count toward the filter badge + clears with the others, so
+  // the popover that now hosts it stays consistent.
   const [layerEmphasis, setLayerEmphasis] = useState<Layer | null>(null);
 
   const statusesPresent = useMemo(
@@ -562,11 +613,12 @@ export function MapClient({
   );
 
   const activeFilterCount =
-    statusFilter.size + clusterFilter.size + priorityFilter.size;
+    statusFilter.size + clusterFilter.size + priorityFilter.size + (layerEmphasis ? 1 : 0);
   const clearFilters = useCallback(() => {
     setStatusFilter(new Set());
     setClusterFilter(new Set());
     setPriorityFilter(new Set());
+    setLayerEmphasis(null);
   }, []);
 
   // Collapse a feature to fold its sub-tasks behind it (parent stays, subtree hides). A view lens
@@ -599,6 +651,14 @@ export function MapClient({
   );
   // Direct-child count per node (drives whether a card shows the toggle + its N).
   const childCountById = useMemo(() => childCounts(nodePayload), [nodePayload]);
+  // Done-sub-task count per parent — drives the Spine card's progress mini-bar (done / childCount).
+  const childDoneById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const n of nodePayload) {
+      if (n.parentId && n.status === "DONE") m.set(n.parentId, (m.get(n.parentId) ?? 0) + 1);
+    }
+    return m;
+  }, [nodePayload]);
   // The subtree ids hidden by the current collapse set — folded into the `hidden` flag below.
   const collapseHiddenIds = useMemo(
     () => collapsedDescendants(nodePayload, collapsedIds),
@@ -701,7 +761,12 @@ export function MapClient({
       const extra = {
         ...(rank ? { workOrderRank: rank, isNext: rank === 1 } : {}),
         ...(kids > 0
-          ? { childCount: kids, collapsed: collapsedIds.has(n.id), onToggleCollapse: toggleCollapse }
+          ? {
+              childCount: kids,
+              childDone: childDoneById.get(n.id) ?? 0,
+              collapsed: collapsedIds.has(n.id),
+              onToggleCollapse: toggleCollapse,
+            }
           : {}),
       };
       let base = rank || kids > 0 ? { ...n, data: { ...n.data, ...extra } } : n;
@@ -740,7 +805,7 @@ export function MapClient({
         },
       };
     });
-  }, [visibleNodes, effectiveFocusIds, spotlightIds, workOrderRank, expandedIds, layerDimIds, childCountById, collapsedIds, toggleCollapse]);
+  }, [visibleNodes, effectiveFocusIds, spotlightIds, workOrderRank, expandedIds, layerDimIds, childCountById, childDoneById, collapsedIds, toggleCollapse]);
 
   // Group-region containers (Gestalt common region). Roadmap: shown once the board is arranged,
   // labeled by the dimension it was ACTUALLY arranged by (`arrangedBy`) — never a stale selector.
@@ -1127,7 +1192,9 @@ export function MapClient({
         {
           id: `c-${n.id}`,
           source: parent.id,
+          sourceHandle: "sb", // parent bottom → child top, matching buildEdges' containment edge
           target: n.id,
+          targetHandle: "tt",
           type: "smoothstep",
           style: { stroke: EDGE_STYLE.CONTAINS.stroke },
         },
@@ -1350,6 +1417,8 @@ export function MapClient({
       }}
     >
       <ReactFlow
+        {...canvasToolProps}
+        className={cn(paneClass, (placing || pickingParent) && "rf-placing")}
         nodes={finalNodes}
         edges={
           // Far zoom: hide edges entirely — they'd render as noise between invisible cards.
@@ -1395,6 +1464,10 @@ export function MapClient({
           }
         }}
         onNodeClick={(e, node) => {
+          if (placing) {
+            placeAt(e.clientX, e.clientY);
+            return;
+          }
           if (node.type === "annotation") {
             // An editable card is being written/edited IN PLACE — clicking into it must not
             // yank the Comments side panel open. Read-only cards keep the jump-to behavior.
@@ -1435,7 +1508,11 @@ export function MapClient({
           setSelectedId(null);
           setPanelTab("details");
         }}
-        onPaneClick={() => {
+        onPaneClick={(e) => {
+          if (placing) {
+            placeAt(e.clientX, e.clientY);
+            return;
+          }
           if (pickingParent) setPickingParent(false);
           else {
             setPanelOpen(false); // click the empty canvas to dismiss the detail panel
@@ -1479,6 +1556,9 @@ export function MapClient({
 
         {/* Legend popover stacked above the React Flow Controls (+/-/fit/lock).
             Offset accounts for the Controls panel height (~144px) + small gap. */}
+        <Panel position="bottom-left" style={{ marginBottom: 118 }}>
+          <CanvasToolToggle tool={canvasTool} onChange={setCanvasTool} />
+        </Panel>
         <Panel position="bottom-right" style={{ marginBottom: 152 }}>
           <CanvasPopover
             title="Legend"
@@ -1656,7 +1736,10 @@ export function MapClient({
             )}
             <span aria-hidden className="mx-0.5 h-5 w-px bg-white/10" />
             <button
-              onClick={() => setPickingParent((p) => !p)}
+              onClick={() => {
+                setPlacing(null);
+                setPickingParent((p) => !p);
+              }}
               title={
                 view === "ARCHITECTURE"
                   ? "Add sub-component (click a component next)"
@@ -1733,10 +1816,6 @@ export function MapClient({
             }}
           />
 
-          {hasFrontend && (
-            <LayerToggle value={layerEmphasis} onChange={setLayerEmphasis} />
-          )}
-
           {view === "ROADMAP" && workOnNextId && (
             <button
               type="button"
@@ -1773,6 +1852,11 @@ export function MapClient({
               </button>
             )}
           >
+            {hasFrontend && (
+              <PopoverSection title="Layer">
+                <LayerToggle bare value={layerEmphasis} onChange={setLayerEmphasis} />
+              </PopoverSection>
+            )}
             {statusesPresent.length > 0 && (
               <PopoverSection title="Status">
                 {statusesPresent.map((s) => (
@@ -1854,6 +1938,38 @@ export function MapClient({
           onAddComment={effectiveAddComment}
           topOffset={embedded ? 64 : undefined}
         />
+      )}
+
+      <FocusEditorModal payload={focusEdit} onDismiss={() => setFocusEdit(null)} />
+
+      {/* Click-to-place ghost: follows the cursor while a node is armed from the create palette. */}
+      {(placing || pickingParent) && ghostPos && (
+        <div
+          className="pointer-events-none fixed z-50 flex translate-x-3 translate-y-3 items-center gap-1.5 rounded-lg border border-white/15 bg-card/95 px-2.5 py-1.5 text-xs shadow-xl backdrop-blur"
+          style={{ left: ghostPos.x, top: ghostPos.y }}
+        >
+          <span
+            className={cn(
+              "rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+              placing === "BUG"
+                ? "bg-rose-500/15 text-rose-300"
+                : placing === "FEATURE"
+                  ? "bg-sky-500/15 text-sky-300"
+                  : "bg-zinc-500/15 text-zinc-300",
+            )}
+          >
+            {placing === "BUG"
+              ? "Bug"
+              : placing === "FEATURE"
+                ? view === "ARCHITECTURE"
+                  ? "Component"
+                  : "Feature"
+                : "Sub-task"}
+          </span>
+          <span className="text-muted-foreground">
+            {placing ? "click to place · Esc" : "click a feature to attach · Esc"}
+          </span>
+        </div>
       )}
 
       {/* Guided architecture tour: left-docked steps panel (the detail sidebar is right-docked). */}

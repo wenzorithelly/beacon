@@ -30,6 +30,11 @@ export interface MapNodePayload {
   files: string[];
   // Deterministic rollup signals (untested file count, auth-touch) for the card badges.
   signals?: FeatureSignals;
+  // Blast-radius metrics for ARCHITECTURE cards — distinct external files importing into /
+  // depended on by this component's attached files (computed from the live code graph in the
+  // server page; absent on roadmap nodes and when no files are attached).
+  importsIn?: number;
+  importsOut?: number;
   // Bug/investigation flags raised on this node (user via the sidebar, agent via
   // init/refresh/describe). Open ones drive the card's bug badge.
   bugFlags: BugFlagPayload[];

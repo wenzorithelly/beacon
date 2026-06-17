@@ -1,29 +1,53 @@
 "use client";
 
-import { memo, useState, useTransition } from "react";
+import { memo, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { FourDotHandles } from "@/components/graph/handles";
 import { PinRail } from "@/components/graph/annotation-node";
 import { acceptSuggestionAction } from "@/app/actions/nodes";
 import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Box,
+  Boxes,
   Bug,
   Check,
-  Sparkles,
-  Maximize2,
-  Minimize2,
   ChevronDown,
   ChevronRight,
-  PanelRight,
-  Trash2,
+  ClipboardList,
+  Cloud,
+  Component,
+  Cpu,
+  CreditCard,
+  Database,
+  FileText,
+  FlaskConical,
+  Gamepad2,
+  Hexagon,
+  Layers,
+  LayoutDashboard,
+  Lock,
+  Maximize2,
   MessageCircleQuestion,
   MessageSquarePlus,
-  FlaskConical,
-  Lock,
   Monitor,
+  Network,
+  NotebookPen,
+  PackageCheck,
+  PanelRight,
+  Plug,
+  Rocket,
+  Search,
   Server,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  Webhook,
+  Workflow,
   X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -33,7 +57,7 @@ import {
 } from "@/components/ui/select";
 import { STATUS_META } from "@/lib/constants";
 import { LAYER_META, layerStripeCss, normalizeLayer } from "@/lib/layer";
-import { categoryColorClass } from "@/lib/category-color";
+import { categoryColorClass, categoryHex } from "@/lib/category-color";
 import { useNodeEdit } from "@/components/graph/node-edit-context";
 import { useZoomLOD } from "@/components/graph/use-zoom-lod";
 import { RichNodeEditor } from "@/components/graph/rich-node-editor";
@@ -57,13 +81,18 @@ export type MapNodeData = {
   isCriterion: boolean;
   isChild: boolean;
   parentId: string | null;
-  // The deterministically-picked "work on next" feature (#1) — gets an accent ring + badge.
+  // The deterministically-picked "work on next" feature (#1) — gets an accent ring + the spine #1.
   isNext?: boolean;
-  // 1-based position in the enumerated work order (1·2·3). #1 is `isNext`; #2/#3 get a
-  // subtler ordinal chip so the board reads as a short executable queue.
+  // 1-based position in the enumerated work order (1·2·3), shown atop the priority spine.
   workOrderRank?: number;
   // Deterministic rollup signals for the card badges (untested file count, auth touch).
   signals?: FeatureSignals;
+  // Architecture blast-radius: distinct external files importing into / depended on by this
+  // component (from the live code graph). Undefined on roadmap nodes / when no files attached.
+  importsIn?: number;
+  importsOut?: number;
+  /** Count of attached source files (drives the architecture metric strip). */
+  fileCount?: number;
   /** Open bug/investigation flags on this node — renders the bug-count badge. */
   openBugs?: number;
   /** Plan-review annotations anchored to this feature (numbered pins at the card edge). */
@@ -73,6 +102,8 @@ export type MapNodeData = {
   onComment?: (excerpt: string) => void;
   /** Direct sub-task count — when > 0 the card shows a collapse toggle that folds the subtree. */
   childCount?: number;
+  /** Completed direct sub-tasks — drives the Spine progress mini-bar (childDone / childCount). */
+  childDone?: number;
   /** Whether this card's sub-tasks are currently folded behind it. */
   collapsed?: boolean;
   /** Toggle the collapse state for this card's sub-tasks (view-only; not persisted). */
@@ -88,29 +119,46 @@ const PRIORITIES = [
   { v: 3, l: "P3 · low" },
 ];
 
+// Per-priority hue for the spine bar. P0 critical red, P1 the brand orange, P2 amber,
+// P3 neutral grey — the same warm→cool ramp the card borders use.
+const PRIORITY_HUE = ["#ff3860", "#ff7a45", "#fbbf24", "#a1a1aa"] as const;
+
+// A distinct icon per architecture domain so the board doesn't read as a wall of identical
+// cubes. Keyword-matched first; anything unmatched falls to a stable hashed pick from a small
+// generic set, so even an unknown domain still varies card-to-card.
+const DOMAIN_ICON: Array<[RegExp, LucideIcon]> = [
+  [/AUTH|SECURIT|LOGIN|SESSION|IDENT/, ShieldCheck],
+  [/DATA|\bDB\b|DBMAP|SQL|STORAGE|STORE|CACHE|PERSIST/, Database],
+  [/\bUI\b|FRONT|VIEW|CANVAS|BOARD|DESIGN/, LayoutDashboard],
+  [/MCP|\bAPI\b|INTEGRAT/, Plug],
+  [/WEBHOOK|HOOK/, Webhook],
+  [/INTEL|GRAPH|\bCODE\b|SYMBOL|SEARCH|FIND/, Network],
+  [/PLAN|ROADMAP|REVIEW/, ClipboardList],
+  [/INFRA|DEVOPS|CLOUD|DEPLOY|MEDIA/, Cloud],
+  [/GAM|PLAY/, Gamepad2],
+  [/NOTE|DOC/, NotebookPen],
+  [/QUERY|SEARCH/, Search],
+  [/BILL|\bPAY|CHECKOUT|SUBSCRIPT|INVOICE/, CreditCard],
+  [/LAUNCH|RELEASE|SHIP|ROCKET/, Rocket],
+  [/INSTALL|SETUP|BOOTSTRAP|INIT/, PackageCheck],
+  [/CONTEXT|LAYER|BUNDLE/, Layers],
+];
+const ICON_FALLBACK: LucideIcon[] = [Box, Boxes, Hexagon, Component, Cpu, Workflow];
+
+function domainIcon(cluster: string | null | undefined): LucideIcon {
+  const key = (cluster ?? "").toUpperCase();
+  for (const [re, Icon] of DOMAIN_ICON) if (re.test(key)) return Icon;
+  if (!key) return ICON_FALLBACK[0];
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return ICON_FALLBACK[h % ICON_FALLBACK.length];
+}
+
 // Keep React Flow from dragging/panning/deleting while you interact with a control.
 const noDrag = "nodrag nopan";
 
-// Frontend/backend layer badge: a monochrome pill (no new colors — brand stays one-accent)
-// with a Monitor (FE) / Server (BE) / both (fullstack) icon. Rendered only when the
-// workspace has a frontend AND the node carries a layer.
-// Always-on layer stripe down the card's left edge: frontend sky blue, backend mint green,
-// fullstack the blue/green split. The low-ink channel that survives every filter/arrangement
-// (the lanes-based Group-by didn't); the badge below stays as the redundant text channel.
-// An INSET rounded pill (Linear-style), not a flush edge bar — it stays clear of the card's
-// rounded corners and whatever color the priority/status border is wearing.
-function LayerStripe({ layer }: { layer: string | null | undefined }) {
-  const l = normalizeLayer(layer);
-  if (!l) return null;
-  return (
-    <span
-      aria-hidden
-      className="absolute bottom-2 left-1 top-2 w-[3px] rounded-full"
-      style={{ background: layerStripeCss(l) }}
-    />
-  );
-}
-
+// Frontend/backend layer badge: a monochrome pill (brand stays one-accent) with a Monitor (FE) /
+// Server (BE) / both (fullstack) icon. Rendered only when the workspace has a frontend.
 function LayerBadge({ layer }: { layer: string | null | undefined }) {
   const l = normalizeLayer(layer);
   if (!l) return null;
@@ -127,9 +175,163 @@ function LayerBadge({ layer }: { layer: string | null | undefined }) {
   );
 }
 
-// Edge button on ARCHITECTURE cards (stacked above the annotate button): flag a bug /
-// something worth investigating on this component without opening the detail sidebar.
-// Posts by="user"; the open-flag badge updates via router.refresh().
+// Always-on layer stripe down a card's left edge (architecture + the LOD title-card); the roadmap
+// Spine carries its own layer-tinted divider instead.
+function LayerStripe({ layer }: { layer: string | null | undefined }) {
+  const l = normalizeLayer(layer);
+  if (!l) return null;
+  return (
+    <span
+      aria-hidden
+      className="absolute bottom-2 left-1 top-2 w-[3px] rounded-full"
+      style={{ background: layerStripeCss(l) }}
+    />
+  );
+}
+
+// Roadmap card's left SPINE — kept minimal: the work-order rank chip (when ranked) over a single
+// slim priority-hued bar, plus a layer-tinted divider at the edge. Priority level lives on the
+// card border + the expand panel; the spine just gives a calm, scannable left rail.
+function PrioritySpine({ priority, rank }: { priority: number; rank: number | undefined }) {
+  const hue = PRIORITY_HUE[priority] ?? PRIORITY_HUE[3];
+  return (
+    <div
+      className="flex w-5 shrink-0 flex-col items-center gap-1 self-stretch border-r border-white/[0.06] py-1.5"
+      title={PRIORITIES[priority]?.l ?? "priority"}
+    >
+      {rank != null && (
+        <span
+          title={`#${rank} in the work order`}
+          className={cn(
+            "flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
+            rank === 1 ? "bg-emerald-400 text-black" : "bg-white/10 text-muted-foreground",
+          )}
+        >
+          {rank}
+        </span>
+      )}
+      <span className="w-[3px] flex-1 rounded-full" style={{ background: hue, opacity: 0.9 }} />
+    </div>
+  );
+}
+
+// Shared corner toolbar (top-right of any card): focus-write + in-place expand reveal on hover;
+// the one-click Details (side panel) stays pinned so it's always reachable. No layout shift.
+function CornerTools({
+  onFocus,
+  onExpand,
+  onDetails,
+  expanded,
+  className,
+}: {
+  onFocus: () => void;
+  onExpand: () => void;
+  onDetails: () => void;
+  expanded: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        noDrag,
+        // Floats just OUTSIDE the card (below it) so it never overlaps the card's own controls
+        // (category/status top, edit actions in the expand body). It's a DOM child of the card, so
+        // hovering it keeps group-hover/nc active; flush (no gap) avoids a hover dead-zone.
+        "absolute z-20 flex items-center gap-0.5 rounded-lg p-0.5 transition-colors group-hover/nc:border group-hover/nc:border-white/10 group-hover/nc:bg-card/90 group-hover/nc:shadow-lg group-hover/nc:backdrop-blur",
+        className ?? "right-2 top-2",
+      )}
+    >
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onFocus();
+        }}
+        title="Edit description in focus mode"
+        className="flex w-0 items-center justify-center overflow-hidden rounded p-0 text-muted-foreground opacity-0 transition-all hover:text-[#ff7a45] group-hover/nc:w-6 group-hover/nc:p-0.5 group-hover/nc:opacity-100"
+      >
+        <Maximize2 className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onExpand();
+        }}
+        title={expanded ? "Collapse" : "Expand in place"}
+        className="flex w-0 items-center justify-center overflow-hidden rounded p-0 text-muted-foreground opacity-0 transition-all hover:text-foreground group-hover/nc:w-6 group-hover/nc:p-0.5 group-hover/nc:opacity-100"
+      >
+        <ChevronDown className={cn("size-3.5 transition-transform", expanded && "rotate-180")} />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDetails();
+        }}
+        title="Open details side panel"
+        className="flex w-0 items-center justify-center overflow-hidden rounded p-0 text-muted-foreground opacity-0 transition-all hover:text-[#ff7a45] group-hover/nc:w-6 group-hover/nc:p-0.5 group-hover/nc:opacity-100"
+      >
+        <PanelRight className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+// One metric in the architecture Blast-Radius strip (files · imports-in · imports-out · bugs).
+function Metric({
+  value,
+  label,
+  Icon,
+  danger,
+}: {
+  value: number | string;
+  label: string;
+  Icon: LucideIcon;
+  danger?: boolean;
+}) {
+  return (
+    <div className="text-center">
+      <div
+        className={cn(
+          "text-[13px] font-semibold leading-none tracking-tight tabular-nums",
+          danger && "text-rose-300",
+        )}
+      >
+        {value}
+      </div>
+      <div className="mt-0.5 flex items-center justify-center gap-0.5 text-[8px] font-medium uppercase tracking-wide text-muted-foreground">
+        <Icon className="size-2.5" />
+        {label}
+      </div>
+    </div>
+  );
+}
+
+// Fan-in indicator: a 0–5 dot meter derived from imports-in + a one-word weight label. A high
+// fan-in flags a core, heavily-depended-on component.
+function FanIn({ importsIn }: { importsIn: number }) {
+  const level =
+    importsIn >= 16 ? 5 : importsIn >= 8 ? 4 : importsIn >= 4 ? 3 : importsIn >= 2 ? 2 : importsIn >= 1 ? 1 : 0;
+  const label =
+    importsIn >= 8 ? "core dependency" : importsIn >= 3 ? "shared" : importsIn >= 1 ? "leaf" : "isolated";
+  return (
+    <span
+      className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
+      title={`${importsIn} external file(s) import this component`}
+    >
+      <span className="flex items-center gap-0.5">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <span key={i} className="size-1 rounded-full bg-sky-400" style={{ opacity: i < level ? 0.7 : 0.18 }} />
+        ))}
+      </span>
+      {label}
+    </span>
+  );
+}
+
+// Edge button on ARCHITECTURE cards: flag a bug / something worth investigating without opening
+// the detail sidebar.
 function BugFlagButton({ nodeId }: { nodeId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -228,9 +430,7 @@ function BugFlagButton({ nodeId }: { nodeId: string }) {
   );
 }
 
-// Priority heat on roadmap card borders: P0 red (the existing critical treatment), P1 the
-// brand orange, P2 amber, P3 stays neutral. Border only — the card body never tints, so the
-// signal reads preattentively without shouting. Full literals for the Tailwind scan.
+// Priority heat on roadmap card borders: P0 red, P1 the brand orange, P2 amber, P3 neutral.
 const PRIORITY_BORDER = [
   "border-[#ff3860]/60 shadow-[0_0_0_1px_rgba(255,56,96,0.15)]",
   "border-[#ff7a45]/50",
@@ -238,23 +438,34 @@ const PRIORITY_BORDER = [
   "border-border",
 ] as const;
 
-// memo: during a drag React Flow re-renders the canvas ~60×/s. Without this, every card
-// (each a heavy Tiptap editor + Select dropdowns) re-rendered every frame even when only one
-// node moved. memo skips a card whose props (id/data/selected) are unchanged — which they are
-// for non-dragged cards, since the NodeEditContext value is stabilized (categories ref-guard).
+// memo: during a drag React Flow re-renders the canvas ~60×/s. memo skips a card whose props
+// (id/data/selected) are unchanged — which they are for non-dragged cards.
 export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
-  const { categories, statuses, patch, isExpanded, toggleExpand, openDetailed, removeNode, editingTitleId, onAskAgent, hasFrontend, readOnly } =
-    useNodeEdit();
+  const {
+    categories,
+    statuses,
+    patch,
+    isExpanded,
+    toggleExpand,
+    openDetailed,
+    openFocus,
+    removeNode,
+    editingTitleId,
+    onAskAgent,
+    hasFrontend,
+    readOnly,
+  } = useNodeEdit();
   const expanded = isExpanded(id);
   const [confirmDel, setConfirmDel] = useState(false);
 
   // Text fields are edited in LOCAL state (seeded from data) and only persisted on blur.
-  // Routing every keystroke through the global map state re-rendered the input mid-edit,
-  // which broke dead-key composition (e.g. acute-accent then "a" composes one accented char).
-  // Local state keeps typing intact.
   const [title, setTitle] = useState(data.title);
   const [cluster, setCluster] = useState(data.cluster ?? "");
   const [plain, setPlain] = useState(data.plain ?? "");
+  // Reflect external description edits (the focus modal's commit, or an agent update via refresh)
+  // back into local state — patch updates data.plain optimistically, this re-seeds.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setPlain(data.plain ?? ""), [data.plain]);
 
   const isBug = data.kind === "BUG" && data.view === "ROADMAP";
   const isArch = data.view === "ARCHITECTURE";
@@ -268,38 +479,39 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
   const working = data.status === "IN_PROGRESS";
   const suggested = data.source === "INIT" && data.view === "ROADMAP";
 
-  // Read-only boards (shared view / archived plan history) never persist edits. Belt-and-suspenders
-  // alongside the disabled/read-only controls below, so nothing can mutate a snapshot.
+  // Read-only boards (shared view / archived plan history) never persist edits.
   const save = (fields: Record<string, unknown>) => {
     if (!readOnly) patch(id, fields, true);
   };
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
-  // Accept an AI-suggested (INIT) card in place — same action the Details panel runs
-  // (source → MANUAL, drops the violet styling); Dismiss deletes it like the panel does.
+  // Blow the description up into the distraction-free focus modal (board blurs behind it).
+  const focusDescription = () =>
+    openFocus({
+      id,
+      title: data.title || "Untitled",
+      value: plain,
+      editable: !readOnly,
+      onCommit: (v) => save({ plain: v.trim() || null }),
+    });
+
   const [accepting, startAccept] = useTransition();
   const acceptSuggestion = () => startAccept(async () => acceptSuggestionAction(id));
 
-  // Semantic zoom: below the mid threshold the card body is physically unreadable, so render
-  // the title alone at larger type; below the far threshold cards vanish entirely (opacity 0 —
-  // the box keeps its size so handles/regions stay stable) and the group summaries take over.
+  // Semantic zoom: below the mid threshold render the title alone; below the far threshold cards
+  // vanish (group summaries take over) — except on read-only boards.
   const lod = useZoomLOD();
   if (lod !== "full") {
     return (
       <div
         className={cn(
           "relative rounded-lg border bg-card px-3 py-2.5 text-card-foreground shadow-sm",
-          // Cap BELOW the 320px layout column so a long title can never run under the
-          // neighbouring card — it wraps to more lines instead (never truncates).
           "w-fit max-w-[296px]",
           data.isChild ? "min-w-56" : "min-w-64",
           isBug ? "border-rose-400/50 bg-rose-500/[0.05]" : priorityBorder,
           working && "border-sky-400/60",
           selected && "ring-2 ring-[var(--accent,#f5b942)]",
           cancelled && "opacity-60",
-          // At far zoom cards normally hide so the group-region SUMMARIES take over. Read-only
-          // boards (the public shared view) have no regions to fall back on, so hiding the cards
-          // just blanks the board — keep them visible (tiny title-only) as the zoomed-out overview.
           lod === "far" && !readOnly && "!opacity-0",
         )}
       >
@@ -310,33 +522,11 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
     );
   }
 
-  return (
-    <div
-      className={cn(
-        "group/nc relative rounded-lg border bg-card px-2.5 py-2 text-card-foreground shadow-sm transition",
-        // Width fits the BADGE ROW: cards aren't all the same width — one with many chips
-        // (IA + long category + long status) grows up to max-w-96 so the row never wraps or
-        // crops. Every other row is `w-0 min-w-full` so it follows the card width instead of
-        // driving it (a long title wraps; it doesn't widen the card).
-        "w-fit max-w-96",
-        expanded ? "min-w-80" : "min-w-64",
-        draft
-          ? "border-dashed border-sky-400/50 bg-sky-500/[0.06]"
-          : suggested
-            ? "border-dashed border-violet-400/60 bg-violet-500/[0.07] shadow-[0_0_0_1px_rgba(167,139,250,0.18)]"
-            : priorityBorder,
-        isBug && !draft && "border-rose-400/50 bg-rose-500/[0.05]",
-        working && "border-sky-400/60 shadow-[0_0_0_1px_rgba(56,160,255,0.25)]",
-        data.isNext && "border-emerald-400/70 shadow-[0_0_0_2px_rgba(52,211,153,0.35)]",
-        // #2/#3 in the work order: a much fainter tint so they read as queued, not focal (#1).
-        data.workOrderRank != null && data.workOrderRank > 1 && "border-emerald-400/25",
-        selected && "ring-2 ring-[var(--accent,#f5b942)]",
-        cancelled && "opacity-60",
-        dimmed && "opacity-70 border-dashed",
-      )}
-    >
+  // Shared chrome: connection dots, the edge annotate/pin button, and (architecture) the bug-flag
+  // edge button.
+  const edgeChrome = (
+    <>
       <FourDotHandles />
-      {hasFrontend && <LayerStripe layer={data.layer} />}
       {isArch && <BugFlagButton nodeId={id} />}
       {(data.pins?.length ?? 0) > 0 ? (
         <PinRail pins={data.pins!} onPinClick={data.onPinClick} />
@@ -358,414 +548,443 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
           </button>
         )
       )}
+    </>
+  );
 
-      {data.isNext && (
-        <div className="mb-1 inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-300">
-          work on next
-        </div>
+  // The collapse toggle (folds a card's sub-tasks) — shared between both shapes.
+  const collapseToggle = (data.childCount ?? 0) > 0 && (
+    <button
+      type="button"
+      onClick={(e) => {
+        stop(e);
+        data.onToggleCollapse?.(id);
+      }}
+      title={
+        data.collapsed
+          ? `Show ${data.childCount} sub-task${data.childCount === 1 ? "" : "s"}`
+          : `Hide ${data.childCount} sub-task${data.childCount === 1 ? "" : "s"}`
+      }
+      className={cn(
+        noDrag,
+        "mt-0.5 flex shrink-0 items-center gap-0.5 rounded px-1 text-[10px] font-semibold transition-colors",
+        data.collapsed
+          ? "bg-white/[0.06] text-foreground hover:bg-white/10"
+          : "text-muted-foreground hover:bg-white/5 hover:text-foreground",
       )}
+    >
+      {data.collapsed ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
+      {data.childCount}
+    </button>
+  );
 
-      {data.workOrderRank != null && data.workOrderRank > 1 && (
-        <div
-          title={`#${data.workOrderRank} in the work order`}
-          className="mb-1 inline-flex items-center gap-1 rounded bg-white/5 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground"
-        >
-          next · {data.workOrderRank}
-        </div>
+  const cornerTools = (
+    <CornerTools
+      onFocus={focusDescription}
+      onExpand={() => toggleExpand(id)}
+      onDetails={() => openDetailed(id)}
+      expanded={expanded}
+      className="top-full right-1 mt-1.5 before:absolute before:inset-x-0 before:bottom-full before:h-2.5 before:content-['']"
+    />
+  );
+
+  // The editable title textarea — identical behavior in both shapes.
+  const titleField = (
+    <textarea
+      rows={1}
+      value={title}
+      readOnly={readOnly}
+      autoFocus={editingTitleId === id}
+      placeholder="Title…"
+      onFocus={(e) => {
+        if (editingTitleId === id) e.currentTarget.select();
+      }}
+      onChange={(e) => setTitle(e.target.value)}
+      onBlur={() => {
+        const v = title.trim();
+        if (v && v !== data.title) save({ title: v });
+      }}
+      onKeyDown={(e) => {
+        stop(e);
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+      className={cn(
+        noDrag,
+        "field-sizing-content w-full resize-none bg-transparent text-sm font-medium leading-snug outline-none placeholder:text-muted-foreground/60",
+        cancelled && "line-through",
       )}
+    />
+  );
 
-      {/* Title row */}
-      <div className="flex w-0 min-w-full items-start gap-1.5">
-        {working && (
-          <span
-            title="em andamento"
-            className="mt-1.5 inline-block size-2 shrink-0 animate-pulse rounded-full bg-sky-400"
-          />
+  // The editable category/domain chip — one colored pill, click to edit (datalist suggestions).
+  const categoryChip = (
+    <>
+      <input
+        list={`cats-${id}`}
+        value={cluster}
+        readOnly={readOnly}
+        placeholder={isArch ? "domain" : "category"}
+        title={isArch ? "Architecture domain — the lane this component lives in" : undefined}
+        onChange={(e) => setCluster(e.target.value)}
+        onBlur={() => {
+          const v = cluster.trim() || null;
+          if (v !== (data.cluster ?? null)) save({ cluster: v });
+        }}
+        onKeyDown={(e) => {
+          stop(e);
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+        className={cn(
+          noDrag,
+          "field-sizing-content min-w-12 max-w-[60%] rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide outline-none focus:brightness-125 [&::-webkit-calendar-picker-indicator]:hidden",
+          categoryColorClass(cluster),
         )}
-        {data.isCriterion && !working && (
-          <span
-            title="Success criterion"
-            className="mt-1.5 inline-block size-1.5 shrink-0 rounded-full bg-[var(--accent,#f5b942)]"
-          />
+      />
+      <datalist id={`cats-${id}`}>
+        {categories.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+    </>
+  );
+
+  const statusSelect = (
+    <Select value={data.status} onValueChange={(v) => save({ status: v })} disabled={readOnly}>
+      <SelectTrigger
+        className={cn(
+          noDrag,
+          "!h-5 shrink-0 !gap-0.5 rounded border !px-1.5 !py-0 text-[10px] font-medium [&_svg]:size-3",
+          STATUS_META[data.status]?.className ?? "border-white/10",
         )}
-        <textarea
-          rows={1}
-          value={title}
-          readOnly={readOnly}
-          autoFocus={editingTitleId === id}
-          placeholder="Title…"
-          onFocus={(e) => {
-            if (editingTitleId === id) e.currentTarget.select();
-          }}
-          onChange={(e) => setTitle(e.target.value)}
-          onBlur={() => {
-            const v = title.trim();
-            if (v && v !== data.title) save({ title: v });
-          }}
-          onKeyDown={(e) => {
-            stop(e);
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              e.currentTarget.blur();
-            }
-          }}
-          className={cn(
-            noDrag,
-            "field-sizing-content w-full resize-none bg-transparent text-sm font-medium leading-snug outline-none placeholder:text-muted-foreground/60",
-            cancelled && "line-through",
-          )}
-        />
-        {(data.childCount ?? 0) > 0 && (
-          <button
-            type="button"
-            onClick={(e) => {
-              stop(e);
-              data.onToggleCollapse?.(id);
-            }}
-            title={
-              data.collapsed
-                ? `Show ${data.childCount} sub-task${data.childCount === 1 ? "" : "s"}`
-                : `Hide ${data.childCount} sub-task${data.childCount === 1 ? "" : "s"}`
-            }
-            className={cn(
-              noDrag,
-              "mt-0.5 flex shrink-0 items-center gap-0.5 rounded px-1 text-[10px] font-semibold transition-colors",
-              data.collapsed
-                ? "bg-white/[0.06] text-foreground hover:bg-white/10"
-                : "text-muted-foreground hover:bg-white/5 hover:text-foreground",
-            )}
-          >
-            {data.collapsed ? (
-              <ChevronRight className="size-3" />
-            ) : (
-              <ChevronDown className="size-3" />
-            )}
-            {data.childCount}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={(e) => {
-            stop(e);
-            toggleExpand(id);
-          }}
-          title={expanded ? "Collapse" : "Expand"}
-          className={cn(noDrag, "mt-0.5 shrink-0 text-muted-foreground hover:text-foreground")}
+      >
+        <SelectValue>{(v: string) => STATUS_META[v]?.label ?? v}</SelectValue>
+      </SelectTrigger>
+      <SelectContent alignItemWithTrigger={false}>
+        {statuses.map((s) => (
+          <SelectItem key={s} value={s}>
+            {STATUS_META[s]?.label ?? s}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  // The signals row (roadmap): open bugs, untested files (icon + count only), auth touch.
+  const signalsRow = (openBugs > 0 ||
+    (data.signals?.untested ?? 0) > 0 ||
+    data.signals?.auth) && (
+    <div className="mt-1.5 flex w-0 min-w-full flex-wrap items-center gap-1">
+      {openBugs > 0 && (
+        <span
+          title={`${openBugs} open bug flag(s)`}
+          className="flex items-center gap-1 rounded bg-rose-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-rose-300"
         >
-          {expanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
-        </button>
-      </div>
-
-      {/* Deterministic rollup signals (untested files / auth touch) — permanent roadmap view.
-          Only render when there's something worth flagging, so benign features stay clean. */}
-      {((data.signals?.untested ?? 0) > 0 || data.signals?.auth || openBugs > 0) && (
-        <div className="mt-1 flex w-0 min-w-full flex-wrap items-center gap-1">
-          {openBugs > 0 && (
-            <span
-              title={`${openBugs} open bug flag(s) — raised by you or an agent examining this code`}
-              className="flex items-center gap-1 rounded bg-rose-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-rose-300"
-            >
-              <Bug className="size-2.5" />
-              {openBugs} {openBugs === 1 ? "bug" : "bugs"}
-            </span>
-          )}
-          {(data.signals?.untested ?? 0) > 0 && (
-            <span
-              title={`${data.signals!.untested} of ${data.signals!.total} attached file(s) have no test importing them`}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-300"
-            >
-              <FlaskConical className="size-2.5" />
-              {data.signals!.untested} untested
-            </span>
-          )}
-          {data.signals?.auth && (
-            <span
-              title="touches auth-sensitive files"
-              className="flex items-center gap-1 rounded bg-red-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-red-300"
-            >
-              <Lock className="size-2.5" /> auth
-            </span>
-          )}
-        </div>
+          <Bug className="size-2.5" />
+          {openBugs}
+        </span>
       )}
-
-      {/* One-line technical role. Shown in BOTH states — collapsed it's the card's summary
-          line; expanded it must still show, otherwise a feature with a role but no `plain`
-          description looks empty when you open it. Clamp to one line only when collapsed. */}
-      {data.role && (
-        <div
-          className={cn(
-            "mt-0.5 w-0 min-w-full text-[10px] leading-snug text-muted-foreground",
-            !expanded && "line-clamp-1",
-          )}
+      {(data.signals?.untested ?? 0) > 0 && (
+        <span
+          title={`${data.signals!.untested} of ${data.signals!.total} attached file(s) have no test importing them`}
+          className="flex items-center gap-1 rounded bg-amber-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-300"
         >
-          {data.role}
-        </div>
+          <FlaskConical className="size-2.5" />
+          {data.signals!.untested}
+        </span>
       )}
+      {data.signals?.auth && (
+        <span
+          title="touches auth-sensitive files"
+          className="flex items-center gap-1 rounded bg-red-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-red-300"
+        >
+          <Lock className="size-2.5" /> auth
+        </span>
+      )}
+    </div>
+  );
 
-      {/* Domain / category + status row — the ONE row that drives the card's width (w-fit
-          above): extra badges + a long status widen the card instead of wrapping the status
-          onto a second line or cropping the category pill. */}
-      <div className="mt-2 flex items-center gap-1.5">
-        {/* Roadmap: feature (top-level) vs sub-task badge, then a free category tag.
-            Architecture: the DOMAIN is the prominent (editable) pill — it's what tells one
-            component apart from another, instead of a generic "COMPONENT" tag on every card. */}
-        {data.view === "ROADMAP" ? (
-          <>
-            <span
-              title={
-                isBug
-                  ? "Bug — something to fix"
-                  : data.isChild
-                    ? "Sub-task of a feature"
-                    : "Feature — top-level roadmap item"
-              }
-              className={cn(
-                "flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-                isBug
-                  ? "bg-rose-500/15 text-rose-300"
-                  : data.isChild
-                    ? "bg-zinc-500/15 text-zinc-300"
-                    : "bg-sky-500/15 text-sky-300",
-              )}
+  // The expand body — a rich Tiptap editor for the description plus priority/layer editing and
+  // secondary actions. (Focus-write lives in the corner toolbar, not here.)
+  const expandBody = expanded && (
+    <div className="mt-2 w-0 min-w-full space-y-2 border-t border-white/10 pt-2">
+      <RichNodeEditor
+        compact
+        editable={!readOnly}
+        value={plain}
+        onChange={setPlain}
+        onBlur={() => {
+          const v = plain.trim() || null;
+          if (v !== (data.plain ?? null)) save({ plain: v });
+        }}
+      />
+      <div className="flex flex-wrap items-center gap-1.5 pr-8">
+        <div className="flex items-center gap-1">
+          {!isArch && (
+            <Select
+              value={String(data.priority)}
+              onValueChange={(v) => save({ priority: Number(v) })}
+              disabled={readOnly}
             >
-              {isBug && <Bug className="size-2.5" />}
-              {isBug ? "bug" : data.isChild ? "sub-task" : "feature"}
-            </span>
-            {hasFrontend && <LayerBadge layer={data.layer} />}
-            {suggested && (
-              <span
-                className={cn(
-                  "flex items-center gap-1 rounded bg-violet-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-300",
-                  accepting && "opacity-50",
-                )}
+              <SelectTrigger className={cn(noDrag, "!h-6 gap-1 rounded border-white/10 !px-1.5 !py-0 text-[10px] [&_svg]:size-3")}>
+                <SelectValue>
+                  {(v: string) => PRIORITIES.find((p) => String(p.v) === v)?.l ?? v}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                {PRIORITIES.map((p) => (
+                  <SelectItem key={p.v} value={String(p.v)}>
+                    {p.l}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {hasFrontend && (
+            <Select
+              value={normalizeLayer(data.layer) ?? "none"}
+              onValueChange={(v) => save({ layer: v === "none" ? null : v })}
+              disabled={readOnly}
+            >
+              <SelectTrigger
+                title="Which side of the stack this lands on"
+                className={cn(noDrag, "!h-6 gap-1 rounded border-white/10 !px-1.5 !py-0 text-[10px] [&_svg]:size-3")}
               >
-                <Sparkles className="size-2.5" /> IA
-                <button
-                  type="button"
-                  title="Accept suggestion — turn it into your own feature"
-                  disabled={accepting}
-                  onClick={(e) => {
-                    stop(e);
-                    acceptSuggestion();
-                  }}
-                  className={cn(noDrag, "-my-0.5 rounded p-0.5 hover:bg-emerald-500/20 hover:text-emerald-300")}
-                >
-                  <Check className="size-2.5" />
-                </button>
-                <button
-                  type="button"
-                  title="Dismiss suggestion (deletes the card)"
-                  disabled={accepting}
-                  onClick={(e) => {
-                    stop(e);
-                    removeNode(id);
-                  }}
-                  className={cn(noDrag, "-my-0.5 -ml-0.5 rounded p-0.5 hover:bg-red-500/20 hover:text-red-300")}
-                >
-                  <X className="size-2.5" />
-                </button>
-              </span>
-            )}
-            {/* Domain as ONE colored chip (same treatment as the architecture card), so the
-                category reads consistently everywhere instead of a grey input on one card and a
-                colored pill on another. Still click-to-edit; empty shows a neutral chip. */}
-            <input
-              list={`cats-${id}`}
-              value={cluster}
-              readOnly={readOnly}
-              placeholder="category"
-              onChange={(e) => setCluster(e.target.value)}
-              onBlur={() => {
-                const v = cluster.trim() || null;
-                if (v !== (data.cluster ?? null)) save({ cluster: v });
-              }}
-              onKeyDown={(e) => {
+                <SelectValue>
+                  {(v: string) => (v === "none" ? "layer · —" : LAYER_META[v as keyof typeof LAYER_META]?.label ?? v)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectItem value="none">—</SelectItem>
+                {Object.entries(LAYER_META).map(([v, m]) => (
+                  <SelectItem key={v} value={v}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={(e) => {
                 stop(e);
-                if (e.key === "Enter") e.currentTarget.blur();
+                if (confirmDel) removeNode(id);
+                else setConfirmDel(true);
               }}
+              onBlur={() => setConfirmDel(false)}
+              title="Delete node"
               className={cn(
                 noDrag,
-                // Hide Chrome's datalist picker arrow — it eats ~14px INSIDE the input and
-                // crops the category text; suggestions still pop on focus without it.
-                "field-sizing-content min-w-12 max-w-[65%] rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide outline-none focus:brightness-125 [&::-webkit-calendar-picker-indicator]:hidden",
-                categoryColorClass(cluster),
+                "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] transition-colors",
+                confirmDel ? "bg-red-500/20 text-red-300" : "text-muted-foreground hover:bg-white/5 hover:text-red-300",
               )}
-            />
-          </>
-        ) : (
-          <>
-            {data.isChild && (
-              <span
-                title="Sub-component"
-                className="shrink-0 rounded bg-zinc-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-300"
-              >
-                sub
-              </span>
-            )}
-            {hasFrontend && <LayerBadge layer={data.layer} />}
-            <input
-              list={`cats-${id}`}
-              value={cluster}
-              readOnly={readOnly}
-              placeholder="domain"
-              title="Architecture domain — the lane this component lives in"
-              onChange={(e) => setCluster(e.target.value)}
-              onBlur={() => {
-                const v = cluster.trim() || null;
-                if (v !== (data.cluster ?? null)) save({ cluster: v });
-              }}
-              onKeyDown={(e) => {
+            >
+              <Trash2 className="size-3" />
+              {confirmDel && "Delete?"}
+            </button>
+          )}
+          {onAskAgent && (
+            <button
+              type="button"
+              onClick={(e) => {
                 stop(e);
-                if (e.key === "Enter") e.currentTarget.blur();
+                onAskAgent(`${isArch ? "component" : "feature"}: ${data.title}`);
               }}
+              title="Ask the agent a question about this (answered in its next round)"
               className={cn(
                 noDrag,
-                "field-sizing-content min-w-12 max-w-[65%] rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide outline-none focus:brightness-125 [&::-webkit-calendar-picker-indicator]:hidden",
-                categoryColorClass(cluster),
+                "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-sky-300/90 hover:bg-sky-500/15 hover:text-sky-300",
               )}
-            />
-          </>
-        )}
-        <datalist id={`cats-${id}`}>
-          {categories.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
-        <Select value={data.status} onValueChange={(v) => save({ status: v })} disabled={readOnly}>
-          <SelectTrigger
-            className={cn(
-              noDrag,
-              "ml-auto h-6 shrink-0 gap-1 rounded border px-1.5 py-0 text-[10px] font-medium",
-              STATUS_META[data.status]?.className ?? "border-white/10",
-            )}
-          >
-            <SelectValue>{(v: string) => STATUS_META[v]?.label ?? v}</SelectValue>
-          </SelectTrigger>
-          <SelectContent alignItemWithTrigger={false}>
-            {statuses.map((s) => (
-              <SelectItem key={s} value={s}>
-                {STATUS_META[s]?.label ?? s}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            >
+              <MessageCircleQuestion className="size-3" /> Ask
+            </button>
+          )}
+        </div>
       </div>
+    </div>
+  );
 
-      {/* Expanded: details, inline. A rich Tiptap editor (markdown shortcuts as you type +
-          @-mentions of any Beacon entity) that doubles as the formatted view when unfocused —
-          an agent's `beacon_feature` done update (headings + file bullets) renders naturally. */}
-      {expanded && (
-        <div className="mt-2 w-0 min-w-full space-y-2 border-t border-white/10 pt-2">
-          <RichNodeEditor
-            compact
-            editable={!readOnly}
-            value={plain}
-            onChange={setPlain}
-            onBlur={() => {
-              const v = plain.trim() || null;
-              if (v !== (data.plain ?? null)) save({ plain: v });
-            }}
-          />
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1">
-              <Select value={String(data.priority)} onValueChange={(v) => save({ priority: Number(v) })} disabled={readOnly}>
-                <SelectTrigger className={cn(noDrag, "h-6 gap-1 rounded border-white/10 px-1.5 py-0 text-[10px]")}>
-                  <SelectValue>
-                    {(v: string) => PRIORITIES.find((p) => String(p.v) === v)?.l ?? v}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent alignItemWithTrigger={false}>
-                  {PRIORITIES.map((p) => (
-                    <SelectItem key={p.v} value={String(p.v)}>
-                      {p.l}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {hasFrontend && (
-                <Select
-                  value={normalizeLayer(data.layer) ?? "none"}
-                  onValueChange={(v) => save({ layer: v === "none" ? null : v })}
-                  disabled={readOnly}
-                >
-                  <SelectTrigger
-                    title="Which side of the stack this lands on"
-                    className={cn(noDrag, "h-6 gap-1 rounded border-white/10 px-1.5 py-0 text-[10px]")}
-                  >
-                    <SelectValue>
-                      {(v: string) => (v === "none" ? "layer · —" : LAYER_META[v as keyof typeof LAYER_META]?.label ?? v)}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent alignItemWithTrigger={false}>
-                    <SelectItem value="none">—</SelectItem>
-                    {Object.entries(LAYER_META).map(([v, m]) => (
-                      <SelectItem key={v} value={v}>
-                        {m.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+  // ── ARCHITECTURE: Blast-Radius card ──────────────────────────────────────────────────────
+  if (isArch) {
+    const tint = categoryHex(data.cluster);
+    const DomainIcon = domainIcon(data.cluster);
+    return (
+      <div
+        className={cn(
+          "group/nc relative rounded-lg border bg-card px-3 py-2.5 text-card-foreground shadow-sm transition",
+          "w-fit min-w-60 max-w-72",
+          draft ? "border-dashed border-sky-400/50 bg-sky-500/[0.06]" : "border-border",
+          working && "border-sky-400/60 shadow-[0_0_0_1px_rgba(56,160,255,0.25)]",
+          selected && "ring-2 ring-[var(--accent,#f5b942)]",
+          cancelled && "opacity-60",
+          dimmed && "opacity-70 border-dashed",
+        )}
+      >
+        {edgeChrome}
+
+        {/* Identity row — the icon anchors the left; the disposition select counterweights it at
+            the top-right (the card's focal point); title + badges sit between (layer-cake top band). */}
+        <div className="flex items-start gap-2.5">
+          <span
+            className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
+            style={{ background: `color-mix(in oklab, ${tint} 18%, transparent)`, color: tint }}
+          >
+            <DomainIcon className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start gap-1">
+              {titleField}
+              {collapseToggle}
             </div>
-            <div className="flex items-center gap-1">
-              {!readOnly && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    stop(e);
-                    if (confirmDel) removeNode(id);
-                    else setConfirmDel(true);
-                  }}
-                  onBlur={() => setConfirmDel(false)}
-                  title="Delete node"
-                  className={cn(
-                    noDrag,
-                    "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] transition-colors",
-                    confirmDel
-                      ? "bg-red-500/20 text-red-300"
-                      : "text-muted-foreground hover:bg-white/5 hover:text-red-300",
-                  )}
-                >
-                  <Trash2 className="size-3" />
-                  {confirmDel && "Delete?"}
-                </button>
-              )}
-              {onAskAgent && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    stop(e);
-                    onAskAgent(`feature: ${data.title}`);
-                  }}
-                  title="Ask the agent a question about this feature (answered in its next round)"
-                  className={cn(
-                    noDrag,
-                    "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-sky-300/90 hover:bg-sky-500/15 hover:text-sky-300",
-                  )}
-                >
-                  <MessageCircleQuestion className="size-3" /> Ask
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={(e) => {
-                  stop(e);
-                  openDetailed(id);
-                }}
-                className={cn(
-                  noDrag,
-                  "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-white/5 hover:text-foreground",
-                )}
-              >
-                <PanelRight className="size-3" /> Details
-              </button>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              {categoryChip}
+              {hasFrontend && <LayerBadge layer={data.layer} />}
             </div>
           </div>
+          <div className="shrink-0">{statusSelect}</div>
         </div>
-      )}
 
-      {/* connection dots are rendered once at the top of the card via <FourDotHandles /> */}
+        {data.role && (
+          <div className="mt-2 line-clamp-1 text-[10.5px] leading-snug text-muted-foreground">{data.role}</div>
+        )}
+
+        {/* Metric strip — full-width even grid: one calm, balanced band edge-to-edge. */}
+        <div className="mt-2.5 grid grid-cols-4 gap-1 border-t border-white/[0.07] pt-2">
+          <Metric value={data.fileCount ?? 0} label="files" Icon={FileText} />
+          <Metric value={data.importsIn ?? "—"} label="in" Icon={ArrowDownLeft} />
+          <Metric value={data.importsOut ?? "—"} label="out" Icon={ArrowUpRight} />
+          <Metric value={openBugs} label="bug" Icon={Bug} danger={openBugs > 0} />
+        </div>
+
+        {/* Fan-in footer — a quiet caption band. */}
+        {data.importsIn != null && (
+          <div className="mt-2">
+            <FanIn importsIn={data.importsIn} />
+          </div>
+        )}
+
+        {/* Hover actions: bottom-right (the top-right holds the status), revealed on hover. */}
+        {cornerTools}
+
+        {expandBody}
+      </div>
+    );
+  }
+
+  // ── ROADMAP: Spine card ──────────────────────────────────────────────────────────────────
+  const progressTotal = data.childCount ?? 0;
+  const progressDone = data.childDone ?? 0;
+  return (
+    <div
+      className={cn(
+        "group/nc relative flex rounded-lg border bg-card text-card-foreground shadow-sm transition",
+        "w-fit max-w-96",
+        expanded ? "min-w-80" : "min-w-64",
+        draft
+          ? "border-dashed border-sky-400/50 bg-sky-500/[0.06]"
+          : suggested
+            ? "border-dashed border-violet-400/60 bg-violet-500/[0.07] shadow-[0_0_0_1px_rgba(167,139,250,0.18)]"
+            : priorityBorder,
+        isBug && !draft && "border-rose-400/50 bg-rose-500/[0.05]",
+        working && "border-sky-400/60 shadow-[0_0_0_1px_rgba(56,160,255,0.25)]",
+        data.isNext && "border-emerald-400/70 shadow-[0_0_0_2px_rgba(52,211,153,0.35)]",
+        data.workOrderRank != null && data.workOrderRank > 1 && "border-emerald-400/25",
+        selected && "ring-2 ring-[var(--accent,#f5b942)]",
+        cancelled && "opacity-60",
+        dimmed && "opacity-70 border-dashed",
+      )}
+    >
+      {edgeChrome}
+      {cornerTools}
+      <PrioritySpine priority={data.priority} rank={data.workOrderRank} />
+
+      <div className="min-w-0 flex-1 px-2.5 py-2.5">
+        {/* identity row — title left; status pulled to the top-right as the focal counterweight */}
+        <div className="flex w-0 min-w-full items-start gap-1.5">
+          <div className="flex min-w-0 flex-1 items-start gap-1">
+            {working && (
+              <span title="in progress" className="mt-1.5 inline-block size-2 shrink-0 animate-pulse rounded-full bg-sky-400" />
+            )}
+            {data.isCriterion && !working && (
+              <span title="Success criterion" className="mt-1.5 inline-block size-1.5 shrink-0 rounded-full bg-[var(--accent,#f5b942)]" />
+            )}
+            {titleField}
+            {collapseToggle}
+          </div>
+          <div className="shrink-0">{statusSelect}</div>
+        </div>
+
+        {/* identity tags — kind · layer · category (left band, grouped with the title) */}
+        <div className="mt-1.5 flex w-0 min-w-full flex-wrap items-center gap-1.5">
+          <span
+            title={isBug ? "Bug — something to fix" : data.isChild ? "Sub-task of a feature" : "Feature — top-level roadmap item"}
+            className={cn(
+              "flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+              isBug ? "bg-rose-500/15 text-rose-300" : data.isChild ? "bg-zinc-500/15 text-zinc-300" : "bg-sky-500/15 text-sky-300",
+            )}
+          >
+            {isBug && <Bug className="size-2.5" />}
+            {isBug ? "bug" : data.isChild ? "sub-task" : "feature"}
+          </span>
+          {hasFrontend && <LayerBadge layer={data.layer} />}
+          {suggested && (
+            <span className={cn("flex items-center gap-1 rounded bg-violet-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-300", accepting && "opacity-50")}>
+              <Sparkles className="size-2.5" /> IA
+              <button
+                type="button"
+                title="Accept suggestion — turn it into your own feature"
+                disabled={accepting}
+                onClick={(e) => {
+                  stop(e);
+                  acceptSuggestion();
+                }}
+                className={cn(noDrag, "-my-0.5 rounded p-0.5 hover:bg-emerald-500/20 hover:text-emerald-300")}
+              >
+                <Check className="size-2.5" />
+              </button>
+              <button
+                type="button"
+                title="Dismiss suggestion (deletes the card)"
+                disabled={accepting}
+                onClick={(e) => {
+                  stop(e);
+                  removeNode(id);
+                }}
+                className={cn(noDrag, "-my-0.5 -ml-0.5 rounded p-0.5 hover:bg-red-500/20 hover:text-red-300")}
+              >
+                <X className="size-2.5" />
+              </button>
+            </span>
+          )}
+          {categoryChip}
+        </div>
+
+        {data.role && (
+          <div className={cn("mt-1.5 w-0 min-w-full text-[10px] leading-snug text-muted-foreground", !expanded && "line-clamp-1")}>
+            {data.role}
+          </div>
+        )}
+
+        {/* progress + counts (only when there are sub-tasks) */}
+        {progressTotal > 0 && (
+          <div className="mt-2 flex items-center gap-2">
+            <span className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/[0.08]" title={`${progressDone}/${progressTotal} sub-tasks done`}>
+              <span className="block h-full rounded-full bg-sky-400/75" style={{ width: `${progressTotal ? (progressDone / progressTotal) * 100 : 0}%` }} />
+            </span>
+            <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
+              <Check className="size-3" />
+              {progressDone}/{progressTotal}
+            </span>
+          </div>
+        )}
+
+        {signalsRow}
+        {expandBody}
+      </div>
     </div>
   );
 });

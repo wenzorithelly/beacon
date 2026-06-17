@@ -14,6 +14,7 @@ import { listBoardAnnotations } from "@/lib/board-annotations";
 import type { BoardAnnotationPayload } from "@/components/graph/annotation-node";
 import { readTouched } from "@/lib/touched-files";
 import { rankWorkOrder } from "@/lib/work-next";
+import { blastMetrics } from "@/lib/blast-metrics";
 import { currentWorkspace, runWithWorkspace } from "@/lib/workspaces";
 import { resolveTabWorkspaceId } from "@/lib/request-workspace";
 
@@ -133,6 +134,15 @@ export default async function MapPage({
     // ── Architecture board ───────────────────────────────────────────────────────────────────
     const { nodes: archNodes, edges: archEdges } = await readRoadmapBoard("ARCHITECTURE");
     const archCollapsed = readBoardLayout("architecture").collapsed;
+    // Blast-radius metrics for the architecture cards: distinct external files importing into /
+    // depended on by each component's attached files (from the live code graph). Computed once
+    // per render on the server; roadmap cards never carry it.
+    const codeEdges = await db.query.codeFileEdge.findMany({
+      columns: { fromPath: true, toPath: true },
+    });
+    const archNodesEnriched = archNodes.map((n) =>
+      n.files.length > 0 ? { ...n, ...blastMetrics(n.files, codeEdges) } : n,
+    );
 
     // ── Database board ───────────────────────────────────────────────────────────────────────
     const { tables, relations, endpoints } = await readDbBoard();
@@ -157,7 +167,7 @@ export default async function MapPage({
         architecture={
           <MapClient
             view="ARCHITECTURE"
-            nodes={archNodes}
+            nodes={archNodesEnriched}
             edges={archEdges}
             workOrder={[]}
             boardAnnotations={boardAnnotations}

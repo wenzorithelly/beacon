@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bug, MessageSquarePlus, Sparkles, X } from "lucide-react";
+import { Bug, Maximize2, MessageSquarePlus, Sparkles, X } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { RichNodeEditor } from "@/components/graph/rich-node-editor";
+import { FileTree } from "@/components/file-tree/file-tree";
 import {
   ARCH_STATUSES,
   ROADMAP_STATUSES,
@@ -167,7 +168,7 @@ function NodeDetail({
   const [plain, setPlain] = useState(node.plain ?? "");
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setPlain(node.plain ?? ""), [node.id, node.plain]);
-  const { hasFrontend } = useNodeEdit();
+  const { hasFrontend, openFocus } = useNodeEdit();
   const layer = normalizeLayer(node.layer);
 
   const statuses = view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES;
@@ -243,15 +244,40 @@ function NodeDetail({
         </Select>
       </div>
 
-      <div className="rounded-md border border-white/5 bg-card/40 px-2.5 py-2 text-sm">
-        <RichNodeEditor
-          value={plain}
-          onChange={setPlain}
-          onBlur={() => {
-            const v = plain.trim() || null;
-            if (v !== (node.plain ?? null)) run(() => updateNodeAction(node.id, { plain: v }));
-          }}
-        />
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">Description</span>
+          <button
+            type="button"
+            title="Edit in focus mode"
+            onClick={() =>
+              openFocus({
+                id: node.id,
+                title: node.title,
+                value: plain,
+                editable: true,
+                onCommit: (v) => {
+                  setPlain(v);
+                  const next = v.trim() || null;
+                  if (next !== (node.plain ?? null)) run(() => updateNodeAction(node.id, { plain: next }));
+                },
+              })
+            }
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-[#ff7a45]"
+          >
+            <Maximize2 className="size-3.5" />
+          </button>
+        </div>
+        <div className="rounded-md border border-white/5 bg-card/40 px-2.5 py-2 text-sm">
+          <RichNodeEditor
+            value={plain}
+            onChange={setPlain}
+            onBlur={() => {
+              const v = plain.trim() || null;
+              if (v !== (node.plain ?? null)) run(() => updateNodeAction(node.id, { plain: v }));
+            }}
+          />
+        </div>
       </div>
       {node.sourceRef && (
         <div className="rounded-md border border-border bg-card px-2 py-1.5 font-mono text-xs text-muted-foreground">
@@ -264,21 +290,7 @@ function NodeDetail({
           <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Files ({node.files.length})
           </h3>
-          <ul className="space-y-0.5">
-            {node.files.map((f) => (
-              <li key={f}>
-                <button
-                  onClick={() =>
-                    fetch(`/api/open?path=${encodeURIComponent(f)}`).catch(() => {})
-                  }
-                  title={`Open ${f} in editor`}
-                  className="block w-full truncate rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
-                >
-                  {f}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <FileTree files={node.files.map((p) => ({ path: p }))} />
         </div>
       )}
 

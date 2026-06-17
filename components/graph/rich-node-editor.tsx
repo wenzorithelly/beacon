@@ -23,6 +23,7 @@ export function RichNodeEditor({
   onBlur,
   autoFocus,
   compact,
+  bare,
   className,
   placeholder = "Description (markdown)… type @ to mention a file, feature, table…",
   editable = true,
@@ -32,6 +33,9 @@ export function RichNodeEditor({
   onBlur?: () => void;
   autoFocus?: boolean;
   compact?: boolean;
+  /** Drop the inset surface (background + padding) and size the text up — used by the focus modal,
+      which already provides its own roomy writing surface. */
+  bare?: boolean;
   className?: string;
   placeholder?: string;
   // When false (read-only boards: shared view, archived plan history) the editor renders its
@@ -80,7 +84,10 @@ export function RichNodeEditor({
         // Stop keystrokes bubbling to the canvas (delete/space/etc. are canvas shortcuts).
         onKeyDown={(e) => e.stopPropagation()}
         className={cn(
-          "node-editor min-h-[3.5rem] rounded bg-white/[0.04] px-1.5 py-1 text-xs focus-within:bg-white/[0.08]",
+          "node-editor min-h-[3.5rem] rounded",
+          bare
+            ? "text-[15px] leading-relaxed"
+            : "bg-white/[0.04] px-1.5 py-1 text-xs focus-within:bg-white/[0.08]",
           compact && "max-h-[24rem] overflow-y-auto",
         )}
       />
