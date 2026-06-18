@@ -95,3 +95,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release create "${{ steps.version.outputs.tag }}" --generate-notes --title "${{ steps.version.outputs.tag }}"
+
+      # Republish the self-contained plugin to the PUBLIC marketplace repo (wenzorithelly/beacon-plugin)
+      # so `/plugin install beacon@trybeacon` always tracks the latest npm release. `prepublishOnly`
+      # already ran build:release (→ build:plugin) during `npm publish`, so dist-plugin/ is built on
+      # this runner. A scoped read-write deploy key (PLUGIN_DEPLOY_KEY secret) pushes to that one repo —
+      # GITHUB_TOKEN can't reach a different repo. Non-fatal: the npm publish + tag + release above are
+      # what users need; a marketplace hiccup must not fail an otherwise-shipped release.
+      - name: Republish plugin marketplace
+        continue-on-error: true
+        env:
+          PLUGIN_DEPLOY_KEY: ${{ secrets.PLUGIN_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$PLUGIN_DEPLOY_KEY" > ~/.ssh/plugin_deploy_key
+          chmod 600 ~/.ssh/plugin_deploy_key
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/plugin_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bun run publish:plugin --tag
