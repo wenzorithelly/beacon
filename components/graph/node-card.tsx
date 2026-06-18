@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useState, useTransition } from "react";
+import { createElement, memo, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { FourDotHandles } from "@/components/graph/handles";
@@ -835,7 +835,6 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
   // ── ARCHITECTURE: Blast-Radius card ──────────────────────────────────────────────────────
   if (isArch) {
     const tint = categoryHex(data.cluster);
-    const DomainIcon = domainIcon(data.cluster);
     return (
       <div
         className={cn(
@@ -857,7 +856,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
             className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
             style={{ background: `color-mix(in oklab, ${tint} 18%, transparent)`, color: tint }}
           >
-            <DomainIcon className="size-4" />
+            {createElement(domainIcon(data.cluster), { className: "size-4" })}
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-start gap-1">
