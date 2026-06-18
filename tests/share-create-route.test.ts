@@ -77,4 +77,42 @@ describe("POST /api/share/create", () => {
     globalThis.fetch = (async () => new Response("nope", { status: 500 })) as typeof fetch;
     expect((await post({ kind: "boards", tabs: ["ROADMAP"] })).status).toBe(502);
   });
+
+  it("pinned mode forwards the admin token + fixed share token to the deploy", async () => {
+    await db.insert(node).values({ view: "ARCHITECTURE", title: "A", cluster: "INFRA" });
+    let headers: Record<string, string> = {};
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      headers = (init?.headers ?? {}) as Record<string, string>;
+      return new Response(JSON.stringify({ token: "beacon", url: `${SITE_URL}/s/beacon` }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    const res = await POST(
+      new Request("http://localhost/api/share/create", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-beacon-admin-token": "secret" },
+        body: JSON.stringify({ kind: "boards", tabs: ["ARCHITECTURE", "DATABASE"], pinned: true, token: "beacon" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(headers["authorization"]).toBe("Bearer secret");
+    expect(headers["x-beacon-share-token"]).toBe("beacon");
+  });
+
+  it("pinned mode 400s when no admin secret is available", async () => {
+    await db.insert(node).values({ view: "ARCHITECTURE", title: "A", cluster: "INFRA" });
+    stubDeploy();
+    const prev = process.env.SHARE_ADMIN_TOKEN;
+    delete process.env.SHARE_ADMIN_TOKEN;
+    const res = await POST(
+      new Request("http://localhost/api/share/create", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind: "boards", tabs: ["ARCHITECTURE"], pinned: true, token: "beacon" }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    if (prev !== undefined) process.env.SHARE_ADMIN_TOKEN = prev;
+  });
 });

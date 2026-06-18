@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { sharedBoard } from "@/lib/feedback/schema";
 import { shareSnapshotSchema, snapshotSummary, type ShareSnapshot } from "@/lib/share-snapshot";
@@ -36,6 +37,21 @@ export function expiresAtFrom(now: number): Date {
   return new Date(now + SHARE_TTL_MS);
 }
 
+/** Bearer-token check gating the PINNED (fixed-token, never-expiring) share path on the open public
+ *  ingest. An unset/empty configured token must NEVER authorize (missing env = locked, not open).
+ *  Constant-time compare. Mirrors the telemetry-stats gate. */
+export function isAuthorizedShareRequest(
+  authorizationHeader: string | null | undefined,
+  configuredToken: string | undefined,
+): boolean {
+  if (!configuredToken) return false;
+  if (!authorizationHeader?.startsWith("Bearer ")) return false;
+  const given = Buffer.from(authorizationHeader.slice("Bearer ".length));
+  const expected = Buffer.from(configuredToken);
+  if (given.length !== expected.length) return false;
+  return timingSafeEqual(given, expected);
+}
+
 // A row's stored expiresAt can come back as a Date (neon timestamp) — normalize defensively.
 function expiresMs(expiresAt: Date | string | number | null): number | null {
   if (expiresAt == null) return null;
@@ -56,8 +72,14 @@ export function interpretSharedRow(
 }
 
 // Minimal shape of the Drizzle handle the writes/reads need — lets a test inject a stub.
+// The write path is an UPSERT (insert→values→onConflictDoUpdate) so a pinned board refreshes the
+// same token row in place instead of colliding on the PK.
 type ShareDb = {
-  insert: (table: typeof sharedBoard) => { values: (row: Record<string, unknown>) => Promise<unknown> };
+  insert: (table: typeof sharedBoard) => {
+    values: (row: Record<string, unknown>) => {
+      onConflictDoUpdate: (cfg: { target: unknown; set: Record<string, unknown> }) => Promise<unknown>;
+    };
+  };
   select: () => {
     from: (table: typeof sharedBoard) => {
       where: (cond: unknown) => { limit: (n: number) => Promise<Array<Record<string, unknown>>> };
@@ -70,23 +92,28 @@ async function resolveDb(): Promise<ShareDb> {
   return feedbackDb() as unknown as ShareDb;
 }
 
-/** Mint a token and write the snapshot row. Returns the token + its expiry. */
+/** Write the snapshot row, upserting on the token so a refresh overwrites in place. Returns the
+ *  token + its expiry. `permanent` stores a null expiry (never 404s — the pinned prod board);
+ *  otherwise the row expires after SHARE_TTL_MS. A custom `token` gives a stable, bookmarkable URL. */
 export async function insertSharedBoard(
   snapshot: ShareSnapshot,
-  opts: { now?: number; token?: string; dbInstance?: ShareDb } = {},
-): Promise<{ token: string; expiresAt: Date }> {
+  opts: { now?: number; token?: string; permanent?: boolean; dbInstance?: ShareDb } = {},
+): Promise<{ token: string; expiresAt: Date | null }> {
   const database = opts.dbInstance ?? (await resolveDb());
   const { createId } = await import("@paralleldrive/cuid2");
   const token = opts.token ?? createId();
-  const expiresAt = expiresAtFrom(opts.now ?? Date.now());
-  await database.insert(sharedBoard).values({
-    token,
+  const expiresAt = opts.permanent ? null : expiresAtFrom(opts.now ?? Date.now());
+  const mutable = {
     payload: JSON.stringify(snapshot),
     selectedTabs: snapshotSummary(snapshot),
     workspaceLabel: snapshot.workspaceLabel,
     version: snapshot.version,
     expiresAt,
-  });
+  };
+  await database
+    .insert(sharedBoard)
+    .values({ token, ...mutable })
+    .onConflictDoUpdate({ target: sharedBoard.token, set: mutable });
   return { token, expiresAt };
 }
 

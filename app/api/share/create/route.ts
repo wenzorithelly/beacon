@@ -12,8 +12,14 @@ import { SITE_URL } from "@/lib/release";
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.discriminatedUnion("kind", [
-  // "boards": share the live boards — All resolves to all three tabs client-side.
-  z.object({ kind: z.literal("boards"), tabs: z.array(z.enum(BOARD_TABS)).min(1) }),
+  // "boards": share the live boards — All resolves to all three tabs client-side. `pinned` + `token`
+  // publish the fixed, never-expiring prod board (gated by SHARE_ADMIN_TOKEN, forwarded below).
+  z.object({
+    kind: z.literal("boards"),
+    tabs: z.array(z.enum(BOARD_TABS)).min(1),
+    pinned: z.boolean().optional(),
+    token: z.string().min(1).optional(),
+  }),
   // "plan": share ONE plan — the open/pending one (no planId) or a past archived one (planId).
   z.object({ kind: z.literal("plan"), planId: z.string().optional() }),
 ]);
@@ -44,10 +50,29 @@ export const POST = pinned(async (req: Request) => {
     );
   }
 
+  // Pinned (prod-board) publish: forward the admin secret + the fixed token so the deploy upserts a
+  // permanent, never-expiring row. The secret comes from the request (the publish script) or the
+  // daemon env — local-only route, so either source is fine. Without it we can't authorize, so 400.
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (body.kind === "boards" && body.pinned) {
+    const secret = req.headers.get("x-beacon-admin-token") ?? process.env.SHARE_ADMIN_TOKEN;
+    if (!secret) {
+      return Response.json(
+        { error: "Set SHARE_ADMIN_TOKEN (env or x-beacon-admin-token header) to publish a pinned board." },
+        { status: 400 },
+      );
+    }
+    if (!body.token) {
+      return Response.json({ error: "A pinned board needs a fixed token." }, { status: 400 });
+    }
+    headers["authorization"] = `Bearer ${secret}`;
+    headers["x-beacon-share-token"] = body.token;
+  }
+
   try {
     const res = await fetch(`${SITE_URL}/api/share`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(snapshot),
       signal: AbortSignal.timeout(8000),
     });

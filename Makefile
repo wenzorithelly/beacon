@@ -1,4 +1,4 @@
-.PHONY: install up down build test test-watch lint db-up db-reset studio db-postgres deploy watch dev publish stats
+.PHONY: install up down build test test-watch lint db-up db-reset studio db-postgres deploy watch dev publish stats publish-board
 
 install:    ## install deps
 	bun install
@@ -53,6 +53,12 @@ stats:      ## telemetry: unique active machines (dau/wau/mau + per-version), fr
 	  curl -sf -H "Authorization: Bearer $$TOKEN" https://www.trybeacon.sh/api/telemetry/stats \
 	  | jq -r '"\n  ◉ Beacon active machines\n  today:  \(.dau)\n  7 days: \(.wau)\n  30 days:\(.mau)\n  CI:     \(.ciMachines)\n\n  by version (30d):", (.byVersion[] | "    \(.version)  \(.machines)"), ""' \
 	  || echo "stats unavailable — check the token and https://www.trybeacon.sh/api/telemetry/stats"
+
+publish-board: ## publish/refresh the pinned prod contributor board (Architecture+DB, never-expiring /s/<slug>)
+	@# Needs the local `beacon` daemon running. Token from env or ~/.beacon/share-admin-token.txt (== the deploy's SHARE_ADMIN_TOKEN).
+	@TOKEN=$${SHARE_ADMIN_TOKEN:-$$(cat ~/.beacon/share-admin-token.txt 2>/dev/null)}; \
+	  if [ -z "$$TOKEN" ]; then echo "missing SHARE_ADMIN_TOKEN (env or ~/.beacon/share-admin-token.txt)"; exit 1; fi; \
+	  SHARE_ADMIN_TOKEN="$$TOKEN" bun scripts/publish-prod-board.ts
 
 publish:    ## ship edits to the prod default: bump + rebuild + publish to npm, then refresh your global `beacon`
 	@# Bump the version (npm won't republish the same one). No git tag/commit — you control commits.

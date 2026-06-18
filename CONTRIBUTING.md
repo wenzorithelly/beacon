@@ -6,17 +6,16 @@ step every contributor must complete (the CLA).
 
 ## Start here: the live map of Beacon
 
-Before writing any code, explore Beacon's own architecture, database schema, and roadmap on a
-read-only board — the same canvases Beacon renders for any repo, generated from this codebase:
+Before writing any code, explore Beacon's own architecture and database schema on a read-only
+board — the same canvases Beacon renders for any repo, generated from this codebase:
 
-**👉 https://www.trybeacon.sh/s/ati063uitkq3wrb6calccz8j**
+**👉 https://www.trybeacon.sh/s/beacon**
 
 - **Architecture** — the subsystems (CLI, MCP server, plan loop, code-intelligence daemon, …)
   and how they depend on each other.
 - **Database** — every table, its columns (PK/FK markers), and the endpoints that touch them.
-- **Roadmap** — what's shipped, in progress, and open to pick up.
 
-It's a snapshot, so it may trail `main` slightly; the source is always the ground truth.
+It's a snapshot of `main`, so it may trail slightly; the source is always the ground truth.
 
 ## Contributor License Agreement (required)
 

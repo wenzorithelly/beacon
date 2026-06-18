@@ -118,7 +118,7 @@ Opt out any time with `beacon telemetry off`, `BEACON_TELEMETRY_DISABLED=1`, or 
 ## Contributing
 
 Contributions are welcome! New here? Explore Beacon's own
-**[architecture, database & roadmap board](https://www.trybeacon.sh/s/ati063uitkq3wrb6calccz8j)**
+**[architecture & database board](https://www.trybeacon.sh/s/beacon)**
 (read-only, generated from this codebase) before you start.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and the workflow.

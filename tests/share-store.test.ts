@@ -3,6 +3,7 @@ import {
   parseShareSnapshot,
   insertSharedBoard,
   interpretSharedRow,
+  isAuthorizedShareRequest,
   expiresAtFrom,
   MAX_SNAPSHOT_BYTES,
   SHARE_TTL_MS,
@@ -44,21 +45,73 @@ describe("parseShareSnapshot", () => {
   });
 });
 
+// Stub of the Drizzle upsert chain: db.insert(t).values(row).onConflictDoUpdate(cfg).
+// Captures the inserted row and any conflict config so tests can assert both.
+function captureDb(
+  rows: Array<Record<string, unknown>>,
+  conflicts: Array<Record<string, unknown>> = [],
+) {
+  return {
+    insert: () => ({
+      values: (row: Record<string, unknown>) => {
+        rows.push(row);
+        return { onConflictDoUpdate: async (cfg: Record<string, unknown>) => void conflicts.push(cfg) };
+      },
+    }),
+  } as never;
+}
+
 describe("insertSharedBoard", () => {
-  it("writes the row a deploy expects (token, summary, json payload, expiry)", async () => {
-    const captured: Array<Record<string, unknown>> = [];
-    const fakeDb = {
-      insert: () => ({ values: async (row: Record<string, unknown>) => void captured.push(row) }),
-    } as never;
-    const { token } = await insertSharedBoard(snap(), { dbInstance: fakeDb, token: "tok", now: 0 });
+  it("writes the row a deploy expects (token, summary, json payload, 7-day expiry)", async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    const { token } = await insertSharedBoard(snap(), { dbInstance: captureDb(rows), token: "tok", now: 0 });
     expect(token).toBe("tok");
-    expect(captured[0]).toMatchObject({
+    expect(rows[0]).toMatchObject({
       token: "tok",
       selectedTabs: "ROADMAP,DATABASE",
       payload: JSON.stringify(snap()),
       version: SHARE_SNAPSHOT_VERSION,
     });
-    expect((captured[0].expiresAt as Date).getTime()).toBe(SHARE_TTL_MS);
+    expect((rows[0].expiresAt as Date).getTime()).toBe(SHARE_TTL_MS);
+  });
+
+  it("writes a null expiry for a permanent board", async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    const { expiresAt } = await insertSharedBoard(snap(), {
+      dbInstance: captureDb(rows),
+      token: "beacon",
+      permanent: true,
+      now: 0,
+    });
+    expect(rows[0].expiresAt).toBeNull();
+    expect(expiresAt).toBeNull();
+  });
+
+  it("upserts on the token so a pinned refresh overwrites in place", async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    const conflicts: Array<Record<string, unknown>> = [];
+    await insertSharedBoard(snap(), { dbInstance: captureDb(rows, conflicts), token: "beacon", permanent: true });
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toHaveProperty("set");
+    expect((conflicts[0].set as Record<string, unknown>).payload).toBe(JSON.stringify(snap()));
+    expect((conflicts[0].set as Record<string, unknown>).expiresAt).toBeNull();
+  });
+});
+
+describe("isAuthorizedShareRequest", () => {
+  it("rejects when no admin token is configured (unset = locked)", () => {
+    expect(isAuthorizedShareRequest("Bearer x", undefined)).toBe(false);
+    expect(isAuthorizedShareRequest("Bearer x", "")).toBe(false);
+  });
+
+  it("rejects a wrong or malformed authorization header", () => {
+    expect(isAuthorizedShareRequest("Bearer nope", "secret")).toBe(false);
+    expect(isAuthorizedShareRequest("secret", "secret")).toBe(false); // missing Bearer prefix
+    expect(isAuthorizedShareRequest(null, "secret")).toBe(false);
+  });
+
+  it("accepts the exact Bearer admin token", () => {
+    expect(isAuthorizedShareRequest("Bearer secret", "secret")).toBe(true);
   });
 });
 
