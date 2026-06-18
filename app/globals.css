@@ -134,6 +134,18 @@
       radial-gradient(48rem 40rem at 112% 8%, oklch(0.6 0.2 300 / 0.1), transparent 55%),
       radial-gradient(46rem 34rem at 50% 118%, oklch(0.6 0.13 250 / 0.08), transparent 60%);
     background-attachment: fixed;
+    /* App-wide typography: `pretty` runs a multi-line look-ahead so wrapped prose avoids
+       orphans (a lone last-line word) and short rags. text-wrap is INHERITED, so this one rule
+       covers markdown prose, node descriptions, notes, etc., and is a no-op on single-line /
+       nowrap / pre text (canvas labels, code) — no perf cost where there's nothing to wrap. */
+    text-wrap: pretty;
+  }
+  /* Short headings read better with balanced line lengths than with `pretty`. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
   }
   html {
     @apply font-sans;
