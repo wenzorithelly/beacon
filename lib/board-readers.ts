@@ -20,7 +20,12 @@ export async function readRoadmapBoard(
   view: "ROADMAP" | "ARCHITECTURE",
 ): Promise<{ nodes: MapNodePayload[]; edges: MapEdgePayload[] }> {
   const nodes = await db.query.node.findMany({
-    where: (n, { eq }) => eq(n.view, view),
+    // Exclude the DRAFT layer: a plan under review lives ONLY on /plan (which has its own
+    // source="DRAFT" query). The live /map roadmap + share snapshots must show only real
+    // cards — merely PRESENTING a plan must never surface its proposals here, only an
+    // approval (which promotes DRAFT→MANUAL) does. Mirrors ensureBoardArranged + the
+    // /api/plan dedup, which already exclude DRAFT.
+    where: (n, { and, eq, ne }) => and(eq(n.view, view), ne(n.source, "DRAFT")),
     // createdAt order is the deterministic tie-break for "work on next".
     orderBy: (n, { asc }) => asc(n.createdAt),
     with: {
@@ -32,7 +37,7 @@ export async function readRoadmapBoard(
 
   // Filter edges to those whose BOTH endpoints are nodes of this view. The relational query API
   // can't filter by a related field, so resolve the view's node ids first and intersect.
-  const viewNodeIds = sql`(select "id" from "Node" where "view" = ${view})`;
+  const viewNodeIds = sql`(select "id" from "Node" where "view" = ${view} and "source" <> 'DRAFT')`;
   const dbEdges = await db.query.edge.findMany({
     where: (e, { and: a, inArray: inArr }) =>
       a(inArr(e.fromId, viewNodeIds), inArr(e.toId, viewNodeIds)),

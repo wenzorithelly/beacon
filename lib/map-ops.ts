@@ -48,7 +48,11 @@ export interface MapView {
 
 export async function listMap(): Promise<MapView> {
   const nodes = await db.query.node.findMany({
-    where: (t, { eq }) => eq(t.view, "ROADMAP"),
+    // DRAFT = a plan still under review (it owns the /plan board); never surface it on the
+    // live roadmap the agent reads via beacon_map, so a presented-but-unapproved proposal
+    // can't masquerade as a real card (and the /api/plan dedup, which also excludes DRAFT,
+    // stays consistent with what beacon_map reports).
+    where: (t, { and, eq, ne }) => and(eq(t.view, "ROADMAP"), ne(t.source, "DRAFT")),
     orderBy: (t, { asc }) => asc(t.createdAt),
   });
   const card = (n: (typeof nodes)[number]): MapCard => ({
