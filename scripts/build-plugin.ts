@@ -43,6 +43,7 @@ export const PLUGIN_PAYLOAD = [
   "next.config.ts",
   "package.json",
   "bun.lock",
+  "LICENSE",
 ] as const;
 
 // The three skills, sourced from lib/assets.ts so the plugin and the npm install ship identical
@@ -61,6 +62,7 @@ export function pluginManifest(version: string) {
     homepage: "https://trybeacon.sh",
     author: { name: "Beacon" },
     repository: PLUGIN_REPO_URL,
+    license: "MIT",
   };
 }
 

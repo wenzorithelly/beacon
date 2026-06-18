@@ -473,6 +473,14 @@ export function Landing() {
             <nav className="flex items-center gap-6 text-sm w-muted">
               <a href="/docs" className="transition-colors hover:text-foreground">Docs</a>
               <a href="#" className="transition-colors hover:text-foreground">Changelog</a>
+              <a
+                href="https://github.com/wenzorithelly/beacon-plugin/blob/main/LICENSE"
+                target="_blank"
+                rel="noreferrer"
+                className="transition-colors hover:text-foreground"
+              >
+                MIT License
+              </a>
             </nav>
             <p className="w-mono w-muted text-[0.72rem]">
               Created by{" "}

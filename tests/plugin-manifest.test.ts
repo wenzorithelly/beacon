@@ -26,6 +26,10 @@ describe("plugin manifest", () => {
   it("pins the public marketplace repo URL (string form per the plugin schema)", () => {
     expect(pluginManifest("9.9.9").repository).toBe("https://github.com/wenzorithelly/beacon-plugin");
   });
+
+  it("declares the MIT license", () => {
+    expect(pluginManifest("9.9.9").license).toBe("MIT");
+  });
 });
 
 describe("marketplace manifest", () => {
