@@ -62,7 +62,7 @@ export function pluginManifest(version: string) {
     homepage: "https://trybeacon.sh",
     author: { name: "Beacon" },
     repository: PLUGIN_REPO_URL,
-    license: "MIT",
+    license: "Apache-2.0",
   };
 }
 
