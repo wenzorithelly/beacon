@@ -5,7 +5,7 @@ import { node, nodeFile, edge, appSetting, bugFlag } from "@/lib/drizzle/schema"
 import { bumpVersion } from "@/lib/ingest";
 import { prunePlannedEntities } from "@/lib/plan-lineage";
 import { matchFeature, type Scored } from "@/lib/match";
-import { validateFeatureCreation, validateFront } from "@/lib/feature-rules";
+import { collidesWith, validateFeatureCreation, validateFront } from "@/lib/feature-rules";
 import { normalizeLayer } from "@/lib/layer";
 import { resolveHasFrontend } from "@/lib/project-meta";
 import { placeInGroup, placeWithoutOverlap } from "@/lib/node-placement";
@@ -219,7 +219,7 @@ export async function ensureBoardArranged(view: "ROADMAP" | "ARCHITECTURE"): Pro
   const all = await db.query.node.findMany({
     where: (t, { eq }) => eq(t.view, view),
     orderBy: (t, { asc }) => asc(t.createdAt),
-    columns: { id: true, parentId: true, source: true, cluster: true, status: true, priority: true, x: true, y: true },
+    columns: { id: true, parentId: true, source: true, cluster: true, status: true, priority: true, title: true, role: true, x: true, y: true },
   });
   const nodes = all.filter((n) => n.source !== "DRAFT");
   // Nothing worth arranging yet — don't burn the one-shot, so the board still tidies itself
@@ -241,6 +241,10 @@ export async function ensureBoardArranged(view: "ROADMAP" | "ARCHITECTURE"): Pro
         cluster: n.cluster,
         status: n.status,
         priority: n.priority,
+        // Feed the title + role so the layout reserves enough vertical room for the full-LOD
+        // (zoomed-in) card — a long, multi-line title no longer overlaps the slot below it.
+        title: n.title,
+        role: n.role,
       })),
       by,
     );
@@ -306,9 +310,16 @@ export async function startFeature(input: {
     }
   }
 
+  // The "add" intent only collides with a same-named card in the SAME (category, layer) bucket —
+  // a same-named card in a different category or layer is allowed, so filter the match pool to the
+  // proposed card's bucket. The "start" intent (find-and-flag a named card) matches across all
+  // cards, so the agent can flag a feature by title without restating its category/layer.
+  const matchPool = flagExisting
+    ? nodes
+    : nodes.filter((n) => collidesWith(n, { cluster: input.cluster, layer: input.layer }));
   const { best, candidates } = matchFeature(
     title,
-    nodes.map((n) => ({ id: n.id, title: n.title })),
+    matchPool.map((n) => ({ id: n.id, title: n.title })),
   );
   if (best) {
     if (!flagExisting) {
@@ -481,16 +492,21 @@ export type ArchComponentInput = z.input<typeof archComponentSchema>;
 
 export async function upsertArchitectureComponents(input: unknown[]): Promise<number> {
   const parsed = z.array(archComponentSchema).parse(input);
-  // De-dup by title (last wins) so a repeated title in one call updates rather than duplicates.
+  // Dedup BUCKET = title + domain: a same-named component in a DIFFERENT domain is its OWN node,
+  // but the SAME title+domain is one component (layer is a mutable attribute, updated in place).
+  const bucketKey = (title: string, domain: string | null | undefined) =>
+    `${title.trim().toLowerCase()} ${(domain ?? "").trim().toLowerCase()}`;
   const byKey = new Map<string, z.infer<typeof archComponentSchema>>();
-  for (const c of parsed) byKey.set(c.title.toLowerCase(), c);
+  for (const c of parsed) byKey.set(bucketKey(c.title, c.domain), c);
   const components = Array.from(byKey.values());
   if (!components.length) return 0;
 
   const existing = await db.query.node.findMany({
     where: (t, { eq }) => eq(t.view, "ARCHITECTURE"),
   });
-  const nodeByTitle = new Map(existing.map((n) => [n.title.toLowerCase(), n]));
+  // Match a component to an existing node by the (title, domain) bucket; idByTitle stays
+  // title-keyed because `depends`/bug references name a component by bare title only.
+  const nodeByKey = new Map(existing.map((n) => [bucketKey(n.title, n.cluster), n]));
   const idByTitle = new Map<string, string>(existing.map((n) => [n.title.toLowerCase(), n.id]));
 
   // New components land INSIDE their domain's region (shortest masonry column); a brand-new
@@ -503,9 +519,9 @@ export async function upsertArchitectureComponents(input: unknown[]): Promise<nu
   }));
 
   for (const c of components) {
-    const key = c.title.toLowerCase();
+    const ckey = bucketKey(c.title, c.domain);
     const status = c.status && ARCH_STATUSES.has(c.status) ? c.status : "KEEP";
-    const prior = nodeByTitle.get(key);
+    const prior = nodeByKey.get(ckey);
     if (prior) {
       await db
         .update(node)
@@ -550,7 +566,7 @@ export async function upsertArchitectureComponents(input: unknown[]): Promise<nu
           .insert(nodeFile)
           .values(Array.from(new Set(c.files)).map((path) => ({ nodeId: created.id, path })));
       }
-      idByTitle.set(key, created.id);
+      idByTitle.set(c.title.toLowerCase(), created.id);
     }
   }
 

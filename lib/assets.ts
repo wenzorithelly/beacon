@@ -228,14 +228,14 @@ When the workspace HAS A FRONTEND (Beacon knows — the agent set \`hasFrontend\
 ### Adding a card directly — \`beacon_feature\` (no review gate)
 
 To put a card on the board WITHOUT the plan-review flow, call \`beacon_feature\` — ONE tool for a feature's whole lifecycle:
-- \`{ action: "add" }\` creates a card in a SINGLE call. It defaults to \`status: "backlog"\` (a PENDING item you're NOT working on yet); pass \`status: "active"\` to start it IN_PROGRESS now. A title that matches an existing card returns \`exists\` (reuse it) — \`add\` never activates or demotes a card already on the board.
+- \`{ action: "add" }\` creates a card in a SINGLE call. It defaults to \`status: "backlog"\` (a PENDING item you're NOT working on yet); pass \`status: "active"\` to start it IN_PROGRESS now. A title that matches an existing card in the SAME category + layer returns \`exists\` (reuse it) — the same title in a DIFFERENT category or layer (FE/BE/FS) creates a distinct card; \`add\` never activates or demotes a card already on the board.
 - \`{ action: "start" }\` marks an existing card IN_PROGRESS (create-or-flag).
 - \`{ action: "subtasks" }\` adds child tasks under a card.
 - \`{ action: "done" }\` completes feature(s) and registers the files/architecture touched.
 
 A NEW card REQUIRES \`category\` + \`priority\` (and \`layer\` where the workspace has a frontend). Use \`beacon_propose_plan\` / \`beacon_present_plan\` only when you want the user to REVIEW before the card lands.
 
-REUSE before you create. Call \`beacon_map\` FIRST — it lists every card with its \`category\`, \`priority\`, \`layer\` and \`status\`, so you reuse an existing category (don't invent a near-synonym) and spot duplicates WITHOUT calling \`beacon_entities\`. Beacon HARD-BLOCKS a feature that duplicates an existing one (it returns the existing feature to use instead) and one created without a category. \`category\` is the ONLY domain field. \`front\` (in \`beacon_feature\`) nests a card UNDER an existing parent feature — it is NOT a domain tag; a \`front\` that matches no real feature is rejected.
+REUSE before you create. Call \`beacon_map\` FIRST — it lists every card with its \`category\`, \`priority\`, \`layer\` and \`status\`, so you reuse an existing category (don't invent a near-synonym) and spot duplicates WITHOUT calling \`beacon_entities\`. Beacon blocks only an EXACT duplicate — same title AND category AND layer — plus a card created without a category; a same-named card in a DIFFERENT category, or on a different layer (frontend/backend/fullstack), is allowed as its own card. \`category\` is the ONLY domain field. \`front\` (in \`beacon_feature\`) nests a card UNDER an existing parent feature — it is NOT a domain tag; a \`front\` that matches no real feature is rejected.
 
 When listing features, give each \`dependsOn: ["Other feature title", …]\` for any feature that must ship after another in the same plan. Beacon draws these as "depends on" links so the roadmap shows the dependency chain instead of loose, disconnected cards.
 

@@ -10,11 +10,11 @@ afterEach(async () => {
 });
 
 describe("dedupeRoadmapByTitle", () => {
-  it("collapses same-title roadmap nodes, keeping the DONE one and merging files + category", async () => {
-    // Re-approving an existing feature left a DONE original + a PENDING copy.
+  it("collapses true duplicates (same title + category), keeping the DONE one and merging files", async () => {
+    // Re-approving an existing feature left a DONE original + a PENDING copy in the SAME category.
     const [done] = await db
       .insert(node)
-      .values({ view: "ROADMAP", source: "MANUAL", title: "Normalization layer", status: "DONE" })
+      .values({ view: "ROADMAP", source: "MANUAL", title: "Normalization layer", status: "DONE", cluster: "DATA" })
       .returning();
     await db.insert(nodeFile).values({ nodeId: done.id, path: "app/models/legal_type.py" });
     const [copy] = await db
@@ -40,12 +40,34 @@ describe("dedupeRoadmapByTitle", () => {
     expect(survivors).toHaveLength(1);
     const keeper = survivors[0];
     expect(keeper.id).toBe(done.id); // the DONE node won
-    expect(keeper.cluster).toBe("DATA"); // category backfilled from the dropped copy
+    expect(keeper.cluster).toBe("DATA");
     expect(keeper.priority).toBe(1); // most-urgent priority kept
     expect(keeper.files.map((f) => f.path).sort()).toEqual([
       "app/models/legal_type.py",
       "app/repositories/legal_type.py",
     ]);
+  });
+
+  it("does NOT collapse same-title cards in different categories (intentional distinct cards)", async () => {
+    await db
+      .insert(node)
+      .values({ view: "ROADMAP", source: "MANUAL", title: "Search", status: "DONE", cluster: "DATA" });
+    await db
+      .insert(node)
+      .values({ view: "ROADMAP", source: "MANUAL", title: "Search", status: "PENDING", cluster: "UI" });
+    expect(await dedupeRoadmapByTitle()).toBe(0);
+    expect((await db.select({ n: count() }).from(node).where(eq(node.view, "ROADMAP")))[0].n).toBe(2);
+  });
+
+  it("does NOT collapse same-title + same-category cards on different layers (FE/BE split)", async () => {
+    await db
+      .insert(node)
+      .values({ view: "ROADMAP", source: "MANUAL", title: "Search", status: "PENDING", cluster: "SEARCH", layer: "frontend" });
+    await db
+      .insert(node)
+      .values({ view: "ROADMAP", source: "MANUAL", title: "Search", status: "PENDING", cluster: "SEARCH", layer: "backend" });
+    expect(await dedupeRoadmapByTitle()).toBe(0);
+    expect((await db.select({ n: count() }).from(node).where(eq(node.view, "ROADMAP")))[0].n).toBe(2);
   });
 
   it("is case/whitespace-insensitive on the title", async () => {

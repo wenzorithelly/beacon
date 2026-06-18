@@ -133,6 +133,35 @@ describe("validateFeatureCreation", () => {
     ).toBeNull();
   });
 
+  it("allows a SAME-title feature in a different category", () => {
+    // "Expand corpus coverage" exists in DATA — the same title under SEARCH is a distinct card.
+    expect(
+      validateFeatureCreation({ title: "Expand corpus coverage", category: "SEARCH", existing: ROADMAP }),
+    ).toBeNull();
+  });
+
+  it("allows a SAME-title + same-category feature on a different layer", () => {
+    const existing = [
+      { id: "x", title: "Search", cluster: "SEARCH", layer: "backend", status: "PENDING" },
+    ];
+    expect(
+      validateFeatureCreation({ title: "Search", category: "SEARCH", layer: "frontend", existing }),
+    ).toBeNull();
+  });
+
+  it("still blocks an exact duplicate (same title + category + layer)", () => {
+    const existing = [
+      { id: "x", title: "Search", cluster: "SEARCH", layer: "backend", status: "PENDING" },
+    ];
+    const err = validateFeatureCreation({
+      title: "Search",
+      category: "SEARCH",
+      layer: "backend",
+      existing,
+    })!;
+    expect(err.toLowerCase()).toContain("already");
+  });
+
   it("rejects a blank title", () => {
     expect(validateFeatureCreation({ title: "   ", category: "DATA", existing: ROADMAP })).toContain("title");
   });
@@ -168,13 +197,43 @@ describe("validateNoDuplicateFeatures", () => {
   it("passes when no proposed feature matches an existing one", () => {
     expect(validateNoDuplicateFeatures([{ title: "Stripe billing webhooks" }], ROADMAP)).toBeNull();
   });
-  it("flags only the proposed feature that duplicates an existing one", () => {
+  it("flags only the proposed feature that duplicates an existing one (same category)", () => {
     const err = validateNoDuplicateFeatures(
-      [{ title: "Expand corpus coverage" }, { title: "Stripe billing webhooks" }],
+      [
+        { title: "Expand corpus coverage", cluster: "DATA" },
+        { title: "Stripe billing webhooks", cluster: "DATA" },
+      ],
       ROADMAP,
     )!;
     expect(err).toContain("Expand corpus coverage");
     expect(err).not.toContain("Stripe");
+  });
+
+  it("ALLOWS a same-title feature in a DIFFERENT category", () => {
+    // "Expand corpus coverage" exists in DATA; the same title under SEARCH is a distinct card.
+    expect(
+      validateNoDuplicateFeatures([{ title: "Expand corpus coverage", cluster: "SEARCH" }], ROADMAP),
+    ).toBeNull();
+  });
+
+  it("ALLOWS a same-title + same-category feature on a DIFFERENT layer", () => {
+    const existing = [
+      { id: "x", title: "Search", cluster: "SEARCH", layer: "backend", status: "PENDING" },
+    ];
+    expect(
+      validateNoDuplicateFeatures([{ title: "Search", cluster: "SEARCH", layer: "frontend" }], existing),
+    ).toBeNull();
+  });
+
+  it("still blocks an exact duplicate (same title + category + layer)", () => {
+    const existing = [
+      { id: "x", title: "Search", cluster: "SEARCH", layer: "backend", status: "PENDING" },
+    ];
+    const err = validateNoDuplicateFeatures(
+      [{ title: "Search", cluster: "SEARCH", layer: "backend" }],
+      existing,
+    )!;
+    expect(err).toContain("Search");
   });
 });
 

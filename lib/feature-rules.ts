@@ -24,6 +24,27 @@ export function featureCategory(f: FeatureLike): string | null {
   return f.cluster ?? f.category ?? f.domain ?? null;
 }
 
+// Does an EXISTING card collide with a CANDIDATE (a proposed feature / an `add`)? It collides
+// when it matches every dimension the candidate SPECIFIED — an omitted category or layer is a
+// wildcard (so a bare `add` still reuses an existing card), but a SPECIFIED category or layer
+// that DIFFERS makes the candidate a distinct card. Net effect: a same-named card is allowed only
+// when it deliberately differs in category or layer (frontend / backend / fullstack). Legacy
+// uncategorized cards still collide with each other (empty category matches empty).
+type BucketKeyed = {
+  cluster?: string | null;
+  category?: string | null;
+  domain?: string | null;
+  layer?: string | null;
+};
+export function collidesWith(existing: BucketKeyed, candidate: BucketKeyed): boolean {
+  const cat = (x: BucketKeyed) => (x.cluster ?? x.category ?? x.domain ?? "").trim().toLowerCase();
+  const candCat = cat(candidate);
+  if (candCat && candCat !== cat(existing)) return false;
+  const candLayer = normalizeLayer(candidate.layer ?? null);
+  if (candLayer && candLayer !== normalizeLayer(existing.layer ?? null)) return false;
+  return true;
+}
+
 // Returns an agent-facing rejection message when any feature is missing its category/priority
 // (and, when the workspace has a frontend, its layer), or null when every feature is complete.
 export function validateProposedFeatures(
@@ -66,6 +87,9 @@ export interface ExistingFeature {
   id: string;
   title: string;
   cluster?: string | null;
+  /** Which side of the stack — part of the dedup bucket, so a same-named card on a different
+   *  layer (FE/BE/FS) isn't treated as a duplicate. */
+  layer?: string | null;
   status?: string | null;
 }
 
@@ -115,12 +139,17 @@ export function validateFeatureCreation(input: {
     );
   }
 
+  // Only same-(category, layer) cards collide: a same-named card in a different category or layer
+  // is a distinct card, so it's never blocked as a duplicate.
+  const bucket = input.existing.filter((e) =>
+    collidesWith(e, { category, layer: input.layer }),
+  );
   const dup = matchFeature(
     title,
-    input.existing.map((f) => ({ id: f.id, title: f.title })),
+    bucket.map((f) => ({ id: f.id, title: f.title })),
   );
   if (dup.best) {
-    const f = input.existing.find((e) => e.id === dup.best!.id);
+    const f = bucket.find((e) => e.id === dup.best!.id);
     const status = f?.status ? ` (${f.status})` : "";
     return (
       `⛔ "${title}" already exists as the feature "${f?.title ?? dup.best.title}"${status}. Don't ` +
@@ -135,14 +164,19 @@ export function validateFeatureCreation(input: {
  *  feature whose title confidently matches an EXISTING (non-draft) roadmap feature, so the agent
  *  reuses it instead of shadowing it. Returns a rejection message, or null when all are new. */
 export function validateNoDuplicateFeatures(
-  features: { title: string }[],
+  features: FeatureLike[],
   existing: ExistingFeature[],
 ): string | null {
-  const cands = existing.map((e) => ({ id: e.id, title: e.title }));
   const dups = features
     .map((f) => {
-      const m = matchFeature(f.title ?? "", cands);
-      return m.best ? { title: f.title, hit: existing.find((e) => e.id === m.best!.id)! } : null;
+      // Only same-(category, layer) cards can collide — a same-named card in a different category
+      // or on a different layer (FE/BE/FS) is a distinct card, never flagged as a duplicate.
+      const bucket = existing.filter((e) => collidesWith(e, f));
+      const m = matchFeature(
+        f.title ?? "",
+        bucket.map((e) => ({ id: e.id, title: e.title })),
+      );
+      return m.best ? { title: f.title, hit: bucket.find((e) => e.id === m.best!.id)! } : null;
     })
     .filter((x): x is { title: string; hit: ExistingFeature } => x !== null);
   if (!dups.length) return null;

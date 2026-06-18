@@ -213,6 +213,8 @@ export async function persistRoadmap(roadmap: RoadmapItem[]): Promise<number> {
     cluster: r.category ?? r.cluster ?? null,
     status: "PENDING",
     priority: r.priority ?? 2,
+    // Height-aware spacing for long-title items (init uses `why`→plain, so no role sub-line).
+    title: r.title,
   }));
   const pos = layoutRoadmap(items, "cluster");
   for (let i = 0; i < roadmap.length; i++) {
@@ -255,7 +257,9 @@ export async function dedupeRoadmapByTitle(): Promise<number> {
   });
   const groups = new Map<string, typeof nodes>();
   for (const n of nodes) {
-    const key = n.title.trim().toLowerCase();
+    // Collapse only TRUE duplicates — same title AND category AND layer. A same-named card in a
+    // different category or layer (FE/BE/FS) is an intentional, distinct card and is left alone.
+    const key = `${n.title.trim().toLowerCase()} ${(n.cluster ?? "").trim().toLowerCase()} ${normalizeLayer(n.layer) ?? ""}`;
     const arr = groups.get(key);
     if (arr) arr.push(n);
     else groups.set(key, [n]);

@@ -60,6 +60,21 @@ describe("upsertArchitectureComponents — curated, never one-per-file", () => {
     expect(e).not.toBeUndefined();
   });
 
+  it("keeps a same-named component in a DIFFERENT domain as its own node (not a merge)", async () => {
+    await db
+      .insert(node)
+      .values({ view: "ARCHITECTURE", source: "INIT", title: "Store", cluster: "DATA", status: "KEEP", x: 0, y: 0 })
+      .returning();
+    // Same title, different domain → a distinct component, so upsert CREATES rather than merges.
+    const n = await upsertArchitectureComponents([{ title: "Store", domain: "UI", role: "ui store" }]);
+    expect(n).toBe(1);
+    const stores = await db.query.node.findMany({
+      where: (t, { and, eq }) => and(eq(t.view, "ARCHITECTURE"), eq(t.title, "Store")),
+    });
+    expect(stores).toHaveLength(2); // DATA store + the new UI store coexist
+    expect(stores.map((s) => s.cluster).sort()).toEqual(["DATA", "UI"]);
+  });
+
   it("ignores an invalid status and falls back to KEEP", async () => {
     await upsertArchitectureComponents([{ title: "X", domain: "UI", status: "BOGUS" }]);
     const x = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.title, "X") });

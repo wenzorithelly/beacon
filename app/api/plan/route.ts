@@ -134,7 +134,7 @@ export async function POST(req: Request) {
         // proposal can't silently shadow a feature that's already there.
         const existing = await db.query.node.findMany({
           where: (n, { and: a, eq: eqf, ne }) => a(eqf(n.view, "ROADMAP"), ne(n.source, "DRAFT")),
-          columns: { id: true, title: true, cluster: true, status: true },
+          columns: { id: true, title: true, cluster: true, layer: true, status: true },
         });
         const dupErr = validateNoDuplicateFeatures(featureInput, existing);
         if (dupErr) return Response.json({ error: dupErr }, { status: 422 });
