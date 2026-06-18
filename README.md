@@ -117,7 +117,11 @@ Opt out any time with `beacon telemetry off`, `BEACON_TELEMETRY_DISABLED=1`, or 
 
 ## Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and the workflow.
+Contributions are welcome! New here? Explore Beacon's own
+**[architecture, database & roadmap board](https://www.trybeacon.sh/s/ati063uitkq3wrb6calccz8j)**
+(read-only, generated from this codebase) before you start.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and the workflow.
 All contributors sign a one-click [CLA](./CLA.md), and the project follows a
 [Code of Conduct](./CODE_OF_CONDUCT.md). For dependency/licensing rules see
 [OSS-POLICY.md](./OSS-POLICY.md); to report a vulnerability see [SECURITY.md](./SECURITY.md).
