@@ -45,6 +45,8 @@ function mod(rel: string): string {
 //   beacon stop       — stop the shared daemon
 //   beacon remove     — delete a workspace (unregister + wipe its ~/.beacon/<id>/ data)
 //   beacon setup      — (re-)install per-repo skills + .mcp.json in CWD
+//   beacon init-persist — /beacon-init's self-bootstrap fallback: wire the repo + POST the
+//                       analysis JSON (file arg or stdin) to /api/init when the MCP tool is absent
 //   beacon doctor     — audit install state (global hooks/skills + this repo's wiring)
 //   beacon uninstall  — reverse every Beacon artifact (global + per-repo)
 //   beacon update     — update the installed `trybeacon` package to the latest release
@@ -69,6 +71,8 @@ if (sub === "mcp") {
   await import(mod("bin/remove.ts"));
 } else if (sub === "setup") {
   await setupRepo(gitToplevel() || cwd);
+} else if (sub === "init-persist") {
+  await initPersist(process.argv[3]);
 } else if (sub === "doctor") {
   await import(mod("bin/doctor.ts"));
 } else if (sub === "uninstall") {
@@ -122,6 +126,78 @@ async function setupRepo(repo: string, quiet = false) {
     console.log(`  → in this repo, run /beacon-init in your agent (Claude Code or Codex) to map the repo.\n`);
   }
   return { initSkill, refreshSkill, mcp, codexSkills, heal };
+}
+
+// `beacon init-persist [file]` — the /beacon-init skill's bootstrap-and-persist fallback for a repo
+// that was never opened with `beacon`. In that case .mcp.json is absent, so `beacon mcp` never
+// started and the `beacon_init_persist` MCP tool isn't in the current agent session — and MCP tools
+// can't be added mid-session. This command does what bare `beacon` does to WIRE the repo (install
+// .mcp.json + skills, heal the global ~/.claude layer, start the daemon) and then POSTs the analysis
+// the agent already produced straight to /api/init — the SAME endpoint the MCP tool hits — so
+// /beacon-init completes in the CURRENT session. The next session then gets the beacon_* tools
+// natively. The analysis JSON is read from `file`, or from stdin when no path is given.
+async function initPersist(file?: string) {
+  const repo = gitToplevel() || cwd;
+  const { idForPath, isRegistrableWorkspacePath, BEACON_WS_PATH_HEADER } = await import(mod("lib/workspaces.ts"));
+  if (!isRegistrableWorkspacePath(repo)) {
+    console.error(
+      `[beacon] refusing to init ${repo} — that's your home directory, not a project.\n` +
+        "          cd into a repo (or run `git init` there) and try again.",
+    );
+    process.exit(1);
+  }
+
+  // Read the analysis payload FIRST so a missing/empty payload fails fast — before we wire anything
+  // or spawn the daemon. fd 0 is stdin (the skill can pipe it instead of writing a temp file).
+  let raw = "";
+  try {
+    raw = readFileSync(file ?? 0, "utf8").trim();
+  } catch (e) {
+    console.error(
+      `[beacon] could not read the init analysis ${file ? `from ${file}` : "from stdin"}: ` +
+        `${e instanceof Error ? e.message : e}`,
+    );
+    process.exit(1);
+  }
+  if (!raw) {
+    console.error(
+      "[beacon] empty init analysis — pass the JSON as a file argument (`beacon init-persist analysis.json`) or on stdin.",
+    );
+    process.exit(1);
+  }
+
+  // Wire the repo (idempotent): skills + .mcp.json + global self-heal, so the NEXT agent session
+  // gets the beacon_* MCP tools natively. Then start (or find) the shared daemon — it serves
+  // /api/init. Mirrors bare `beacon`, minus opening a browser.
+  await setupRepo(repo, true);
+  const port = await ensureDaemon();
+  const id = idForPath(repo);
+
+  // Same POST the MCP server makes. The path header makes /api/init register this workspace
+  // (clearing any deletion tombstone) and provision its db before writing — so we don't here.
+  let res: Response;
+  try {
+    res = await fetch(`http://localhost:${port}/api/init`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-beacon-workspace": id,
+        [BEACON_WS_PATH_HEADER]: repo,
+      },
+      body: raw,
+    });
+  } catch (e) {
+    console.error(`[beacon] could not reach the Beacon daemon on port ${port}: ${e instanceof Error ? e.message : e}`);
+    process.exit(1);
+  }
+  const text = await res.text();
+  if (!res.ok) {
+    console.error(`[beacon] init failed (HTTP ${res.status}): ${text}`);
+    process.exit(1);
+  }
+  // Echo the result so the agent (running this via Bash) can read the counts and report them.
+  console.log(`[beacon] mapped ${repo} into Beacon: ${text}`);
+  console.log(`[beacon] open the panel → http://localhost:${port}/map`);
 }
 
 function gitToplevel(): string {

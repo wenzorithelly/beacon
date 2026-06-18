@@ -44,9 +44,17 @@ A single \`beacon_init_persist\` MCP tool call with:
 - Don't fabricate tables/endpoints. If you can't find the schema source, omit \`snapshot\`.
 - Don't ask the user to confirm before persisting. The user invoked /beacon-init — that's the confirmation.
 
-If \`beacon_init_persist\` isn't available, the Beacon panel isn't running in this repo. Tell the user to run \`beacon\` here first, then re-invoke /beacon-init.
+## If \`beacon_init_persist\` is NOT in your tools (or the call can't reach the daemon)
 
-After the tool returns, tell the user the counts (components / roadmap / tables / endpoints) and point them at the running Beacon panel.
+That happens when this repo was never opened with \`beacon\`: there's no \`.mcp.json\`, so the Beacon MCP server isn't in this session — and MCP tools can't be added mid-session. (It also covers a wired repo whose daemon is down, so the tool call errors.) **Do NOT stop and tell the user to run \`beacon\` first.** /beacon-init bootstraps itself: write the EXACT analysis object you'd have passed to \`beacon_init_persist\` to a temp JSON file, then persist it through the CLI:
+
+\`\`\`bash
+beacon init-persist /tmp/beacon-init.json   # or: beacon init-persist < /tmp/beacon-init.json
+\`\`\`
+
+That one command wires the repo (writes \`.mcp.json\` + skills so your NEXT session gets the \`beacon_*\` tools natively, heals the global install), starts the Beacon daemon if it isn't running, registers + provisions this workspace, and POSTs your analysis to the same \`/api/init\` endpoint the MCP tool uses — so init completes in THIS session. Read the counts it prints and report them.
+
+After the tool (or \`beacon init-persist\`) returns, tell the user the counts (components / roadmap / tables / endpoints) and point them at the running Beacon panel.
 `;
 
 /** Write the /beacon-init skill into <repo>/.claude/skills/beacon-init/SKILL.md. */
