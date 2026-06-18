@@ -6,7 +6,7 @@
    color constants as the live nodes (node-card.tsx / db-table-node.tsx / endpoint-node.tsx /
    files-map-client.tsx) so the mocks can't drift from the product. */
 
-import { useState } from "react";
+import { createElement, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -17,12 +17,31 @@ import {
   type Edge,
   type Node,
 } from "@xyflow/react";
-import { Bug, ChevronDown, FlaskConical, KeyRound, Link2, Lock, Monitor, Server } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Box,
+  Bug,
+  ChevronDown,
+  ClipboardList,
+  Database,
+  FileText,
+  FlaskConical,
+  KeyRound,
+  LayoutDashboard,
+  Link2,
+  Lock,
+  Monitor,
+  Network,
+  Plug,
+  Server,
+  ShieldCheck,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STATUS_META } from "@/lib/constants";
-import { categoryColorClass, categoryRegionClass } from "@/lib/category-color";
+import { categoryColorClass, categoryHex, categoryRegionClass } from "@/lib/category-color";
 import { METHOD_COLOR } from "@/components/graph/db-types";
-import { layerStripeCss } from "@/lib/layer";
 import "@xyflow/react/dist/style.css";
 import "./landing.css";
 import "./tour.css";
@@ -71,43 +90,61 @@ function Handles() {
 
 /* ── shared bits ─────────────────────────────────────────────────────────────── */
 type Layer = "FE" | "BE" | "FS";
-const LAYER_KEY: Record<Layer, "frontend" | "backend" | "fullstack"> = { FE: "frontend", BE: "backend", FS: "fullstack" };
-function LayerStripe({ layer }: { layer?: Layer }) {
-  if (!layer) return null;
-  return <span aria-hidden className="absolute bottom-2 left-1 top-2 w-[3px] rounded-full" style={{ background: layerStripeCss(LAYER_KEY[layer]) }} />;
-}
 function LayerBadge({ layer }: { layer?: Layer }) {
   if (!layer) return null;
   return (
-    <span className="flex shrink-0 items-center gap-1 rounded bg-white/10 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-zinc-300">
+    <span className="flex shrink-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-zinc-300">
       {layer !== "BE" && <Monitor className="size-2.5" />}
       {layer !== "FE" && <Server className="size-2.5" />}
       {layer}
     </span>
   );
 }
+// Static status pill — mirrors the live SelectTrigger badge (node-card.tsx): h-5, border, the
+// status's own STATUS_META className, a faint chevron to read as the editable control it is.
 function StatusPill({ status }: { status: keyof typeof STATUS_META }) {
   const m = STATUS_META[status];
   return (
-    <span className={cn("ml-auto flex h-6 shrink-0 items-center gap-1 rounded border px-1.5 text-[10px] font-medium", m.className)}>
+    <span className={cn("flex h-5 shrink-0 items-center gap-0.5 rounded border px-1.5 text-[10px] font-medium", m.className)}>
       {m.label}
       <ChevronDown className="size-3 opacity-60" />
     </span>
   );
 }
 
-/* ── node: roadmap card — mirrors node-card.tsx ──────────────────────────────── */
+/* ── node: roadmap card — mirrors node-card.tsx (Spine card) ─────────────────── */
 const PRIORITY_BORDER = [
   "border-[#ff3860]/60 shadow-[0_0_0_1px_rgba(255,56,96,0.15)]",
   "border-[#ff7a45]/50",
   "border-amber-400/35",
   "border-border",
 ];
+// Per-priority hue for the left spine bar (P0 red · P1 brand orange · P2 amber · P3 grey).
+const PRIORITY_HUE = ["#ff3860", "#ff7a45", "#fbbf24", "#a1a1aa"] as const;
+// The roadmap card's left rail: the work-order rank chip (#1 emerald) over a slim priority bar.
+function PrioritySpine({ priority, rank }: { priority: number; rank?: number }) {
+  const hue = PRIORITY_HUE[priority] ?? PRIORITY_HUE[3];
+  return (
+    <div className="flex w-5 shrink-0 flex-col items-center gap-1 self-stretch border-r border-white/[0.06] py-1.5">
+      {rank != null && (
+        <span
+          className={cn(
+            "flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
+            rank === 1 ? "bg-emerald-400 text-black" : "bg-white/10 text-muted-foreground",
+          )}
+        >
+          {rank}
+        </span>
+      )}
+      <span className="w-[3px] flex-1 rounded-full" style={{ background: hue, opacity: 0.9 }} />
+    </div>
+  );
+}
 type RoadData = {
   w: number; title: string; role?: string;
   kind: "feature" | "sub-task" | "bug"; category?: string;
   status: keyof typeof STATUS_META; priority: number; layer?: Layer;
-  ring?: "next" | "next2"; working?: boolean;
+  ring?: "next" | "next2"; rank?: number; working?: boolean;
   signals?: { untested?: number; auth?: boolean; bugs?: number };
 };
 function RoadNode({ data }: { data: RoadData }) {
@@ -120,30 +157,33 @@ function RoadNode({ data }: { data: RoadData }) {
           : PRIORITY_BORDER[data.priority] ?? "border-border";
   const kindBadge = isBug ? "bg-rose-500/15 text-rose-300" : data.kind === "sub-task" ? "bg-zinc-500/15 text-zinc-300" : "bg-sky-500/15 text-sky-300";
   return (
-    <div className={cn("relative rounded-lg border bg-card px-2.5 py-2 text-card-foreground shadow-sm", border)} style={{ width: data.w }}>
-      <LayerStripe layer={data.layer} />
-      {data.ring === "next" && <div className="mb-1 inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-300">work on next</div>}
-      {data.ring === "next2" && <div className="mb-1 inline-flex items-center gap-1 rounded bg-white/5 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">next · 2</div>}
-      <div className="flex items-start gap-1.5">
-        {data.working && <span className="mt-1.5 inline-block size-2 shrink-0 animate-pulse rounded-full bg-sky-400" />}
-        {isBug && <Bug className="mt-0.5 size-3.5 shrink-0 text-rose-300" />}
-        <span className="text-sm font-medium leading-snug">{data.title}</span>
-      </div>
-      {(data.signals?.bugs || data.signals?.untested || data.signals?.auth) && (
-        <div className="mt-1 flex flex-wrap items-center gap-1">
-          {data.signals?.bugs ? <span className="flex items-center gap-1 rounded bg-rose-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-rose-300"><Bug className="size-2.5" /> {data.signals.bugs} bug</span> : null}
-          {data.signals?.untested ? <span className="flex items-center gap-1 rounded bg-amber-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-300"><FlaskConical className="size-2.5" /> {data.signals.untested} untested</span> : null}
-          {data.signals?.auth ? <span className="flex items-center gap-1 rounded bg-red-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-red-300"><Lock className="size-2.5" /> auth</span> : null}
+    <div className={cn("relative flex rounded-lg border bg-card text-card-foreground shadow-sm", border)} style={{ width: data.w }}>
+      <PrioritySpine priority={data.priority} rank={data.rank} />
+      <div className="min-w-0 flex-1 px-2.5 py-2.5">
+        {/* identity row — title left, status pulled to the top-right as the focal counterweight */}
+        <div className="flex items-start gap-1.5">
+          <div className="flex min-w-0 flex-1 items-start gap-1">
+            {data.working && <span className="mt-1.5 inline-block size-2 shrink-0 animate-pulse rounded-full bg-sky-400" />}
+            <span className="text-sm font-medium leading-snug">{data.title}</span>
+          </div>
+          <StatusPill status={data.status} />
         </div>
-      )}
-      {data.role && <div className="mt-0.5 line-clamp-1 text-[10px] leading-snug text-muted-foreground">{data.role}</div>}
-      <div className="mt-2 flex items-center gap-1.5">
-        <span className={cn("flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide", kindBadge)}>
-          {isBug && <Bug className="size-2.5" />}{data.kind}
-        </span>
-        <LayerBadge layer={data.layer} />
-        {data.category && <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide", categoryColorClass(data.category))}>{data.category}</span>}
-        <StatusPill status={data.status} />
+        {/* identity tags — kind · layer · category */}
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <span className={cn("flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide", kindBadge)}>
+            {isBug && <Bug className="size-2.5" />}{data.kind}
+          </span>
+          <LayerBadge layer={data.layer} />
+          {data.category && <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide", categoryColorClass(data.category))}>{data.category}</span>}
+        </div>
+        {data.role && <div className="mt-1.5 line-clamp-1 text-[10px] leading-snug text-muted-foreground">{data.role}</div>}
+        {(data.signals?.bugs || data.signals?.untested || data.signals?.auth) && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            {data.signals?.bugs ? <span className="flex items-center gap-1 rounded bg-rose-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-rose-300"><Bug className="size-2.5" /> {data.signals.bugs}</span> : null}
+            {data.signals?.untested ? <span className="flex items-center gap-1 rounded bg-amber-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-300"><FlaskConical className="size-2.5" /> {data.signals.untested}</span> : null}
+            {data.signals?.auth ? <span className="flex items-center gap-1 rounded bg-red-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-red-300"><Lock className="size-2.5" /> auth</span> : null}
+          </div>
+        )}
       </div>
       <Handles />
     </div>
@@ -192,22 +232,87 @@ function EndpointNode({ data }: { data: EpData }) {
   );
 }
 
-/* ── node: architecture component — the SAME card as a roadmap node (node-card.tsx,
-   view=ARCHITECTURE): title + role on top, then a row of [domain chip][layer][bug][status].
-   Curated SUBSYSTEMS, never files; status is the arch lifecycle (Keep / Rebuild / Replace). */
-type ArchData = { w: number; title: string; domain: string; role: string; status: keyof typeof STATUS_META; layer?: Layer; bug?: boolean };
-function ArchNode({ data }: { data: ArchData }) {
+/* ── node: architecture component — mirrors node-card.tsx (Blast-Radius card,
+   view=ARCHITECTURE): a domain-icon box + title + lifecycle status, the role line, a
+   four-metric strip (files · imports-in · imports-out · bugs) and a fan-in dot meter. */
+// A distinct icon per architecture domain (compact subset of node-card.tsx's DOMAIN_ICON,
+// covering the domains the showcase uses), so the board doesn't read as identical cubes.
+const DOMAIN_ICON: Array<[RegExp, LucideIcon]> = [
+  [/AUTH|SECURIT/, ShieldCheck],
+  [/DATA|\bDB\b|SQL|STORE|STORAGE/, Database],
+  [/\bUI\b|FRONT|VIEW|CANVAS|BOARD|DESIGN/, LayoutDashboard],
+  [/MCP|\bAPI\b|INTEGRAT/, Plug],
+  [/INTEL|GRAPH|\bCODE\b|SYMBOL|SEARCH/, Network],
+  [/PLAN|ROADMAP|REVIEW/, ClipboardList],
+];
+function domainIcon(domain: string): LucideIcon {
+  const k = domain.toUpperCase();
+  for (const [re, Icon] of DOMAIN_ICON) if (re.test(k)) return Icon;
+  return Box;
+}
+// One metric in the Blast-Radius strip.
+function Metric({ value, label, Icon, danger }: { value: number | string; label: string; Icon: LucideIcon; danger?: boolean }) {
   return (
-    <div className="relative rounded-lg border border-border bg-card px-2.5 py-2 text-card-foreground shadow-sm" style={{ width: data.w }}>
-      <LayerStripe layer={data.layer} />
-      <div className="text-sm font-medium leading-snug">{data.title}</div>
-      <div className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground">{data.role}</div>
-      <div className="mt-2 flex items-center gap-1.5">
-        <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide", categoryColorClass(data.domain))}>{data.domain}</span>
-        <LayerBadge layer={data.layer} />
-        {data.bug && <span className="flex items-center gap-1 rounded bg-rose-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-rose-300"><Bug className="size-2.5" /> 1</span>}
+    <div className="text-center">
+      <div className={cn("text-[13px] font-semibold leading-none tracking-tight tabular-nums", danger && "text-rose-300")}>{value}</div>
+      <div className="mt-0.5 flex items-center justify-center gap-0.5 text-[8px] font-medium uppercase tracking-wide text-muted-foreground">
+        <Icon className="size-2.5" />
+        {label}
+      </div>
+    </div>
+  );
+}
+// Fan-in indicator: a 0–5 dot meter + a one-word weight label derived from imports-in.
+function FanIn({ importsIn }: { importsIn: number }) {
+  const level = importsIn >= 16 ? 5 : importsIn >= 8 ? 4 : importsIn >= 4 ? 3 : importsIn >= 2 ? 2 : importsIn >= 1 ? 1 : 0;
+  const label = importsIn >= 8 ? "core dependency" : importsIn >= 3 ? "shared" : importsIn >= 1 ? "leaf" : "isolated";
+  return (
+    <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+      <span className="flex items-center gap-0.5">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <span key={i} className="size-1 rounded-full bg-sky-400" style={{ opacity: i < level ? 0.7 : 0.18 }} />
+        ))}
+      </span>
+      {label}
+    </span>
+  );
+}
+type ArchData = {
+  w: number; title: string; domain: string; role: string;
+  status: keyof typeof STATUS_META; layer?: Layer;
+  files?: number; in?: number; out?: number; bugs?: number;
+};
+function ArchNode({ data }: { data: ArchData }) {
+  const tint = categoryHex(data.domain);
+  const bugs = data.bugs ?? 0;
+  return (
+    <div className="relative rounded-lg border border-border bg-card px-3 py-2.5 text-card-foreground shadow-sm" style={{ width: data.w }}>
+      {/* identity row — domain icon left, lifecycle status pulled top-right */}
+      <div className="flex items-start gap-2.5">
+        <span
+          className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
+          style={{ background: `color-mix(in oklab, ${tint} 18%, transparent)`, color: tint }}
+        >
+          {createElement(domainIcon(data.domain), { className: "size-4" })}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium leading-snug">{data.title}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide", categoryColorClass(data.domain))}>{data.domain}</span>
+            <LayerBadge layer={data.layer} />
+          </div>
+        </div>
         <StatusPill status={data.status} />
       </div>
+      {data.role && <div className="mt-2 line-clamp-1 text-[10.5px] leading-snug text-muted-foreground">{data.role}</div>}
+      {/* metric strip — full-width even grid */}
+      <div className="mt-2.5 grid grid-cols-4 gap-1 border-t border-white/[0.07] pt-2">
+        <Metric value={data.files ?? 0} label="files" Icon={FileText} />
+        <Metric value={data.in ?? "—"} label="in" Icon={ArrowDownLeft} />
+        <Metric value={data.out ?? "—"} label="out" Icon={ArrowUpRight} />
+        <Metric value={bugs} label="bug" Icon={Bug} danger={bugs > 0} />
+      </div>
+      {data.in != null && <div className="mt-2"><FanIn importsIn={data.in} /></div>}
       <Handles />
     </div>
   );
@@ -295,11 +400,11 @@ const RM_NODES: Node[] = [
   { id: "lane-a", type: "lane", position: { x: 0, y: 0 }, data: { w: 360, h: 580, label: "auth", count: 3, colored: true }, draggable: false, selectable: false, zIndex: 0 },
   { id: "lane-b", type: "lane", position: { x: 390, y: 0 }, data: { w: 360, h: 580, label: "billing", count: 3, colored: true }, draggable: false, selectable: false, zIndex: 0 },
   { id: "lane-c", type: "lane", position: { x: 780, y: 0 }, data: { w: 360, h: 580, label: "search", count: 3, colored: true }, draggable: false, selectable: false, zIndex: 0 },
-  { id: "magic", type: "road", position: { x: 30, y: 54 }, zIndex: 1, data: { w: 300, title: "Magic-link sign-in", role: "Email a one-time link, no passwords", kind: "feature", category: "auth", status: "IN_PROGRESS", priority: 1, layer: "FE", ring: "next", working: true } },
+  { id: "magic", type: "road", position: { x: 30, y: 54 }, zIndex: 1, data: { w: 300, title: "Magic-link sign-in", role: "Email a one-time link, no passwords", kind: "feature", category: "auth", status: "IN_PROGRESS", priority: 1, layer: "FE", ring: "next", rank: 1, working: true } },
   { id: "verify", type: "road", position: { x: 52, y: 250 }, zIndex: 1, data: { w: 268, title: "Issue + verify token", kind: "sub-task", status: "PENDING", priority: 2, layer: "FE" } },
   { id: "pwreset", type: "road", position: { x: 30, y: 392 }, zIndex: 1, data: { w: 300, title: "Password reset", role: "Reuse the magic-link issuer", kind: "feature", category: "auth", status: "DONE", priority: 2, layer: "FE" } },
   { id: "billing", type: "road", position: { x: 420, y: 54 }, zIndex: 1, data: { w: 300, title: "Billing portal", role: "Stripe customer portal + invoices", kind: "feature", category: "billing", status: "PENDING", priority: 0, layer: "FS", signals: { untested: 2, auth: true } } },
-  { id: "webhook", type: "road", position: { x: 442, y: 286 }, zIndex: 1, data: { w: 288, title: "Webhook handler", kind: "feature", category: "billing", status: "PENDING", priority: 2, layer: "BE", ring: "next2" } },
+  { id: "webhook", type: "road", position: { x: 442, y: 286 }, zIndex: 1, data: { w: 288, title: "Webhook handler", kind: "feature", category: "billing", status: "PENDING", priority: 2, layer: "BE", ring: "next2", rank: 2 } },
   { id: "invoices", type: "road", position: { x: 420, y: 432 }, zIndex: 1, data: { w: 300, title: "Invoice PDF export", kind: "feature", category: "billing", status: "DONE", priority: 2, layer: "BE" } },
   { id: "rate", type: "road", position: { x: 810, y: 54 }, zIndex: 1, data: { w: 300, title: "Rate limiter", role: "Token bucket on the public API", kind: "feature", category: "search", status: "PENDING", priority: 2, layer: "BE" } },
   { id: "audit", type: "road", position: { x: 832, y: 250 }, zIndex: 1, data: { w: 268, title: "Write audit log rows", kind: "sub-task", status: "DONE", priority: 3, layer: "BE" } },
@@ -332,26 +437,26 @@ const DB_EDGES: Edge[] = [
    beacon_entities). Each domain is a GroupRegions container; the cards inside are the
    actual subsystems (title + role + KEEP status + layer). */
 const AR_NODES: Node[] = [
-  // domain regions (behind the cards)
-  { id: "r-ui", type: "lane", position: { x: 0, y: 0 }, data: { w: 344, h: 392, label: "UI", count: 3, colored: true }, draggable: false, selectable: false, zIndex: 0 },
-  { id: "r-data", type: "lane", position: { x: 388, y: 0 }, data: { w: 344, h: 392, label: "DATA", count: 3, colored: true }, draggable: false, selectable: false, zIndex: 0 },
-  { id: "r-intel", type: "lane", position: { x: 776, y: 0 }, data: { w: 344, h: 280, label: "INTEL", count: 2, colored: true }, draggable: false, selectable: false, zIndex: 0 },
-  { id: "r-plan", type: "lane", position: { x: 776, y: 318 }, data: { w: 344, h: 158, label: "PLAN", count: 1, colored: true }, draggable: false, selectable: false, zIndex: 0 },
-  { id: "r-mcp", type: "lane", position: { x: 388, y: 430 }, data: { w: 344, h: 158, label: "MCP", count: 1, colored: true }, draggable: false, selectable: false, zIndex: 0 },
+  // domain regions (behind the cards) — sized for the taller Blast-Radius cards
+  { id: "r-ui", type: "lane", position: { x: 0, y: 0 }, data: { w: 348, h: 548, label: "UI", count: 3, colored: true }, draggable: false, selectable: false, zIndex: 0 },
+  { id: "r-data", type: "lane", position: { x: 392, y: 0 }, data: { w: 348, h: 548, label: "DATA", count: 3, colored: true }, draggable: false, selectable: false, zIndex: 0 },
+  { id: "r-intel", type: "lane", position: { x: 784, y: 0 }, data: { w: 348, h: 372, label: "INTEL", count: 2, colored: true }, draggable: false, selectable: false, zIndex: 0 },
+  { id: "r-plan", type: "lane", position: { x: 784, y: 404 }, data: { w: 348, h: 196, label: "PLAN", count: 1, colored: true }, draggable: false, selectable: false, zIndex: 0 },
+  { id: "r-mcp", type: "lane", position: { x: 392, y: 580 }, data: { w: 348, h: 196, label: "MCP", count: 1, colored: true }, draggable: false, selectable: false, zIndex: 0 },
   // UI cluster
-  { id: "planui", type: "arch", position: { x: 18, y: 46 }, zIndex: 1, data: { w: 308, title: "Plan UI (/plan)", domain: "UI", status: "KEEP", layer: "FE", role: "Split-screen review page: annotation panel + roadmap / database canvases, tabbed." } },
-  { id: "mapcanvas", type: "arch", position: { x: 18, y: 158 }, zIndex: 1, data: { w: 308, title: "Roadmap canvas (/map)", domain: "UI", status: "KEEP", layer: "FE", role: "React Flow roadmap / architecture canvases — node cards, detail sidebar, edge editing." } },
-  { id: "dbcanvas", type: "arch", position: { x: 18, y: 270 }, zIndex: 1, data: { w: 308, title: "DB design canvas", domain: "UI", status: "KEEP", layer: "FE", role: "Tables + endpoints board with a distinct draft layer and approve / discard actions." } },
+  { id: "planui", type: "arch", position: { x: 20, y: 44 }, zIndex: 1, data: { w: 308, title: "Plan UI (/plan)", domain: "UI", status: "KEEP", layer: "FE", role: "Split-screen review page: annotation panel + roadmap / database canvases, tabbed.", files: 5, in: 0, out: 6 } },
+  { id: "mapcanvas", type: "arch", position: { x: 20, y: 210 }, zIndex: 1, data: { w: 308, title: "Roadmap canvas (/map)", domain: "UI", status: "KEEP", layer: "FE", role: "React Flow roadmap / architecture canvases — node cards, detail sidebar, edge editing.", files: 6, in: 1, out: 9 } },
+  { id: "dbcanvas", type: "arch", position: { x: 20, y: 376 }, zIndex: 1, data: { w: 308, title: "DB design canvas", domain: "UI", status: "KEEP", layer: "FE", role: "Tables + endpoints board with a distinct draft layer and approve / discard actions.", files: 6, in: 0, out: 7 } },
   // DATA cluster
-  { id: "ws", type: "arch", position: { x: 406, y: 46 }, zIndex: 1, data: { w: 308, title: "Workspaces (multi-repo)", domain: "DATA", status: "KEEP", layer: "BE", role: "Per-repo registry + data dir + sqlite, the active workspace, request-pin, db self-heal." } },
-  { id: "prisma", type: "arch", position: { x: 406, y: 158 }, zIndex: 1, data: { w: 308, title: "Drizzle data layer", domain: "DATA", status: "KEEP", layer: "BE", role: "Workspace-resolving libSQL client plus node/edge mutations and the roadmap read-model." } },
-  { id: "draft", type: "arch", position: { x: 406, y: 270 }, zIndex: 1, data: { w: 308, title: "Draft store", domain: "DATA", status: "KEEP", layer: "BE", role: "The proposed-schema draft layer; approve → promote into the real DB tables." } },
+  { id: "ws", type: "arch", position: { x: 412, y: 44 }, zIndex: 1, data: { w: 308, title: "Workspaces (multi-repo)", domain: "DATA", status: "KEEP", layer: "BE", role: "Per-repo registry + data dir + sqlite, the active workspace, request-pin, db self-heal.", files: 1, in: 12, out: 4 } },
+  { id: "prisma", type: "arch", position: { x: 412, y: 210 }, zIndex: 1, data: { w: 308, title: "Drizzle data layer", domain: "DATA", status: "KEEP", layer: "BE", role: "Workspace-resolving libSQL client plus node/edge mutations and the roadmap read-model.", files: 6, in: 18, out: 5 } },
+  { id: "draft", type: "arch", position: { x: 412, y: 376 }, zIndex: 1, data: { w: 308, title: "Draft store", domain: "DATA", status: "KEEP", layer: "BE", role: "The proposed-schema draft layer; approve → promote into the real DB tables.", files: 4, in: 3, out: 4 } },
   // INTEL cluster
-  { id: "daemon", type: "arch", position: { x: 794, y: 46 }, zIndex: 1, data: { w: 308, title: "Code-intelligence daemon", domain: "INTEL", status: "KEEP", layer: "BE", bug: true, role: "Per-workspace watchers → polyglot, multi-root, incremental code-graph build → ingest." } },
-  { id: "codegraph", type: "arch", position: { x: 794, y: 158 }, zIndex: 1, data: { w: 308, title: "Code graph & files canvas", domain: "INTEL", status: "KEEP", layer: "BE", role: "Polyglot import-edge index with blast-radius; the hub/lang-aware files canvas." } },
+  { id: "daemon", type: "arch", position: { x: 808, y: 44 }, zIndex: 1, data: { w: 308, title: "Code-intelligence daemon", domain: "INTEL", status: "KEEP", layer: "BE", bugs: 1, role: "Per-workspace watchers → polyglot, multi-root, incremental code-graph build → ingest.", files: 6, in: 2, out: 9 } },
+  { id: "codegraph", type: "arch", position: { x: 808, y: 210 }, zIndex: 1, data: { w: 308, title: "Code graph & files canvas", domain: "INTEL", status: "KEEP", layer: "BE", role: "Polyglot import-edge index with blast-radius; the hub/lang-aware files canvas.", files: 6, in: 4, out: 6 } },
   // PLAN + MCP clusters (single components)
-  { id: "plan", type: "arch", position: { x: 794, y: 364 }, zIndex: 1, data: { w: 308, title: "Plan review loop", domain: "PLAN", status: "KEEP", layer: "BE", role: "Receives proposed plans, blocks for the verdict, bundles annotations + board edits." } },
-  { id: "mcp", type: "arch", position: { x: 406, y: 476 }, zIndex: 1, data: { w: 308, title: "MCP server", domain: "MCP", status: "KEEP", layer: "BE", role: "stdio server exposing beacon_propose_plan / context_for_feature; pins every request." } },
+  { id: "plan", type: "arch", position: { x: 808, y: 448 }, zIndex: 1, data: { w: 308, title: "Plan review loop", domain: "PLAN", status: "KEEP", layer: "BE", role: "Receives proposed plans, blocks for the verdict, bundles annotations + board edits.", files: 6, in: 1, out: 6 } },
+  { id: "mcp", type: "arch", position: { x: 412, y: 624 }, zIndex: 1, data: { w: 308, title: "MCP server", domain: "MCP", status: "KEEP", layer: "BE", role: "stdio server exposing beacon_propose_plan / context_for_feature; pins every request.", files: 1, in: 0, out: 9 } },
 ];
 const AR_EDGES: Edge[] = [
   mkEdge("a1", "daemon", "sb", "codegraph", "tt", "contains"), // intra-INTEL parent → sub
@@ -478,7 +583,7 @@ const FILE_EDGES: Edge[] = FILE_LINKS.map(([a, b], i) => mkEdge(`g${i}`, a, "sb"
 const SURFACE_TABS = [
   { key: "Roadmap", route: "/map", title: "Steer the agent's work order", body: "Features, sub-tasks and dependencies as a graph — priority on the border, a layer stripe for frontend or backend, and the work-on-next ring marking the agent's next move.", board: <MockBoard label="/map · roadmap" height={600} nodes={RM_NODES} edges={RM_EDGES} /> },
   { key: "Database", route: "/db", title: "Schema as a draft, diffed", body: "Proposed tables and endpoints diffed against your live schema — new in green, changed in amber. Foreign keys and endpoint→table usage draw themselves.", board: <MockBoard label="/db · plan vs. repo" height={520} nodes={DB_NODES} edges={DB_EDGES} /> },
-  { key: "Architecture", route: "/map", title: "The subsystems, mapped", body: "Real architecture components grouped into domain regions, each with the role it plays — the high-level map the agent keeps current as the codebase grows.", board: <MockBoard label="/map · architecture" height={640} nodes={AR_NODES} edges={AR_EDGES} /> },
+  { key: "Architecture", route: "/map", title: "The subsystems, mapped", body: "Real architecture components grouped into domain regions, each with the role it plays — the high-level map the agent keeps current as the codebase grows.", board: <MockBoard label="/map · architecture" height={760} nodes={AR_NODES} edges={AR_EDGES} /> },
   { key: "Files", route: "code-graph", title: "See your codebase, live", body: "A polyglot import graph, Obsidian-style: every file a dot sized by how many files import it, colored by directory, with a layer ring and an amber ring on anything no test imports.", board: <MockBoard label="code-graph · 46 files · 52 imports" height={720} nodes={FILE_NODES} edges={FILE_EDGES} /> },
 ] as const;
 
