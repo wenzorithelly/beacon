@@ -1,6 +1,7 @@
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -25,6 +26,42 @@ export type GlobalSkillName = (typeof GLOBAL_SKILLS)[number];
 // suppressed — re-writing settings.json would double-register every hook.
 export function isPluginManaged(): boolean {
   return !!process.env.CLAUDE_PLUGIN_ROOT;
+}
+
+// Locate an installed Beacon Claude Code plugin under ~/.claude/plugins (Claude Code clones a plugin
+// to ~/.claude/plugins/<marketplace>/<plugin>). Returns its directory, or null. Scans a few levels
+// for a .claude-plugin/plugin.json whose name is "beacon". Used so the npm self-heal can step aside
+// when the plugin is present (the plugin owns the agent integration), and by `beacon doctor`.
+export function findBeaconPluginDir(home = process.env.HOME || process.env.USERPROFILE || ""): string | null {
+  if (!home) return null;
+  const base = join(home, ".claude", "plugins");
+  if (!existsSync(base)) return null;
+  let level = [base];
+  for (let depth = 0; depth < 3 && level.length; depth++) {
+    const next: string[] = [];
+    for (const dir of level) {
+      const manifest = join(dir, ".claude-plugin", "plugin.json");
+      try {
+        if (existsSync(manifest) && (JSON.parse(readFileSync(manifest, "utf8")) as { name?: string }).name === "beacon") {
+          return dir;
+        }
+      } catch {
+        /* unreadable manifest — keep scanning */
+      }
+      try {
+        for (const e of readdirSync(dir, { withFileTypes: true })) if (e.isDirectory()) next.push(join(dir, e.name));
+      } catch {
+        /* unreadable dir — skip */
+      }
+    }
+    level = next;
+  }
+  return null;
+}
+
+/** True when a Beacon Claude Code plugin is installed (so the npm self-heal should step aside). */
+export function beaconPluginInstalled(home?: string): boolean {
+  return findBeaconPluginDir(home) !== null;
 }
 
 // Block injected into ~/.claude/CLAUDE.md AND ~/.codex/AGENTS.md so EVERY agent session —

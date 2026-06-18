@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -74,5 +74,33 @@ describe("selfHealGlobal in plugin mode", () => {
     expect(result.hooksAdded).toBe(5);
     expect(auditGlobal().skills["beacon-init"]).toBe(true);
     expect(auditGlobal().hooks.PostToolUse).toBe(true);
+  });
+});
+
+describe("selfHealGlobal deconflicts when a Beacon plugin is installed", () => {
+  // Simulate a marketplace-installed plugin under ~/.claude/plugins/<marketplace>/beacon.
+  function installFakePlugin() {
+    const dir = join(TMP_HOME, ".claude", "plugins", "trybeacon", "beacon", ".claude-plugin");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "plugin.json"), JSON.stringify({ name: "beacon", version: "1.0.0" }));
+  }
+
+  it("removes stale npm ~/.claude entries and steps aside (no double-registration)", async () => {
+    delete process.env.CLAUDE_PLUGIN_ROOT;
+    // A prior npm install self-healed the Claude-side artifacts.
+    await selfHealGlobal();
+    expect(auditGlobal().skills["beacon-init"]).toBe(true);
+    expect(auditGlobal().hooks.PostToolUse).toBe(true);
+    expect(auditGlobal().claudeMdBlock).toBe(true);
+
+    // The plugin gets installed → the next npm run steps aside AND removes its own entries so only
+    // the plugin's hooks remain.
+    installFakePlugin();
+    const result = await selfHealGlobal();
+    expect(result.ok).toBe(true);
+    expect(result.skipped).toBe("plugin-present");
+    expect(auditGlobal().skills["beacon-init"]).toBe(false);
+    expect(auditGlobal().hooks.PostToolUse).toBe(false);
+    expect(auditGlobal().claudeMdBlock).toBe(false);
   });
 });

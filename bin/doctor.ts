@@ -6,12 +6,11 @@
  * step by step.
  */
 import { execSync, spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { auditRepo } from "@/lib/assets";
 import { CODEX_HOOKS, auditCodex, codexDetected, codexMcpProblem } from "@/lib/codex-install";
-import { GLOBAL_HOOKS, GLOBAL_SKILLS, auditGlobal } from "@/lib/global-install";
+import { GLOBAL_HOOKS, GLOBAL_SKILLS, auditGlobal, findBeaconPluginDir } from "@/lib/global-install";
 import { beaconHome, listWorkspaces } from "@/lib/workspaces";
 
 const ok = (s: string) => `\x1b[32m✓\x1b[0m ${s}`;
@@ -58,39 +57,6 @@ function repoPath(): string {
   return gitToplevel() || process.cwd();
 }
 
-// Find a Beacon install under ~/.claude/plugins (Claude Code clones a plugin to
-// ~/.claude/plugins/<marketplace>/<plugin>). We scan a couple of levels for any
-// .claude-plugin/plugin.json whose name is "beacon" so doctor can flag plugin installs — and warn
-// when BOTH the plugin and the npm-global ~/.claude layer are present (the one double-registration
-// case the CLAUDE_PLUGIN_ROOT guard can't prevent, since they're separate installs).
-function findBeaconPlugin(): string | null {
-  const base = join(process.env.HOME || homedir(), ".claude", "plugins");
-  if (!existsSync(base)) return null;
-  let level = [base];
-  for (let depth = 0; depth < 3 && level.length; depth++) {
-    const next: string[] = [];
-    for (const dir of level) {
-      const manifest = join(dir, ".claude-plugin", "plugin.json");
-      try {
-        if (existsSync(manifest) && JSON.parse(readFileSync(manifest, "utf8"))?.name === "beacon") {
-          return dir;
-        }
-      } catch {
-        /* unreadable manifest — keep scanning */
-      }
-      try {
-        for (const e of readdirSync(dir, { withFileTypes: true })) {
-          if (e.isDirectory()) next.push(join(dir, e.name));
-        }
-      } catch {
-        /* unreadable dir — skip */
-      }
-    }
-    level = next;
-  }
-  return null;
-}
-
 const repo = repoPath();
 const global = auditGlobal();
 const workspaces = listWorkspaces();
@@ -127,16 +93,18 @@ console.log(
 );
 
 console.log(head("Plugin (Claude Code)"));
-const pluginDir = findBeaconPlugin();
+const pluginDir = findBeaconPluginDir();
 if (pluginDir) {
   console.log(`  ${ok(`installed as a Claude Code plugin → ${pluginDir}`)}`);
-  console.log(`  ${dim("the plugin provides the skills/hooks/MCP; the global ~/.claude layer below is suppressed in plugin mode")}`);
-  // Dual install: the plugin AND the npm-global hooks/skills both present → every hook fires twice.
+  console.log(`  ${dim("the plugin owns the Claude-side skills/hooks/MCP")}`);
+  // With both installed, the npm layer auto-steps-aside (selfHealGlobal removes its ~/.claude entries
+  // on the next `beacon` run). If they're still showing below, it hasn't run since the plugin landed.
   if (global.hooks.PostToolUse || GLOBAL_SKILLS.some((s) => global.skills[s])) {
     console.log(
-      `  ${bad("ALSO installed via npm — ~/.claude has Beacon hooks/skills, so they DOUBLE-register with the plugin.")}`,
+      `  ${dim("npm-global ~/.claude entries still present — they'll be removed automatically on the next `beacon` run (run `beacon` once to deconflict now).")}`,
     );
-    console.log(`  ${dim("fix: `beacon uninstall` to drop the npm-global layer, or `/plugin uninstall beacon`.")}`);
+  } else {
+    console.log(`  ${ok("npm-global ~/.claude layer stepped aside — no double-registration")}`);
   }
 } else {
   console.log(`  ${dim("not installed as a Claude Code plugin (using the npm `trybeacon` CLI).")}`);

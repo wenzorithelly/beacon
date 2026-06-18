@@ -10,6 +10,8 @@ import {
   ensureMarkerBlock,
   hasMarkerBlock,
   removeMarkerBlock,
+  beaconPluginInstalled,
+  findBeaconPluginDir,
   installSkillFile,
   isPluginManaged,
   isSkillInstalled,
@@ -43,7 +45,7 @@ const CLAUDE_MD_END = "<!-- beacon:global:end -->";
 // GLOBAL_SKILLS + the discovery block live in lib/agent-config.ts (shared with
 // codex-install without an import cycle — see the note there); re-exported here so
 // existing importers (doctor, uninstall, tests) keep one source.
-export { GLOBAL_SKILLS, isPluginManaged, type GlobalSkillName };
+export { GLOBAL_SKILLS, beaconPluginInstalled, findBeaconPluginDir, isPluginManaged, type GlobalSkillName };
 export const GLOBAL_CLAUDE_MD_BLOCK = GLOBAL_AGENT_BLOCK;
 
 export const GLOBAL_HOOKS = [
@@ -194,8 +196,13 @@ export interface CodexHealResult extends CodexSetupResult {
 export interface SelfHealResult extends SetupResult {
   ok: boolean;
   error?: string;
-  /** Set when running as a Claude Code plugin — the global self-heal is intentionally skipped. */
-  skipped?: "plugin";
+  /**
+   * Why the Claude-side global self-heal was skipped, if it was:
+   * - "plugin": running AS the installed plugin (CLAUDE_PLUGIN_ROOT set).
+   * - "plugin-present": running as the npm CLI but a Beacon plugin is installed, so the npm layer
+   *   stepped aside (and removed any stale ~/.claude entries) to avoid double-registering hooks.
+   */
+  skipped?: "plugin" | "plugin-present";
   /** Present only when the Codex CLI is detected (or BEACON_CODEX=1 forces it). */
   codex?: CodexHealResult;
 }
@@ -225,17 +232,30 @@ export async function selfHealGlobal(): Promise<SelfHealResult> {
     return { ok: true, skipped: "plugin", skillsAdded: [], hooksAdded: 0, claudeMdBlockTouched: false };
   }
   let result: SelfHealResult;
-  try {
-    const r = await setupGlobalAssets();
-    result = { ok: true, ...r };
-  } catch (e) {
-    result = {
-      ok: false,
-      error: e instanceof Error ? e.message : String(e),
-      skillsAdded: [],
-      hooksAdded: 0,
-      claudeMdBlockTouched: false,
-    };
+  if (beaconPluginInstalled()) {
+    // npm CLI, but a Beacon Claude Code plugin is installed → it owns the Claude-side skills/hooks/MCP.
+    // REMOVE any npm-self-healed Claude entries so hooks don't double-fire, and don't re-add them.
+    // Self-correcting: if the plugin is later uninstalled, the next run heals ~/.claude again. (Codex
+    // is still wired below — the plugin is Claude Code only.)
+    try {
+      removeBeaconArtifacts();
+    } catch {
+      /* best effort — never break the subcommand over a cleanup */
+    }
+    result = { ok: true, skipped: "plugin-present", skillsAdded: [], hooksAdded: 0, claudeMdBlockTouched: false };
+  } else {
+    try {
+      const r = await setupGlobalAssets();
+      result = { ok: true, ...r };
+    } catch (e) {
+      result = {
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+        skillsAdded: [],
+        hooksAdded: 0,
+        claudeMdBlockTouched: false,
+      };
+    }
   }
   try {
     const codex = await import("@/lib/codex-install");
