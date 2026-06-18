@@ -17,6 +17,16 @@ import { dirname, join } from "node:path";
 export const GLOBAL_SKILLS = ["beacon-init", "beacon-refresh", "beacon-plan"] as const;
 export type GlobalSkillName = (typeof GLOBAL_SKILLS)[number];
 
+// True when Beacon is running as an installed Claude Code plugin rather than the npm `trybeacon`
+// CLI. Claude Code sets CLAUDE_PLUGIN_ROOT in the env whenever it invokes the plugin's own hooks /
+// MCP command; bin/beacon.ts ALSO sets it when the running binary lives inside a plugin payload
+// (covers the `/beacon` agent-bash path Claude Code doesn't set it for). In plugin mode the plugin
+// already ships the skills, hooks, and MCP, so the legacy ~/.claude + per-repo self-heal MUST be
+// suppressed — re-writing settings.json would double-register every hook.
+export function isPluginManaged(): boolean {
+  return !!process.env.CLAUDE_PLUGIN_ROOT;
+}
+
 // Block injected into ~/.claude/CLAUDE.md AND ~/.codex/AGENTS.md so EVERY agent session —
 // including the ones in repos that have never seen Beacon — knows the tool exists and how
 // to wire it. Kept intentionally short: triggers + the one-command fix when something

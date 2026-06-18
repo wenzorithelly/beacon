@@ -23,6 +23,9 @@
 # bundled CLI (built for publishing by `bun run build:cli`)
 /dist
 
+# assembled Claude Code plugin payload (built by `bun scripts/build-plugin.ts`)
+/dist-plugin
+
 # misc
 .DS_Store
 *.pem

@@ -16,6 +16,7 @@ import { chmodSync, readFileSync } from "node:fs";
 // them; they must each be their own emitted bundle).
 const ENTRYPOINTS = [
   "bin/beacon.ts",
+  "bin/boot.ts", // dependency-free plugin bootstrap (every plugin entry point routes through it)
   "bin/mcp.ts",
   "bin/hook.ts",
   "bin/guard.ts",

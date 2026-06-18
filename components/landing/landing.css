@@ -61,6 +61,10 @@
 @keyframes w-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 .w-caret { animation: w-blink 1.05s steps(1) infinite; }
 
+/* Hide the scrollbar in ALL engines. The global `* { scrollbar-width: thin }` (globals.css)
+   otherwise wins in modern Chrome/Firefox and draws a thin bar even when the line fits, so the
+   standard property must be reset here too — not just the WebKit pseudo-element. */
+.w-scrollbar-none { scrollbar-width: none; }
 .w-scrollbar-none::-webkit-scrollbar { display: none; }
 
 /* ── hero mock: the /plan canvas (bm-*) ─────────────────────────────────────
@@ -333,6 +337,7 @@
   white-space: nowrap;
   max-width: 100%;
   overflow-x: auto;
+  scrollbar-width: none;
 }
 .ql .cmd::-webkit-scrollbar { display: none; }
 .ql .note {

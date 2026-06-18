@@ -23,6 +23,16 @@ const BEACON_HOME = process.env.BEACON_HOME || join(homedir(), ".beacon");
 const SERVER_FILE = join(BEACON_HOME, "server.json");
 const PORT = process.env.PORT || "4319";
 
+// Plugin mode: when this binary lives inside an installed Claude Code plugin payload (the plugin
+// root carries .claude-plugin/plugin.json and we're at <root>/dist/bin/beacon.js), mark plugin
+// mode so the global + per-repo self-heal is suppressed — the plugin already ships the skills,
+// hooks, and MCP. Claude Code sets CLAUDE_PLUGIN_ROOT when IT spawns the plugin's hooks/MCP; we set
+// it here too for the `/beacon` agent-bash path, which otherwise wouldn't have it and would
+// re-write ~/.claude, double-registering every hook.
+if (!process.env.CLAUDE_PLUGIN_ROOT && existsSync(join(pkgDir, ".claude-plugin", "plugin.json"))) {
+  process.env.CLAUDE_PLUGIN_ROOT = pkgDir;
+}
+
 // The in-process db provisioner (lib/drizzle/provision) and the spawned server both resolve
 // migrations from here — import.meta.url is unreliable once bundled / inside `.next`.
 if (!process.env.BEACON_MIGRATIONS_DIR) process.env.BEACON_MIGRATIONS_DIR = join(pkgDir, "drizzle");
@@ -45,6 +55,7 @@ function mod(rel: string): string {
 //   beacon stop       — stop the shared daemon
 //   beacon remove     — delete a workspace (unregister + wipe its ~/.beacon/<id>/ data)
 //   beacon setup      — (re-)install per-repo skills + .mcp.json in CWD
+//   beacon ensure     — plugin launcher: bring the daemon up for this repo, no browser (SessionStart)
 //   beacon init-persist — /beacon-init's self-bootstrap fallback: wire the repo + POST the
 //                       analysis JSON (file arg or stdin) to /api/init when the MCP tool is absent
 //   beacon doctor     — audit install state (global hooks/skills + this repo's wiring)
@@ -71,6 +82,8 @@ if (sub === "mcp") {
   await import(mod("bin/remove.ts"));
 } else if (sub === "setup") {
   await setupRepo(gitToplevel() || cwd);
+} else if (sub === "ensure") {
+  await ensurePanel();
 } else if (sub === "init-persist") {
   await initPersist(process.argv[3]);
 } else if (sub === "doctor") {
@@ -95,13 +108,25 @@ if (sub === "mcp") {
 async function setupRepo(repo: string, quiet = false) {
   const { installInitSkill, installRefreshSkill, installCodexRepoSkills, ensureMcp, ensureWorkflowDoc } =
     await import(mod("lib/assets.ts"));
-  const { selfHealGlobal } = await import(mod("lib/global-install.ts"));
+  const { selfHealGlobal, isPluginManaged } = await import(mod("lib/global-install.ts"));
   const { codexDetected } = await import(mod("lib/codex-install.ts"));
   // `beacon setup` is the explicit fix-it command — heal the global ~/.claude/ layer
   // (and ~/.codex when the Codex CLI is installed) here too so a user running it after
   // a manual cleanup doesn't have to also run bare `beacon` to re-trigger
   // launchPanel's global install.
   const heal = await selfHealGlobal();
+  // Plugin mode: the installed plugin ships the skills + hooks + MCP globally, so don't write
+  // competing per-repo files (.mcp.json, .claude/skills, the AGENTS.md workflow block) — that
+  // would shadow the plugin's MCP server and duplicate its skills. selfHealGlobal already no-ops.
+  if (isPluginManaged()) {
+    return {
+      initSkill: "",
+      refreshSkill: "",
+      mcp: { path: "", added: false, updated: false },
+      codexSkills: [] as string[],
+      heal,
+    };
+  }
   const initSkill = installInitSkill(repo);
   const refreshSkill = installRefreshSkill(repo);
   ensureWorkflowDoc(repo);
@@ -301,6 +326,23 @@ function openBrowser(url: string) {
   } catch {
     /* no browser opener available */
   }
+}
+
+// `beacon ensure` — the plugin launcher's quiet bring-up. The plugin's SessionStart hook routes
+// here (via bin/boot) so the shared daemon is running before the agent uses the MCP tools / hooks,
+// WITHOUT opening a browser or printing the full launch banner (the plugin already wired the agent
+// integration, so no setupRepo/self-heal here). A non-repo CWD (e.g. SessionStart fired in $HOME)
+// is a graceful no-op, never an error.
+async function ensurePanel() {
+  const repo = gitToplevel() || cwd;
+  const { registerWorkspaceExplicit, idForPath, ensureWorkspaceDb, isRegistrableWorkspacePath } =
+    await import(mod("lib/workspaces.ts"));
+  if (!isRegistrableWorkspacePath(repo)) return;
+  const id = idForPath(repo);
+  await ensureWorkspaceDb(id);
+  registerWorkspaceExplicit(repo);
+  const port = await ensureDaemon();
+  console.log(`[beacon] ready → http://localhost:${port}/map?ws=${id}`);
 }
 
 async function launchPanel() {

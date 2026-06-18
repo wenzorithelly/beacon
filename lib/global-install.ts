@@ -11,6 +11,7 @@ import {
   hasMarkerBlock,
   removeMarkerBlock,
   installSkillFile,
+  isPluginManaged,
   isSkillInstalled,
   removeSkillDir,
   type GlobalSkillName,
@@ -42,7 +43,7 @@ const CLAUDE_MD_END = "<!-- beacon:global:end -->";
 // GLOBAL_SKILLS + the discovery block live in lib/agent-config.ts (shared with
 // codex-install without an import cycle — see the note there); re-exported here so
 // existing importers (doctor, uninstall, tests) keep one source.
-export { GLOBAL_SKILLS, type GlobalSkillName };
+export { GLOBAL_SKILLS, isPluginManaged, type GlobalSkillName };
 export const GLOBAL_CLAUDE_MD_BLOCK = GLOBAL_AGENT_BLOCK;
 
 export const GLOBAL_HOOKS = [
@@ -193,6 +194,8 @@ export interface CodexHealResult extends CodexSetupResult {
 export interface SelfHealResult extends SetupResult {
   ok: boolean;
   error?: string;
+  /** Set when running as a Claude Code plugin — the global self-heal is intentionally skipped. */
+  skipped?: "plugin";
   /** Present only when the Codex CLI is detected (or BEACON_CODEX=1 forces it). */
   codex?: CodexHealResult;
 }
@@ -215,6 +218,12 @@ export interface SelfHealResult extends SetupResult {
  * a Codex-side failure never breaks the Claude-side heal (and vice versa).
  */
 export async function selfHealGlobal(): Promise<SelfHealResult> {
+  // Running as an installed Claude Code plugin: the plugin already ships the skills, hooks, and
+  // MCP, so re-applying them into ~/.claude (and ~/.codex) would double-register every hook — the
+  // plugin's entry AND a self-healed settings.json entry would both fire. Skip the whole heal.
+  if (isPluginManaged()) {
+    return { ok: true, skipped: "plugin", skillsAdded: [], hooksAdded: 0, claudeMdBlockTouched: false };
+  }
   let result: SelfHealResult;
   try {
     const r = await setupGlobalAssets();
