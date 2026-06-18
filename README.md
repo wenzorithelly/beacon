@@ -39,13 +39,22 @@ a chatbot and does **not** generate plans on its own.
 
 ## Install & run
 
-Beacon ships as a CLI. Run it inside any repo:
+Beacon ships as a CLI. Install it globally:
+
+```bash
+npm install -g trybeacon      # or: bun add -g trybeacon
+```
+
+Then run it inside any repo:
 
 ```bash
 beacon            # registers the repo, ensures the shared server, opens the panel
 beacon doctor     # audit what's wired (global hooks, repo .mcp.json, AGENTS.md block)
 beacon stop       # stop the shared background server
 ```
+
+> Prefer Claude Code's plugin system? Add the marketplace and install the plugin instead:
+> `/plugin marketplace add wenzorithelly/beacon-plugin` then `/plugin install beacon@trybeacon`.
 
 One shared Beacon server (daemon) serves every repo you open; each repo keeps its own data in
 `~/.beacon/<id>/` (override the root with `BEACON_HOME`). On first run in a repo, run
@@ -105,3 +114,14 @@ version, OS, CPU architecture, and a CI flag. **Never** repo names, file paths, 
 board content; IP addresses are not stored. Inspect the exact payload with `beacon telemetry status`.
 
 Opt out any time with `beacon telemetry off`, `BEACON_TELEMETRY_DISABLED=1`, or `DO_NOT_TRACK=1`.
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and the workflow.
+All contributors sign a one-click [CLA](./CLA.md), and the project follows a
+[Code of Conduct](./CODE_OF_CONDUCT.md). For dependency/licensing rules see
+[OSS-POLICY.md](./OSS-POLICY.md); to report a vulnerability see [SECURITY.md](./SECURITY.md).
+
+## License
+
+Beacon is licensed under the [Apache License 2.0](./LICENSE).
