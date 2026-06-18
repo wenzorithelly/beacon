@@ -27,8 +27,8 @@ describe("plugin manifest", () => {
     expect(pluginManifest("9.9.9").repository).toBe("https://github.com/wenzorithelly/beacon-plugin");
   });
 
-  it("declares the MIT license", () => {
-    expect(pluginManifest("9.9.9").license).toBe("MIT");
+  it("declares the Apache-2.0 license", () => {
+    expect(pluginManifest("9.9.9").license).toBe("Apache-2.0");
   });
 });
 
