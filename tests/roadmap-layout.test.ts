@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { layoutRoadmap, type RoadmapLayoutNode } from "@/lib/roadmap-layout";
+import {
+  estimateRoadmapCardHeight,
+  layoutRoadmap,
+  type RoadmapLayoutNode,
+} from "@/lib/roadmap-layout";
 
 const f = (
   id: string,
@@ -106,5 +110,58 @@ describe("layoutRoadmap (grid-block lanes)", () => {
     const nodes = [f("orphan", { parentId: "ghost", cluster: "AUTH" })];
     const pos = layoutRoadmap(nodes, "cluster", OPTS);
     expect(pos.get("orphan")).toEqual({ x: 0, y: 0 });
+  });
+});
+
+// Height-aware packing: the full-LOD (zoomed-in) card is taller than the title-only card, so the
+// layout reserves vertical room per card from its estimated height — long-title cards no longer
+// overlap the slot below them. A node with no title keeps the fixed rowH slot (covered above).
+describe("layoutRoadmap (height-aware vertical spacing)", () => {
+  it("reserves more room for a long-title card so the next card stacks below its full height", () => {
+    const longTitle = "A very long roadmap feature title that wraps onto several lines";
+    const nodes = [
+      f("p1", { cluster: "AUTH", title: longTitle }),
+      f("p2", { cluster: "AUTH", title: "short" }),
+    ];
+    const pos = layoutRoadmap(nodes, "cluster", { ...OPTS, maxCols: 1 });
+    const est = estimateRoadmapCardHeight({ title: longTitle, role: null }, 0);
+    expect(est).toBeGreaterThan(100); // taller than the fixed rowH (100 in OPTS)
+    expect(pos.get("p2")!.y).toBe(est); // p2 sits below p1's reserved height, not at the old 100
+  });
+
+  it("stacks a sub-task below its parent's estimated height (not the fixed slot)", () => {
+    const longTitle = "Parent feature carrying a long multi-line title right here";
+    const nodes = [
+      f("p", { cluster: "AUTH", title: longTitle }),
+      f("k", { parentId: "p", title: "child task" }),
+    ];
+    const pos = layoutRoadmap(nodes, "cluster", { ...OPTS, maxCols: 1, childIndent: 24 });
+    // The parent has a child → its slot also reserves the progress-bar row.
+    const parentSlot = estimateRoadmapCardHeight({ title: longTitle, role: null }, 1);
+    expect(parentSlot).toBeGreaterThan(100);
+    expect(pos.get("k")).toEqual({ x: 24, y: parentSlot });
+  });
+
+  it("short-title cards keep the comfortable fixed slot (never tighter than rowH)", () => {
+    const nodes = [
+      f("a", { cluster: "AUTH", title: "tiny" }),
+      f("b", { cluster: "AUTH", title: "tiny" }),
+    ];
+    const pos = layoutRoadmap(nodes, "cluster", { ...OPTS, maxCols: 1 });
+    expect(pos.get("b")!.y).toBe(100); // floored at rowH — short cards aren't packed tighter
+  });
+});
+
+describe("estimateRoadmapCardHeight", () => {
+  it("grows with title line count", () => {
+    const short = estimateRoadmapCardHeight({ title: "hi", role: null }, 0);
+    const long = estimateRoadmapCardHeight({ title: "x".repeat(120), role: null }, 0);
+    expect(long).toBeGreaterThan(short);
+  });
+
+  it("adds room for a role sub-line and for the sub-task progress bar", () => {
+    const base = estimateRoadmapCardHeight({ title: "feature", role: null }, 0);
+    expect(estimateRoadmapCardHeight({ title: "feature", role: "does a thing" }, 0)).toBeGreaterThan(base);
+    expect(estimateRoadmapCardHeight({ title: "feature", role: null }, 3)).toBeGreaterThan(base);
   });
 });

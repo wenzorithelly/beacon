@@ -25,6 +25,46 @@ export interface RoadmapLayoutNode {
   cluster: string | null;
   status: string;
   priority: number;
+  /** Card title — drives the full-LOD height estimate so the layout reserves room for a
+   *  multi-line (wrapped) title when zoomed in. Optional: absent → the card occupies the fixed
+   *  rowH slot (legacy behavior, so position-less snapshots + old callers are unchanged). */
+  title?: string | null;
+  /** The role/plain sub-line — adds one line to the height estimate when present. */
+  role?: string | null;
+}
+
+// Estimated FULL-LOD height (px) of a roadmap card. The board lays cards out at fixed positions,
+// but semantic zoom renders a TALLER, detailed card when zoomed in (title + tags + role +
+// progress) than the title-only card shown zoomed out — so the layout must reserve the full-LOD
+// height or cards overlap their neighbour/sub-task slot at reading zoom. Deterministic + pure.
+// Real wrap depends on font + the card's content-fit width, so this is intentionally tuned to
+// slightly OVER-estimate (narrow chars-per-line + a gap): extra whitespace beats overlap.
+const RM_LINE_H = 19; // text-sm leading-snug line box
+const RM_CARD_BASE = 66; // vertical padding + the identity-tags row + one title line
+const RM_ROLE_H = 16; // the role/plain sub-line (line-clamp-1)
+const RM_PROGRESS_H = 22; // the sub-task progress bar row (only when the card has children)
+const RM_CARD_GAP = 24; // breathing room below each card
+const RM_CHARS_PER_LINE = 17; // conservative: the title column is narrow + wraps per word
+
+export function estimateRoadmapCardHeight(
+  node: Pick<RoadmapLayoutNode, "title" | "role">,
+  childCount: number,
+): number {
+  const title = (node.title ?? "").trim();
+  const lines = title ? Math.max(1, Math.ceil(title.length / RM_CHARS_PER_LINE)) : 1;
+  let h = RM_CARD_BASE + (lines - 1) * RM_LINE_H;
+  if (node.role && node.role.trim()) h += RM_ROLE_H;
+  if (childCount > 0) h += RM_PROGRESS_H;
+  return h + RM_CARD_GAP;
+}
+
+// The vertical slot a node consumes when stacked. No title supplied (legacy callers /
+// position-less snapshots) → the fixed rowH, so existing behavior + tests are unchanged. With a
+// title, reserve the estimated height but never less than rowH, so short cards keep today's
+// comfortable spacing and only long-title cards grow their slot.
+function slotHeight(node: RoadmapLayoutNode, childCount: number, rowH: number): number {
+  if (node.title == null) return rowH;
+  return Math.max(rowH, estimateRoadmapCardHeight(node, childCount));
 }
 
 export interface RoadmapLayoutOptions {
@@ -114,22 +154,28 @@ export function layoutRoadmap(
     const feats = byLane.get(k)!;
     const totalRows = feats.reduce((s, p) => s + 1 + (childrenByParent.get(p.id)?.length ?? 0), 0);
     const cols = Math.max(1, Math.min(maxCols, feats.length, Math.round(Math.sqrt(0.85 * totalRows)) || 1));
-    const colRows = new Array<number>(cols).fill(0); // row-slots consumed per column
+    // colY tracks the accumulated PIXEL height consumed per column (not a row count) so a card
+    // with a long, multi-line title reserves proportionally more room and the next card stacks
+    // below it instead of underneath it. Reduces to row-count*rowH when no titles are supplied.
+    const colY = new Array<number>(cols).fill(0);
     const local = new Map<string, { x: number; y: number }>();
     for (const p of feats) {
       let c = 0;
-      for (let i = 1; i < cols; i++) if (colRows[i] < colRows[c]) c = i;
+      for (let i = 1; i < cols; i++) if (colY[i] < colY[c]) c = i;
       const x = c * colW;
-      const y = colRows[c] * rowH;
+      const y = colY[c];
       local.set(p.id, { x, y });
       const kids = childrenByParent.get(p.id) ?? [];
-      kids.forEach((kid, ki) => {
-        local.set(kid.id, { x: x + childIndent, y: y + (ki + 1) * rowH });
-      });
-      colRows[c] += 1 + kids.length;
+      // The parent's own slot, then each child stacked beneath by its own slot height.
+      let cursor = y + slotHeight(p, kids.length, rowH);
+      for (const kid of kids) {
+        local.set(kid.id, { x: x + childIndent, y: cursor });
+        cursor += slotHeight(kid, 0, rowH);
+      }
+      colY[c] = cursor;
     }
-    const laneRows = colRows.reduce((m, v) => Math.max(m, v), 0);
-    laneBlocks.push({ id: k, w: cols * colW, h: laneRows * rowH, local });
+    const laneH = colY.reduce((m, v) => Math.max(m, v), 0);
+    laneBlocks.push({ id: k, w: cols * colW, h: laneH, local });
   }
 
   // Phase 2 — flow the lane blocks into viewport-sized bands (shared with the db + architecture

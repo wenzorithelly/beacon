@@ -16,8 +16,9 @@ import { writeJsonAtomic } from "@/lib/atomic-write";
 export type BoardKey = "roadmap" | "architecture" | "db";
 
 export const BOARD_ALGO_VERSIONS: Record<BoardKey, string> = {
-  // grouped-2: aspect-targeted lane columns (wide lanes instead of 4-col towers).
-  roadmap: "grouped-2",
+  // grouped-3: height-aware lane packing — cards reserve room for their full-LOD (zoomed-in)
+  // height, so long-title cards no longer overlap their neighbour/sub-task slot at reading zoom.
+  roadmap: "grouped-3",
   // arch-layered-3: band width scales with content (~2:1 wide board overall).
   architecture: "arch-layered-3",
   // db-dock-3: square-ish domain blocks + content-scaled band width (roadmap geometry).

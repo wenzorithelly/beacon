@@ -31,6 +31,9 @@ export function archivedFeaturesToBoard(
     cluster: f.cluster ?? null,
     status: "PENDING",
     priority: f.priority ?? 2,
+    // Height-aware spacing so a long-title archived feature doesn't overlap the card below it.
+    title: f.title,
+    role: f.role ?? null,
   }));
   const pos = layoutRoadmap(layoutInput, "cluster");
 

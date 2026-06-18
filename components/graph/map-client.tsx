@@ -1272,6 +1272,10 @@ export function MapClient({
         cluster: n.data.cluster,
         status: n.data.status,
         priority: n.data.priority,
+        // Title + role drive the height estimate so a long-title card reserves room and doesn't
+        // overlap its neighbour/sub-task at full zoom.
+        title: n.data.title,
+        role: n.data.role,
       })),
       by,
       // Size the board to THIS screen — wider viewport lays out wider (less vertical scroll).
