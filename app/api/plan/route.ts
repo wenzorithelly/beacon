@@ -144,7 +144,10 @@ export async function POST(req: Request) {
       let endpoints = 0;
       if (draftInput && (draftInput.tables.length || draftInput.endpoints.length)) {
         const originY = await computeDraftOriginY();
-        const doc = writeProposal(draftInput, originY);
+        // Live schema → re-declared columns inherit unspecified attrs instead of defaulting, so a
+        // table re-stated to add a constraint doesn't show phantom column changes on the /plan diff.
+        const realTables = await db.query.dbTable.findMany({ with: { columns: true } });
+        const doc = writeProposal(draftInput, originY, realTables);
         tables = doc.tables.length;
         endpoints = doc.endpoints.length;
       }

@@ -40,8 +40,42 @@ describe("diffDraftTables", () => {
     expect(d.changes).toContain("+ column verified (boolean)");
     expect(d.changes).toContain("- column legacy");
     expect(d.changes.some((c) => c.startsWith("~ column email"))).toBe(true);
-    // Per-column statuses (keyed by the DRAFT column's name) drive row tinting on the card.
-    expect(d.columns).toEqual({ verified: "added", email: "modified" });
+    // Per-column entries (keyed by the DRAFT column's name) drive row tinting AND the inline
+    // delta chip — each carries the from→to detail, not just an opaque status.
+    expect(d.columns).toEqual({
+      verified: { kind: "added", detail: "new column" },
+      email: { kind: "modified", detail: "text→citext" },
+    });
+  });
+
+  it("carries a compact from→to detail per modified column (type, nullable, key flips)", () => {
+    const real = [
+      {
+        name: "merkle_roots",
+        columns: [
+          col("seq", "bigint", { nullable: false }),
+          col("hash", "text", { nullable: false }),
+          col("ref", "text"),
+        ],
+      },
+    ];
+    const draft = [
+      {
+        id: "d1",
+        name: "merkle_roots",
+        columns: [
+          col("seq", "uuid", { nullable: false }), // retype
+          col("hash", "text", { nullable: true }), // now nullable
+          col("ref", "text", { isPk: true }), // now PK
+        ],
+      },
+    ];
+    const d = diffDraftTables(real, draft).get("d1")!;
+    expect(d.columns).toEqual({
+      seq: { kind: "modified", detail: "bigint→uuid" }, // type change shows old→new inline
+      hash: { kind: "modified", detail: "now nullable" },
+      ref: { kind: "modified", detail: "now PK" },
+    });
   });
 
   it("matches table + column names case-insensitively", () => {

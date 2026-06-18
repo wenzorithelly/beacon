@@ -10,9 +10,11 @@ export interface NodeDiff {
   status: DiffStatus;
   /** Human-readable change lines (column adds/removes/edits) — shown on hover. */
   changes: string[];
-  /** Per-column status (keyed by the DRAFT column's name) — drives row tinting on the
-   *  card. Empty for added tables (the whole card is already green) and for endpoints. */
-  columns: Record<string, "added" | "modified">;
+  /** Per-column entry (keyed by the DRAFT column's name) — drives row tinting AND the inline
+   *  delta chip on the card. `detail` is the compact from→to ("type bigint→uuid", "now
+   *  nullable", "new column"). Empty for added tables (the whole card is already green) and
+   *  for endpoints. */
+  columns: Record<string, { kind: "added" | "modified"; detail: string }>;
 }
 
 interface ColLike {
@@ -56,26 +58,45 @@ export function diffDraftTables(
 function diffColumns(
   real: ReadonlyArray<ColLike>,
   draft: ReadonlyArray<ColLike>,
-): { changes: string[]; columns: Record<string, "added" | "modified"> } {
+): { changes: string[]; columns: Record<string, { kind: "added" | "modified"; detail: string }> } {
   const realByName = new Map(real.map((c) => [norm(c.name), c] as const));
   const draftNames = new Set(draft.map((c) => norm(c.name)));
   const changes: string[] = [];
-  const columns: Record<string, "added" | "modified"> = {};
+  const columns: Record<string, { kind: "added" | "modified"; detail: string }> = {};
   for (const c of draft) {
     const r = realByName.get(norm(c.name));
     if (!r) {
       changes.push(`+ column ${c.name} (${c.type})`);
-      columns[c.name] = "added";
+      columns[c.name] = { kind: "added", detail: "new column" };
       continue;
     }
+    // `edits` is verbose (table-level change list, shown on the MODIFY badge hover); `compact`
+    // is what the inline per-column cell renders in place of the type — a type change reads as
+    // the bare old→new ("bigint→uuid"), flag changes as their phrase.
     const edits: string[] = [];
-    if (norm(r.type) !== norm(c.type)) edits.push(`type ${r.type}→${c.type}`);
-    if (r.isPk !== c.isPk) edits.push(c.isPk ? "now PK" : "no longer PK");
-    if (r.isFk !== c.isFk) edits.push(c.isFk ? "now FK" : "no longer FK");
-    if (r.nullable !== c.nullable) edits.push(c.nullable ? "now nullable" : "now required");
+    const compact: string[] = [];
+    if (norm(r.type) !== norm(c.type)) {
+      edits.push(`type ${r.type}→${c.type}`);
+      compact.push(`${r.type}→${c.type}`);
+    }
+    if (r.isPk !== c.isPk) {
+      const s = c.isPk ? "now PK" : "no longer PK";
+      edits.push(s);
+      compact.push(s);
+    }
+    if (r.isFk !== c.isFk) {
+      const s = c.isFk ? "now FK" : "no longer FK";
+      edits.push(s);
+      compact.push(s);
+    }
+    if (r.nullable !== c.nullable) {
+      const s = c.nullable ? "now nullable" : "now required";
+      edits.push(s);
+      compact.push(s);
+    }
     if (edits.length) {
       changes.push(`~ column ${c.name}: ${edits.join(", ")}`);
-      columns[c.name] = "modified";
+      columns[c.name] = { kind: "modified", detail: compact.join(" · ") };
     }
   }
   for (const c of real) {

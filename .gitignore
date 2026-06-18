@@ -63,3 +63,6 @@ playwright-mcp/
 
 # local scratch / unrelated experiments
 /social_network/
+
+# brainstorming visual companion
+.superpowers/

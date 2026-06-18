@@ -70,3 +70,59 @@ describe("graphToDoc — domain-clustered draft layout", () => {
     void byName;
   });
 });
+
+describe("graphToDoc — inherits omitted column attrs from the live schema", () => {
+  // A re-declared existing table: from_sequence is NOT NULL + an FK in the live schema.
+  const real = [
+    {
+      name: "merkle_roots",
+      columns: [
+        { name: "from_sequence", type: "bigint", isPk: false, isFk: true, nullable: false },
+        { name: "root_hash", type: "varchar(64)", isPk: false, isFk: false, nullable: false },
+      ],
+    },
+  ];
+
+  it("fills unspecified nullable/isFk from the matching live column (no phantom change)", () => {
+    const graph = draftSchema.parse({
+      tables: [
+        {
+          name: "merkle_roots",
+          // The agent re-declares the table to hang a constraint off it, omitting nullable/isFk.
+          columns: [
+            { name: "from_sequence", type: "bigint" },
+            { name: "root_hash", type: "varchar(64)" },
+          ],
+        },
+      ],
+      relations: [],
+      endpoints: [],
+    });
+    const doc = graphToDoc(graph, 1, 0, real);
+    const cols = new Map(doc.tables[0].columns.map((c) => [c.name, c]));
+    expect(cols.get("from_sequence")).toMatchObject({ nullable: false, isFk: true });
+    expect(cols.get("root_hash")).toMatchObject({ nullable: false, isFk: false });
+  });
+
+  it("lets an explicitly-stated attr override the live value", () => {
+    const graph = draftSchema.parse({
+      tables: [{ name: "merkle_roots", columns: [{ name: "from_sequence", type: "bigint", nullable: true }] }],
+      relations: [],
+      endpoints: [],
+    });
+    const doc = graphToDoc(graph, 1, 0, real);
+    expect(doc.tables[0].columns[0].nullable).toBe(true);
+  });
+
+  it("falls back to hard defaults with no live match, and when realTables is omitted entirely", () => {
+    const graph = draftSchema.parse({
+      tables: [{ name: "brand_new", columns: [{ name: "id", type: "uuid" }] }],
+      relations: [],
+      endpoints: [],
+    });
+    const withReal = graphToDoc(graph, 1, 0, real); // "brand_new" has no live match
+    const withoutReal = graphToDoc(graph, 1);
+    expect(withReal.tables[0].columns[0]).toMatchObject({ nullable: true, isPk: false, isFk: false });
+    expect(withoutReal.tables[0].columns[0]).toMatchObject({ nullable: true, isPk: false, isFk: false });
+  });
+});

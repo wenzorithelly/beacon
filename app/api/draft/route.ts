@@ -3,7 +3,7 @@ import { writeProposal } from "@/lib/draft-store";
 import { computeDraftOriginY } from "@/lib/endpoint-layout";
 import { bumpVersion } from "@/lib/ingest";
 import { discardPlan } from "@/lib/plan-resolve";
-import { runWithWorkspace } from "@/lib/db-drizzle";
+import { db, runWithWorkspace } from "@/lib/db-drizzle";
 import { workspaceIdFromRequest } from "@/lib/workspaces";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,10 @@ export async function POST(req: Request) {
     }
     return await runWithWorkspace(workspaceIdFromRequest(req), async () => {
       const originY = await computeDraftOriginY();
-      const doc = writeProposal(graph, originY);
+      // Live schema → re-declared columns inherit unspecified attrs instead of defaulting, so a
+      // table re-stated to add a constraint doesn't show phantom column changes on the /plan diff.
+      const realTables = await db.query.dbTable.findMany({ with: { columns: true } });
+      const doc = writeProposal(graph, originY, realTables);
       await bumpVersion(); // nudge the open /db map (SSE) to pick up the new proposal
       return Response.json({
         ok: true,

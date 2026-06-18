@@ -40,12 +40,36 @@ function writeDoc(doc: DraftDoc): void {
   writeJsonAtomic(draftPath(), doc);
 }
 
+/** Just enough of a live table to inherit unspecified column attrs from (matched by name). */
+export interface RealTableForInherit {
+  name: string;
+  columns: ReadonlyArray<{ name: string; isPk?: boolean; isFk?: boolean; nullable?: boolean }>;
+}
+
+const normName = (s: string) => s.trim().toLowerCase();
+
 /**
  * Position a name-keyed proposal into a DraftDoc with stable ids + a grid layout.
  * `originY` shifts the whole draft down so it doesn't land on top of existing canvas content
  * (default 0 keeps the old behavior for tests and code paths that already pick a position).
+ *
+ * `realTables` (the live schema) lets a re-declared existing column inherit any attribute the
+ * agent left unspecified (`nullable`/`isPk`/`isFk`) from its live counterpart instead of from a
+ * hard default — so re-declaring a table to add a constraint doesn't fabricate phantom column
+ * changes on the /plan diff. Omit it (default []) to keep the old default-only behavior.
  */
-export function graphToDoc(graph: DraftGraph, proposedAt: number, originY = 0): DraftDoc {
+export function graphToDoc(
+  graph: DraftGraph,
+  proposedAt: number,
+  originY = 0,
+  realTables: ReadonlyArray<RealTableForInherit> = [],
+): DraftDoc {
+  // table name → (column name → live column), for inheriting unspecified attrs below.
+  const realCols = new Map(
+    realTables.map(
+      (t) => [normName(t.name), new Map(t.columns.map((c) => [normName(c.name), c]))] as const,
+    ),
+  );
   // Stable ids first so the layout AND the relation/endpoint links all reference the same ones.
   const idByName = new Map<string, string>();
   for (const t of graph.tables) idByName.set(t.name, randomUUID());
@@ -77,6 +101,7 @@ export function graphToDoc(graph: DraftGraph, proposedAt: number, originY = 0): 
   const tables: DraftTableT[] = graph.tables.map((t) => {
     const id = idByName.get(t.name)!;
     const p = layout.tables.get(id) ?? { x: 0, y: 0 };
+    const liveCols = realCols.get(normName(t.name));
     return {
       id,
       name: t.name,
@@ -84,14 +109,19 @@ export function graphToDoc(graph: DraftGraph, proposedAt: number, originY = 0): 
       description: t.description ?? null,
       x: p.x,
       y: originY + p.y,
-      columns: t.columns.map((c) => ({
-        name: c.name,
-        type: c.type,
-        isPk: c.isPk ?? false,
-        isFk: c.isFk ?? false,
-        nullable: c.nullable ?? true,
-        note: c.note ?? null,
-      })),
+      columns: t.columns.map((c) => {
+        // An attr the agent didn't state inherits from the live column (if this table already
+        // exists) before falling back to the hard default — so unchanged columns read as unchanged.
+        const live = liveCols?.get(normName(c.name));
+        return {
+          name: c.name,
+          type: c.type,
+          isPk: c.isPk ?? live?.isPk ?? false,
+          isFk: c.isFk ?? live?.isFk ?? false,
+          nullable: c.nullable ?? live?.nullable ?? true,
+          note: c.note ?? null,
+        };
+      }),
     };
   });
 
@@ -134,9 +164,16 @@ export function graphToDoc(graph: DraftGraph, proposedAt: number, originY = 0): 
 
 /** A fresh proposal from Claude / the generator. Supersedes any prior draft + verdict.
  * `originY` (computed by callers via computeDraftOriginY) shifts the layout below the
- * existing canvas so a fresh draft doesn't land on top of real tables. */
-export function writeProposal(graph: DraftGraph, originY = 0, now = Date.now()): DraftDoc {
-  const doc = graphToDoc(graph, now, originY);
+ * existing canvas so a fresh draft doesn't land on top of real tables. `realTables` (the live
+ * schema) lets re-declared columns inherit unspecified attrs from their live counterpart so the
+ * /plan diff doesn't fabricate phantom column changes — see graphToDoc. */
+export function writeProposal(
+  graph: DraftGraph,
+  originY = 0,
+  realTables: ReadonlyArray<RealTableForInherit> = [],
+  now = Date.now(),
+): DraftDoc {
+  const doc = graphToDoc(graph, now, originY, realTables);
   writeDoc(doc);
   rmSync(verdictPath(), { force: true });
   return doc;

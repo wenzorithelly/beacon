@@ -24,8 +24,9 @@ export type DbTableNodeData = {
   // Plan-vs-Repo diff (draft nodes only): how this proposed table compares to the live schema.
   diffStatus?: DiffStatus;
   diffChanges?: string[];
-  /** Per-column diff (draft nodes only): column name → added | modified, drives row tinting. */
-  diffColumns?: Record<string, "added" | "modified">;
+  /** Per-column diff (draft nodes only): column name → { kind, detail }. Drives row tinting AND
+   *  the inline from→to delta line ("type bigint→uuid", "now nullable", "new column"). */
+  diffColumns?: Record<string, { kind: "added" | "modified"; detail: string }>;
   /** column name → referenced table name, resolved from the FK relations on the board. */
   fkTargets?: Record<string, string>;
   /** Plan-review annotations anchored to this table (column = null → the header). */
@@ -87,9 +88,20 @@ function contentFitWidth(
   columns: DbColumnPayload[],
   fkTargets?: Record<string, string>,
   draft = false,
+  diffColumns?: Record<string, { kind: "added" | "modified"; detail: string }>,
 ): number {
   const rowPx = (c: DbColumnPayload) => {
-    if (draft) return Math.round(c.name.length * 7.3) + 146;
+    if (draft) {
+      // A modified column renders its from→to delta in place of the type input. Size the card to
+      // the NAME input width (max(6, len+1)ch ≈ 7.3px/char @12px mono) + the right cell — the delta
+      // text at ~8px/char (11px mono, measured) for a modified column, else the fixed 64px type
+      // input — + row chrome (icons, delete, gaps, padding ≈ 94px). So a normal delta shows in
+      // full; the Math.min(312) clamp caps extremes, which then truncate + reveal on hover.
+      const d = diffColumns?.[c.name];
+      const nameW = Math.max(6, c.name.length + 1) * 7.3;
+      const rightW = d?.kind === "modified" ? d.detail.length * 8 : 64;
+      return Math.round(nameW + rightW) + 94;
+    }
     const right = fkTargets?.[c.name] ? fkTargets[c.name].length + 2 : c.type.length;
     return Math.round(c.name.length * 7.3 + right * 6.7) + 64;
   };
@@ -105,8 +117,11 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
   // Diff accent (draft only): green = new table, amber = modified vs. the live schema, sky = unchanged.
   const accent =
     data.diffStatus === "added" ? "#7bd389" : data.diffStatus === "modified" ? "#ffb86b" : "#4ea1ff";
-  const diffLabel = data.diffStatus === "added" ? "new" : data.diffStatus === "modified" ? "modify" : "draft";
-  const diffTitle = data.diffChanges?.length ? data.diffChanges.join("\n") : "draft";
+  // A genuine schema change (added / modified) gets the colored accent badge; a table that's part
+  // of the plan but unchanged column-wise reads as a muted "in plan" tag, NOT a phantom MODIFY.
+  const isChange = data.diffStatus === "added" || data.diffStatus === "modified";
+  const diffLabel = data.diffStatus === "added" ? "new" : data.diffStatus === "modified" ? "modify" : "in plan";
+  const diffTitle = data.diffChanges?.length ? data.diffChanges.join("\n") : "in this plan — no column change";
   const color = draft ? accent : domainColor(data.domain);
   // Deterministic risk flags from the table's own columns/domain (secrets, auth).
   const riskBadges = tableRiskBadges({ domain: data.domain, columns: data.columns });
@@ -131,7 +146,7 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
   const headerPins = (data.pins ?? []).filter((p) => p.column === null);
   const pinsFor = (col: string) => (data.pins ?? []).filter((p) => p.column === col);
   // One width for every zoom variant of this card so edges/regions don't jump between LODs.
-  const cardWidth = contentFitWidth(data.name, draft ? cols : data.columns, data.fkTargets, draft);
+  const cardWidth = contentFitWidth(data.name, draft ? cols : data.columns, data.fkTargets, draft, data.diffColumns);
   // Shared shell: dark glass card, 12px radius, hairline rows. NO overflow-hidden — the
   // annotation pins ride half-outside the right edge — so the header tints its own top corners.
   const shell = cn(
@@ -259,8 +274,11 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
         <RiskBadgeRow badges={riskBadges} />
         <span
           title={diffTitle}
-          className="shrink-0 rounded-md border px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[0.14em]"
-          style={{ background: `${accent}1f`, borderColor: `${accent}55`, color: accent }}
+          className={cn(
+            "shrink-0 rounded-md border px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[0.14em]",
+            !isChange && "border-white/15 bg-white/5 text-muted-foreground",
+          )}
+          style={isChange ? { background: `${accent}1f`, borderColor: `${accent}55`, color: accent } : undefined}
         >
           {diffLabel}
         </span>
@@ -298,15 +316,14 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
           // changed vs. the live schema. Untouched rows keep the plain background.
           const colDiff = data.diffColumns?.[c.name];
           const rowTint =
-            colDiff === "added"
+            colDiff?.kind === "added"
               ? { background: "#7bd38914", boxShadow: "inset 2px 0 0 #7bd389" }
-              : colDiff === "modified"
+              : colDiff?.kind === "modified"
                 ? { background: "#ffb86b14", boxShadow: "inset 2px 0 0 #ffb86b" }
                 : undefined;
           return (
             <div
               key={i}
-              title={colDiff === "added" ? "column being added" : colDiff === "modified" ? "column changed vs. the live schema" : undefined}
               style={rowTint}
               className="group/row relative flex items-center gap-1.5 px-3 py-[5px] text-[12px]"
             >
@@ -338,17 +355,33 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
                 onBlur={() => saveCols(cols)}
                 onKeyDown={stop}
                 placeholder="column"
-                // The NAME never shrinks below its content (inputs clip without ellipsis);
-                // the type cell is the one that gives way under pressure.
-                style={{ minWidth: `${Math.max(6, c.name.length + 1)}ch` }}
-                className={cn(noDrag, "flex-1 bg-transparent font-mono outline-none")}
+                // The NAME is sized to its content and never shrinks (inputs clip without
+                // ellipsis). The flex-1 spacer pushes the type/delta cell to the right edge, and
+                // THAT cell is the one that gives way (truncates + hover) under pressure — so a
+                // long name or a long delta never overflows the card and never crops the name.
+                style={{ width: `${Math.max(6, c.name.length + 1)}ch` }}
+                className={cn(noDrag, "shrink-0 bg-transparent font-mono outline-none")}
               />
+              <span aria-hidden className="flex-1" />
               {data.fkTargets?.[c.name] ? (
                 <span
                   title={`→ ${data.fkTargets[c.name]}`}
                   className="min-w-0 shrink truncate text-right font-mono text-[11px] text-muted-foreground/80"
                 >
                   &rarr;&nbsp;{data.fkTargets[c.name]}
+                </span>
+              ) : colDiff?.kind === "modified" ? (
+                // The genuine change reads IN PLACE of the type — "text→varchar(120)" / "now
+                // nullable" — so there's no cramped second line and no truncated type to repeat.
+                // The card grows to fit it (contentFitWidth), so it never crops.
+                <span
+                  title={`was changed — ${colDiff.detail}`}
+                  // Shows in full when it fits (contentFitWidth grows the card to ~312 to fit name
+                  // + delta); min-w-0 + shrink + truncate means a long name OR long delta makes THIS
+                  // cell ellipsize (full text on hover) instead of overflowing or cropping the name.
+                  className={cn(noDrag, "min-w-0 shrink truncate text-right font-mono text-[11px] font-medium text-[#ffb86b]")}
+                >
+                  {colDiff.detail}
                 </span>
               ) : (
                 <input
@@ -358,7 +391,11 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
                   onKeyDown={stop}
                   placeholder="type"
                   title={c.type}
-                  className={cn(noDrag, "w-16 min-w-0 shrink bg-transparent text-right font-mono text-[11px] text-muted-foreground/80 outline-none")}
+                  className={cn(
+                    noDrag,
+                    "w-16 min-w-0 shrink bg-transparent text-right font-mono text-[11px] outline-none",
+                    colDiff?.kind === "added" ? "text-[#7bd389]" : "text-muted-foreground/80",
+                  )}
                 />
               )}
               <button

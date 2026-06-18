@@ -93,20 +93,30 @@ Rejected alternatives:
 ### Part 2 — Legibility: render the genuine per-column delta inline
 
 The delta is already computed in `diffColumns` and discarded into the table-level
-`changes` array. Carry it per-column and render it on the draft card row.
+`changes` array. Carry it per-column and render it **in place of the type cell**
+on the modified column's row (NOT as a stacked sub-line — that proved cramped and
+redundant with the truncated type cell).
 
 - `lib/db-diff.ts`: change `NodeDiff.columns` from
   `Record<string, "added" | "modified">` to
-  `Record<string, { kind: "added" | "modified"; detail: string }>`.
-  For added: `detail = "new column"`. For modified: `detail` = the edits joined,
-  e.g. `type bigint→text`, `now nullable`, `now NOT NULL`, `now PK`, `now FK`
-  (reuse the existing `edits` array verbatim).
+  `Record<string, { kind: "added" | "modified"; detail: string }>`. Two forms of
+  the change text: the verbose `edits` (`type bigint→uuid`, …) still feeds the
+  table-level `changes` list (the MODIFY-badge hover); a `compact` form feeds the
+  inline cell — a type change reads as the bare `old→new` (`text→varchar(120)`),
+  flag changes as their phrase (`now nullable`, `now PK`). `added` → `new column`.
 - `components/graph/db-table-node.tsx` (draft branch only, where diffs apply):
-  - `DbTableNodeData.diffColumns` type updated to match.
-  - Per modified column row, render a compact non-editable chip after the
-    type cell (before the delete `×`): amber, text = `detail`, truncated, full
-    text on `title` hover. Per added column: a green `NEW` chip.
-  - Keep the subtle inset stripe as a secondary accent; the chip carries meaning.
+  - For a **modified** column, the right-hand cell renders the amber `detail`
+    (non-editable) instead of the type input — so the from→to sits exactly where
+    you look for the type, with no second line and no redundant truncated type.
+  - **Robust layout (name never crops; the delta cell gives way):** the column
+    name input is content-width + `shrink-0`; a `flex-1` spacer follows it; the
+    right cell (type input / fk target / amber delta) is `min-w-0 shrink truncate`.
+    A long name OR a long delta makes the delta ellipsize (full text on hover),
+    never overflowing the card and never cropping the name — the same contract the
+    type cell always followed.
+  - `contentFitWidth` grows the card (clamped to 312px) to fit name + delta so a
+    normal delta shows in full; only extremes truncate. Added column → type tinted
+    green (signals "new" alongside the green inset stripe); modified → amber stripe.
 - `db-map-client.tsx:670` already forwards `.columns`; only the value shape
   changes, so update the passthrough/read sites accordingly.
 
