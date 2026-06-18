@@ -71,6 +71,17 @@ make studio      # drizzle studio
 5. Run `make test` and `make lint` locally — CI runs both plus a secret scan on every PR.
 6. Open a PR against `main`, fill in the template, and make sure the CLA check is green.
 
+## How pull requests get merged
+
+`main` is protected — only maintainers can merge, and every PR must clear the gates:
+
+- Open your PR from a fork (you can't push to `main` directly).
+- **CI must pass** — the `Test & lint` and `Secret scan` checks run automatically.
+- **Sign the CLA** — the bot prompts you on your first PR (one click).
+- **A maintainer review + approval** is required before the merge button enables.
+
+A maintainer then merges. Please keep PRs small and focused to make review quick.
+
 ## Reporting security issues
 
 Do **not** open a public issue for security vulnerabilities. Follow [`SECURITY.md`](./SECURITY.md).
