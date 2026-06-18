@@ -6,6 +6,7 @@ import { BEACON_MCP_TIMEOUT_MS } from "@/lib/constants";
 import {
   PLUGIN_PAYLOAD,
   PLUGIN_SKILLS,
+  marketplaceManifest,
   pluginHooks,
   pluginManifest,
   pluginMcp,
@@ -20,6 +21,21 @@ describe("plugin manifest", () => {
     expect(m.name).toBe("beacon");
     expect(m.version).toBe("9.9.9");
     expect(m.description.length).toBeGreaterThan(0);
+  });
+
+  it("pins the public marketplace repo URL (string form per the plugin schema)", () => {
+    expect(pluginManifest("9.9.9").repository).toBe("https://github.com/wenzorithelly/beacon-plugin");
+  });
+});
+
+describe("marketplace manifest", () => {
+  it("lists the beacon plugin at the repo root and mirrors the version", () => {
+    const m = marketplaceManifest("4.5.6");
+    expect(m.name).toBe("trybeacon");
+    expect(m.metadata.version).toBe("4.5.6");
+    expect(m.plugins).toHaveLength(1);
+    expect(m.plugins[0].name).toBe("beacon");
+    expect(m.plugins[0].source).toBe("./");
   });
 });
 
@@ -81,6 +97,8 @@ describe("writePluginAssets", () => {
     expect(existsSync(join(out, "hooks", "hooks.json"))).toBe(true);
     expect(existsSync(join(out, ".mcp.json"))).toBe(true);
     expect(existsSync(join(out, "commands", "beacon.md"))).toBe(true);
+    expect(existsSync(join(out, ".claude-plugin", "marketplace.json"))).toBe(true);
+    expect(existsSync(join(out, "README.md"))).toBe(true);
 
     for (const name of Object.keys(PLUGIN_SKILLS)) {
       const skill = join(out, "skills", name, "SKILL.md");
