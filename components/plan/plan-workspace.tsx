@@ -7,9 +7,8 @@ import {
   MapPinned,
   Database,
   Send,
-  ListChecks,
+  PanelRight,
   MessageSquare,
-  StickyNote,
   Archive,
   Loader2,
   Maximize2,
@@ -237,12 +236,6 @@ export function PlanWorkspace({
     mapControlRef.current?.open();
   }, []);
 
-  // Open the comments side panel on whichever board is showing (the 💬 toolbar button).
-  const openComments = useCallback(() => {
-    if (activeTab === "db") dbControlRef.current?.openComments();
-    else mapControlRef.current?.openComments();
-  }, [activeTab]);
-
   // Comment on a canvas node/table: add it to the feedback bundle (excerpt = the node/table
   // name). The annotation card that appears on the board is editable in place (autofocused
   // while empty) — same flow as /map board annotations — so we do NOT yank the side panel
@@ -456,25 +449,20 @@ export function PlanWorkspace({
         {/* Share THIS (currently-open) plan as a read-only link. */}
         <SharePlanButton className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground" />
         <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
+        {/* ONE button opens the side panel — Details + Comments live as tabs inside it (no
+            separate comments button). The comment-count badge rides here so pending comments
+            still show at a glance. */}
         <button
           onClick={toggleSidePanel}
           disabled={!annoApi}
-          title="Open the side panel (details)"
-          className="relative flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
-        >
-          <ListChecks className="size-3.5" />
-        </button>
-        <button
-          onClick={openComments}
-          disabled={!annoApi}
           title={
             annoApi?.annotationCount
-              ? `Open comments · ${annoApi.annotationCount} comment${annoApi.annotationCount === 1 ? "" : "s"} so far`
-              : "Open comments — select a card/table and 'Comment on this', or highlight text"
+              ? `Open the side panel · ${annoApi.annotationCount} comment${annoApi.annotationCount === 1 ? "" : "s"} so far`
+              : "Open the side panel (details + comments)"
           }
           className="relative flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
         >
-          <MessageSquare className="size-3.5" />
+          <PanelRight className="size-3.5" />
           {annoApi && (annoApi.annotationCount ?? 0) > 0 && (
             <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-sky-500 px-1 text-[9px] font-semibold text-white">
               {annoApi.annotationCount}
@@ -499,7 +487,7 @@ export function PlanWorkspace({
                 : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
           )}
         >
-          <StickyNote className="size-3.5" />
+          <MessageSquare className="size-3.5" />
           {annoApi?.hasGlobalComment && (
             <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-sky-400" />
           )}
