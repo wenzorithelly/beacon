@@ -2,25 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  BookOpen,
-  Check,
-  HelpCircle,
-  Library,
-  Loader2,
-  MessageSquare,
-  Save,
-  Send,
-  X,
-} from "lucide-react";
+import { BookOpen, Check, Library, Loader2, MessageSquare, Save, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { currentTabWs, wsHeaders } from "@/lib/tab-ws";
-import { FileMentionProvider, Inline, MarkdownView } from "@/components/plan/markdown-view";
+import { FileMentionProvider, MarkdownView } from "@/components/plan/markdown-view";
 import {
   LessonNarrativePanel,
   type AnsweredText,
   type NarrativeApi,
 } from "@/components/learn/lesson-narrative-panel";
+import { LessonMap } from "@/components/graph/lesson-map-client";
 import type { Lesson, LessonQuestion } from "@/lib/lesson-types";
 
 // /learn surface: the agent's interactive explanation. Left = the house-style narrative where the
@@ -173,6 +164,15 @@ export function LearnWorkspace({
         .map((q) => ({ excerpt: q.anchor.kind === "text" ? q.anchor.excerpt : "", answer: q.answer ?? "" })),
     [lesson],
   );
+  const pendingByNode = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const q of nodeQuestions) if (q.question.trim()) m.set(q.nodeId, (m.get(q.nodeId) ?? 0) + 1);
+    return m;
+  }, [nodeQuestions]);
+  const overallQs = useMemo(
+    () => (lesson?.questions ?? []).filter((q) => q.anchor.kind === "overall"),
+    [lesson],
+  );
 
   if (ended) return <EndCard ended={ended} savedId={savedId} onBrowse={() => router.push("/learn?view=library")} />;
   if (!lesson) return <EmptyState />;
@@ -248,21 +248,24 @@ export function LearnWorkspace({
         )}
 
         <div className="flex min-h-0 flex-1">
-          {/* LEFT — narrative + highlight-to-ask. */}
+          {/* LEFT — narrative + highlight-to-ask, with overall Q&A docked below. */}
           <div className="relative flex min-w-0 flex-1 flex-col bg-background" style={{ width: "50%" }}>
-            <LessonNarrativePanel
-              narrative={lesson.narrative}
-              round={round}
-              answered={answeredText}
-              onApi={setNarrativeApi}
-            />
+            <div className="min-h-0 flex-1">
+              <LessonNarrativePanel
+                narrative={lesson.narrative}
+                round={round}
+                answered={answeredText}
+                onApi={setNarrativeApi}
+              />
+            </div>
+            {overallQs.length > 0 && <OverallQA questions={overallQs} />}
           </div>
 
           <div className="w-px shrink-0 bg-white/5" />
 
-          {/* RIGHT — the concept map (outline for now; React-Flow board lands in Phase 4). */}
-          <div className="min-w-0 flex-1 overflow-y-auto bg-background px-5 py-16" style={{ width: "50%" }}>
-            <LessonOutline lesson={lesson} onAskNode={askNode} pendingNodeQuestions={nodeQuestions} />
+          {/* RIGHT — the concept map. */}
+          <div className="min-w-0 flex-1 bg-background" style={{ width: "50%" }}>
+            <LessonMap lesson={lesson} onAskNode={askNode} pendingByNode={pendingByNode} />
           </div>
         </div>
       </div>
@@ -270,115 +273,29 @@ export function LearnWorkspace({
   );
 }
 
-// A readable outline of the lesson's nodes + edges + Q&A. Placeholder for the React-Flow board.
-function LessonOutline({
-  lesson,
-  onAskNode,
-  pendingNodeQuestions,
-}: {
-  lesson: Lesson;
-  onAskNode: (nodeId: string, q: string) => void;
-  pendingNodeQuestions: NodeQuestion[];
-}) {
-  const titleById = new Map(lesson.nodes.map((n) => [n.id, n.title]));
-  const edgesByFrom = new Map<string, typeof lesson.edges>();
-  for (const e of lesson.edges) (edgesByFrom.get(e.fromId) ?? edgesByFrom.set(e.fromId, []).get(e.fromId)!).push(e);
-  const [askId, setAskId] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
-  const submit = (id: string) => {
-    if (draft.trim()) onAskNode(id, draft.trim());
-    setDraft("");
-    setAskId(null);
-  };
+// Overall questions (not anchored to a span or a node) + their answers, docked below the
+// narrative. Node-anchored Q&A lives in the map's node drawer; text-anchored answers paint in the
+// narrative itself.
+function OverallQA({ questions }: { questions: LessonQuestion[] }) {
   return (
-    <div className="mx-auto w-full max-w-[60ch] space-y-3">
-      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-        <BookOpen className="size-4 text-[var(--accent-2,#ff7a45)]" /> {lesson.title}
+    <div className="max-h-44 shrink-0 space-y-1.5 overflow-y-auto border-t border-white/10 bg-background/60 px-5 py-3">
+      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <MessageSquare className="size-3" /> Overall Q&amp;A
       </div>
-      {lesson.nodes.map((n) => {
-        const pending = pendingNodeQuestions.filter((q) => q.nodeId === n.id && q.question.trim()).length;
-        return (
-          <div key={n.id} className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="text-[13px] font-semibold text-foreground">{n.title}</div>
-                {n.summary && <div className="mt-0.5 text-[12px] text-muted-foreground">{n.summary}</div>}
-              </div>
-              <button
-                onClick={() => setAskId((v) => (v === n.id ? null : n.id))}
-                title="Ask about this"
-                className="shrink-0 rounded-full p-1 text-muted-foreground hover:bg-[var(--accent-2,#ff7a45)]/15 hover:text-[var(--accent-2,#ff7a45)]"
-              >
-                <HelpCircle className="size-3.5" />
-              </button>
+      {questions.map((q) => (
+        <div key={q.id} className="rounded-md border border-white/10 bg-background/40 p-2">
+          <div className="text-[12px] font-medium text-foreground">{q.question}</div>
+          {q.answer ? (
+            <div className="mt-1 text-[12px] leading-relaxed text-foreground/85">
+              <MarkdownView markdown={q.answer} variant="compact" />
             </div>
-            {n.detail && <div className="mt-1.5 text-[12px] leading-relaxed text-foreground/80"><MarkdownView markdown={n.detail} variant="compact" /></div>}
-            {n.files.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
-                {n.files.map((f) => (
-                  <span key={f}>
-                    <Inline text={`\`${f}\``} />
-                  </span>
-                ))}
-              </div>
-            )}
-            {(edgesByFrom.get(n.id) ?? []).map((e) => (
-              <div key={e.id} className="mt-1 text-[11px] text-muted-foreground">
-                <span className="text-[var(--accent-2,#ff7a45)]">{e.verb}</span> → {titleById.get(e.toId) ?? e.toId}
-              </div>
-            ))}
-            {pending > 0 && <div className="mt-1 text-[10px] text-[var(--accent-2,#ff7a45)]">{pending} question{pending === 1 ? "" : "s"} pending</div>}
-            {askId === n.id && (
-              <div className="mt-2">
-                <textarea
-                  autoFocus
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      submit(n.id);
-                    } else if (e.key === "Escape") {
-                      setAskId(null);
-                      setDraft("");
-                    }
-                  }}
-                  placeholder="Ask the agent about this node… (Enter to add)"
-                  rows={2}
-                  className="w-full resize-none rounded border border-white/10 bg-background px-2 py-1 text-[12px] outline-none focus:border-[var(--accent-2,#ff7a45)]/40"
-                />
-              </div>
-            )}
-          </div>
-        );
-      })}
-
-      {lesson.questions.length > 0 && (
-        <div className="mt-4 space-y-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Q&amp;A</div>
-          {lesson.questions.map((q) => (
-            <QAItem key={q.id} q={q} nodeTitle={q.anchor.kind === "node" ? titleById.get(q.anchor.nodeId) : undefined} />
-          ))}
+          ) : (
+            <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground/70">
+              <Loader2 className="size-3 animate-spin" /> waiting for the agent…
+            </div>
+          )}
         </div>
-      )}
-    </div>
-  );
-}
-
-function QAItem({ q, nodeTitle }: { q: LessonQuestion; nodeTitle?: string }) {
-  const where =
-    q.anchor.kind === "overall" ? "Overall" : q.anchor.kind === "node" ? nodeTitle ?? "Node" : `“${q.anchor.excerpt.slice(0, 40)}…”`;
-  return (
-    <div className="rounded-md border border-white/10 bg-background/40 p-2">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80">{where}</div>
-      <div className="mt-0.5 text-[12px] font-medium text-foreground">{q.question}</div>
-      {q.answer ? (
-        <div className="mt-1 text-[12px] leading-relaxed text-foreground/85"><MarkdownView markdown={q.answer} variant="compact" /></div>
-      ) : (
-        <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground/70">
-          <Loader2 className="size-3 animate-spin" /> waiting for the agent…
-        </div>
-      )}
+      ))}
     </div>
   );
 }
