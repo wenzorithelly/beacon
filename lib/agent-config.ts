@@ -64,6 +64,36 @@ export function beaconPluginInstalled(home?: string): boolean {
   return findBeaconPluginDir(home) !== null;
 }
 
+// True when a path lives INSIDE an installed Claude Code plugin payload (under ~/.claude/plugins/).
+// This is NON-OBVIOUS and load-bearing: the published npm package BUNDLES .claude-plugin/plugin.json
+// (build:plugin embeds it for marketplace distribution), so "a plugin.json sits next to the binary"
+// is true for BOTH a real installed plugin AND a plain `bun add -g trybeacon`. Without this stricter
+// check, bin/beacon.ts self-set CLAUDE_PLUGIN_ROOT for every npm-CLI user → isPluginManaged() → the
+// whole self-heal (skills/hooks/MCP) was suppressed, so new skills never installed on update.
+export function isInstalledPluginPath(p: string): boolean {
+  return /[\\/]\.claude[\\/]plugins[\\/]/.test(p);
+}
+
+// The installed Beacon Claude Code plugin as "name@marketplace" + its marketplace, or null — read
+// from the plugins manifest so `beacon update` can also bump the plugin (claude plugin update).
+// Detection needs no `claude` CLI; only the actual update call does.
+export function installedBeaconPlugin(
+  home = process.env.HOME || process.env.USERPROFILE || "",
+): { key: string; marketplace: string } | null {
+  if (!home) return null;
+  try {
+    const manifest = JSON.parse(
+      readFileSync(join(home, ".claude", "plugins", "installed_plugins.json"), "utf8"),
+    ) as { plugins?: Record<string, unknown> };
+    for (const key of Object.keys(manifest.plugins ?? {})) {
+      if (/^beacon@/.test(key)) return { key, marketplace: key.split("@")[1] ?? "" };
+    }
+  } catch {
+    /* no manifest / not installed */
+  }
+  return null;
+}
+
 // Block injected into ~/.claude/CLAUDE.md AND ~/.codex/AGENTS.md so EVERY agent session —
 // including the ones in repos that have never seen Beacon — knows the tool exists and how
 // to wire it. Kept intentionally short: triggers + the one-command fix when something

@@ -29,7 +29,19 @@ const PORT = process.env.PORT || "4319";
 // hooks, and MCP. Claude Code sets CLAUDE_PLUGIN_ROOT when IT spawns the plugin's hooks/MCP; we set
 // it here too for the `/beacon` agent-bash path, which otherwise wouldn't have it and would
 // re-write ~/.claude, double-registering every hook.
-if (!process.env.CLAUDE_PLUGIN_ROOT && existsSync(join(pkgDir, ".claude-plugin", "plugin.json"))) {
+// …but ONLY when this binary actually lives inside an installed plugin payload (under
+// ~/.claude/plugins/). The published npm package ALSO bundles .claude-plugin/plugin.json
+// (build:plugin embeds it for the marketplace), so checking only for that file flagged every
+// `bun add -g trybeacon` user as plugin-managed and suppressed their self-heal — new skills/MCP
+// never installed. This path check (mirrors isInstalledPluginPath in lib/agent-config) tells a real
+// plugin install apart from the npm CLI. Inlined (not imported) to keep the hot `beacon hook` path
+// import-free.
+const inPluginPayload = /[\\/]\.claude[\\/]plugins[\\/]/.test(selfDir);
+if (
+  !process.env.CLAUDE_PLUGIN_ROOT &&
+  inPluginPayload &&
+  existsSync(join(pkgDir, ".claude-plugin", "plugin.json"))
+) {
   process.env.CLAUDE_PLUGIN_ROOT = pkgDir;
 }
 
@@ -119,6 +131,19 @@ async function setupRepo(repo: string, quiet = false) {
   // competing per-repo files (.mcp.json, .claude/skills, the AGENTS.md workflow block) — that
   // would shadow the plugin's MCP server and duplicate its skills. selfHealGlobal already no-ops.
   if (isPluginManaged()) {
+    return {
+      initSkill: "",
+      refreshSkill: "",
+      mcp: { path: "", added: false, updated: false },
+      codexSkills: [] as string[],
+      heal,
+    };
+  }
+  // `beacon update` re-execs `beacon setup` from whatever cwd the user ran it in. The global heal
+  // above already ran; only wire the per-repo files (.mcp.json, .claude/skills, AGENTS.md block)
+  // when we're actually inside a repo — never scatter them into a home / non-repo dir.
+  const { isRegistrableWorkspacePath } = await import(mod("lib/workspaces.ts"));
+  if (!isRegistrableWorkspacePath(repo)) {
     return {
       initSkill: "",
       refreshSkill: "",
@@ -537,10 +562,47 @@ async function updateBeacon(force: boolean) {
     process.exitCode = 1;
     return;
   }
+  // Re-apply the global assets FROM the just-installed version so new skills (and changed ones),
+  // hooks, and the MCP entry land immediately — not only on the next session. The running process is
+  // still the OLD code, so re-exec the freshly-installed binary's heal (`beacon setup`, which heals
+  // global always and wires the cwd repo when in one).
+  try {
+    execSync("beacon setup", { stdio: "inherit" });
+  } catch {
+    /* best effort — a bare `beacon` self-heals on next launch */
+  }
+  // npm `beacon update` doesn't touch a Claude Code PLUGIN install — update it too when present.
+  await updateBeaconPlugin();
   // The shared daemon is still running the OLD code (and caches its version at startup, so the
   // in-app "new version" banner would keep showing). Drop it so the next `beacon` launches fresh.
   stopDaemon();
   console.log(`[beacon] updated. Run \`beacon\` to relaunch on the new version.`);
+}
+
+// Bring an installed Beacon Claude Code plugin up to the just-published version. Claude Code never
+// auto-fetches npm-sourced plugins, so a plain `beacon update` (npm) would leave the plugin — and
+// thus its skills/MCP — frozen. Refresh the marketplace catalog, then the plugin. Best-effort: a
+// missing `claude` CLI or no installed plugin is a no-op (with a hint).
+async function updateBeaconPlugin() {
+  const { installedBeaconPlugin } = (await import(mod("lib/global-install.ts"))) as {
+    installedBeaconPlugin: () => { key: string; marketplace: string } | null;
+  };
+  const plugin = installedBeaconPlugin();
+  if (!plugin) return;
+  try {
+    execSync("command -v claude", { stdio: "ignore" });
+  } catch {
+    console.log(`[beacon] Beacon plugin detected — update it with:\n  claude plugin update ${plugin.key}`);
+    return;
+  }
+  console.log(`[beacon] updating the Beacon Claude Code plugin (${plugin.key})…`);
+  try {
+    if (plugin.marketplace) execSync(`claude plugin marketplace update ${plugin.marketplace}`, { stdio: "inherit" });
+    execSync(`claude plugin update ${plugin.key}`, { stdio: "inherit" });
+    console.log("[beacon] plugin updated — restart your agent to apply.");
+  } catch {
+    console.log(`[beacon] couldn't auto-update the plugin. Run:\n  claude plugin update ${plugin.key}`);
+  }
 }
 
 function stopDaemon() {

@@ -12,6 +12,8 @@ import {
   removeMarkerBlock,
   beaconPluginInstalled,
   findBeaconPluginDir,
+  isInstalledPluginPath,
+  installedBeaconPlugin,
   installSkillFile,
   isPluginManaged,
   isSkillInstalled,
@@ -45,7 +47,15 @@ const CLAUDE_MD_END = "<!-- beacon:global:end -->";
 // GLOBAL_SKILLS + the discovery block live in lib/agent-config.ts (shared with
 // codex-install without an import cycle — see the note there); re-exported here so
 // existing importers (doctor, uninstall, tests) keep one source.
-export { GLOBAL_SKILLS, beaconPluginInstalled, findBeaconPluginDir, isPluginManaged, type GlobalSkillName };
+export {
+  GLOBAL_SKILLS,
+  beaconPluginInstalled,
+  findBeaconPluginDir,
+  isInstalledPluginPath,
+  installedBeaconPlugin,
+  isPluginManaged,
+  type GlobalSkillName,
+};
 export const GLOBAL_CLAUDE_MD_BLOCK = GLOBAL_AGENT_BLOCK;
 
 export const GLOBAL_HOOKS = [
