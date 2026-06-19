@@ -772,12 +772,42 @@ server.registerTool(
           }),
         )
         .optional(),
+      tables: z
+        .array(
+          z.object({
+            id: z.string().describe("a short stable id you assign (e.g. 't1') — edges + fkTo reference it"),
+            name: z.string(),
+            domain: z.string().optional(),
+            note: z.string().optional().describe("one plain-English line: why this table exists"),
+            group: z.string().optional(),
+            columns: z
+              .array(
+                z.object({
+                  name: z.string(),
+                  type: z.string().optional(),
+                  isPk: z.boolean().optional(),
+                  isFk: z.boolean().optional(),
+                  fkTo: z.string().optional().describe("id of the table this column references — draws an FK link"),
+                  note: z.string().optional().describe("plain-English: what this column is for"),
+                }),
+              )
+              .optional(),
+            sample: z
+              .array(z.record(z.string(), z.string()))
+              .optional()
+              .describe("worked-example rows (column name → value) shown when the card is expanded"),
+          }),
+        )
+        .optional()
+        .describe(
+          "database tables the lesson teaches — rendered as annotated schema cards on the SAME board. Connect a concept to a table with an edge whose toId is the table id (verb 'persists to' / 'reads from'); give key columns isPk, FKs an fkTo, and EVERY column a plain-English note. Add a sample row.",
+        ),
       steps: z
         .array(
           z.object({
             title: z.string(),
             summary: z.string().optional(),
-            focusIds: z.array(z.string()).optional().describe("node ids to spotlight this step; omit/[] = whole-board overview"),
+            focusIds: z.array(z.string()).optional().describe("node/table ids to spotlight this step; omit/[] = whole-board overview"),
             narrativeAnchor: z.string().optional(),
           }),
         )
@@ -789,12 +819,12 @@ server.registerTool(
         .describe("on a re-push: your answers to the user's questions, keyed by the [q:ID] they came with"),
     },
   },
-  async ({ title, topic, narrative, nodes, edges, steps, answers }) => {
+  async ({ title, topic, narrative, nodes, edges, tables, steps, answers }) => {
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 
     try {
-      await post("/api/lesson", { title, topic, narrative, nodes, edges, steps, answers });
+      await post("/api/lesson", { title, topic, narrative, nodes, edges, tables, steps, answers });
     } catch (e) {
       return errText(e);
     }

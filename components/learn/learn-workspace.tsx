@@ -182,7 +182,7 @@ export function LearnWorkspace({
     [lesson],
   );
   const board = useMemo(
-    () => (lesson ? lessonToBoard(lesson) : { nodes: [], edges: [] }),
+    () => (lesson ? lessonToBoard(lesson) : { nodes: [], edges: [], tableNodes: [] }),
     [lesson],
   );
 
@@ -296,6 +296,7 @@ export function LearnWorkspace({
               view="ARCHITECTURE"
               nodes={board.nodes}
               edges={board.edges}
+              tableNodes={board.tableNodes}
               embedded
               readOnly
               minimap

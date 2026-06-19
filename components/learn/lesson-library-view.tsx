@@ -113,7 +113,7 @@ function SavedLessonView({ lesson, repoFiles }: { lesson: Lesson; repoFiles: str
 
           {/* RIGHT — the frozen concept map (the existing canvas), read-only. */}
           <div className="min-w-0 flex-1 bg-background" style={{ width: "50%" }}>
-            <MapClient view="ARCHITECTURE" nodes={board.nodes} edges={board.edges} embedded readOnly minimap staticEdgeLabels hasFrontend={false} />
+            <MapClient view="ARCHITECTURE" nodes={board.nodes} edges={board.edges} tableNodes={board.tableNodes} embedded readOnly minimap staticEdgeLabels hasFrontend={false} />
           </div>
         </div>
       </div>

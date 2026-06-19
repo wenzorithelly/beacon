@@ -1,18 +1,46 @@
 import { layeredLayout } from "@/lib/layered-layout";
 import type { Lesson, LessonQuestion } from "@/lib/lesson-types";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
+import type { LessonTableData } from "@/components/graph/lesson-table-node";
 
-// Adapt a Lesson into the payloads the EXISTING architecture canvas (MapClient) renders. We reuse
-// that board wholesale — zoom/pan/mouse-mode controls, hidden-until-hover handles, node measurement,
-// edges, the detail sidebar, and the "Ask the agent" hook — instead of a bespoke board. The lesson's
-// concept nodes become ARCHITECTURE cards; its verb-labeled edges become RELATES links; node-anchored
-// Q&A is folded into each card's `plain` so the detail sidebar shows the explanation + answers.
-export function lessonToBoard(lesson: Lesson): { nodes: MapNodePayload[]; edges: MapEdgePayload[] } {
-  // Layered (dependency-flow) positions — edges reversed so the source sits upstream (left). Generous
-  // spacing → no overlap. The user can still drag to declutter on the canvas.
+// Adapt a Lesson into the payloads the EXISTING architecture canvas (MapClient) renders — concept
+// cards (arch nodes) AND annotated table cards on the SAME board, joined by the same labeled,
+// bowing edges. We reuse that board wholesale (zoom/pan/minimap, handles, edges, detail sidebar)
+// rather than a bespoke one. Tables stay file-based + read-only; nothing leaks into the real /db tab.
+
+export interface LessonTableBoardNode {
+  id: string;
+  x: number;
+  y: number;
+  data: LessonTableData;
+}
+
+export function lessonToBoard(lesson: Lesson): {
+  nodes: MapNodePayload[];
+  edges: MapEdgePayload[];
+  tableNodes: LessonTableBoardNode[];
+} {
+  const tables = lesson.tables ?? [];
+  const tableNameById = new Map(tables.map((t) => [t.id, t.name]));
+
+  // FK edges: a column with fkTo links its table → the referenced table.
+  const fkEdges = tables.flatMap((t) =>
+    t.columns
+      .filter((c) => c.fkTo && tableNameById.has(c.fkTo))
+      .map((c) => ({ id: `fk-${t.id}-${c.name}`, fromId: t.id, toId: c.fkTo as string })),
+  );
+
+  // Layered (dependency-flow) layout over concepts AND tables together; edges reversed so the
+  // source sits upstream (left). Generous spacing → no overlap; the user can drag to declutter.
   const pos = layeredLayout(
-    lesson.nodes.map((n) => ({ id: n.id, group: n.group ?? "—" })),
-    lesson.edges.map((e) => ({ fromId: e.toId, toId: e.fromId })),
+    [
+      ...lesson.nodes.map((n) => ({ id: n.id, group: n.group ?? "—" })),
+      ...tables.map((t) => ({ id: t.id, group: t.group ?? t.domain ?? "—" })),
+    ],
+    [
+      ...lesson.edges.map((e) => ({ fromId: e.toId, toId: e.fromId })),
+      ...fkEdges.map((e) => ({ fromId: e.toId, toId: e.fromId })),
+    ],
   );
 
   const qaByNode = new Map<string, LessonQuestion[]>();
@@ -54,15 +82,50 @@ export function lessonToBoard(lesson: Lesson): { nodes: MapNodePayload[]; edges:
     };
   });
 
-  const edges: MapEdgePayload[] = lesson.edges.map((e) => ({
-    id: e.id,
-    fromId: e.fromId,
-    toId: e.toId,
-    kind: "RELATES",
-    label: e.verb,
-    sourceHandle: null,
-    targetHandle: null,
-  }));
+  const tableNodes: LessonTableBoardNode[] = tables.map((t) => {
+    const p = pos.get(t.id) ?? { x: 0, y: 0 };
+    return {
+      id: t.id,
+      x: p.x,
+      y: p.y,
+      data: {
+        name: t.name,
+        domain: t.domain ?? null,
+        note: t.note,
+        columns: t.columns.map((c) => ({
+          name: c.name,
+          type: c.type,
+          isPk: c.isPk,
+          isFk: c.isFk,
+          note: c.note,
+          // Resolve the FK target id → its table name for the "→ table" hint.
+          fkTo: c.fkTo ? tableNameById.get(c.fkTo) ?? c.fkTo : undefined,
+        })),
+        sample: t.sample,
+      },
+    };
+  });
 
-  return { nodes, edges };
+  const edges: MapEdgePayload[] = [
+    ...lesson.edges.map((e) => ({
+      id: e.id,
+      fromId: e.fromId,
+      toId: e.toId,
+      kind: "RELATES",
+      label: e.verb,
+      sourceHandle: null,
+      targetHandle: null,
+    })),
+    ...fkEdges.map((e) => ({
+      id: e.id,
+      fromId: e.fromId,
+      toId: e.toId,
+      kind: "RELATES",
+      label: "FK",
+      sourceHandle: null,
+      targetHandle: null,
+    })),
+  ];
+
+  return { nodes, edges, tableNodes };
 }

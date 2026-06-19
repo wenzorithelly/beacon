@@ -44,6 +44,33 @@ export interface LessonEdge {
   verb: LessonVerb;
 }
 
+// A database table the lesson teaches — rendered as an annotated schema card on the board, joined to
+// the concept nodes by the same labeled edges. Lesson edges may reference a table's id (e.g. a
+// concept "persists to" a table); FK edges between tables are derived from columns' `fkTo`.
+export interface LessonColumn {
+  name: string;
+  type: string;
+  isPk?: boolean;
+  isFk?: boolean;
+  /** Target table id this column references (drives the FK edge + the "→ table" hint). */
+  fkTo?: string;
+  /** Plain-English: what this column is for. */
+  note?: string;
+}
+
+export interface LessonTable {
+  id: string;
+  name: string;
+  domain?: string;
+  /** One plain-English line: why this table exists. */
+  note?: string;
+  /** Optional cluster label for the layered layout banding (defaults to domain). */
+  group?: string;
+  columns: LessonColumn[];
+  /** Worked-example rows (colName → value) — the concrete instance shown on expand. */
+  sample?: Record<string, string>[];
+}
+
 // The guided-walkthrough order. Shape-compatible with lib/canvas-tour.ts TourStep (id, title,
 // summary, focusIds) plus a narrativeAnchor, so the existing useCanvasTour hook drives it unchanged.
 export interface LessonStep {
@@ -86,6 +113,8 @@ export interface Lesson {
   narrative: string;
   nodes: LessonNode[];
   edges: LessonEdge[];
+  /** Database tables the lesson teaches, rendered as annotated schema cards on the same board. */
+  tables: LessonTable[];
   steps: LessonStep[];
   /** The running Q&A, accumulated across answer rounds. */
   questions: LessonQuestion[];

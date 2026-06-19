@@ -239,6 +239,13 @@ push depth into \`detail\`, not the node face. Supply \`steps\` for the guided w
 is the overview (empty \`focusIds\`), then teach one node (or a few) per step in order, each with its
 \`focusIds\`.
 
+When the topic involves DATABASE tables, pass them in \`tables\` (they render as annotated schema cards
+on the SAME board, not just raw schemas). For each table give a one-line \`note\` (why it exists), mark
+the key columns \`isPk\`, point FKs at another table with \`fkTo: "<that table's id>"\`, give EVERY column a
+short plain-English \`note\`, and add a \`sample\` row or two (the worked example, made concrete). Connect a
+concept to its table with an \`edge\` (e.g. \`persists to\` / \`reads from\`) whose \`toId\` is the table's id —
+so the learner sees the table IN CONTEXT, wired to the code that uses it.
+
 ## 4. Answer in the loop — don't stop after one round
 
 \`beacon_explain\` returns the user's questions, each tagged \`[q:ID]\`. Answer EACH by calling

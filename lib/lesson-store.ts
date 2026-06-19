@@ -11,6 +11,7 @@ import {
   type LessonNode,
   type LessonQuestion,
   type LessonStep,
+  type LessonTable,
   type LessonVerb,
   type SavedLessonSummary,
 } from "@/lib/lesson-types";
@@ -63,12 +64,32 @@ const stepInput = z.object({
   narrativeAnchor: z.string().optional(),
 });
 
+const columnInput = z.object({
+  name: z.string().trim().min(1),
+  type: z.string().default("text"),
+  isPk: z.boolean().optional(),
+  isFk: z.boolean().optional(),
+  fkTo: z.string().optional(),
+  note: z.string().optional(),
+});
+
+const tableInput = z.object({
+  id: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  domain: z.string().optional(),
+  note: z.string().optional(),
+  group: z.string().optional(),
+  columns: z.array(columnInput).default([]),
+  sample: z.array(z.record(z.string(), z.string())).optional(),
+});
+
 export const lessonInputSchema = z.object({
   title: z.string().trim().min(1),
   topic: z.string().default(""),
   narrative: z.string().default(""),
   nodes: z.array(nodeInput).default([]),
   edges: z.array(edgeInput).default([]),
+  tables: z.array(tableInput).default([]),
   steps: z.array(stepInput).optional(),
   // On a re-push the agent answers the user's questions by id.
   answers: z.array(z.object({ questionId: z.string(), answer: z.string() })).optional(),
@@ -126,10 +147,20 @@ export function buildLesson(input: LessonInput, prev: Lesson | null, now = Date.
       y: n.y ?? 0,
     })),
   );
-  const nodeIds = new Set(nodes.map((n) => n.id));
+  const tables: LessonTable[] = (input.tables ?? []).map((t) => ({
+    id: t.id,
+    name: t.name,
+    domain: t.domain,
+    note: t.note,
+    group: t.group,
+    columns: t.columns,
+    sample: t.sample,
+  }));
+  // Edges + step spotlights may reference a concept node OR a table — both live on the board.
+  const boardIds = new Set([...nodes.map((n) => n.id), ...tables.map((t) => t.id)]);
   const edges: LessonEdge[] = input.edges
-    // Drop edges whose endpoints aren't real nodes rather than render dangling arrows.
-    .filter((e) => nodeIds.has(e.fromId) && nodeIds.has(e.toId))
+    // Drop edges whose endpoints aren't real board entities rather than render dangling arrows.
+    .filter((e) => boardIds.has(e.fromId) && boardIds.has(e.toId))
     .map((e) => ({
       id: e.id ?? randomUUID().slice(0, 8),
       fromId: e.fromId,
@@ -140,7 +171,7 @@ export function buildLesson(input: LessonInput, prev: Lesson | null, now = Date.
     id: s.id ?? `step-${i}`,
     title: s.title,
     summary: s.summary,
-    focusIds: s.focusIds.filter((id) => nodeIds.has(id)),
+    focusIds: s.focusIds.filter((id) => boardIds.has(id)),
     narrativeAnchor: s.narrativeAnchor,
   }));
 
@@ -168,6 +199,7 @@ export function buildLesson(input: LessonInput, prev: Lesson | null, now = Date.
     narrative: input.narrative,
     nodes,
     edges,
+    tables,
     steps,
     questions,
   };

@@ -42,6 +42,7 @@ import {
 import { anchorAnnotations } from "@/lib/annotation-anchors";
 import type { TextAnnotation } from "@/lib/annotations";
 import { DeletableEdge } from "@/components/graph/deletable-edge";
+import { LessonTableNode, type LessonTableData } from "@/components/graph/lesson-table-node";
 import { AnnotationEdge } from "@/components/graph/annotation-edge";
 import { DetailSidebar } from "@/components/graph/detail-sidebar";
 import { FocusEditorModal, type FocusEditPayload } from "@/components/graph/focus-editor-modal";
@@ -96,7 +97,12 @@ function laneLabel(groupBy: RoadmapGroupBy, d: MapNodeData): string {
 
 const PERSIST_FIELDS = new Set(["title", "role", "plain", "cluster", "layer", "status", "priority"]);
 
-const nodeTypes = { roadmapNode: NodeCard, archNode: NodeCard, annotation: AnnotationCardNode };
+const nodeTypes = {
+  roadmapNode: NodeCard,
+  archNode: NodeCard,
+  annotation: AnnotationCardNode,
+  lessonTable: LessonTableNode,
+};
 const edgeTypes = { deletable: DeletableEdge, annotation: AnnotationEdge };
 
 const EDGE_STYLE: Record<string, { stroke: string; dash?: string }> = {
@@ -138,8 +144,10 @@ function buildNodes(payload: MapNodePayload[]): Node<MapNodeData>[] {
   }));
 }
 
-function buildEdges(payload: MapNodePayload[], edges: MapEdgePayload[]): Edge[] {
-  const ids = new Set(payload.map((n) => n.id));
+function buildEdges(payload: MapNodePayload[], edges: MapEdgePayload[], extraIds?: Set<string>): Edge[] {
+  // `extraIds` are board entities NOT in `payload` (lesson table cards) so edges that connect a
+  // concept to a table — or two tables (FK) — aren't filtered out as dangling.
+  const ids = new Set([...payload.map((n) => n.id), ...(extraIds ?? [])]);
   const containment: Edge[] = payload
     .filter((n) => n.parentId && ids.has(n.parentId))
     .map((n) => ({
@@ -206,6 +214,7 @@ export function MapClient({
   firstTapHighlightsOnly = false,
   minimap,
   staticEdgeLabels = false,
+  tableNodes,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   nodes: MapNodePayload[];
@@ -264,6 +273,9 @@ export function MapClient({
   // Keep every edge's relationship label + a solid line visible AT REST (no hover needed). /learn
   // turns this on so the lesson reads as a labeled concept map; other boards keep labels on focus.
   staticEdgeLabels?: boolean;
+  // Annotated table cards rendered ALONGSIDE the concept nodes (the /learn board only). Pre-laid-out
+  // (x/y) and read-only — they cross the MapNodeData boundary via a cast, like the annotation cards.
+  tableNodes?: { id: string; x: number; y: number; data: LessonTableData }[];
 }) {
   // 1-based work-order rank per feature id (#1, #2, …); #1 also drives the jump button.
   const workOrderKey = workOrder.join(",");
@@ -277,8 +289,8 @@ export function MapClient({
 
   const initialNodes = useMemo(() => buildNodes(nodePayload), [nodePayload]);
   const initialEdges = useMemo(
-    () => buildEdges(nodePayload, edgePayload),
-    [nodePayload, edgePayload],
+    () => buildEdges(nodePayload, edgePayload, new Set((tableNodes ?? []).map((t) => t.id))),
+    [nodePayload, edgePayload, tableNodes],
   );
 
   const [nodes, setNodes] = useState<Node<MapNodeData>[]>(initialNodes);
@@ -996,6 +1008,12 @@ export function MapClient({
   const [annoMeasured, setAnnoMeasured] = useState<Map<string, { width: number; height: number }>>(
     () => new Map(),
   );
+  // Same story for appended lesson table cards — capture their measured size so React Flow makes
+  // them visible (an unmeasured node stays visibility:hidden).
+  const [tableMeasured, setTableMeasured] = useState<Map<string, { width: number; height: number }>>(
+    () => new Map(),
+  );
+  const tableIds = useMemo(() => new Set((tableNodes ?? []).map((t) => t.id)), [tableNodes]);
 
   // Inject pins + the comment affordance into their feature cards, then append the floating
   // annotation cards. The cards live OUTSIDE the stateful node list (which has many mutation
@@ -1048,9 +1066,24 @@ export function MapClient({
         },
       };
     });
-    // The board's flow instance is typed on MapNodeData; annotation cards are render-only
+    // Lesson table cards (the /learn board) render alongside the concept nodes — pre-positioned,
+    // read-only chrome with their own data shape, crossing the MapNodeData boundary via a cast like
+    // the annotation cards.
+    const tableRf = (tableNodes ?? []).map((t) => ({
+      id: t.id,
+      type: "lessonTable" as const,
+      position: { x: t.x, y: t.y },
+      measured: tableMeasured.get(t.id),
+      draggable: !readOnly,
+      data: t.data,
+    }));
+    // The board's flow instance is typed on MapNodeData; annotation + table cards are render-only
     // chrome with their own data shape, so they cross the boundary through a cast.
-    return [...withPins, ...(annoNodes as unknown as Node<MapNodeData>[])];
+    return [
+      ...withPins,
+      ...(annoNodes as unknown as Node<MapNodeData>[]),
+      ...(tableRf as unknown as Node<MapNodeData>[]),
+    ];
   }, [
     displayNodes,
     annos,
@@ -1063,6 +1096,9 @@ export function MapClient({
     patchBoardAnno,
     removeBoardAnno,
     annoMeasured,
+    tableNodes,
+    tableMeasured,
+    readOnly,
   ]);
   const annoEdges = useMemo<Edge[]>(
     () =>
@@ -1102,13 +1138,23 @@ export function MapClient({
               m.set(ch.id, dims);
               return m;
             });
+        } else if (ch.type === "dimensions" && tableIds.has(ch.id)) {
+          const dims = ch.dimensions;
+          if (dims)
+            setTableMeasured((prev) => {
+              const cur = prev.get(ch.id);
+              if (cur && cur.width === dims.width && cur.height === dims.height) return prev;
+              const m = new Map(prev);
+              m.set(ch.id, dims);
+              return m;
+            });
         } else {
           rest.push(ch);
         }
       }
       if (rest.length) setNodes((nds) => applyNodeChanges(rest, nds));
     },
-    [],
+    [tableIds],
   );
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
@@ -1485,6 +1531,9 @@ export function MapClient({
             placeAt(e.clientX, e.clientY);
             return;
           }
+          // Lesson table cards self-manage (expand/collapse) — never route them through the
+          // concept-node detail sidebar (their data isn't MapNodeData).
+          if (node.type === "lessonTable") return;
           if (node.type === "annotation") {
             // An editable card is being written/edited IN PLACE — clicking into it must not
             // yank the Comments side panel open. Read-only cards keep the jump-to behavior.
