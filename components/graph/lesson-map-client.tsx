@@ -35,6 +35,7 @@ interface LessonNodeData extends Record<string, unknown> {
   answered: number; // questions the agent has answered
   selected: boolean;
   dimmed: boolean; // set by the walkthrough (Phase 5) to spotlight one node at a time
+  readOnly: boolean; // saved-lesson view — no asking
   onAsk: (id: string) => void;
 }
 
@@ -50,16 +51,18 @@ function LessonNodeCard({ id, data }: NodeProps<Node<LessonNodeData>>) {
       <FourDotHandles />
       <div className="flex items-start justify-between gap-2">
         <div className="text-[13px] font-semibold leading-tight text-foreground">{data.title}</div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            data.onAsk(id);
-          }}
-          title="Ask about this"
-          className="nodrag shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-[var(--accent-2,#ff7a45)]/15 hover:text-[var(--accent-2,#ff7a45)]"
-        >
-          <HelpCircle className="size-3.5" />
-        </button>
+        {!data.readOnly && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              data.onAsk(id);
+            }}
+            title="Ask about this"
+            className="nodrag shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-[var(--accent-2,#ff7a45)]/15 hover:text-[var(--accent-2,#ff7a45)]"
+          >
+            <HelpCircle className="size-3.5" />
+          </button>
+        )}
       </div>
       {data.summary && <div className="mt-1 text-[11px] leading-snug text-muted-foreground">{data.summary}</div>}
       {(data.fileCount > 0 || data.pending > 0 || data.answered > 0) && (
@@ -128,16 +131,19 @@ export interface LessonMapHandle {
 export function LessonMap({
   lesson,
   onAskNode,
-  pendingByNode,
+  pendingByNode = new Map(),
   /** Walkthrough spotlight (Phase 5): node ids to keep lit; null = all lit. */
   focusIds = null,
   controlRef,
+  readOnly = false,
 }: {
   lesson: Lesson;
-  onAskNode: (nodeId: string, question: string) => void;
-  pendingByNode: Map<string, number>;
+  onAskNode?: (nodeId: string, question: string) => void;
+  pendingByNode?: Map<string, number>;
   focusIds?: Set<string> | null;
   controlRef?: { current: LessonMapHandle | null };
+  /** Saved-lesson view: render the board + drawer for reading only, no asking. */
+  readOnly?: boolean;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const flowRef = useRef<ReactFlowInstance<Node<LessonNodeData>, Edge> | null>(null);
@@ -181,10 +187,11 @@ export function LessonMap({
           answered: answeredByNode.get(n.id) ?? 0,
           selected: selectedId === n.id,
           dimmed: focusIds ? !focusIds.has(n.id) : false,
+          readOnly,
           onAsk: askNode,
         },
       })),
-    [lesson.nodes, pendingByNode, answeredByNode, selectedId, focusIds, askNode],
+    [lesson.nodes, pendingByNode, answeredByNode, selectedId, focusIds, readOnly, askNode],
   );
 
   const edges: Edge[] = useMemo(
@@ -235,7 +242,7 @@ export function LessonMap({
           node={selectedNode}
           questions={lesson.questions.filter((q) => q.anchor.kind === "node" && q.anchor.nodeId === selectedNode.id)}
           pending={pendingByNode.get(selectedNode.id) ?? 0}
-          onAsk={(q) => onAskNode(selectedNode.id, q)}
+          onAsk={onAskNode && !readOnly ? (q) => onAskNode(selectedNode.id, q) : undefined}
           onClose={() => setSelectedId(null)}
         />
       )}
@@ -253,12 +260,12 @@ function NodeDrawer({
   node: LessonNode;
   questions: LessonQuestion[];
   pending: number;
-  onAsk: (q: string) => void;
+  onAsk?: (q: string) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const submit = () => {
-    if (draft.trim()) onAsk(draft.trim());
+    if (draft.trim()) onAsk?.(draft.trim());
     setDraft("");
   };
   return (
@@ -303,26 +310,28 @@ function NodeDrawer({
           </div>
         )}
       </div>
-      <div className="border-t border-white/10 p-2.5">
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          placeholder="Ask the agent about this node… (Enter)"
-          rows={2}
-          className="w-full resize-none rounded border border-white/10 bg-background px-2 py-1 text-[12px] outline-none focus:border-[var(--accent-2,#ff7a45)]/40"
-        />
-        {pending > 0 && (
-          <div className="mt-1 text-[10px] text-[var(--accent-2,#ff7a45)]">
-            {pending} question{pending === 1 ? "" : "s"} queued — Send from the top bar
-          </div>
-        )}
-      </div>
+      {onAsk && (
+        <div className="border-t border-white/10 p-2.5">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder="Ask the agent about this node… (Enter)"
+            rows={2}
+            className="w-full resize-none rounded border border-white/10 bg-background px-2 py-1 text-[12px] outline-none focus:border-[var(--accent-2,#ff7a45)]/40"
+          />
+          {pending > 0 && (
+            <div className="mt-1 text-[10px] text-[var(--accent-2,#ff7a45)]">
+              {pending} question{pending === 1 ? "" : "s"} queued — Send from the top bar
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

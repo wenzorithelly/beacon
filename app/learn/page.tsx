@@ -1,7 +1,8 @@
 import { db, runWithWorkspace } from "@/lib/db-drizzle";
 import { resolvePlanWorkspaceId } from "@/lib/request-workspace";
-import { readCurrentLesson } from "@/lib/lesson-store";
+import { listLessons, readCurrentLesson, readSavedLesson } from "@/lib/lesson-store";
 import { LearnWorkspace } from "@/components/learn/learn-workspace";
+import { LessonLibraryView } from "@/components/learn/lesson-library-view";
 
 export const dynamic = "force-dynamic";
 
@@ -16,13 +17,23 @@ export default async function LearnPage({
 }) {
   const params = (await searchParams) ?? {};
   const wsParam = typeof params.ws === "string" ? params.ws : undefined;
+  const view = typeof params.view === "string" ? params.view : undefined;
+  const id = typeof params.id === "string" ? params.id : undefined;
   const learnWs = await resolvePlanWorkspaceId(wsParam);
   return runWithWorkspace(learnWs, async () => {
-    const lesson = readCurrentLesson();
     // Repo file paths so backticked references in the narrative + node files linkify to REAL files
     // (deterministic — lib/file-mention), exactly as on /plan.
     const codeFiles = await db.query.codeFile.findMany({ columns: { path: true } });
     const repoFiles = codeFiles.map((f) => f.path);
-    return <LearnWorkspace initialLesson={lesson} repoFiles={repoFiles} />;
+    if (view === "library") {
+      return (
+        <LessonLibraryView
+          lessons={listLessons()}
+          selected={id ? readSavedLesson(id) : null}
+          repoFiles={repoFiles}
+        />
+      );
+    }
+    return <LearnWorkspace initialLesson={readCurrentLesson()} repoFiles={repoFiles} />;
   });
 }
