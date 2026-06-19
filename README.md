@@ -57,7 +57,8 @@ beacon stop       # stop the shared background server
 ```
 
 > Prefer Claude Code's plugin system? Add the marketplace and install the plugin instead:
-> `/plugin marketplace add wenzorithelly/beacon-plugin` then `/plugin install beacon@trybeacon`.
+> `/plugin marketplace add wenzorithelly/beacon` then `/plugin install beacon@trybeacon`.
+> (The plugin ships inside the `trybeacon` npm package — same artifacts, no separate repo.)
 
 One shared Beacon server (daemon) serves every repo you open; each repo keeps its own data in
 `~/.beacon/<id>/` (override the root with `BEACON_HOME`). On first run in a repo, run
