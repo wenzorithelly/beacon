@@ -4,6 +4,14 @@
   "description": "The visual planning surface for the coding agent in your terminal.",
   "homepage": "https://trybeacon.sh",
   "license": "Apache-2.0",
+  "author": "Wenzo (https://trybeacon.sh)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wenzorithelly/beacon.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wenzorithelly/beacon/issues"
+  },
   "bin": {
     "beacon": "dist/bin/beacon.js"
   },
