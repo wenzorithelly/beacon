@@ -167,11 +167,12 @@ export interface SetupResult {
  * of truth. Returns counts of what actually changed for the CLI to print.
  */
 export async function setupGlobalAssets(): Promise<SetupResult> {
-  const { INIT_SKILL, REFRESH_SKILL, PLAN_SKILL } = await import("@/lib/assets");
+  const { INIT_SKILL, REFRESH_SKILL, PLAN_SKILL, EXPLAIN_SKILL } = await import("@/lib/assets");
   const skillBodies: Record<GlobalSkillName, string> = {
     "beacon-init": INIT_SKILL,
     "beacon-refresh": REFRESH_SKILL,
     "beacon-plan": PLAN_SKILL,
+    "beacon-explain": EXPLAIN_SKILL,
   };
   const skillsAdded: string[] = [];
   for (const name of GLOBAL_SKILLS) {

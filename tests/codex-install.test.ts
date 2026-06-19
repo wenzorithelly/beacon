@@ -165,7 +165,7 @@ describe("setupCodexAssets / auditCodex / removeCodexArtifacts", () => {
   it("installs hooks, skills, the AGENTS.md block, and the MCP entry", async () => {
     const r = await setupCodexAssets();
     expect(r.hooksAdded).toBe(CODEX_HOOKS.length);
-    expect(r.skillsAdded.sort()).toEqual(["beacon-init", "beacon-plan", "beacon-refresh"]);
+    expect(r.skillsAdded.sort()).toEqual(["beacon-explain", "beacon-init", "beacon-plan", "beacon-refresh"]);
     expect(r.agentsMdBlockTouched).toBe(true);
     expect(r.mcp.added).toBe(true);
 
@@ -177,7 +177,7 @@ describe("setupCodexAssets / auditCodex / removeCodexArtifacts", () => {
     expect(hooks.hooks.PermissionRequest).toBeUndefined();
 
     expect(readFileSync(agentsMd(), "utf8")).toContain("beacon:global:start");
-    for (const s of ["beacon-init", "beacon-refresh", "beacon-plan"])
+    for (const s of ["beacon-init", "beacon-refresh", "beacon-plan", "beacon-explain"])
       expect(existsSync(join(home, ".agents", "skills", s, "SKILL.md"))).toBe(true);
 
     const audit = auditCodex();
@@ -241,7 +241,7 @@ describe("setupCodexAssets / auditCodex / removeCodexArtifacts", () => {
     writeFileSync(agentsMd(), "# my own notes\n");
     await setupCodexAssets();
     const r = removeCodexArtifacts();
-    expect(r.skillsRemoved.sort()).toEqual(["beacon-init", "beacon-plan", "beacon-refresh"]);
+    expect(r.skillsRemoved.sort()).toEqual(["beacon-explain", "beacon-init", "beacon-plan", "beacon-refresh"]);
     expect(r.hooksRemoved).toBe(CODEX_HOOKS.length);
     expect(r.agentsMdBlockRemoved).toBe(true);
     expect(r.mcpRemoved).toBe(true);

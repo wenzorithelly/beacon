@@ -17,7 +17,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { INIT_SKILL, PLAN_SKILL, REFRESH_SKILL } from "@/lib/assets";
+import { EXPLAIN_SKILL, INIT_SKILL, PLAN_SKILL, REFRESH_SKILL } from "@/lib/assets";
 import { BEACON_MCP_TIMEOUT_MS } from "@/lib/constants";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -28,12 +28,13 @@ const BOOT = "${CLAUDE_PLUGIN_ROOT}/dist/bin/boot.js";
 
 const REPO_URL = "https://github.com/wenzorithelly/beacon";
 
-// The three skills, sourced from lib/assets.ts so the plugin ships identical bodies to the npm
+// The skills, sourced from lib/assets.ts so the plugin ships identical bodies to the npm
 // self-heal. Generated under plugin/skills/<name>/SKILL.md.
 export const PLUGIN_SKILLS: Record<string, string> = {
   "beacon-init": INIT_SKILL,
   "beacon-refresh": REFRESH_SKILL,
   "beacon-plan": PLAN_SKILL,
+  "beacon-explain": EXPLAIN_SKILL,
 };
 
 // The plugin's hooks — the 6 lifecycle events, each routed through the boot wrapper. Returned as the

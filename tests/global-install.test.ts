@@ -275,7 +275,7 @@ describe("selfHealGlobal", () => {
     const result = await selfHealGlobal();
     expect(result.ok).toBe(true);
     expect(result.skillsAdded).toEqual(
-      expect.arrayContaining(["beacon-init", "beacon-refresh", "beacon-plan"]),
+      expect.arrayContaining(["beacon-init", "beacon-refresh", "beacon-plan", "beacon-explain"]),
     );
     expect(result.hooksAdded).toBe(5);
     expect(result.claudeMdBlockTouched).toBe(true);
@@ -284,6 +284,7 @@ describe("selfHealGlobal", () => {
     expect(after.skills["beacon-init"]).toBe(true);
     expect(after.skills["beacon-refresh"]).toBe(true);
     expect(after.skills["beacon-plan"]).toBe(true);
+    expect(after.skills["beacon-explain"]).toBe(true);
     expect(after.hooks.PreToolUse).toBe(true);
     expect(after.hooks.PostToolUse).toBe(true);
     expect(after.hooks.PermissionRequest).toBe(true);

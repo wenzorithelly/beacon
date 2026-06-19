@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 // so one merge implementation serves both. Node-builtins only — this gets
 // dynamic-imported from bin/ entry points and must work without the Next runtime.
 
-export const GLOBAL_SKILLS = ["beacon-init", "beacon-refresh", "beacon-plan"] as const;
+export const GLOBAL_SKILLS = ["beacon-init", "beacon-refresh", "beacon-plan", "beacon-explain"] as const;
 export type GlobalSkillName = (typeof GLOBAL_SKILLS)[number];
 
 // True when Beacon is running as an installed Claude Code plugin rather than the npm `trybeacon`
@@ -84,6 +84,9 @@ the user reviews on a canvas at /plan, and feedback flows back as the next round
 - User asks to "refresh Beacon" / "update the map" / "bring Beacon up to date" → invoke
   the \`beacon-refresh\` skill. Re-surveys the repo and updates init-derived nodes while
   preserving anything the user added by hand.
+- User asks to "explain" / "teach me" / "walk me through" / "how does X work" → if the
+  \`beacon_explain\` MCP tool is available, author an interactive Lesson (a concept map +
+  plain-English narrative on /learn the user questions back) via the \`beacon-explain\` skill.
 - Run \`beacon doctor\` to audit what's wired (global hooks, repo's .mcp.json, AGENTS.md block).
 
 **The plan feedback loop**
