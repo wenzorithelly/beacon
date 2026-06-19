@@ -196,6 +196,10 @@ Beacon extracts it deterministically and **strips the block from the prose** (it
 
 **The board is built ONLY from the block — prose is NOT parsed.** If your plan describes ANY database models/tables/columns in the prose (e.g. "Model `legal_precedent.py` — natural key (court, …)"), you MUST also put them in the block's `tables` array (with `columns`), or the /db tab will be empty for that plan. Same for endpoints (`endpoints` with `uses:[{table,access}]`) and features (`features`). A plan that lists five tables in prose but ships a block with only `features` renders an empty database board — exactly the "I described models but the DB tab is empty" failure. Mirror every DB entity you mention into the block.
 
+### 2c. Mark the files you mention — write repo-relative paths in backticks
+
+When a plan, feature, or architecture-component description mentions a source file, write its **repo-relative path inside backticks** — `app/api/plan/route.ts`, not "the plan route". On the /plan canvas Beacon turns every backticked token that matches a REAL repo file into a clickable mention that opens it in the user's editor; a bare filename matching several files (e.g. `route.ts`) opens a pick-one dropdown of the same-named candidates. The match is deterministic against the live code graph, so a path that isn't a real file just stays plain text — there's no special syntax to learn and no downside to over-marking: always name files by their real path so the reader can jump straight to the code.
+
 ### 3. At the end, register the work — in ONE call
 
 Call `beacon_feature({ action: "done" })` **ONCE** with a `features` array — one entry per feature the plan created — each with the files you touched and a short markdown description. This flips each one to **Done** — including its sub-tasks (the cascade completes every PENDING/IN_PROGRESS child; a sub-task you did NOT finish must be set BLOCKED or CANCELLED before registering, so it survives visibly) — and keeps `beacon_context_for_feature` accurate for the next session.

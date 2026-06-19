@@ -1,7 +1,16 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { cn } from "@/lib/utils";
+import { buildFileIndex, resolveFileToken, type FileIndex } from "@/lib/file-mention";
 
 // Lightweight markdown renderer shared by the annotation panel and the history view.
 // Supports just what plans emit: # / ## / ### / - lists / ```fenced code``` / `inline code` /
@@ -445,6 +454,7 @@ function RenderedBlock({ block, variant }: { block: Block; variant: MdVariant })
 // which is what left stray asterisks in the rendered prose. Bold/emphasis recurse so inline
 // `code` nested inside them still renders.
 export function Inline({ text }: { text: string }) {
+  const fileIndex = useContext(FileIndexContext);
   // Bold uses a non-greedy [\s\S]+? (not [^*]+) so the bold span may CONTAIN a stray asterisk
   // — e.g. **`/admin/crawl/*` is gated…** — which otherwise broke the match and leaked literal
   // `**`. Bold is listed before emphasis so `**x**` isn't read as `*` + `*x*` + `*`.
@@ -453,9 +463,18 @@ export function Inline({ text }: { text: string }) {
     <>
       {parts.map((p, i) => {
         if (/^`[^`]+`$/.test(p)) {
+          const token = p.slice(1, -1);
+          // Inline code that names a REAL repo file becomes a clickable open-in-editor mention.
+          // Only an actual match linkifies (deterministic — no path-shaped guessing); a token
+          // matching several same-name files opens a pick-one dropdown. No index (shared/archived
+          // boards off the local machine) → plain code, exactly as before.
+          const paths = fileIndex ? resolveFileToken(fileIndex, token) : [];
+          if (paths.length > 0) {
+            return <FileMention key={i} token={token} paths={paths} />;
+          }
           return (
             <code key={i} className="rounded bg-white/5 px-1 font-mono text-[12px]">
-              {p.slice(1, -1)}
+              {token}
             </code>
           );
         }
@@ -476,5 +495,93 @@ export function Inline({ text }: { text: string }) {
         return <span key={i}>{p}</span>;
       })}
     </>
+  );
+}
+
+// --- Clickable file mentions ---------------------------------------------------------------
+// The renderer linkifies a backticked token ONLY when it matches a real repo file, so the file
+// index has to be supplied by whatever surface knows the workspace. /plan provides it; read-only
+// off-machine surfaces (a shared board) leave it null and the prose renders plainly.
+const FileIndexContext = createContext<FileIndex | null>(null);
+
+/** Make backticked repo-file references inside `markdown` clickable (open-in-editor). `files`
+    is the workspace's repo-relative file paths; an empty list disables linkifying. */
+export function FileMentionProvider({
+  files,
+  children,
+}: {
+  files: string[];
+  children: ReactNode;
+}) {
+  const index = useMemo(() => (files.length ? buildFileIndex(files) : null), [files]);
+  return <FileIndexContext.Provider value={index}>{children}</FileIndexContext.Provider>;
+}
+
+function openInEditor(path: string) {
+  fetch(`/api/open?path=${encodeURIComponent(path)}`).catch(() => {});
+}
+
+const base = (p: string) => p.split("/").filter(Boolean).pop() || p;
+
+// A monospace accent pill (shares the .beacon-mention look with feature descriptions) that opens
+// the file in the user's editor. When several same-name files matched, the click opens a pick-one
+// dropdown instead. Rendered as a <span> (not a <button>) so dragging to select text for an
+// annotation still works in the panel — a click opens, a drag selects.
+function FileMention({ token, paths }: { token: string; paths: string[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement | null>(null);
+  const ambiguous = paths.length > 1;
+  // One match → open it; several same-name matches → toggle the pick-one dropdown.
+  const activate = () => (ambiguous ? setOpen((v) => !v) : openInEditor(paths[0]));
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <span ref={ref} className="relative inline-block">
+      <span
+        role="button"
+        tabIndex={0}
+        title={ambiguous ? `${paths.length} files named ${base(token)} — pick one` : `Open ${token}`}
+        onClick={activate}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            activate();
+          }
+        }}
+        className="beacon-mention cursor-pointer font-mono text-[12px] underline decoration-dotted decoration-[var(--accent-2,#ff7a45)]/40 underline-offset-2"
+      >
+        {token}
+      </span>
+      {ambiguous && open && (
+        <span className="absolute left-0 top-full z-50 mt-1 block min-w-[14rem] overflow-hidden rounded-md border border-white/10 bg-[#1b1b1f] shadow-xl">
+          {paths.map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => {
+                openInEditor(p);
+                setOpen(false);
+              }}
+              className="block w-full truncate px-2.5 py-1.5 text-left font-mono text-[12px] text-foreground/85 hover:bg-white/10 hover:text-[var(--accent-2,#ff7a45)]"
+            >
+              {p}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
   );
 }

@@ -66,7 +66,7 @@ export default async function PlanPage({
 
     // …but the plan-vs-repo diff must still compare against the REAL schema, or a draft of an
     // existing table reads "new" instead of "modify". Loaded lean, never rendered.
-    const [realTables, realEndpoints] = await Promise.all([
+    const [realTables, realEndpoints, codeFiles] = await Promise.all([
       db.query.dbTable.findMany({
         columns: { name: true },
         with: {
@@ -74,7 +74,11 @@ export default async function PlanPage({
         },
       }),
       db.query.endpoint.findMany({ columns: { method: true, path: true } }),
+      // Repo file paths so the plan prose can linkify backticked references to REAL files
+      // (deterministic match — see lib/file-mention). Lean (path only).
+      db.query.codeFile.findMany({ columns: { path: true } }),
     ]);
+    const repoFiles = codeFiles.map((f) => f.path);
     const diffBase = {
       tables: realTables.map((t) => ({ name: t.name, columns: t.columns })),
       endpoints: realEndpoints.map((e) => ({ method: e.method, path: e.path })),
@@ -153,6 +157,7 @@ export default async function PlanPage({
         dbProps={{ tables, relations, endpoints, draft, workspaceId, diffBase }}
         mapProps={{ view: "ROADMAP", nodes: mapNodes, edges: mapEdges, hasFrontend }}
         planMarkdown={planMarkdown}
+        repoFiles={repoFiles}
         forceHistory={forceHistory}
       />
     );

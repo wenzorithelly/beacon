@@ -499,7 +499,11 @@ server.registerTool(
     description:
       "BLOCKS until the user reviews. Pushes a feature plan (top-level roadmap features + DB tables + endpoints) to Beacon's /plan page. Use when the user asks you to plan a feature. EVERY feature MUST include `cluster` (its category) and `priority` (0=P0 critical .. 3=P3 low) — and, when the workspace has a frontend, `layer` (frontend | backend | fullstack). The tool REJECTS a plan whose features omit any required field, so set them on every feature. Do not implement code or migrations until this returns approval. If it returns inline feedback, revise and call again.",
     inputSchema: {
-      description: z.string().describe("Short summary the user will see in the review header"),
+      description: z
+        .string()
+        .describe(
+          "Short summary the user will see in the review header. In any prose (here or a feature's `plain`), write file references as repo-relative paths in `backticks` — on /plan, paths matching a REAL repo file render clickable to open in the user's editor.",
+        ),
       features: z
         .array(
           z.object({
@@ -725,7 +729,9 @@ server.registerTool(
       description: z.string().describe("One-line summary shown in the review header"),
       markdown: z
         .string()
-        .describe("The full plan as markdown. Embed a ```beacon block for tables/endpoints/features."),
+        .describe(
+          "The full plan as markdown. Embed a ```beacon block for tables/endpoints/features. Write file references as repo-relative paths in `backticks` (e.g. `app/api/plan/route.ts`) — on /plan, paths matching a REAL repo file render clickable to open in the user's editor.",
+        ),
     },
   },
   async ({ description, markdown }) => {

@@ -26,6 +26,7 @@ import {
 } from "@/components/plan/annotation-panel";
 import type { MapClientHandle } from "@/components/graph/map-client";
 import { PlanHistoryView } from "@/components/plan/plan-history-view";
+import { FileMentionProvider } from "@/components/plan/markdown-view";
 import { SharePlanButton } from "@/components/share/share-plan-button";
 import { TabBtn } from "@/components/ui/tab-button";
 import { PlanToc } from "@/components/plan/plan-toc";
@@ -71,11 +72,15 @@ export function PlanWorkspace({
   dbProps,
   mapProps,
   planMarkdown,
+  repoFiles = [],
   forceHistory = false,
 }: {
   dbProps: DbProps;
   mapProps: MapProps;
   planMarkdown: string;
+  // The workspace's repo-relative file paths — backticked references to these in the plan
+  // prose render as clickable open-in-editor mentions. Empty disables linkifying.
+  repoFiles?: string[];
   // When true, the user explicitly asked to browse history via /plan?view=history even
   // though a plan is pending. The history view then shows a back-link returning to the
   // current plan.
@@ -315,7 +320,11 @@ export function PlanWorkspace({
 
   // Stay mounted while the post-approval "where to find it" card is up (it navigates on click).
   if ((!status.pending || forceHistory) && !approvedSummary) {
-    return <PlanHistoryView pendingPlan={status.pending} workspaceId={dbProps.workspaceId} />;
+    return (
+      <FileMentionProvider files={repoFiles}>
+        <PlanHistoryView pendingPlan={status.pending} workspaceId={dbProps.workspaceId} />
+      </FileMentionProvider>
+    );
   }
 
   // When the plan proposes nothing for the boards (no draft tables/endpoints, no draft
@@ -657,13 +666,15 @@ export function PlanWorkspace({
             </div>
           )}
           <div className="min-h-0 flex-1 overflow-hidden bg-background">
-            <AnnotationPanel
-              markdown={planMarkdown}
-              round={status.proposedAt}
-              onApi={handleAnnoApi}
-              hideSubmit
-              getExtraSubmitPayload={getExtraSubmitPayload}
-            />
+            <FileMentionProvider files={repoFiles}>
+              <AnnotationPanel
+                markdown={planMarkdown}
+                round={status.proposedAt}
+                onApi={handleAnnoApi}
+                hideSubmit
+                getExtraSubmitPayload={getExtraSubmitPayload}
+              />
+            </FileMentionProvider>
           </div>
         </div>
 
