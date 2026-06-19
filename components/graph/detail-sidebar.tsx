@@ -194,7 +194,7 @@ function NodeDetail({
         <h2 className="mt-1 text-lg font-semibold leading-tight">{node.title}</h2>
       </div>
 
-      {node.source === "INIT" && (
+      {node.source === "INIT" && view === "ROADMAP" && (
         <div className="rounded-lg border border-violet-400/30 bg-violet-500/[0.06] p-2.5">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-violet-300">
             <Sparkles className="size-3.5" /> AI suggestion
