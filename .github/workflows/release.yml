@@ -7,6 +7,12 @@ name: Release
 # those two in lockstep: it publishes to npm FIRST, then cuts a release at the SAME version, so a
 # release tag never points at a version users can't actually install.
 #
+# We DELIBERATELY never push to `main`: it's guarded by a ruleset (PR-only + required checks) that
+# the built-in GITHUB_TOKEN can't bypass, so a "push the bump commit to main" step fails every run.
+# Instead the bump lives on a commit the TAG points at, and we push only the tag (tag refs aren't
+# covered by a branch ruleset). The next release derives its version from npm — not the committed
+# package.json — so main's package.json staying put never causes a version collision.
+#
 # Trigger from the Actions tab, or:  gh workflow run release.yml -f bump=patch
 on:
   workflow_dispatch:
@@ -21,7 +27,8 @@ on:
           - minor
           - major
 
-# Push the version-bump commit + tag and create the release with the built-in GITHUB_TOKEN.
+# Push the release tag and create the GitHub release with the built-in GITHUB_TOKEN (we never
+# push to protected main — see the header note).
 permissions:
   contents: write
 
@@ -35,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -49,7 +56,7 @@ jobs:
 
       # Node provides `npm` for version/publish; registry-url wires NODE_AUTH_TOKEN into ~/.npmrc.
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
@@ -62,14 +69,20 @@ jobs:
       - name: Test
         run: bun test
 
-      # Bump package.json WITHOUT touching git (no-git-tag-version) so the dirty tree from tests
-      # can't trip npm's clean-tree check. The printed value (e.g. "v0.1.5") is the release tag.
+      # Compute the next version from what's ACTUALLY on npm — not the committed package.json,
+      # which we never bump on main (see "Tag the release" below). Basing the bump on the published
+      # version keeps successive releases collision-free even though main's package.json never moves.
+      # Bump WITHOUT touching git (no-git-tag-version) so the dirty test tree can't trip npm's
+      # clean-tree check. The printed value (e.g. "v0.1.5") is the release tag.
       - name: Bump version
         id: version
         run: |
+          cur=$(npm view trybeacon version)
+          [ -n "$cur" ] || { echo "could not read the current npm version"; exit 1; }
+          npm version --no-git-tag-version --allow-same-version "$cur" >/dev/null
           tag=$(npm version --no-git-tag-version "${{ inputs.bump }}")
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "Releasing $tag"
+          echo "Releasing $tag (npm base v$cur)"
 
       # Publish FIRST. `prepublishOnly` (package.json) runs build:release (next build + CLI bundle).
       # If this fails, no tag/release is created — so the banner can never point at a missing version.
@@ -86,17 +99,17 @@ jobs:
             npm publish --access public
           fi
 
-      # Only after npm has the version: commit the bump, tag it, push both to the release branch.
-      # REBASE before pushing so a concurrent push to the branch (another run, or a manual push)
-      # can't reject ours with non-fast-forward; the tag is created on the rebased HEAD afterward.
-      - name: Commit, tag and push
+      # Only after npm has the version: capture the bump in a commit, tag it, and push ONLY the tag.
+      # We do NOT push to main — its ruleset (PR-only + required checks) rejects the GITHUB_TOKEN,
+      # which is what made every release fail here. Tag refs aren't covered by a branch ruleset, so
+      # this always succeeds. The tag points at the bump commit, so `git checkout <tag>` carries the
+      # exact released package.json; main itself is intentionally left untouched.
+      - name: Tag the release
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json
           git commit -m "chore(release): ${{ steps.version.outputs.tag }}"
-          git pull --rebase origin "${{ github.ref_name }}"
-          git push origin "HEAD:${{ github.ref_name }}"
           git tag "${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
 
