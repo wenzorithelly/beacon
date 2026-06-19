@@ -52,6 +52,68 @@ export function getFloatingEdgeParams(source: FlNode, target: FlNode) {
   };
 }
 
+export interface ObstacleRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+// Does the straight segment s→t pass through `r` (expanded by `pad`)? Sampled along the segment —
+// cheap, and good enough to decide whether an edge needs to route around a card.
+function segHitsRect(
+  sx: number,
+  sy: number,
+  tx: number,
+  ty: number,
+  r: ObstacleRect,
+  pad: number,
+): boolean {
+  const minX = r.x - pad;
+  const maxX = r.x + r.w + pad;
+  const minY = r.y - pad;
+  const maxY = r.y + r.h + pad;
+  if (Math.max(sx, tx) < minX || Math.min(sx, tx) > maxX) return false;
+  if (Math.max(sy, ty) < minY || Math.min(sy, ty) > maxY) return false;
+  const steps = 24;
+  for (let i = 1; i < steps; i++) {
+    const u = i / steps;
+    const x = sx + (tx - sx) * u;
+    const y = sy + (ty - sy) * u;
+    if (x >= minX && x <= maxX && y >= minY && y <= maxY) return true;
+  }
+  return false;
+}
+
+// When the straight floating segment would cross another card, bow the edge up (or down — whichever
+// detour is shorter) clear of every card it hits. Returns a cubic path + label point, or null when
+// the straight line is already clear (caller falls back to the normal bezier). General to every
+// board — an edge should never disappear behind a card.
+export function routeAroundObstacles(
+  sx: number,
+  sy: number,
+  tx: number,
+  ty: number,
+  obstacles: ObstacleRect[],
+): { path: string; labelX: number; labelY: number } | null {
+  const pad = 14;
+  const hit = obstacles.filter((r) => segHitsRect(sx, sy, tx, ty, r, pad));
+  if (!hit.length) return null;
+  const midX = (sx + tx) / 2;
+  const midY = (sy + ty) / 2;
+  const clearance = 26;
+  const above = Math.min(...hit.map((r) => r.y)) - pad - clearance;
+  const below = Math.max(...hit.map((r) => r.y + r.h)) + pad + clearance;
+  const bowY = Math.abs(above - midY) <= Math.abs(below - midY) ? above : below;
+  const c1x = sx + (tx - sx) * 0.25;
+  const c2x = sx + (tx - sx) * 0.75;
+  return {
+    path: `M ${sx},${sy} C ${c1x},${bowY} ${c2x},${bowY} ${tx},${ty}`,
+    labelX: midX,
+    labelY: bowY,
+  };
+}
+
 /** The point on rectangle `r`'s border where a ray from its center toward `from` exits. Used by
  *  the annotation connector to land the line on the card edge NEAREST its pin (a floating target
  *  with a fixed source), so dragging the card re-routes the line instead of kinking it through a

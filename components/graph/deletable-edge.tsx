@@ -1,15 +1,21 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
   getBezierPath,
   useInternalNode,
+  useNodes,
   useReactFlow,
   type EdgeProps,
 } from "@xyflow/react";
 import { Trash2 } from "lucide-react";
-import { getFloatingEdgeParams } from "@/components/graph/floating-edge";
+import {
+  getFloatingEdgeParams,
+  routeAroundObstacles,
+  type ObstacleRect,
+} from "@/components/graph/floating-edge";
 
 // FigJam-style line: when selected, a small trash button hovers at the midpoint so
 // the user can delete it without remembering the Backspace shortcut. Backspace
@@ -20,11 +26,28 @@ export function DeletableEdge(props: EdgeProps) {
   const { deleteElements } = useReactFlow();
   const sourceNode = useInternalNode(props.source);
   const targetNode = useInternalNode(props.target);
+  const allNodes = useNodes();
   // Float the endpoints to whichever side faces the other node (top/bottom/left/right) instead
   // of the fixed handle, so connections on the grid don't all funnel through top↔bottom. Falls
   // back to the handle-derived coords React Flow passed before the nodes are measured.
   const f = sourceNode && targetNode ? getFloatingEdgeParams(sourceNode, targetNode) : null;
-  const [path, labelX, labelY] = getBezierPath(
+  // Other cards the straight line might cross — used to bow the edge around them so a connector
+  // never disappears behind a card.
+  const obstacles = useMemo<ObstacleRect[]>(
+    () =>
+      allNodes
+        .filter((n) => n.id !== props.source && n.id !== props.target)
+        .map((n) => ({
+          x: n.position.x,
+          y: n.position.y,
+          w: n.measured?.width ?? n.width ?? 0,
+          h: n.measured?.height ?? n.height ?? 0,
+        }))
+        .filter((r) => r.w > 0 && r.h > 0),
+    [allNodes, props.source, props.target],
+  );
+  const routed = f ? routeAroundObstacles(f.sx, f.sy, f.tx, f.ty, obstacles) : null;
+  const [bezPath, bezLabelX, bezLabelY] = getBezierPath(
     f
       ? {
           sourceX: f.sx,
@@ -43,6 +66,9 @@ export function DeletableEdge(props: EdgeProps) {
           targetPosition: props.targetPosition,
         },
   );
+  const path = routed?.path ?? bezPath;
+  const labelX = routed?.labelX ?? bezLabelX;
+  const labelY = routed?.labelY ?? bezLabelY;
   return (
     <>
       <BaseEdge
