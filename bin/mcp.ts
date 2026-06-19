@@ -28,6 +28,8 @@ import { approvedFeaturesContext } from "@/lib/plan-approval-message";
 import type { ApprovedFeature } from "@/lib/plan-verdict";
 import { daemonBaseUrl } from "@/lib/daemon-server";
 import { openPlanTabIfNone } from "@/lib/plan-open";
+import { openLearnTabIfNone } from "@/lib/lesson-open";
+import { LESSON_VERBS } from "@/lib/lesson-types";
 import {
   PLAN_POLL_INTERVAL_MS,
   PLAN_TOOL_TIMEOUT_MS,
@@ -712,6 +714,134 @@ server.registerTool(
       "Still waiting for the user to review in Beacon. Your plan is preserved — call " +
         "`beacon_propose_plan` again with the SAME plan to resume (the verdict is picked up " +
         "immediately if they've since decided), or ask whether they've reviewed it.",
+    );
+  },
+);
+
+// The "explain, don't plan" tool: push an interactive LESSON (a concept map + a plain-English
+// narrative) to Beacon's /learn page and block while the user reads, highlights text to ask
+// questions, and drops question notes. Returns their questions; the agent answers and re-pushes,
+// looping until they Save. NO approve/discard — explaining is for understanding, not building.
+server.registerTool(
+  "beacon_explain",
+  {
+    description:
+      "BLOCKS until the user is done learning. Use when the user asks you to EXPLAIN / TEACH / walk " +
+      "them through part of the codebase (architecture, a category, how X works) — NOT to plan a " +
+      "build (that's beacon_propose_plan). Pushes an interactive Lesson to Beacon's /learn page: a " +
+      "curated concept map (nodes + verb-labeled arrows) beside a plain-English narrative. The user " +
+      "highlights text to ask questions and drops question notes; this returns their questions so you " +
+      "ANSWER them and call beacon_explain AGAIN with the same lesson plus `answers:[{questionId," +
+      "answer}]`, looping until they Save.\n\nWrite like a great teacher (the house style): open each " +
+      "component with the PROBLEM it solves and a concrete scenario; give a numbered step-by-step flow " +
+      "naming every real identifier in `backticks` (files become clickable on /learn); add 'Why X?' " +
+      "sections that explain why the alternative is worse; include a worked example with a small data " +
+      "table; use **bold** for decisions, *italic* for concepts. Map every piece you name to a node, " +
+      "and every 'A does X to B' to a labeled edge. Plain English throughout — define terms inline.",
+    inputSchema: {
+      title: z.string().describe("the lesson title, e.g. 'How a plan flows to /plan'"),
+      topic: z.string().optional().describe("the user's request, verbatim (shown in the library)"),
+      narrative: z
+        .string()
+        .describe(
+          "The house-style explanation as markdown (problem-first → numbered flow → 'Why X?' → worked example). Write file references as repo-relative paths in `backticks` — they render clickable on /learn.",
+        ),
+      nodes: z
+        .array(
+          z.object({
+            id: z.string().describe("a short stable id you assign (e.g. 'n1') — edges reference it"),
+            title: z.string(),
+            summary: z.string().optional().describe("one-line plain-English summary shown on the node face"),
+            detail: z.string().optional().describe("fuller plain-English explanation, markdown, shown on click"),
+            files: z.array(z.string()).optional().describe("real repo-relative paths this node maps to — clickable chips"),
+            group: z.string().optional().describe("optional cluster label for landmark regions"),
+            x: z.number().optional(),
+            y: z.number().optional(),
+          }),
+        )
+        .optional()
+        .describe("the curated concept-map boxes — keep the resting set small (~4-7 per view)"),
+      edges: z
+        .array(
+          z.object({
+            fromId: z.string(),
+            toId: z.string(),
+            verb: z
+              .enum(LESSON_VERBS as unknown as [string, ...string[]])
+              .describe("the relationship — a labeled directional arrow, never a bare line"),
+          }),
+        )
+        .optional(),
+      steps: z
+        .array(
+          z.object({
+            title: z.string(),
+            summary: z.string().optional(),
+            focusIds: z.array(z.string()).optional().describe("node ids to spotlight this step; omit/[] = whole-board overview"),
+            narrativeAnchor: z.string().optional(),
+          }),
+        )
+        .optional()
+        .describe("the guided-walkthrough order — reveal one node/step at a time; first step should be the overview"),
+      answers: z
+        .array(z.object({ questionId: z.string(), answer: z.string() }))
+        .optional()
+        .describe("on a re-push: your answers to the user's questions, keyed by the [q:ID] they came with"),
+    },
+  },
+  async ({ title, topic, narrative, nodes, edges, steps, answers }) => {
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
+
+    try {
+      await post("/api/lesson", { title, topic, narrative, nodes, edges, steps, answers });
+    } catch (e) {
+      return errText(e);
+    }
+
+    // Make the lesson VISIBLE: activate this repo's workspace and open a /learn tab if none is live.
+    await fetch(`${daemonBaseUrl()}/api/workspace/activate?id=${WORKSPACE_ID}`).catch(() => {});
+    await openLearnTabIfNone(daemonBaseUrl(), WORKSPACE_ID);
+
+    // Block for the verdict: questions (answer + re-push) | saved | closed. Persists on disk, so a
+    // timeout is resumable.
+    const deadline = Date.now() + PLAN_TOOL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await sleep(PLAN_POLL_INTERVAL_MS);
+      const v = (await api("/api/lesson/verdict").catch(() => null)) as
+        | { kind: "pending" }
+        | { kind: "questions"; rendered?: string }
+        | { kind: "saved"; lessonId: string; summary: string }
+        | { kind: "closed"; summary: string }
+        | { kind: "none" }
+        | null;
+      if (!v) continue;
+
+      if (v.kind === "questions") {
+        return text(
+          "💬 The user asked questions about the lesson in Beacon. Answer each one, then call " +
+            "`beacon_explain` AGAIN with the SAME lesson plus `answers:[{questionId,answer}]` (keyed " +
+            "by the [q:ID] below). Expand the narrative or add nodes where it helps the explanation. " +
+            "Keep looping until the user saves — DO NOT stop after one round:\n\n" +
+            (v.rendered ?? ""),
+        );
+      }
+      if (v.kind === "saved") {
+        return text(
+          `✅ The user saved the lesson to their library. ${v.summary} You're done explaining — ` +
+            "they can reopen it anytime from /learn.",
+        );
+      }
+      if (v.kind === "closed") {
+        return text(
+          `The user closed the lesson without saving. ${v.summary} Stop here; ask if they'd like a different explanation.`,
+        );
+      }
+      // pending / none → keep polling.
+    }
+    return text(
+      "Still waiting for the user to finish the lesson in Beacon. It's preserved — call " +
+        "`beacon_explain` again with the SAME lesson to resume.",
     );
   },
 );

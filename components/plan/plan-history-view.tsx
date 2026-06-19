@@ -127,10 +127,12 @@ export function PlanHistoryView({
   const bodyEmpty =
     !!selected && selected.markdown.replace(/^#[^\n]*\n?/, "").trim() === "";
 
+  // Rendered IN-FLOW (not a fixed overlay) at the top of the content, below the global top nav —
+  // the nav is itself `fixed left-3 top-3`, so a fixed back-link at the same spot sat on top of it.
   const backToCurrent = pendingPlan ? (
     <button
       onClick={() => router.push(planHref())}
-      className="glass pointer-events-auto fixed left-3 top-3 z-30 flex h-10 items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold text-sky-300 transition-colors hover:bg-sky-500/15"
+      className="glass pointer-events-auto mb-1 ml-3 mt-1 flex h-8 w-fit shrink-0 items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold text-sky-300 transition-colors hover:bg-sky-500/15"
       title="Return to the plan that's still pending review"
     >
       <ArrowLeft className="size-3.5" /> Back to current plan
@@ -139,9 +141,9 @@ export function PlanHistoryView({
 
   if (items.length === 0) {
     return (
-      <>
+      <div className="flex h-screen min-h-0 flex-col pt-14">
         {backToCurrent}
-        <div className="flex h-screen items-center justify-center px-6 pt-14 text-center">
+        <div className="flex flex-1 items-center justify-center px-6 text-center">
           <div className="max-w-md text-sm text-muted-foreground">
             <Archive className="mx-auto mb-3 size-7 text-muted-foreground/40" />
             <div className="mb-2 text-base font-semibold text-foreground">No plans yet.</div>
@@ -150,14 +152,14 @@ export function PlanHistoryView({
             page for browsing.
           </div>
         </div>
-      </>
+      </div>
     );
   }
 
   return (
-    // Full-bleed like /map and the pending-plan board: the floating top nav (fixed top-3)
-    // overlays the page, so pt-14 pushes the columns below it.
-    <div className="flex h-screen min-h-0 pt-14">
+    // Full-bleed like /map and the pending-plan board: the floating top nav (fixed top-3) overlays
+    // the page (pt-14 clears it); the back-link sits in-flow below it, then the columns fill.
+    <div className="flex h-screen min-h-0 flex-col pt-14">
       {backToCurrent}
 
       {/* Verdict + date, top-right (kept from the original history view). */}
@@ -185,6 +187,8 @@ export function PlanHistoryView({
         </div>
       )}
 
+      {/* The two columns (history list + selected plan) fill the space below the back-link row. */}
+      <div className="flex min-h-0 flex-1">
       {sidebarOpen ? (
         <aside className="flex w-64 min-w-0 shrink-0 flex-col border-r border-white/5 bg-card/30">
           <div className="flex items-center justify-between border-b border-white/5 px-3 py-2">
@@ -336,6 +340,7 @@ export function PlanHistoryView({
           Select a plan on the left to view it.
         </section>
       )}
+      </div>
     </div>
   );
 }

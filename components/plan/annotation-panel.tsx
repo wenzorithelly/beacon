@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, MessageSquarePlus, Trash2, Send, Strikethrough, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { clampToViewport } from "@/lib/popover-position";
 import { currentPlanWs, wsHeaders } from "@/components/plan/use-plan-ws";
 import type { TextAnnotation } from "@/lib/annotations";
 import {
@@ -70,6 +71,24 @@ function findFirstTextRange(root: HTMLElement, query: string): Range | null {
   range.setStart(s.node, s.offset);
   range.setEnd(e.node, e.offset);
   return range;
+}
+
+// Anchor point (viewport coords) for the floating popover/composer: the END of the selection —
+// the bottom-right of its LAST client rect, i.e. where the user finished dragging. Anchoring at
+// the end, not the bounding box's top-right corner, keeps the popover near the cursor instead of
+// flying to the top-right of a tall multi-line selection (and over the top toolbar). Viewport
+// coords because both consumers render position:fixed. Falls back to the bounding box.
+function selectionAnchor(range: Range): { x: number; y: number } {
+  const rects = range.getClientRects();
+  const r = rects.length ? rects[rects.length - 1] : range.getBoundingClientRect();
+  return { x: r.right, y: r.bottom };
+}
+
+// A position:fixed style at (x,y), pulled fully on-screen. Only called from client-only render
+// branches (popover/composer are null during SSR), so `window` is always defined here.
+function clampedFixed(x: number, y: number, w: number, h: number) {
+  const { left, top } = clampToViewport(x, y, w, h, window.innerWidth, window.innerHeight);
+  return { position: "fixed" as const, left, top, zIndex: 60 };
 }
 
 // Native, inline annotation panel. Select text → small floating popover with two icons:
@@ -207,12 +226,8 @@ export function AnnotationPanel({
       return;
     }
     if (!docRef.current?.contains(sel.anchorNode)) return;
-    const rect = sel.getRangeAt(0).getBoundingClientRect();
-    setPopover({
-      x: rect.right + window.scrollX,
-      y: rect.top + window.scrollY,
-      excerpt: text,
-    });
+    const { x, y } = selectionAnchor(sel.getRangeAt(0));
+    setPopover({ x, y, excerpt: text });
   }, []);
 
   useEffect(() => {
@@ -257,13 +272,8 @@ export function AnnotationPanel({
       e.preventDefault();
       const range = sel.getRangeAt(0);
       pendingRangeRef.current = range.cloneRange();
-      const rect = range.getBoundingClientRect();
-      setComposer({
-        x: rect.right + window.scrollX,
-        y: rect.top + window.scrollY,
-        excerpt: text,
-        seed: e.key,
-      });
+      const { x, y } = selectionAnchor(range);
+      setComposer({ x, y, excerpt: text, seed: e.key });
       setPopover(null);
       window.getSelection()?.removeAllRanges();
     };
@@ -508,12 +518,7 @@ export function AnnotationPanel({
 
       {popover && (
         <div
-          style={{
-            position: "fixed",
-            left: popover.x + 4,
-            top: popover.y - 30,
-            zIndex: 60,
-          }}
+          style={clampedFixed(popover.x + 4, popover.y + 6, 76, 34)}
           className="flex items-center gap-0.5 rounded-md border border-white/15 bg-card/95 p-0.5 shadow-lg backdrop-blur"
         >
           <button
@@ -581,11 +586,23 @@ function InlineComposer({
 }) {
   const [value, setValue] = useState(seed);
   const boxRef = useRef<HTMLDivElement | null>(null);
+  // Keep the composer fully on-screen: anchor just below the selection end, then clamp to the
+  // viewport once we can measure the real box (w-64 + variable height). Without this it overflows
+  // off the right edge for selections near the edge or spanning many lines.
+  const [pos, setPos] = useState(() =>
+    clampToViewport(x + 4, y + 6, 256, 130, window.innerWidth, window.innerHeight),
+  );
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setPos(clampToViewport(x + 4, y + 6, width, height, window.innerWidth, window.innerHeight));
+  }, [x, y]);
   const confirm = () => (value.trim() ? onConfirm(value.trim()) : onCancel());
   return (
     <div
       ref={boxRef}
-      style={{ position: "fixed", left: x + 4, top: y - 6, zIndex: 60 }}
+      style={{ position: "fixed", left: pos.left, top: pos.top, zIndex: 60 }}
       className="w-64 rounded-md border border-white/15 bg-card/95 p-1.5 shadow-xl backdrop-blur"
       // Only treat focus LEAVING the whole composer as an implicit save — focus moving from
       // the textarea to the buttons must not auto-confirm under the user's click.
