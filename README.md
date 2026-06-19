@@ -8,6 +8,9 @@ database schema + endpoints), you review it on a canvas instead of as a wall of 
 scoped structured feedback, and approve or discard with a click. Beacon does **not** embed
 a chatbot and does **not** generate plans on its own.
 
+> **See it live** — explore Beacon's own architecture & database on a read-only board,
+> generated from this very repo (no install): **[trybeacon.sh/s/beacon](https://www.trybeacon.sh/s/beacon)**
+
 ## How the loop closes
 
 1. You ask the agent to plan a feature in your terminal session.
@@ -27,7 +30,7 @@ a chatbot and does **not** generate plans on its own.
   as interactive React Flow graphs. A **files** tab renders the live import graph.
 - **/db** — the database design: tables (columns, PK/FK markers), FK relationships, and which
   endpoints touch which tables — with a distinct **draft** layer for proposed schema.
-- **/settings** — intel model/provider/editor choices, code-map sync, and the danger zone.
+- **/settings** — editor choice, code-map sync, and the danger zone.
 
 ## Stack
 
@@ -78,7 +81,7 @@ make studio      # drizzle studio
 As you write code (any language), a watcher keeps the `/db` and **files** maps in sync —
 tables, FK relationships, endpoint↔table usage, and the import graph — updating live as you
 save. It reads an optional `beacon.config.json` at the repo root (`roots[]`, `openapiUrl?`,
-`controlUrl?`, `llm`), or derives everything from the repo when run via the CLI.
+`controlUrl?`), or derives everything from the repo when run via the CLI.
 
 ```bash
 make up      # terminal 1: the panel server
@@ -86,14 +89,18 @@ make watch   # terminal 2: the watcher  (or `make dev` to run both)
 ```
 
 On each save: debounced watcher → gather source files + the framework's OpenAPI spec + the
-import graph → **the agent reads the code** and emits a structured graph (tables/columns/FKs +
+import graph → **deterministic parsers** emit a structured graph (tables/columns/FKs +
 endpoint↔table usage) → `POST /api/ingest` upserts it (preserving your manual nodes + hand-
 placed positions) → SSE refreshes the open map. Introspected nodes show a green "live" dot.
 
-**Provider — no API key needed.** `provider: "auto"` (default) runs extraction through the
-**Claude Code CLI in headless mode** using your Claude Code subscription. Force it with
-`"claude-cli"`, or set `"api"` + `ANTHROPIC_API_KEY` to use the Anthropic API instead. With
-neither, the daemon still ingests endpoints from OpenAPI (deterministic-only).
+**No AI, no API key.** The live daemon is **fully deterministic** — language-aware parsers
+build the import graph and detect tables, columns, FKs, and endpoints (from OpenAPI + framework
+conventions). Nothing in the watcher calls a model.
+
+The *semantic* layer — architecture component names, plain-language descriptions, and the
+roadmap — comes from **your Claude Code session**, not a background process. Run `/beacon-init`
+once to map the repo and `/beacon-refresh` to keep it current: the agent reads the code and
+calls Beacon's MCP tools directly. There's no Claude CLI and no Anthropic API in the loop.
 
 ## Deploy
 
