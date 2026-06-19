@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -120,7 +120,9 @@ const nodeTypes = { lesson: LessonNodeCard };
 const edgeTypes = { lesson: LessonEdge };
 
 export interface LessonMapHandle {
-  fitView: () => void;
+  /** Frame (fit + zoom to) the given node ids; null/empty fits the whole board. Drives the
+      walkthrough's per-step camera move. */
+  frame: (ids: string[] | null) => void;
 }
 
 export function LessonMap({
@@ -129,14 +131,31 @@ export function LessonMap({
   pendingByNode,
   /** Walkthrough spotlight (Phase 5): node ids to keep lit; null = all lit. */
   focusIds = null,
+  controlRef,
 }: {
   lesson: Lesson;
   onAskNode: (nodeId: string, question: string) => void;
   pendingByNode: Map<string, number>;
   focusIds?: Set<string> | null;
+  controlRef?: { current: LessonMapHandle | null };
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const flowRef = useRef<ReactFlowInstance<Node<LessonNodeData>, Edge> | null>(null);
+
+  // Expose a frame() handle so the walkthrough (in LearnWorkspace) can fit the camera to the
+  // spotlit nodes each step, then back to the whole board on exit.
+  const frame = useCallback((ids: string[] | null) => {
+    const inst = flowRef.current;
+    if (!inst) return;
+    if (ids && ids.length) {
+      inst.fitView({ nodes: ids.map((id) => ({ id })), duration: 600, padding: 0.35, maxZoom: 1.1 });
+    } else {
+      inst.fitView({ duration: 600, padding: 0.2, maxZoom: 1 });
+    }
+  }, []);
+  useEffect(() => {
+    if (controlRef) controlRef.current = { frame };
+  }, [controlRef, frame]);
 
   const answeredByNode = useMemo(() => {
     const m = new Map<string, number>();

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BookOpen, Check, Library, Loader2, MessageSquare, Save, Send, X } from "lucide-react";
+import { BookOpen, Check, Compass, Library, Loader2, MessageSquare, Save, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { currentTabWs, wsHeaders } from "@/lib/tab-ws";
 import { FileMentionProvider, MarkdownView } from "@/components/plan/markdown-view";
@@ -11,7 +11,10 @@ import {
   type AnsweredText,
   type NarrativeApi,
 } from "@/components/learn/lesson-narrative-panel";
-import { LessonMap } from "@/components/graph/lesson-map-client";
+import { LessonMap, type LessonMapHandle } from "@/components/graph/lesson-map-client";
+import { useCanvasTour } from "@/components/graph/use-canvas-tour";
+import { TourOverlay } from "@/components/graph/tour-overlay";
+import type { TourStep } from "@/lib/canvas-tour";
 import type { Lesson, LessonQuestion } from "@/lib/lesson-types";
 
 // /learn surface: the agent's interactive explanation. Left = the house-style narrative where the
@@ -174,6 +177,38 @@ export function LearnWorkspace({
     [lesson],
   );
 
+  // ── Guided walkthrough (reuses the canvas-tour machinery) ──────────────────
+  const mapRef = useRef<LessonMapHandle | null>(null);
+  const tourSteps: TourStep[] = useMemo(
+    () =>
+      (lesson?.steps ?? []).map((s) => ({
+        id: s.id,
+        kind: s.focusIds.length ? "group" : "overview",
+        title: s.title,
+        summary: s.summary,
+        focusIds: s.focusIds,
+      })),
+    [lesson],
+  );
+  const anchorByStepId = useMemo(
+    () => new Map((lesson?.steps ?? []).map((s) => [s.id, s.narrativeAnchor])),
+    [lesson],
+  );
+  const onFocusStep = useCallback(
+    (step: TourStep) => {
+      // Move the map camera to the spotlit nodes, then scroll the narrative to this step's heading.
+      mapRef.current?.frame(step.focusIds);
+      const anchor = anchorByStepId.get(step.id);
+      if (anchor) document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    [anchorByStepId],
+  );
+  const tour = useCanvasTour(tourSteps, onFocusStep);
+  // Back to the whole board when the walkthrough ends.
+  useEffect(() => {
+    if (!tour.active) mapRef.current?.frame(null);
+  }, [tour.active]);
+
   if (ended) return <EndCard ended={ended} savedId={savedId} onBrowse={() => router.push("/learn?view=library")} />;
   if (!lesson) return <EmptyState />;
 
@@ -192,6 +227,18 @@ export function LearnWorkspace({
             >
               <Library className="size-3.5" />
             </button>
+            {tourSteps.length > 0 && (
+              <button
+                onClick={() => (tour.active ? tour.stop() : tour.start())}
+                title={tour.active ? "End walkthrough" : "Start the guided walkthrough"}
+                className={cn(
+                  "flex size-8 items-center justify-center rounded-full transition-colors",
+                  tour.active ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+                )}
+              >
+                <Compass className="size-3.5" />
+              </button>
+            )}
             <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
             <button
               onClick={() => setOverallOpen((b) => !b)}
@@ -263,9 +310,25 @@ export function LearnWorkspace({
 
           <div className="w-px shrink-0 bg-white/5" />
 
-          {/* RIGHT — the concept map. */}
-          <div className="min-w-0 flex-1 bg-background" style={{ width: "50%" }}>
-            <LessonMap lesson={lesson} onAskNode={askNode} pendingByNode={pendingByNode} />
+          {/* RIGHT — the concept map + walkthrough overlay. */}
+          <div className="relative min-w-0 flex-1 bg-background" style={{ width: "50%" }}>
+            <LessonMap
+              lesson={lesson}
+              onAskNode={askNode}
+              pendingByNode={pendingByNode}
+              controlRef={mapRef}
+              focusIds={tour.active ? tour.focusIds : null}
+            />
+            {tour.active && (
+              <TourOverlay
+                steps={tourSteps}
+                index={tour.index}
+                onPrev={tour.prev}
+                onNext={tour.next}
+                onExit={tour.stop}
+                onGoto={tour.goto}
+              />
+            )}
           </div>
         </div>
       </div>
