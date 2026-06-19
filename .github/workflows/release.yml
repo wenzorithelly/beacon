@@ -73,20 +73,31 @@ jobs:
 
       # Publish FIRST. `prepublishOnly` (package.json) runs build:release (next build + CLI bundle).
       # If this fails, no tag/release is created — so the banner can never point at a missing version.
+      # IDEMPOTENT: if a racing/duplicate run already published this version, skip instead of failing
+      # with "cannot publish over …", so the bump/tag/release steps below still heal the repo state.
       - name: Publish to npm
-        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          v=$(node -p "require('./package.json').version")
+          if npm view "trybeacon@$v" version >/dev/null 2>&1; then
+            echo "trybeacon@$v is already on npm — skipping publish (a racing run won it)."
+          else
+            npm publish --access public
+          fi
 
       # Only after npm has the version: commit the bump, tag it, push both to the release branch.
+      # REBASE before pushing so a concurrent push to the branch (another run, or a manual push)
+      # can't reject ours with non-fast-forward; the tag is created on the rebased HEAD afterward.
       - name: Commit, tag and push
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json
           git commit -m "chore(release): ${{ steps.version.outputs.tag }}"
-          git tag "${{ steps.version.outputs.tag }}"
+          git pull --rebase origin "${{ github.ref_name }}"
           git push origin "HEAD:${{ github.ref_name }}"
+          git tag "${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
 
       # The release is what the in-app banner watches (releases/latest ignores drafts/prereleases,
