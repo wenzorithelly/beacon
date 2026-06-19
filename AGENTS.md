@@ -42,6 +42,8 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
 - **LAUNCH**
   - Shareable boards — Serialize selected boards to a snapshot, store on the Neon deploy, render a read-only /s viewer — now with a gated, permanent, fixed-URL pinned board for contributors. (app/api/share/create/route.ts, app/api/share/route.ts, lib/share-builder.ts, lib/share-snapshot.ts, lib/share-store.ts, scripts/publish-prod-board.ts)
   - Claude Code plugin package — Ships Beacon as a Claude Code plugin INSIDE the trybeacon npm package (single repo): marketplace.json uses an npm source; build:plugin generates plugin.json + plugin/ into the package; boot bootstraps + the guard prevents double-registration. (.claude-plugin/marketplace.json, bin/boot.ts, scripts/build-plugin.ts)
+- **LEARN**
+  - Lessons learning surface — Agent-authored interactive code explanations: a concept map + plain-English narrative on /learn the user questions back in a blocking loop (beacon_explain), saved to a library. (app/learn/page.tsx, bin/mcp.ts, components/graph/lesson-map-client.tsx, components/learn/learn-workspace.tsx, components/learn/lesson-library-view.tsx, components/learn/lesson-narrative-panel.tsx)
 - **MCP**
   - MCP server — stdio MCP server; feature lifecycle now via one beacon_feature({action}) tool (add/start/subtasks/done); beacon_map carries categories; beacon_entities is paginated/truncated (bin/mcp.ts)
 - **PLAN**
@@ -112,18 +114,18 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
 - POST /api/feedback
 - DELETE /api/feedback/{id}
 - POST /api/feedback/{id}/vote
+- GET /api/lesson
+- POST /api/lesson
+- POST /api/lesson/close
+- GET /api/lesson/presence
+- POST /api/lesson/presence
+- DELETE /api/lesson/questions
+- GET /api/lesson/questions
+- POST /api/lesson/questions
+- PUT /api/lesson/questions
+- POST /api/lesson/save
+- GET /api/lesson/verdict
 - POST /api/map/describe
-- POST /api/map/files
-- POST /api/map/finish
-- POST /api/map/start
-- GET /api/mention-search
-- POST /api/nodes/positions
-- POST /api/nodes/subtasks
-- DELETE /api/nodes/{id}
-- PATCH /api/nodes/{id}
-- POST /api/nodes/{id}/position
-- GET /api/notes
-- DELETE /api/notes/{id}
 
 ### Conventions & gotchas
 - This is Next.js 16 App Router with breaking changes — read node_modules/next/dist/docs/ before relying on memory; APIs and conventions differ from older App Router.
