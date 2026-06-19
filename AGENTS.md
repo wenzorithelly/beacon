@@ -41,7 +41,7 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
   - Code graph & files canvas — Polyglot, multi-root import-edge index (per-language resolver registry) with cached degrees + cycle flags; transitive depth-N blast-radius; hub/lang-aware files canvas with init-declared classification-root grouping. (app/api/code-graph/route.ts, components/graph/files-map-client.tsx, intel/extractors/code-graph.ts, intel/extractors/languages/index.ts, lib/code-graph.ts, lib/file-groups.ts)
 - **LAUNCH**
   - Shareable boards — Serialize selected boards to a snapshot, store on the Neon deploy, render a read-only /s viewer — now with a gated, permanent, fixed-URL pinned board for contributors. (app/api/share/create/route.ts, app/api/share/route.ts, lib/share-builder.ts, lib/share-snapshot.ts, lib/share-store.ts, scripts/publish-prod-board.ts)
-  - Claude Code plugin package — Assembles + publishes Beacon as a self-contained Claude Code plugin to a public marketplace repo; bootstraps on a bare clone; guards against double-registering with the npm self-heal. (bin/boot.ts, scripts/build-plugin.ts, scripts/publish-plugin.ts)
+  - Claude Code plugin package — Ships Beacon as a Claude Code plugin INSIDE the trybeacon npm package (single repo): marketplace.json uses an npm source; build:plugin generates plugin.json + plugin/ into the package; boot bootstraps + the guard prevents double-registration. (.claude-plugin/marketplace.json, bin/boot.ts, scripts/build-plugin.ts)
 - **MCP**
   - MCP server — stdio MCP server; feature lifecycle now via one beacon_feature({action}) tool (add/start/subtasks/done); beacon_map carries categories; beacon_entities is paginated/truncated (bin/mcp.ts)
 - **PLAN**
