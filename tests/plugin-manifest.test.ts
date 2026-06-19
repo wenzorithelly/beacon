@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "bun:test";
 import { BEACON_MCP_TIMEOUT_MS } from "@/lib/constants";
 import {
-  PLUGIN_PAYLOAD,
   PLUGIN_SKILLS,
   marketplaceManifest,
   pluginHooks,
@@ -16,35 +15,25 @@ import {
 const BOOT = "${CLAUDE_PLUGIN_ROOT}/dist/bin/boot.js";
 
 describe("plugin manifest", () => {
-  it("names the plugin 'beacon' and mirrors the given version", () => {
-    const m = pluginManifest("9.9.9");
+  const m = pluginManifest("9.9.9");
+
+  it("names the plugin 'beacon', mirrors the version, and is Apache-2.0 from the source repo", () => {
     expect(m.name).toBe("beacon");
     expect(m.version).toBe("9.9.9");
-    expect(m.description.length).toBeGreaterThan(0);
+    expect(m.license).toBe("Apache-2.0");
+    expect(m.repository).toBe("https://github.com/wenzorithelly/beacon");
   });
 
-  it("pins the public marketplace repo URL (string form per the plugin schema)", () => {
-    expect(pluginManifest("9.9.9").repository).toBe("https://github.com/wenzorithelly/beacon-plugin");
-  });
-
-  it("declares the Apache-2.0 license", () => {
-    expect(pluginManifest("9.9.9").license).toBe("Apache-2.0");
-  });
-});
-
-describe("marketplace manifest", () => {
-  it("lists the beacon plugin at the repo root and mirrors the version", () => {
-    const m = marketplaceManifest("4.5.6");
-    expect(m.name).toBe("trybeacon");
-    expect(m.metadata.version).toBe("4.5.6");
-    expect(m.plugins).toHaveLength(1);
-    expect(m.plugins[0].name).toBe("beacon");
-    expect(m.plugins[0].source).toBe("./");
+  it("references the agent surface via custom paths into plugin/ (no root .mcp.json)", () => {
+    expect(m.skills).toEqual(["./plugin/skills"]);
+    expect(m.commands).toEqual(["./plugin/commands/beacon.md"]);
+    expect(m.hooks).toBe("./plugin/hooks.json");
+    expect(m.mcpServers).toBe("./plugin/mcp.json");
   });
 });
 
-describe("plugin hooks.json", () => {
-  const { hooks } = pluginHooks();
+describe("plugin hooks", () => {
+  const hooks = pluginHooks();
 
   it("registers all six lifecycle events", () => {
     expect(Object.keys(hooks).sort()).toEqual(
@@ -69,7 +58,7 @@ describe("plugin hooks.json", () => {
   });
 });
 
-describe("plugin .mcp.json", () => {
+describe("plugin MCP server", () => {
   it("runs the MCP server through boot with the long plan-review timeout", () => {
     const { beacon } = pluginMcp();
     expect(beacon.command).toBe("bun");
@@ -78,12 +67,18 @@ describe("plugin .mcp.json", () => {
   });
 });
 
-describe("payload manifest", () => {
-  it("ships the bundled CLI, prebuilt Next app, and the install inputs", () => {
-    expect(PLUGIN_PAYLOAD).toContain("dist");
-    expect(PLUGIN_PAYLOAD).toContain(".next");
-    expect(PLUGIN_PAYLOAD).toContain("package.json");
-    expect(PLUGIN_PAYLOAD).toContain("bun.lock");
+describe("marketplace manifest (npm source)", () => {
+  it("lists the beacon plugin sourced from the trybeacon npm package", () => {
+    const mp = marketplaceManifest();
+    expect(mp.name).toBe("trybeacon");
+    expect(mp.plugins).toHaveLength(1);
+    expect(mp.plugins[0].name).toBe("beacon");
+    expect(mp.plugins[0].source).toEqual({ source: "npm", package: "trybeacon" });
+  });
+
+  it("matches the tracked .claude-plugin/marketplace.json catalog", () => {
+    const tracked = JSON.parse(readFileSync(join(import.meta.dir, "..", ".claude-plugin", "marketplace.json"), "utf8"));
+    expect(tracked.plugins[0].source).toEqual({ source: "npm", package: "trybeacon" });
   });
 });
 
@@ -91,23 +86,22 @@ describe("writePluginAssets", () => {
   const out = mkdtempSync(join(tmpdir(), "beacon-plugin-assets-"));
   afterAll(() => rmSync(out, { recursive: true, force: true }));
 
-  it("writes the manifest, hooks, mcp config, command, and all three skills", () => {
+  it("writes plugin.json + plugin/{hooks,mcp,commands,skills}", () => {
     writePluginAssets(out, "1.2.3");
 
     const manifest = JSON.parse(readFileSync(join(out, ".claude-plugin", "plugin.json"), "utf8"));
     expect(manifest.name).toBe("beacon");
     expect(manifest.version).toBe("1.2.3");
 
-    expect(existsSync(join(out, "hooks", "hooks.json"))).toBe(true);
-    expect(existsSync(join(out, ".mcp.json"))).toBe(true);
-    expect(existsSync(join(out, "commands", "beacon.md"))).toBe(true);
-    expect(existsSync(join(out, ".claude-plugin", "marketplace.json"))).toBe(true);
-    expect(existsSync(join(out, "README.md"))).toBe(true);
+    // Hooks file is wrapped { hooks: <map> } (the standard hooks.json shape).
+    const hooksFile = JSON.parse(readFileSync(join(out, "plugin", "hooks.json"), "utf8"));
+    expect(Object.keys(hooksFile.hooks)).toContain("SessionStart");
+    expect(existsSync(join(out, "plugin", "mcp.json"))).toBe(true);
+    expect(existsSync(join(out, "plugin", "commands", "beacon.md"))).toBe(true);
 
     for (const name of Object.keys(PLUGIN_SKILLS)) {
-      const skill = join(out, "skills", name, "SKILL.md");
+      const skill = join(out, "plugin", "skills", name, "SKILL.md");
       expect(existsSync(skill)).toBe(true);
-      // Skills carry YAML frontmatter naming themselves — Claude Code needs it to discover them.
       expect(readFileSync(skill, "utf8")).toContain(`name: ${name}`);
     }
   });

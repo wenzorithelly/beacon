@@ -1,0 +1,20 @@
+{
+  "name": "trybeacon",
+  "owner": {
+    "name": "wenzorithelly",
+    "url": "https://github.com/wenzorithelly"
+  },
+  "metadata": {
+    "description": "Beacon — the visual planning surface for the coding agent in your terminal."
+  },
+  "plugins": [
+    {
+      "name": "beacon",
+      "source": {
+        "source": "npm",
+        "package": "trybeacon"
+      },
+      "description": "The visual planning surface for the coding agent in your terminal."
+    }
+  ]
+}

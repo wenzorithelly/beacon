@@ -20,14 +20,16 @@
     ".next",
     "public",
     "drizzle",
-    "next.config.ts"
+    "next.config.ts",
+    "bun.lock",
+    ".claude-plugin/plugin.json",
+    "plugin"
   ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "build:cli": "bun scripts/build-cli.ts",
     "build:plugin": "bun scripts/build-plugin.ts",
-    "publish:plugin": "bun scripts/publish-plugin.ts",
     "build:release": "rm -rf .next && next build --webpack && rm -rf .next/cache .next/dev && find .next -name '*.js.map' -delete && bun run build:cli && bun run build:plugin",
     "prepublishOnly": "bun run build:release",
     "start": "next start",

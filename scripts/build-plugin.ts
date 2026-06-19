@@ -1,19 +1,20 @@
 #!/usr/bin/env bun
 /**
- * Assemble the self-contained Claude Code plugin payload into dist-plugin/.
+ * Make the `trybeacon` npm package double as a Claude Code plugin.
  *
- * A marketplace-installed plugin is a bare git clone, so the payload carries the WHOLE app — the
- * bundled CLI (dist/), the prebuilt Next app (.next/), static assets, migrations, and the
- * package.json + lockfile the first-run `bun install` needs (see bin/boot.ts). The agent surface
- * (manifest, hooks, MCP config, /beacon command, skills) is generated here from the same source of
- * truth the npm install uses — lib/assets.ts skill bodies + lib/constants timeout — so the two
- * distribution paths never drift.
+ * Distribution model: `.claude-plugin/marketplace.json` (tracked, in this repo) lists the `beacon`
+ * plugin with an `npm` source pointing at `trybeacon`. So `/plugin marketplace add wenzorithelly/beacon`
+ * then `/plugin install beacon@trybeacon` installs the plugin straight from the npm package we already
+ * publish — no separate plugin repo.
  *
- * Run by `build:release` AFTER `next build` + `build:cli` (so dist/ + .next/ exist to copy). The
- * pure-generation helpers are exported so tests can assert the manifest/hooks/mcp/skills without a
- * prior build. Publishing dist-plugin/ to the marketplace repo is a separate roadmap feature.
+ * This script GENERATES the plugin manifest + agent surface into the package at build time (run by
+ * build:release, after build:cli). The files land under `.claude-plugin/plugin.json` + `plugin/`
+ * (gitignored, shipped via package.json "files"). plugin.json uses CUSTOM PATHS into `plugin/` so the
+ * plugin's hooks/MCP config never collide with the repo's own dev `.mcp.json`. Skill bodies come from
+ * lib/assets.ts so the plugin and the legacy npm self-heal never drift. Pure-generation helpers are
+ * exported for tests.
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { INIT_SKILL, PLAN_SKILL, REFRESH_SKILL } from "@/lib/assets";
@@ -21,121 +22,36 @@ import { BEACON_MCP_TIMEOUT_MS } from "@/lib/constants";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-// Every plugin entry point invokes the bundled boot wrapper (NOT `beacon` directly) so a fresh
-// clone installs its deps before the real CLI — which needs node_modules — ever loads.
+// Every plugin entry point invokes the bundled boot wrapper (NOT `beacon` directly) so a freshly
+// installed package ensures its deps before the real CLI — which needs node_modules — ever loads.
 const BOOT = "${CLAUDE_PLUGIN_ROOT}/dist/bin/boot.js";
 
-// The PUBLIC repo that hosts the built plugin + marketplace (the private source repo stays private).
-// dist-plugin/ IS this repo's content: `.claude-plugin/{plugin,marketplace}.json` + payload. Users
-// run `/plugin marketplace add <PLUGIN_REPO>` then `/plugin install beacon@trybeacon`.
-const PLUGIN_REPO = "wenzorithelly/beacon-plugin";
-const PLUGIN_REPO_URL = `https://github.com/${PLUGIN_REPO}`;
-const MARKETPLACE_NAME = "trybeacon";
+const REPO_URL = "https://github.com/wenzorithelly/beacon";
 
-// App payload copied verbatim into the plugin (mirrors package.json "files" + the lockfile the
-// first-run install reads). Missing entries are skipped with a warning — a plain checkout hasn't
-// built dist/ or .next/ yet.
-export const PLUGIN_PAYLOAD = [
-  "dist",
-  ".next",
-  "public",
-  "drizzle",
-  "next.config.ts",
-  "package.json",
-  "bun.lock",
-  "LICENSE",
-] as const;
-
-// The three skills, sourced from lib/assets.ts so the plugin and the npm install ship identical
-// bodies. They go in skills/<name>/SKILL.md (auto-discovered by Claude Code).
+// The three skills, sourced from lib/assets.ts so the plugin ships identical bodies to the npm
+// self-heal. Generated under plugin/skills/<name>/SKILL.md.
 export const PLUGIN_SKILLS: Record<string, string> = {
   "beacon-init": INIT_SKILL,
   "beacon-refresh": REFRESH_SKILL,
   "beacon-plan": PLAN_SKILL,
 };
 
-export function pluginManifest(version: string) {
-  return {
-    name: "beacon",
-    description: "The visual planning surface for the coding agent in your terminal.",
-    version,
-    homepage: "https://trybeacon.sh",
-    author: { name: "Beacon" },
-    repository: PLUGIN_REPO_URL,
-    license: "Apache-2.0",
-  };
-}
-
-// marketplace.json — this repo is its own single-plugin marketplace. The plugin lives at the repo
-// root (source "./"), so adding the marketplace and installing reuse the one clone.
-export function marketplaceManifest(version: string) {
-  return {
-    name: MARKETPLACE_NAME,
-    owner: { name: "wenzorithelly", url: "https://github.com/wenzorithelly" },
-    metadata: {
-      description: "Beacon — the visual planning surface for the coding agent in your terminal.",
-      version,
-    },
-    plugins: [
-      {
-        name: "beacon",
-        source: "./",
-        description: "The visual planning surface for the coding agent in your terminal.",
-      },
-    ],
-  };
-}
-
-export function readmeMd(version: string): string {
-  return `# Beacon — Claude Code plugin
-
-The visual planning surface for the coding agent in your terminal, packaged as a self-contained
-Claude Code plugin (v${version}). This is the **built, public** distribution — the source lives in a
-separate repository.
-
-## Install
-
-\`\`\`
-/plugin marketplace add ${PLUGIN_REPO}
-/plugin install beacon@${MARKETPLACE_NAME}
-\`\`\`
-
-Then \`/beacon\` opens the panel. Beacon's daemon, MCP tools, and workflow hooks load automatically.
-
-## Requirements
-
-- **[Bun](https://bun.sh)** on your PATH. On first run the plugin installs its own dependencies
-  once (\`bun install\`), then launches a local daemon and serves the panel in your browser.
-
-## What's in here
-
-Compiled build artifacts only (no TypeScript source, no source maps): the bundled CLI (\`dist/\`),
-the prebuilt Next.js app (\`.next/\`), migrations (\`drizzle/\`), and the agent surface
-(\`hooks/\`, \`commands/\`, \`skills/\`, \`.mcp.json\`). These are the same artifacts published to npm as
-\`trybeacon\`.
-
-_Generated by \`bun run build:plugin\` — do not edit by hand._
-`;
-}
-
-// hooks.json mirrors the global hooks Beacon self-heals for the npm install, but plugin-anchored
-// via the boot wrapper, plus a SessionStart launcher that brings the daemon up.
+// The plugin's hooks — the 6 lifecycle events, each routed through the boot wrapper. Returned as the
+// event→matchers map; written into plugin/hooks.json wrapped as { hooks: <map> }.
 export function pluginHooks() {
   const cmd = (sub: string) => ({ type: "command" as const, command: `bun ${BOOT} ${sub}` });
   return {
-    hooks: {
-      PreToolUse: [{ matcher: "Edit|Write|MultiEdit", hooks: [cmd("guard")] }],
-      PostToolUse: [{ matcher: "Edit|Write|MultiEdit", hooks: [cmd("hook")] }],
-      PermissionRequest: [{ matcher: "ExitPlanMode", hooks: [cmd("plan")] }],
-      UserPromptSubmit: [{ matcher: "*", hooks: [cmd("prompt")] }],
-      Stop: [{ matcher: "*", hooks: [cmd("stop-hook")] }],
-      SessionStart: [{ matcher: "*", hooks: [cmd("ensure")] }],
-    },
+    PreToolUse: [{ matcher: "Edit|Write|MultiEdit", hooks: [cmd("guard")] }],
+    PostToolUse: [{ matcher: "Edit|Write|MultiEdit", hooks: [cmd("hook")] }],
+    PermissionRequest: [{ matcher: "ExitPlanMode", hooks: [cmd("plan")] }],
+    UserPromptSubmit: [{ matcher: "*", hooks: [cmd("prompt")] }],
+    Stop: [{ matcher: "*", hooks: [cmd("stop-hook")] }],
+    SessionStart: [{ matcher: "*", hooks: [cmd("ensure")] }],
   };
 }
 
-// .mcp.json — the beacon MCP server, run through boot so deps are present, with the long plan-review
-// timeout (the blocking present/propose tools out-live Claude Code's default ~10-min MCP wall).
+// The plugin's MCP server (beacon → boot mcp), with the long plan-review timeout so the blocking
+// present/propose tools out-live Claude Code's default ~10-min MCP wall. Written into plugin/mcp.json.
 export function pluginMcp() {
   return {
     beacon: {
@@ -143,6 +59,43 @@ export function pluginMcp() {
       args: [BOOT, "mcp"],
       timeout: BEACON_MCP_TIMEOUT_MS,
     },
+  };
+}
+
+// plugin.json — references the agent surface via CUSTOM PATHS into plugin/ (keeps the plugin's MCP
+// config out of the repo root, where the dev `.mcp.json` lives in a different format).
+export function pluginManifest(version: string) {
+  return {
+    name: "beacon",
+    description: "The visual planning surface for the coding agent in your terminal.",
+    version,
+    homepage: "https://trybeacon.sh",
+    author: { name: "Beacon" },
+    repository: REPO_URL,
+    license: "Apache-2.0",
+    skills: ["./plugin/skills"],
+    commands: ["./plugin/commands/beacon.md"],
+    hooks: "./plugin/hooks.json",
+    mcpServers: "./plugin/mcp.json",
+  };
+}
+
+// marketplace.json — TRACKED at .claude-plugin/marketplace.json. The plugin source is the npm package
+// `trybeacon`, so the marketplace catalog is static (the version rides on the npm package / plugin.json).
+export function marketplaceManifest() {
+  return {
+    name: "trybeacon",
+    owner: { name: "wenzorithelly", url: "https://github.com/wenzorithelly" },
+    metadata: {
+      description: "Beacon — the visual planning surface for the coding agent in your terminal.",
+    },
+    plugins: [
+      {
+        name: "beacon",
+        source: { source: "npm", package: "trybeacon" },
+        description: "The visual planning surface for the coding agent in your terminal.",
+      },
+    ],
   };
 }
 
@@ -160,60 +113,31 @@ bun "${BOOT}"
 `;
 
 /**
- * Write the generated agent surface (manifest, hooks, MCP config, /beacon command, skills) into
- * <outDir>. Does NOT copy the app payload — that needs a prior build; copyPayload() does it.
+ * Generate the plugin manifest + agent surface into <root> (the npm package root): the plugin.json
+ * manifest plus plugin/{hooks.json,mcp.json,commands/beacon.md,skills/<name>/SKILL.md}. Idempotent.
  */
-export function writePluginAssets(outDir: string, version: string): void {
-  mkdirSync(join(outDir, ".claude-plugin"), { recursive: true });
+export function writePluginAssets(root: string, version: string): void {
+  mkdirSync(join(root, ".claude-plugin"), { recursive: true });
   writeFileSync(
-    join(outDir, ".claude-plugin", "plugin.json"),
+    join(root, ".claude-plugin", "plugin.json"),
     JSON.stringify(pluginManifest(version), null, 2) + "\n",
   );
-  // This repo doubles as its own marketplace, so users add it directly with `/plugin marketplace add`.
-  writeFileSync(
-    join(outDir, ".claude-plugin", "marketplace.json"),
-    JSON.stringify(marketplaceManifest(version), null, 2) + "\n",
-  );
-  writeFileSync(join(outDir, "README.md"), readmeMd(version));
 
-  mkdirSync(join(outDir, "hooks"), { recursive: true });
-  writeFileSync(join(outDir, "hooks", "hooks.json"), JSON.stringify(pluginHooks(), null, 2) + "\n");
-
-  writeFileSync(join(outDir, ".mcp.json"), JSON.stringify(pluginMcp(), null, 2) + "\n");
-
-  mkdirSync(join(outDir, "commands"), { recursive: true });
-  writeFileSync(join(outDir, "commands", "beacon.md"), BEACON_COMMAND_MD);
-
+  const dir = join(root, "plugin");
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(join(dir, "commands"), { recursive: true });
+  writeFileSync(join(dir, "hooks.json"), JSON.stringify({ hooks: pluginHooks() }, null, 2) + "\n");
+  writeFileSync(join(dir, "mcp.json"), JSON.stringify(pluginMcp(), null, 2) + "\n");
+  writeFileSync(join(dir, "commands", "beacon.md"), BEACON_COMMAND_MD);
   for (const [name, body] of Object.entries(PLUGIN_SKILLS)) {
-    mkdirSync(join(outDir, "skills", name), { recursive: true });
-    writeFileSync(join(outDir, "skills", name, "SKILL.md"), body);
+    mkdirSync(join(dir, "skills", name), { recursive: true });
+    writeFileSync(join(dir, "skills", name, "SKILL.md"), body);
   }
 }
 
-/** Copy the built app payload into <outDir>. Returns the entries actually copied (missing ones — an
- *  un-built checkout — are skipped). */
-export function copyPayload(outDir: string, root: string = ROOT): string[] {
-  const copied: string[] = [];
-  for (const rel of PLUGIN_PAYLOAD) {
-    const src = join(root, rel);
-    if (!existsSync(src)) continue;
-    cpSync(src, join(outDir, rel), { recursive: true });
-    copied.push(rel);
-  }
-  return copied;
-}
-
-// build:release entry: assemble the full plugin into dist-plugin/.
+// build:release entry: generate the plugin files into the package (this repo root).
 if (import.meta.main) {
   const version = (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version: string }).version;
-  const out = join(ROOT, "dist-plugin");
-  rmSync(out, { recursive: true, force: true });
-  mkdirSync(out, { recursive: true });
-  writePluginAssets(out, version);
-  const copied = copyPayload(out);
-  console.log(`[build-plugin] assembled dist-plugin/ (v${version}) — payload: ${copied.join(", ") || "(none)"}`);
-  const missing = PLUGIN_PAYLOAD.filter((p) => !copied.includes(p));
-  if (missing.length) {
-    console.warn(`[build-plugin] missing payload (run \`bun run build:release\` first): ${missing.join(", ")}`);
-  }
+  writePluginAssets(ROOT, version);
+  console.log(`[build-plugin] generated plugin manifest + assets into the package (v${version}).`);
 }

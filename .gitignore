@@ -23,8 +23,10 @@
 # bundled CLI (built for publishing by `bun run build:cli`)
 /dist
 
-# assembled Claude Code plugin payload (built by `bun scripts/build-plugin.ts`)
-/dist-plugin
+# Generated plugin surface (built into the npm package by `bun run build:plugin`; shipped via
+# package.json "files"). The marketplace catalog (.claude-plugin/marketplace.json) is tracked.
+/.claude-plugin/plugin.json
+/plugin/
 
 # misc
 .DS_Store
