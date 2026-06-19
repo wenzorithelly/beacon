@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, BookOpen, Library } from "lucide-react";
 import { currentTabWs } from "@/lib/tab-ws";
 import { FileMentionProvider, MarkdownView } from "@/components/plan/markdown-view";
-import { LessonMap } from "@/components/graph/lesson-map-client";
+import { MapClient } from "@/components/graph/map-client";
+import { lessonToBoard } from "@/lib/lesson-board";
 import type { Lesson, LessonQuestion, SavedLessonSummary } from "@/lib/lesson-types";
 
 // The Lessons library: browse saved lessons and reopen any read-only (narrative + frozen map +
@@ -81,6 +82,7 @@ function LibraryList({ lessons }: { lessons: SavedLessonSummary[] }) {
 function SavedLessonView({ lesson, repoFiles }: { lesson: Lesson; repoFiles: string[] }) {
   const router = useRouter();
   const nodeTitle = useMemo(() => new Map(lesson.nodes.map((n) => [n.id, n.title])), [lesson.nodes]);
+  const board = useMemo(() => lessonToBoard(lesson), [lesson]);
   return (
     <FileMentionProvider files={repoFiles}>
       <div className="relative flex h-screen flex-col">
@@ -109,9 +111,9 @@ function SavedLessonView({ lesson, repoFiles }: { lesson: Lesson; repoFiles: str
 
           <div className="w-px shrink-0 bg-white/5" />
 
-          {/* RIGHT — the frozen concept map, read-only. */}
+          {/* RIGHT — the frozen concept map (the existing canvas), read-only. */}
           <div className="min-w-0 flex-1 bg-background" style={{ width: "50%" }}>
-            <LessonMap lesson={lesson} readOnly />
+            <MapClient view="ARCHITECTURE" nodes={board.nodes} edges={board.edges} embedded readOnly minimap staticEdgeLabels hasFrontend={false} />
           </div>
         </div>
       </div>

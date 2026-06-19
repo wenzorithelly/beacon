@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BookOpen, Check, Compass, Library, Loader2, MessageSquare, Save, Send, X } from "lucide-react";
+import { BookOpen, Check, Library, Loader2, MessageSquare, Save, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { currentTabWs, wsHeaders } from "@/lib/tab-ws";
 import { FileMentionProvider, MarkdownView } from "@/components/plan/markdown-view";
@@ -11,17 +11,15 @@ import {
   type AnsweredText,
   type NarrativeApi,
 } from "@/components/learn/lesson-narrative-panel";
-import { LessonMap, type LessonMapHandle } from "@/components/graph/lesson-map-client";
-import { useCanvasTour } from "@/components/graph/use-canvas-tour";
-import { TourOverlay } from "@/components/graph/tour-overlay";
-import type { TourStep } from "@/lib/canvas-tour";
+import { MapClient } from "@/components/graph/map-client";
+import { lessonToBoard } from "@/lib/lesson-board";
 import type { Lesson, LessonQuestion } from "@/lib/lesson-types";
 
-// /learn surface: the agent's interactive explanation. Left = the house-style narrative where the
-// user highlights text to ask questions; right = the concept map (a node outline here; Phase 4
-// swaps in the React-Flow board). The blocking beacon_explain tool drives this — the user asks
-// questions, the agent answers and re-pushes (the page polls /api/lesson and swaps the lesson in),
-// looping until Save. Mirrors the plan workspace, minus approve/discard.
+// /learn surface: the agent's interactive explanation. LEFT = the house-style narrative where the
+// user highlights text to ask questions (the one genuinely new piece). RIGHT = the EXISTING
+// architecture canvas (MapClient), reused wholesale — its zoom/pan/mouse-mode controls, hidden
+// handles, edges, detail sidebar, and per-node "Ask" hook. The blocking beacon_explain tool drives
+// it: the user asks, the agent answers and re-pushes (we poll /api/lesson), looping until Save.
 
 type Ended = "saved" | "closed" | null;
 
@@ -42,6 +40,7 @@ export function LearnWorkspace({
   const [lesson, setLesson] = useState<Lesson | null>(initialLesson);
   const [narrativeApi, setNarrativeApi] = useState<NarrativeApi | null>(null);
   const [nodeQuestions, setNodeQuestions] = useState<NodeQuestion[]>([]);
+  const [askNodeId, setAskNodeId] = useState<string | null>(null);
   const [overall, setOverall] = useState("");
   const [overallOpen, setOverallOpen] = useState(false);
   const [sending, setSending] = useState(false);
@@ -66,8 +65,7 @@ export function LearnWorkspace({
     return () => clearInterval(t);
   }, []);
 
-  // Poll for a (re)pushed lesson. A higher updatedAt = the agent answered and re-pushed: swap the
-  // lesson in, clear this round's pending questions, and drop the waiting overlay.
+  // Poll for a (re)pushed lesson. A higher updatedAt = the agent answered and re-pushed.
   useEffect(() => {
     if (ended) return;
     const poll = async () => {
@@ -79,10 +77,10 @@ export function LearnWorkspace({
         if (next && next.updatedAt > roundRef.current) {
           setLesson(next);
           setNodeQuestions([]);
+          setAskNodeId(null);
           setOverall("");
           setWaiting(false);
         } else if (!next && roundRef.current > 0) {
-          // The live lesson vanished (saved/closed elsewhere) — settle into a neutral end state.
           setLesson(null);
         }
       } catch {
@@ -109,7 +107,8 @@ export function LearnWorkspace({
     return [...o, ...nodes, ...text];
   }, [narrativeApi, nodeQuestions, overall]);
 
-  const pendingCount = (narrativeApi?.count ?? 0) + nodeQuestions.filter((q) => q.question.trim()).length + (overall.trim() ? 1 : 0);
+  const pendingCount =
+    (narrativeApi?.count ?? 0) + nodeQuestions.filter((q) => q.question.trim()).length + (overall.trim() ? 1 : 0);
 
   // Debounced autosave of the round's in-progress questions (so a reload doesn't lose them).
   useEffect(() => {
@@ -136,6 +135,7 @@ export function LearnWorkspace({
       if (res.ok) {
         setWaiting(true);
         setOverallOpen(false);
+        setAskNodeId(null);
       }
     } finally {
       setSending(false);
@@ -160,6 +160,16 @@ export function LearnWorkspace({
     setNodeQuestions((qs) => [...qs, { id: `nq-${Date.now()}-${Math.floor(Math.random() * 1e6)}`, nodeId, question }]);
   }, []);
 
+  // The board's per-node "Ask" button calls onAskAgent("component: <title>") — open the node ask box.
+  const onAskTarget = useCallback(
+    (target: string) => {
+      const title = target.replace(/^[^:]+:\s*/, "").trim();
+      const node = lesson?.nodes.find((n) => n.title === title);
+      if (node) setAskNodeId(node.id);
+    },
+    [lesson],
+  );
+
   const answeredText: AnsweredText[] = useMemo(
     () =>
       (lesson?.questions ?? [])
@@ -167,57 +177,26 @@ export function LearnWorkspace({
         .map((q) => ({ excerpt: q.anchor.kind === "text" ? q.anchor.excerpt : "", answer: q.answer ?? "" })),
     [lesson],
   );
-  const pendingByNode = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const q of nodeQuestions) if (q.question.trim()) m.set(q.nodeId, (m.get(q.nodeId) ?? 0) + 1);
-    return m;
-  }, [nodeQuestions]);
   const overallQs = useMemo(
     () => (lesson?.questions ?? []).filter((q) => q.anchor.kind === "overall"),
     [lesson],
   );
-
-  // ── Guided walkthrough (reuses the canvas-tour machinery) ──────────────────
-  const mapRef = useRef<LessonMapHandle | null>(null);
-  const tourSteps: TourStep[] = useMemo(
-    () =>
-      (lesson?.steps ?? []).map((s) => ({
-        id: s.id,
-        kind: s.focusIds.length ? "group" : "overview",
-        title: s.title,
-        summary: s.summary,
-        focusIds: s.focusIds,
-      })),
+  const board = useMemo(
+    () => (lesson ? lessonToBoard(lesson) : { nodes: [], edges: [] }),
     [lesson],
   );
-  const anchorByStepId = useMemo(
-    () => new Map((lesson?.steps ?? []).map((s) => [s.id, s.narrativeAnchor])),
-    [lesson],
-  );
-  const onFocusStep = useCallback(
-    (step: TourStep) => {
-      // Move the map camera to the spotlit nodes, then scroll the narrative to this step's heading.
-      mapRef.current?.frame(step.focusIds);
-      const anchor = anchorByStepId.get(step.id);
-      if (anchor) document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
-    },
-    [anchorByStepId],
-  );
-  const tour = useCanvasTour(tourSteps, onFocusStep);
-  // Back to the whole board when the walkthrough ends.
-  useEffect(() => {
-    if (!tour.active) mapRef.current?.frame(null);
-  }, [tour.active]);
 
   if (ended) return <EndCard ended={ended} savedId={savedId} onBrowse={() => router.push("/learn?view=library")} />;
   if (!lesson) return <EmptyState />;
+
+  const askNodeTitle = askNodeId ? lesson.nodes.find((n) => n.id === askNodeId)?.title ?? "" : "";
 
   return (
     <FileMentionProvider files={repoFiles}>
       <div className="relative flex h-screen flex-col">
         {waiting && <WaitingOverlay />}
 
-        {/* Top-right controls pill — Ask overall / Send / Save / Close / Library. */}
+        {/* Top-right controls pill — Library / overall question / Send / Save / Close. */}
         <div className="pointer-events-none fixed right-3 top-3 z-30 flex items-center gap-2">
           <div className="glass pointer-events-auto flex h-10 items-center gap-0.5 rounded-full px-1">
             <button
@@ -227,25 +206,17 @@ export function LearnWorkspace({
             >
               <Library className="size-3.5" />
             </button>
-            {tourSteps.length > 0 && (
-              <button
-                onClick={() => (tour.active ? tour.stop() : tour.start())}
-                title={tour.active ? "End walkthrough" : "Start the guided walkthrough"}
-                className={cn(
-                  "flex size-8 items-center justify-center rounded-full transition-colors",
-                  tour.active ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
-                )}
-              >
-                <Compass className="size-3.5" />
-              </button>
-            )}
             <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
             <button
               onClick={() => setOverallOpen((b) => !b)}
               title="Ask an overall question"
               className={cn(
                 "relative flex size-8 items-center justify-center rounded-full transition-colors",
-                overallOpen ? "bg-white/10 text-foreground" : overall.trim() ? "text-[var(--accent-2,#ff7a45)]" : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+                overallOpen
+                  ? "bg-white/10 text-foreground"
+                  : overall.trim()
+                    ? "text-[var(--accent-2,#ff7a45)]"
+                    : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
               )}
             >
               <MessageSquare className="size-3.5" />
@@ -281,17 +252,26 @@ export function LearnWorkspace({
         </div>
 
         {overallOpen && (
-          <div className="fixed right-3 top-16 z-30 w-80 rounded-xl border border-white/10 bg-card p-3 shadow-xl">
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Overall question</div>
-            <textarea
-              autoFocus
-              value={overall}
-              onChange={(e) => setOverall(e.target.value)}
-              placeholder="A question about the whole topic…"
-              rows={3}
-              className="w-full resize-y rounded border border-white/5 bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-[var(--accent-2,#ff7a45)]/40"
-            />
-          </div>
+          <AskBox
+            label="Overall question"
+            placeholder="A question about the whole topic…"
+            value={overall}
+            onChange={setOverall}
+            onClose={() => setOverallOpen(false)}
+          />
+        )}
+        {askNodeId && (
+          <AskBox
+            label={`Ask about “${askNodeTitle}”`}
+            placeholder="Your question about this node…"
+            value=""
+            submitLabel="Add question"
+            onSubmit={(q) => {
+              askNode(askNodeId, q);
+              setAskNodeId(null);
+            }}
+            onClose={() => setAskNodeId(null)}
+          />
         )}
 
         <div className="flex min-h-0 flex-1">
@@ -310,25 +290,19 @@ export function LearnWorkspace({
 
           <div className="w-px shrink-0 bg-white/5" />
 
-          {/* RIGHT — the concept map + walkthrough overlay. */}
+          {/* RIGHT — the EXISTING architecture canvas, fed with the lesson. */}
           <div className="relative min-w-0 flex-1 bg-background" style={{ width: "50%" }}>
-            <LessonMap
-              lesson={lesson}
-              onAskNode={askNode}
-              pendingByNode={pendingByNode}
-              controlRef={mapRef}
-              focusIds={tour.active ? tour.focusIds : null}
+            <MapClient
+              view="ARCHITECTURE"
+              nodes={board.nodes}
+              edges={board.edges}
+              embedded
+              readOnly
+              minimap
+              staticEdgeLabels
+              hasFrontend={false}
+              onAskAgent={onAskTarget}
             />
-            {tour.active && (
-              <TourOverlay
-                steps={tourSteps}
-                index={tour.index}
-                onPrev={tour.prev}
-                onNext={tour.next}
-                onExit={tour.stop}
-                onGoto={tour.goto}
-              />
-            )}
           </div>
         </div>
       </div>
@@ -336,9 +310,65 @@ export function LearnWorkspace({
   );
 }
 
-// Overall questions (not anchored to a span or a node) + their answers, docked below the
-// narrative. Node-anchored Q&A lives in the map's node drawer; text-anchored answers paint in the
-// narrative itself.
+// A small floating composer used for the overall question and per-node "Ask". When onSubmit is
+// given it's a commit-then-close box (node ask); otherwise it edits `value` live (overall).
+function AskBox({
+  label,
+  placeholder,
+  value,
+  submitLabel,
+  onChange,
+  onSubmit,
+  onClose,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  submitLabel?: string;
+  onChange?: (v: string) => void;
+  onSubmit?: (v: string) => void;
+  onClose: () => void;
+}) {
+  const [local, setLocal] = useState(value);
+  const v = onChange ? value : local;
+  const set = (s: string) => (onChange ? onChange(s) : setLocal(s));
+  return (
+    <div className="fixed right-3 top-16 z-30 w-80 rounded-xl border border-white/10 bg-card p-3 shadow-xl">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere]">{label}</span>
+        <button onClick={onClose} title="Close" className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+          <X className="size-3.5" />
+        </button>
+      </div>
+      <textarea
+        autoFocus
+        value={v}
+        onChange={(e) => set(e.target.value)}
+        onKeyDown={(e) => {
+          if (onSubmit && e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            if (v.trim()) onSubmit(v.trim());
+          }
+        }}
+        placeholder={placeholder}
+        rows={3}
+        className="w-full resize-y rounded border border-white/5 bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-[var(--accent-2,#ff7a45)]/40"
+      />
+      {onSubmit && (
+        <button
+          onClick={() => v.trim() && onSubmit(v.trim())}
+          disabled={!v.trim()}
+          className="mt-1.5 w-full rounded-md bg-[var(--accent-2,#ff7a45)]/15 px-2 py-1 text-[11px] font-semibold text-[var(--accent-2,#ff7a45)] transition-colors hover:bg-[var(--accent-2,#ff7a45)]/25 disabled:opacity-40"
+        >
+          {submitLabel ?? "Add"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Overall questions (not anchored to a span or a node) + their answers, docked below the narrative.
+// Node-anchored Q&A shows in the canvas detail sidebar; text-anchored answers paint in the narrative.
 function OverallQA({ questions }: { questions: LessonQuestion[] }) {
   return (
     <div className="max-h-44 shrink-0 space-y-1.5 overflow-y-auto border-t border-white/10 bg-background/60 px-5 py-3">

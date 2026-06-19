@@ -204,6 +204,8 @@ export function MapClient({
   hasFrontend = false,
   readOnly = false,
   firstTapHighlightsOnly = false,
+  minimap,
+  staticEdgeLabels = false,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   nodes: MapNodePayload[];
@@ -256,6 +258,12 @@ export function MapClient({
   // SECOND tap on the already-selected node opens its detail panel. Keeps the small phone screen
   // clear for navigating. Other embedded boards (/plan review) still open the panel on first tap.
   firstTapHighlightsOnly?: boolean;
+  // Show the minimap. Defaults to !embedded (standalone /map) — embedded surfaces (/plan) hide it,
+  // but /learn opts back in by passing `minimap` so the lesson board keeps the overview minimap.
+  minimap?: boolean;
+  // Keep every edge's relationship label + a solid line visible AT REST (no hover needed). /learn
+  // turns this on so the lesson reads as a labeled concept map; other boards keep labels on focus.
+  staticEdgeLabels?: boolean;
 }) {
   // 1-based work-order rank per feature id (#1, #2, …); #1 also drives the jump button.
   const workOrderKey = workOrder.join(",");
@@ -871,6 +879,11 @@ export function MapClient({
         if (e.hidden) return e;
         // Layer emphasis: an edge touching a dimmed card fades with it.
         const layerDim = layerDimIds && (layerDimIds.has(e.source) || layerDimIds.has(e.target));
+        // /learn: keep the relationship verb + a solid line at rest — a concept map must read as
+        // labeled propositions without hovering. Other boards stay clean (labels surface on focus).
+        if (staticEdgeLabels) {
+          return { ...e, style: { ...e.style, opacity: layerDim ? 0.25 : 1 } };
+        }
         return { ...e, label: undefined, style: { ...e.style, opacity: layerDim ? 0.06 : 0.18 } };
       });
     }
@@ -889,7 +902,7 @@ export function MapClient({
             style: { ...e.style, opacity: 0.06 },
           };
     });
-  }, [visibleEdges, selectedId, selectedEdgeId, hoveredId, searchMatchIds, layerDimIds, tourFocusIds]);
+  }, [visibleEdges, selectedId, selectedEdgeId, hoveredId, searchMatchIds, layerDimIds, tourFocusIds, staticEdgeLabels]);
 
   // ── Canvas annotations — ONE pipeline, two sources ──
   // /plan (feedback): annotations whose excerpt names a feature title, read-only on canvas.
@@ -1649,7 +1662,7 @@ export function MapClient({
             </ul>
           </CanvasPopover>
         </Panel>
-        {!embedded && (
+        {(minimap ?? !embedded) && (
           <MiniMap
             pannable
             zoomable
