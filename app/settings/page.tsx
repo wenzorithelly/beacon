@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, BookOpen, MessageSquare } from "lucide-react";
+import { ArrowRight, BookOpen } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { ContextCard } from "@/components/context-card";
@@ -50,25 +50,6 @@ export default async function SettingsPage({
         <CardContent>
           <Link href="/help" className={cn(buttonVariants({ size: "sm" }), "gap-1.5")}>
             How to use Beacon
-            <ArrowRight className="size-4" />
-          </Link>
-        </CardContent>
-      </Card>
-
-      <Card className="mt-4">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <MessageSquare className="size-4 text-[var(--accent-2,#ff7a45)]" />
-            Feedback
-          </CardTitle>
-          <CardDescription>
-            Tell us what to build or fix, and vote on what others want — shared with everyone
-            running Beacon. You can delete your own posts.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Link href="/feedback" className={cn(buttonVariants({ size: "sm" }), "gap-1.5")}>
-            Open feedback board
             <ArrowRight className="size-4" />
           </Link>
         </CardContent>

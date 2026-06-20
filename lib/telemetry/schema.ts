@@ -1,6 +1,6 @@
 import { pgTable, text, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
 
-// Anonymous telemetry machines. Lives in the SAME Neon Postgres as the feedback board
+// Anonymous telemetry machines. Lives in the shared Neon Postgres deploy DB
 // (FEEDBACK_DATABASE_URL — one shared "global DB" for the deploy), NOT the per-workspace
 // SQLite. One row per machine UUID: the table itself IS the distinct-machine set, so
 // active counts are plain `COUNT(*) WHERE lastSeenAt > cutoff`. No IPs, no repo data —

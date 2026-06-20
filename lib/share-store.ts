@@ -1,11 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { sharedBoard } from "@/lib/feedback/schema";
+import { sharedBoard } from "@/lib/deploy-db/schema";
 import { shareSnapshotSchema, snapshotSummary, type ShareSnapshot } from "@/lib/share-snapshot";
 
 // Deploy-side persistence for shared boards (the Neon prod DB). Kept free of a top-level
-// `@/lib/feedback/db` import so the pure helpers (parse/expiry/interpret) load under `bun test`;
-// `feedbackDb()` is lazy-imported only when an actual read/write runs. The DB handle is also
+// `@/lib/deploy-db/db` import so the pure helpers (parse/expiry/interpret) load under `bun test`;
+// `deployDb()` is lazy-imported only when an actual read/write runs. The DB handle is also
 // injectable (`opts.dbInstance`) so the row write can be unit-tested with a stub.
 
 // Cap the cross-origin payload so an open ingest can't be used to stuff the store with huge blobs.
@@ -88,8 +88,8 @@ type ShareDb = {
 };
 
 async function resolveDb(): Promise<ShareDb> {
-  const { feedbackDb } = await import("@/lib/feedback/db");
-  return feedbackDb() as unknown as ShareDb;
+  const { deployDb } = await import("@/lib/deploy-db/db");
+  return deployDb() as unknown as ShareDb;
 }
 
 /** Write the snapshot row, upserting on the token so a refresh overwrites in place. Returns the

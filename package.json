@@ -37,8 +37,8 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "db:generate": "drizzle-kit generate",
-    "db:generate:feedback": "drizzle-kit generate --config drizzle.feedback.config.ts",
-    "db:migrate:feedback": "drizzle-kit migrate --config drizzle.feedback.config.ts",
+    "db:generate:deploy": "drizzle-kit generate --config drizzle.deploy.config.ts",
+    "db:migrate:deploy": "drizzle-kit migrate --config drizzle.deploy.config.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {

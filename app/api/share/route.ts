@@ -1,4 +1,4 @@
-import { corsJson, corsPreflight } from "@/lib/feedback/http";
+import { corsJson, corsPreflight } from "@/lib/deploy-db/http";
 import { parseShareSnapshot, insertSharedBoard, isAuthorizedShareRequest } from "@/lib/share-store";
 import { SITE_URL } from "@/lib/release";
 

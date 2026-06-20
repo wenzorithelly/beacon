@@ -13,10 +13,10 @@ export const NPM_PACKAGE = "trybeacon";
 // real source of truth: the update command installs from npm, not from a release tarball.
 export const NPM_LATEST_URL = `https://registry.npmjs.org/${NPM_PACKAGE}/latest`;
 
-// The canonical hosted site — serves the landing, /install.sh, and the feedback API the
-// distributed tool calls cross-origin. MUST be the host that serves directly (no redirect):
-// the apex trybeacon.sh 308-redirects to www, and a 308 on a CORS preflight fails the cross-origin
-// POST (browsers don't follow redirects on preflight), so the feedback host is the www canonical.
+// The canonical hosted site — serves the landing, /install.sh, and the deploy-side APIs (shared
+// boards + telemetry) the distributed tool calls cross-origin. MUST be the host that serves
+// directly (no redirect): the apex trybeacon.sh 308-redirects to www, and a 308 on a CORS preflight
+// fails the cross-origin POST (browsers don't follow redirects on preflight), so www is canonical.
 // Override per-deploy with NEXT_PUBLIC_BEACON_SITE_URL.
 export const SITE_URL = (
   process.env.NEXT_PUBLIC_BEACON_SITE_URL ?? "https://www.trybeacon.sh"

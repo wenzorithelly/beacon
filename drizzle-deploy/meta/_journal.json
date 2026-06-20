@@ -29,6 +29,13 @@
       "when": 1781633447905,
       "tag": "0003_past_roxanne_simpson",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781982657175,
+      "tag": "0004_lowly_shinobi_shaw",
+      "breakpoints": true
     }
   ]
 }

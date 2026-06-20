@@ -1,11 +1,11 @@
 import { sql } from "drizzle-orm";
-import { feedbackDb } from "@/lib/feedback/db";
+import { deployDb } from "@/lib/deploy-db/db";
 import { telemetryMachine } from "@/lib/telemetry/schema";
 import { heartbeatSchema } from "@/lib/telemetry/validation";
-import { corsJson, corsPreflight } from "@/lib/feedback/http";
+import { corsJson, corsPreflight } from "@/lib/deploy-db/http";
 
 // Anonymous telemetry ingest. Runs on the deploy (which holds FEEDBACK_DATABASE_URL — the
-// same Neon DB as the feedback board); every distributed install posts its 12h heartbeat
+// shared Neon deploy DB); every distributed install posts its 12h heartbeat
 // here cross-origin. NOT workspace-pinned. Upsert by machine UUID so the table stays one
 // row per machine; 503 (not 500) when the DB env is absent so a local install that
 // accidentally posts to itself degrades cleanly (the sender swallows everything anyway).
@@ -23,7 +23,7 @@ export async function POST(req: Request): Promise<Response> {
     return corsJson({ error: "invalid heartbeat" }, { status: 400 });
   }
   try {
-    await feedbackDb()
+    await deployDb()
       .insert(telemetryMachine)
       .values({
         id: hb.machineId,

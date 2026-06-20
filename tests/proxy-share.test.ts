@@ -12,12 +12,12 @@ describe("publicPathAllowed", () => {
   });
 
   it("keeps admitting the pre-existing public surfaces", () => {
-    for (const p of ["/", "/docs", "/install.sh", "/api/feedback", "/api/telemetry"])
+    for (const p of ["/", "/docs", "/install.sh", "/api/telemetry"])
       expect(publicPathAllowed(p)).toBe(true);
   });
 
-  it("does NOT expose the local-only mint route or the tool's repo-data routes", () => {
-    for (const p of ["/api/share/create", "/map", "/plan", "/api/nodes", "/api/entities", "/settings"])
+  it("does NOT expose the local-only mint route, the removed feedback API, or repo-data routes", () => {
+    for (const p of ["/api/share/create", "/api/feedback", "/map", "/plan", "/api/nodes", "/api/entities", "/settings"])
       expect(publicPathAllowed(p)).toBe(false);
   });
 });

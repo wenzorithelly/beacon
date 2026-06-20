@@ -1,8 +1,8 @@
 import { desc, sql } from "drizzle-orm";
-import { feedbackDb } from "@/lib/feedback/db";
+import { deployDb } from "@/lib/deploy-db/db";
 import { telemetryMachine } from "@/lib/telemetry/schema";
 import { isAuthorizedStatsRequest } from "@/lib/telemetry/validation";
-import { corsJson } from "@/lib/feedback/http";
+import { corsJson } from "@/lib/deploy-db/http";
 
 // Private telemetry stats — Bearer TELEMETRY_ADMIN_TOKEN only (an unset token locks the
 // endpoint, it never opens it). Headline dau/wau/mau exclude CI machines so runners don't
@@ -15,7 +15,7 @@ export async function GET(req: Request): Promise<Response> {
     return corsJson({ error: "unauthorized" }, { status: 401 });
   }
   try {
-    const db = feedbackDb();
+    const db = deployDb();
     const active = (interval: string) =>
       db
         .select({ n: sql<number>`count(*)::int` })
