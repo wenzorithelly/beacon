@@ -72,7 +72,6 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
 - `Edge`: id, fromId, toId, kind, label, sourceHandle, targetHandle
 - `Endpoint`: id, method, path, domain, description, source, planId, x, y, createdAt, updatedAt
 - `EndpointTable`: id, endpointId, tableId, access
-- `Feedback`: id, body, upvotes, downvotes, deleteToken, createdAt
 - `Node`: id, view, kind, cluster, layer, title, role, plain, status, priority, progress, x
 - `NodeFile`: id, nodeId, path
 - `Note`: id, title, body, ord, pinned, createdAt, updatedAt
@@ -110,10 +109,6 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
 - DELETE /api/edges/{id}
 - DELETE /api/endpoints/{id}
 - GET /api/entities
-- GET /api/feedback
-- POST /api/feedback
-- DELETE /api/feedback/{id}
-- POST /api/feedback/{id}/vote
 - GET /api/lesson
 - POST /api/lesson
 - POST /api/lesson/close
