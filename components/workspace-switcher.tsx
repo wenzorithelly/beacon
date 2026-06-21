@@ -95,7 +95,10 @@ export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
 
   return (
     <Select value={active ?? ""} onValueChange={(v) => v && pick(v)}>
-      <SelectTrigger className="h-7 gap-1.5 rounded-lg border-white/12 bg-white/[0.04] px-2 text-xs font-medium transition-colors hover:bg-white/[0.07]">
+      <SelectTrigger
+        title={activeWs?.name}
+        className="h-7 max-w-[180px] gap-1.5 rounded-lg border-white/12 bg-white/[0.04] px-2 text-xs font-medium transition-colors hover:bg-white/[0.07]"
+      >
         <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground" />
         <SelectValue>{() => activeWs?.name ?? "Project"}</SelectValue>
       </SelectTrigger>

@@ -57,7 +57,9 @@ export function CanvasTabs({ tabs, active }: { tabs: CanvasTab[]; active: string
         const inner = (
           <>
             {Icon ? <Icon className={cn("size-3", on && "text-[#ff7a45]")} /> : null}
-            <span>{t.label}</span>
+            {/* Labels collapse to icon-only below `lg` so the right-anchored strip stays narrow
+                enough to never collide with the left-pinned top nav on small screens. */}
+            <span className="hidden lg:inline">{t.label}</span>
           </>
         );
         if (tabSwitch?.views.has(t.value)) {
@@ -65,6 +67,7 @@ export function CanvasTabs({ tabs, active }: { tabs: CanvasTab[]; active: string
             <button
               key={t.value}
               type="button"
+              title={t.label}
               onClick={() => tabSwitch.switchTo(t.value as ShellView)}
               className={className}
             >
@@ -73,7 +76,7 @@ export function CanvasTabs({ tabs, active }: { tabs: CanvasTab[]; active: string
           );
         }
         return (
-          <Link key={t.value} href={hrefFor(t.href)} className={className}>
+          <Link key={t.value} href={hrefFor(t.href)} title={t.label} className={className}>
             {inner}
           </Link>
         );

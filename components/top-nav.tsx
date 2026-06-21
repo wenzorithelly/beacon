@@ -39,7 +39,9 @@ export function TopNav({ repo }: { repo?: string }) {
           className="mr-1 flex items-center gap-2 text-sm font-semibold tracking-tight"
         >
           <BeaconMark size={18} className="text-foreground" />
-          Beacon
+          {/* Wordmark drops below `lg` (the mark still identifies us) so the left pill stays
+              narrow and clears the right-anchored view tabs on small screens. */}
+          <span className="hidden lg:inline">Beacon</span>
         </Link>
         <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
         <WorkspaceSwitcher fallback={repo} />

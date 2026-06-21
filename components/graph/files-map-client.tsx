@@ -920,7 +920,16 @@ export function FilesMapClient({
           </Panel>
         )}
 
-        <Panel position="top-center" className="glass rounded-full px-1 py-0.5">
+        {/* View tabs — anchored to the RIGHT edge (was top-center) so they can't drift into the
+            left-pinned top nav. The search/stats row (`!mt-14`) and the legend (`!mt-24`) stack
+            below; all three shift left together when the file detail panel opens. */}
+        <Panel
+          position="top-right"
+          className={cn(
+            "glass rounded-full px-1 py-0.5 transition-[margin] duration-200",
+            panelOpen && "!mr-[300px]",
+          )}
+        >
           <CanvasTabs
             active="FILES"
             tabs={[
@@ -935,7 +944,10 @@ export function FilesMapClient({
         {/* Color legend: which hue is which directory. Click a chip to fly to that cluster. */}
         <Panel
           position="top-right"
-          className="glass !mt-14 flex max-w-[300px] flex-wrap items-center justify-end gap-x-2.5 gap-y-1 rounded-xl px-3 py-1.5"
+          className={cn(
+            "glass !mt-24 flex max-w-[300px] flex-wrap items-center justify-end gap-x-2.5 gap-y-1 rounded-xl px-3 py-1.5 transition-[margin] duration-200",
+            panelOpen && "!mr-[300px]",
+          )}
         >
           {legend.map((g) => (
             <button
@@ -961,7 +973,13 @@ export function FilesMapClient({
           ))}
         </Panel>
 
-        <Panel position="top-right" className="flex items-center gap-2">
+        <Panel
+          position="top-right"
+          className={cn(
+            "!mt-14 flex items-center gap-2 transition-[margin] duration-200",
+            panelOpen && "!mr-[300px]",
+          )}
+        >
           <CanvasSearch
             query={searchQuery}
             onQuery={setSearchQuery}
