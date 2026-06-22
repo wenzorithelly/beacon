@@ -106,6 +106,12 @@ export function PlanWorkspace({
   // that state — and whenever the markdown is the whole page (no board) — a section TOC rail
   // appears on the left for click-to-jump navigation.
   const [expanded, setExpanded] = useState(false);
+  // The side panel lives INSIDE the board pane, which is unmounted while the plan is expanded
+  // full-width. When the panel button is clicked in that state we collapse back to split first,
+  // then open the panel once the board has re-mounted (its control ref is set in a child effect,
+  // so it isn't available synchronously) — this ref carries that deferred intent. A ref (not
+  // state) because it's transient coordination that must not itself cause a render.
+  const pendingPanelOpenRef = useRef(false);
   // First-ever approval asks once which permission mode to enter afterwards, then remembers it
   // (see lib/preferences.ts). If already configured, approve straight through.
   const [setupOpen, setSetupOpen] = useState(false);
@@ -232,14 +238,38 @@ export function PlanWorkspace({
       updateComment={annoApi.updateComment}
       removeAnnotation={annoApi.removeAnnotation}
       focusOnAnnotation={annoApi.focusOnAnnotation}
-      onClose={() => mapControlRef.current?.close()}
+      onClose={() =>
+        activeTab === "db"
+          ? dbControlRef.current?.close()
+          : mapControlRef.current?.close()
+      }
     />
   ) : null;
   // Plan pill button: toggles the side panel (opens to Details by default — user
-  // clicks the Comments tab inside the sidebar to switch).
+  // clicks the Comments tab inside the sidebar to switch). Only ONE board is mounted
+  // at a time (map XOR db), so the OTHER control ref is null — route to whichever
+  // board is currently active, exactly like focusPin does, or the click is a no-op
+  // on the Database tab. While expanded full-width the board (and its panel) is
+  // unmounted, so collapse back first and finish the open once it re-mounts.
   const toggleSidePanel = useCallback(() => {
-    mapControlRef.current?.open();
-  }, []);
+    if (expanded) {
+      pendingPanelOpenRef.current = true;
+      setExpanded(false);
+      return;
+    }
+    if (activeTab === "db") dbControlRef.current?.open();
+    else mapControlRef.current?.open();
+  }, [activeTab, expanded]);
+
+  // Finish a panel-open that was deferred because the plan was expanded: once we've collapsed
+  // back (!expanded → the board re-mounts and sets its control ref), open the active board's
+  // panel. The Expand control only exists when a board is present, so a board is guaranteed here.
+  useEffect(() => {
+    if (expanded || !pendingPanelOpenRef.current) return;
+    pendingPanelOpenRef.current = false;
+    if (activeTab === "db") dbControlRef.current?.open();
+    else mapControlRef.current?.open();
+  }, [expanded, activeTab]);
 
   // Comment on a canvas node/table: add it to the feedback bundle (excerpt = the node/table
   // name). The annotation card that appears on the board is editable in place (autofocused
@@ -460,24 +490,27 @@ export function PlanWorkspace({
         <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
         {/* ONE button opens the side panel — Details + Comments live as tabs inside it (no
             separate comments button). The comment-count badge rides here so pending comments
-            still show at a glance. */}
-        <button
-          onClick={toggleSidePanel}
-          disabled={!annoApi}
-          title={
-            annoApi?.annotationCount
-              ? `Open the side panel · ${annoApi.annotationCount} comment${annoApi.annotationCount === 1 ? "" : "s"} so far`
-              : "Open the side panel (details + comments)"
-          }
-          className="relative flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
-        >
-          <PanelRight className="size-3.5" />
-          {annoApi && (annoApi.annotationCount ?? 0) > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-sky-500 px-1 text-[9px] font-semibold text-white">
-              {annoApi.annotationCount}
-            </span>
-          )}
-        </button>
+            still show at a glance. The panel lives INSIDE the board pane, so it only exists when
+            the plan proposes a board — a pure-prose plan shows its comments inline instead. */}
+        {hasBoard && (
+          <button
+            onClick={toggleSidePanel}
+            disabled={!annoApi}
+            title={
+              annoApi?.annotationCount
+                ? `Open the side panel · ${annoApi.annotationCount} comment${annoApi.annotationCount === 1 ? "" : "s"} so far`
+                : "Open the side panel (details + comments)"
+            }
+            className="relative flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          >
+            <PanelRight className="size-3.5" />
+            {annoApi && (annoApi.annotationCount ?? 0) > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-sky-500 px-1 text-[9px] font-semibold text-white">
+                {annoApi.annotationCount}
+              </span>
+            )}
+          </button>
+        )}
         <button
           data-overall-toggle
           onClick={() => annoApi?.toggleOverall?.()}
