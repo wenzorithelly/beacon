@@ -65,31 +65,46 @@ export function LearnWorkspace({
     return () => clearInterval(t);
   }, []);
 
-  // Poll for a (re)pushed lesson. A higher updatedAt = the agent answered and re-pushed.
+  // Pull the latest (re)pushed lesson. A higher updatedAt = the agent answered and re-pushed.
+  const poll = useCallback(async () => {
+    try {
+      const res = await fetch("/api/lesson", { cache: "no-store", headers: wsHeaders(currentTabWs()) });
+      if (!res.ok) return;
+      const body = (await res.json()) as { lesson: Lesson | null };
+      const next = body.lesson;
+      if (next && next.updatedAt > roundRef.current) {
+        setLesson(next);
+        setNodeQuestions([]);
+        setAskNodeId(null);
+        setOverall("");
+        setWaiting(false);
+      } else if (!next && roundRef.current > 0) {
+        setLesson(null);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Poll on an interval AND the instant the tab regains focus. The user MUST switch to their
+  // terminal for the agent to answer, which backgrounds this tab — and browsers throttle/pause
+  // setInterval in a hidden tab, so the answered lesson wouldn't appear until a manual refresh.
+  // Re-polling on visibilitychange/focus clears the "Questions sent" overlay the moment they
+  // switch back; the updatedAt guard makes the extra call a no-op when nothing changed.
   useEffect(() => {
     if (ended) return;
-    const poll = async () => {
-      try {
-        const res = await fetch("/api/lesson", { cache: "no-store", headers: wsHeaders(currentTabWs()) });
-        if (!res.ok) return;
-        const body = (await res.json()) as { lesson: Lesson | null };
-        const next = body.lesson;
-        if (next && next.updatedAt > roundRef.current) {
-          setLesson(next);
-          setNodeQuestions([]);
-          setAskNodeId(null);
-          setOverall("");
-          setWaiting(false);
-        } else if (!next && roundRef.current > 0) {
-          setLesson(null);
-        }
-      } catch {
-        /* ignore */
-      }
-    };
     const t = setInterval(() => void poll(), 3000);
-    return () => clearInterval(t);
-  }, [ended]);
+    const onActive = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", onActive);
+    window.addEventListener("focus", onActive);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onActive);
+      window.removeEventListener("focus", onActive);
+    };
+  }, [ended, poll]);
 
   // Combine every pending question (text excerpts + node anchors + the overall box) into the wire
   // shape the API stores. askedAt is stamped on send.

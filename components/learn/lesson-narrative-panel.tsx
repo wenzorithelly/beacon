@@ -100,7 +100,7 @@ export function LessonNarrativePanel({
 }) {
   const [questions, setQuestions] = useState<TextQuestion[]>([]);
   const [popover, setPopover] = useState<{ x: number; y: number; excerpt: string } | null>(null);
-  const [composer, setComposer] = useState<{ x: number; y: number; excerpt: string } | null>(null);
+  const [composer, setComposer] = useState<{ x: number; y: number; excerpt: string; seed: string } | null>(null);
   const docRef = useRef<HTMLDivElement | null>(null);
   const pendingRangeRef = useRef<Range | null>(null);
 
@@ -128,6 +128,33 @@ export function LessonNarrativePanel({
       document.removeEventListener("selectionchange", handler);
     };
   }, [refreshPopover]);
+
+  // Open the question composer on the FIRST keystroke after a selection — no need to click the
+  // "Ask" button first (mirrors the /plan annotation panel). Without this, the keystroke bubbles
+  // to the embedded architecture canvas's type-to-search (CanvasSearch listens on `window`) and
+  // dims the board instead of asking. stopPropagation kills that — this `document` listener fires
+  // before the `window` one, so the canvas never sees the key.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return;
+      const text = sel.toString().trim();
+      if (!text || !docRef.current?.contains(sel.anchorNode)) return;
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && /^(TEXTAREA|INPUT)$/.test(ae.tagName)) return;
+      if (e.key.length !== 1 || e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const range = sel.getRangeAt(0);
+      pendingRangeRef.current = range.cloneRange();
+      const rect = range.getBoundingClientRect();
+      setComposer({ x: rect.right + window.scrollX, y: rect.top + window.scrollY, excerpt: text, seed: e.key });
+      setPopover(null);
+      sel.removeAllRanges();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const addQuestion = useCallback((excerpt: string, question: string) => {
     setQuestions((q) => [
@@ -198,7 +225,7 @@ export function LessonNarrativePanel({
             onClick={() => {
               const sel = window.getSelection();
               pendingRangeRef.current = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
-              setComposer({ ...popover });
+              setComposer({ ...popover, seed: "" });
               setPopover(null);
               sel?.removeAllRanges();
             }}
@@ -215,6 +242,7 @@ export function LessonNarrativePanel({
           excerpt={composer.excerpt}
           x={composer.x}
           y={composer.y}
+          seed={composer.seed}
           onConfirm={(q) => {
             addQuestion(composer.excerpt, q);
             setComposer(null);
@@ -230,16 +258,19 @@ function QuestionComposer({
   excerpt,
   x,
   y,
+  seed,
   onConfirm,
   onCancel,
 }: {
   excerpt: string;
   x: number;
   y: number;
+  /** The keystroke that opened the composer (when typed straight after selecting); seeds the textarea. */
+  seed: string;
   onConfirm: (q: string) => void;
   onCancel: () => void;
 }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(seed);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const confirm = () => (value.trim() ? onConfirm(value.trim()) : onCancel());
   return (
@@ -257,6 +288,7 @@ function QuestionComposer({
         autoFocus
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        onFocus={(e) => e.currentTarget.setSelectionRange(value.length, value.length)}
         placeholder="Ask the agent… (Enter to ask · Esc to discard)"
         onKeyDown={(e) => {
           e.stopPropagation();
