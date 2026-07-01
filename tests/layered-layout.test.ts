@@ -140,4 +140,26 @@ describe("layeredLayout", () => {
       seen.add(key);
     }
   });
+
+  it("stacks a cell's nodes by their own pitch, not the fixed row height", () => {
+    // Flat cell (no edges) → one sub-column of three; the tall first card must push the
+    // others down by ITS height, not by ROW_H.
+    const pos = layeredLayout(
+      [{ id: "a", group: "G", h: 400 }, n("b", "G"), n("c", "G")],
+      [],
+    );
+    expect(pos.get("a")!.y).toBe(0);
+    expect(pos.get("b")!.y).toBe(400);
+    expect(pos.get("c")!.y).toBe(550);
+  });
+
+  it("a tall node grows its block so the next band starts below it", () => {
+    // Three single-node blocks exceed the min band width → C wraps to band 2, which must
+    // clear block A's REAL height (500), not the fixed 150px row.
+    const pos = layeredLayout(
+      [{ id: "tall", group: "A", h: 500 }, n("b", "B"), n("c", "C")],
+      [],
+    );
+    expect(pos.get("c")!.y).toBeGreaterThanOrEqual(500);
+  });
 });

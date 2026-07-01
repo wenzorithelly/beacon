@@ -274,8 +274,9 @@ export function MapClient({
   // turns this on so the lesson reads as a labeled concept map; other boards keep labels on focus.
   staticEdgeLabels?: boolean;
   // Annotated table cards rendered ALONGSIDE the concept nodes (the /learn board only). Pre-laid-out
-  // (x/y) and read-only — they cross the MapNodeData boundary via a cast, like the annotation cards.
-  tableNodes?: { id: string; x: number; y: number; data: LessonTableData }[];
+  // (x/y) — they cross the MapNodeData boundary via a cast, like the annotation cards. `group` is
+  // the banding group the layout used, so the card joins that labeled region box.
+  tableNodes?: { id: string; x: number; y: number; group?: string; data: LessonTableData }[];
 }) {
   // 1-based work-order rank per feature id (#1, #2, …); #1 also drives the jump button.
   const workOrderKey = workOrder.join(",");
@@ -827,6 +828,20 @@ export function MapClient({
     });
   }, [visibleNodes, effectiveFocusIds, spotlightIds, workOrderRank, expandedIds, layerDimIds, childCountById, childDoneById, collapsedIds, toggleCollapse]);
 
+  // React Flow keeps appended lesson table cards `visibility: hidden` until their measured
+  // dimensions are applied back — capture them here (see annoMeasured below for the full story).
+  // Declared before the regions memo so the table cards can join their labeled region box.
+  const [tableMeasured, setTableMeasured] = useState<Map<string, { width: number; height: number }>>(
+    () => new Map(),
+  );
+  // Local drag positions for the table cards (they aren't in the stateful node list, so React
+  // Flow's position changes must land somewhere or a drag snaps back). Never persisted — on the
+  // lesson board dragging only declutters, like concept cards on a read-only board.
+  const [tableDragged, setTableDragged] = useState<Map<string, { x: number; y: number }>>(
+    () => new Map(),
+  );
+  const tableIds = useMemo(() => new Set((tableNodes ?? []).map((t) => t.id)), [tableNodes]);
+
   // Group-region containers (Gestalt common region). Roadmap: shown once the board is arranged,
   // labeled by the dimension it was ACTUALLY arranged by (`arrangedBy`) — never a stale selector.
   // Architecture: always grouped by domain. Children belong to their parent's region (one hop —
@@ -853,8 +868,20 @@ export function MapClient({
         h: n.measured?.height ?? 96,
       });
     }
+    // Lesson table cards live outside displayNodes but belong to their layout group's region.
+    for (const t of tableNodes ?? []) {
+      const p = tableDragged.get(t.id) ?? t;
+      items.push({
+        id: t.id,
+        group: t.group?.trim() || "—",
+        x: p.x,
+        y: p.y,
+        w: tableMeasured.get(t.id)?.width ?? 270,
+        h: tableMeasured.get(t.id)?.height ?? 200,
+      });
+    }
     return computeGroupRegions(items);
-  }, [displayNodes, arrangedBy, view]);
+  }, [displayNodes, arrangedBy, view, tableNodes, tableMeasured, tableDragged]);
 
   // Color regions only when the grouping IS the category dimension — hashing a status or
   // priority label into the category palette would imply a meaning the color doesn't have.
@@ -1008,13 +1035,6 @@ export function MapClient({
   const [annoMeasured, setAnnoMeasured] = useState<Map<string, { width: number; height: number }>>(
     () => new Map(),
   );
-  // Same story for appended lesson table cards — capture their measured size so React Flow makes
-  // them visible (an unmeasured node stays visibility:hidden).
-  const [tableMeasured, setTableMeasured] = useState<Map<string, { width: number; height: number }>>(
-    () => new Map(),
-  );
-  const tableIds = useMemo(() => new Set((tableNodes ?? []).map((t) => t.id)), [tableNodes]);
-
   // Inject pins + the comment affordance into their feature cards, then append the floating
   // annotation cards. The cards live OUTSIDE the stateful node list (which has many mutation
   // paths — subtasks, arrange, heal); board-mode dragging routes through `stored` instead.
@@ -1068,13 +1088,14 @@ export function MapClient({
     });
     // Lesson table cards (the /learn board) render alongside the concept nodes — pre-positioned,
     // read-only chrome with their own data shape, crossing the MapNodeData boundary via a cast like
-    // the annotation cards.
+    // the annotation cards. Always draggable: on a read-only board dragging declutters locally,
+    // exactly like the concept cards (never persisted).
     const tableRf = (tableNodes ?? []).map((t) => ({
       id: t.id,
       type: "lessonTable" as const,
-      position: { x: t.x, y: t.y },
+      position: tableDragged.get(t.id) ?? { x: t.x, y: t.y },
       measured: tableMeasured.get(t.id),
-      draggable: !readOnly,
+      draggable: true,
       data: t.data,
     }));
     // The board's flow instance is typed on MapNodeData; annotation + table cards are render-only
@@ -1098,7 +1119,7 @@ export function MapClient({
     annoMeasured,
     tableNodes,
     tableMeasured,
-    readOnly,
+    tableDragged,
   ]);
   const annoEdges = useMemo<Edge[]>(
     () =>
@@ -1148,6 +1169,11 @@ export function MapClient({
               m.set(ch.id, dims);
               return m;
             });
+        } else if (ch.type === "position" && tableIds.has(ch.id) && ch.position) {
+          // Table cards aren't in the stateful list either — hold their drag locally so the
+          // card follows the pointer instead of snapping back.
+          const { x, y } = ch.position;
+          setTableDragged((prev) => new Map(prev).set(ch.id, { x, y }));
         } else {
           rest.push(ch);
         }

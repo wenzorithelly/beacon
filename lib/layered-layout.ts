@@ -14,6 +14,9 @@ export interface LayeredNode {
   id: string;
   /** Domain/category — drives the horizontal banding. */
   group: string;
+  /** Vertical pitch (rendered height + row gap) this node needs; defaults to ROW_H. Lets a
+   *  tall card (e.g. a lesson table schema) reserve its real space instead of one fixed row. */
+  h?: number;
 }
 
 /** `fromId` DEPENDS ON `toId` (the Edge.kind=DEPENDS direction). */
@@ -110,7 +113,7 @@ export function layeredLayout(
     const local = new Map<string, { x: number; y: number }>();
     const rowOf = new Map<string, number>(); // local row of already-placed nodes (barycenter)
     let xOff = 0;
-    let maxRows = 1;
+    let maxH = 0;
     for (let l = minL; l <= maxL; l++) {
       const cell = members.filter((n) => layers.get(n.id) === l);
       if (!cell.length) continue; // empty layer consumes no width
@@ -122,16 +125,19 @@ export function layeredLayout(
       // Cap a cell's height so a flat cell (everything at layer 0) wraps into sub-columns
       // instead of one tall stack — square-ish beats tower.
       const rowsCap = Math.max(1, Math.ceil(Math.sqrt(cell.length * 2)));
+      const subY: number[] = []; // running y per sub-column — each node advances it by its pitch
       cell.forEach((n, i) => {
         const sub = Math.floor(i / rowsCap);
         const row = i % rowsCap;
         rowOf.set(n.id, row);
-        local.set(n.id, { x: xOff + sub * LAYER_W, y: row * ROW_H });
-        maxRows = Math.max(maxRows, row + 1);
+        const y = subY[sub] ?? 0;
+        local.set(n.id, { x: xOff + sub * LAYER_W, y });
+        subY[sub] = y + (n.h ?? ROW_H);
+        maxH = Math.max(maxH, subY[sub]);
       });
       xOff += Math.ceil(cell.length / rowsCap) * LAYER_W;
     }
-    blocks.push({ d, w: xOff, h: maxRows * ROW_H, local });
+    blocks.push({ d, w: xOff, h: Math.max(maxH, ROW_H), local });
   }
 
   // Flow the domain blocks into viewport-sized bands (shared with the roadmap + db boards), then

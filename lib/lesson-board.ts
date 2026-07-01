@@ -12,7 +12,23 @@ export interface LessonTableBoardNode {
   id: string;
   x: number;
   y: number;
+  /** The banding group the layout placed this table under — lets the canvas draw its labeled
+   *  region box with the same key. */
+  group: string;
   data: LessonTableData;
+}
+
+// Estimated rendered height (px) of a COLLAPSED lesson-table card (w-[270px]): header + table
+// note + up to 5 column rows (name line + wrapped note lines) + the expand footer. Mirrors
+// components/graph/lesson-table-node.tsx; feeds the layered layout so a tall schema card
+// reserves its real vertical space instead of one fixed ROW_H row. Overshooting only adds
+// whitespace — undershooting stacks the next band on top of the card.
+export function lessonTableCardH(t: Pick<LessonTableData, "note" | "columns" | "sample">): number {
+  const lines = (s: string | undefined, perLine: number) => (s ? Math.ceil(s.length / perLine) : 0);
+  const shown = (t.columns ?? []).slice(0, 5);
+  const colH = shown.reduce((sum, c) => sum + 25 + lines(c.note, 42) * 14, 0);
+  const footer = (t.columns ?? []).length > shown.length || (t.sample?.length ?? 0) > 0 ? 28 : 0;
+  return 36 + (t.note ? 12 + lines(t.note, 45) * 15 : 0) + colH + footer;
 }
 
 export function lessonToBoard(lesson: Lesson): {
@@ -31,11 +47,16 @@ export function lessonToBoard(lesson: Lesson): {
   );
 
   // Layered (dependency-flow) layout over concepts AND tables together; edges reversed so the
-  // source sits upstream (left). Generous spacing → no overlap; the user can drag to declutter.
+  // source sits upstream (left). Tables pass their estimated card height (+ row gap) as the
+  // pitch, so a tall schema card reserves real space instead of one 150px row.
   const pos = layeredLayout(
     [
       ...lesson.nodes.map((n) => ({ id: n.id, group: n.group ?? "—" })),
-      ...tables.map((t) => ({ id: t.id, group: t.group ?? t.domain ?? "—" })),
+      ...tables.map((t) => ({
+        id: t.id,
+        group: t.group ?? t.domain ?? "—",
+        h: lessonTableCardH(t) + 30,
+      })),
     ],
     [
       ...lesson.edges.map((e) => ({ fromId: e.toId, toId: e.fromId })),
@@ -88,6 +109,7 @@ export function lessonToBoard(lesson: Lesson): {
       id: t.id,
       x: p.x,
       y: p.y,
+      group: t.group ?? t.domain ?? "—",
       data: {
         name: t.name,
         domain: t.domain ?? null,

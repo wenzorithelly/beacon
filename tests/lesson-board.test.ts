@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { lessonToBoard } from "@/lib/lesson-board";
+import { lessonTableCardH, lessonToBoard } from "@/lib/lesson-board";
 import type { Lesson } from "@/lib/lesson-types";
 
 const lesson = (over: Partial<Lesson>): Lesson => ({
@@ -56,5 +56,47 @@ describe("lessonToBoard — tables", () => {
   it("a concept node folds its detail into plain for the detail sidebar", () => {
     expect(built.nodes[0].plain).toContain("d");
     expect(built.nodes[0].role).toBe("pushes orders");
+  });
+});
+
+describe("lessonToBoard — tall table cards reserve their real height", () => {
+  // Mirrors the erp_sync_record lesson: a 10-column annotated table rendered ~400px tall was
+  // laid out as a 150px row, so the band below landed ON TOP of it.
+  const cols = Array.from({ length: 10 }, (_, i) => ({
+    name: `col_${i}`,
+    type: "text",
+    note: "a plain-english explanation of what this column is for, long enough to wrap lines",
+  }));
+  const built = lessonToBoard(
+    lesson({
+      nodes: [
+        { id: "n1", title: "A", summary: "", detail: "", files: [], group: "one", x: 0, y: 0 },
+        { id: "n2", title: "B", summary: "", detail: "", files: [], group: "two", x: 0, y: 0 },
+        { id: "n3", title: "C", summary: "", detail: "", files: [], group: "three", x: 0, y: 0 },
+      ],
+      tables: [
+        {
+          id: "t1",
+          name: "wide_ledger",
+          domain: "DATA",
+          note: "why this table exists — one plain-english line that wraps",
+          columns: cols,
+        },
+      ],
+    }),
+  );
+
+  it("estimates a collapsed 10-column card far taller than one layout row", () => {
+    expect(lessonTableCardH(built.tableNodes[0].data)).toBeGreaterThan(300);
+  });
+
+  it("no concept card intersects the table card's real footprint", () => {
+    const t = built.tableNodes[0];
+    const tH = lessonTableCardH(t.data);
+    for (const nd of built.nodes) {
+      const overlapX = nd.x < t.x + 270 && t.x < nd.x + 300;
+      const overlapY = nd.y < t.y + tH && t.y < nd.y + 120;
+      expect(overlapX && overlapY).toBe(false);
+    }
   });
 });
