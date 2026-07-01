@@ -177,17 +177,25 @@ export function buildLesson(input: LessonInput, prev: Lesson | null, now = Date.
 
   const answersById = new Map((input.answers ?? []).map((a) => [a.questionId, a.answer]));
   const buffer = readQuestions();
-  // The questions the user submitted this round become answered entries on the lesson.
-  const answeredThisRound: LessonQuestion[] = buffer.questions.map((q) => {
-    const answer = answersById.get(q.id);
-    return answer ? { ...q, answer, answeredAt: now } : q;
-  });
   // Any answer that targets an already-recorded question (a later round answering an older one).
   const prevQuestions = (prev?.questions ?? []).map((q) => {
     const answer = answersById.get(q.id);
     return answer && !q.answer ? { ...q, answer, answeredAt: now } : q;
   });
-  const questions = [...prevQuestions, ...answeredThisRound];
+  // The questions the user SUBMITTED this round become entries on the lesson (answered when the
+  // push carries their answer, "waiting" otherwise). Unsent drafts never fold in; a question a
+  // previous push already folded (preserved in the buffer because it went unanswered) isn't
+  // duplicated.
+  const prevIds = new Set(prevQuestions.map((q) => q.id));
+  const submittedThisRound: LessonQuestion[] = buffer.submitted
+    ? buffer.questions
+        .filter((q) => !prevIds.has(q.id))
+        .map((q) => {
+          const answer = answersById.get(q.id);
+          return answer ? { ...q, answer, answeredAt: now } : q;
+        })
+    : [];
+  const questions = [...prevQuestions, ...submittedThisRound];
 
   return {
     id: prev?.id ?? randomUUID().slice(0, 8),
@@ -205,12 +213,18 @@ export function buildLesson(input: LessonInput, prev: Lesson | null, now = Date.
   };
 }
 
-// Push a lesson (first round or a re-push with answers): build it over the current one and clear
-// the round buffer so the just-answered questions don't get re-returned to the agent.
+// Push a lesson (first round or a re-push with answers): build it over the current one, then
+// settle the round buffer. Answered questions leave the buffer; SUBMITTED questions the push did
+// NOT answer stay submitted — a re-push that resumes after the blocking tool timed out must not
+// swallow them, so the agent's next verdict poll re-delivers them.
 export function pushLesson(input: LessonInput, now = Date.now()): Lesson {
+  const buffer = readQuestions();
   const lesson = buildLesson(input, readCurrentLesson(), now);
   writeCurrentLesson(lesson);
-  resetLessonRound();
+  const answered = new Set(lesson.questions.filter((q) => q.answer).map((q) => q.id));
+  const remaining = buffer.submitted ? buffer.questions.filter((q) => !answered.has(q.id)) : [];
+  if (remaining.length) writeQuestions({ questions: remaining, submitted: true });
+  else resetLessonRound();
   return lesson;
 }
 

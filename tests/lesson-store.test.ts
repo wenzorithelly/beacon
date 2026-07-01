@@ -111,6 +111,37 @@ describe("lesson store — round questions + answer merge", () => {
     expect(readQuestions()).toEqual({ questions: [], submitted: false });
   });
 
+  it("a re-push WITHOUT answers keeps submitted questions in the buffer (no swallow)", () => {
+    // The timeout/resume case: the user sent questions while no beacon_explain call was
+    // blocking; the agent resumes by re-pushing the same lesson. That push must NOT eat the
+    // questions — the next verdict poll re-delivers them.
+    pushLesson(baseInput(), 1000);
+    writeQuestions({ questions: [q], submitted: true });
+    const l = pushLesson(baseInput(), 2000);
+    expect(readQuestions()).toEqual({ questions: [q], submitted: true });
+    expect(resolveLessonVerdict().kind).toBe("questions");
+    // Folded into the lesson exactly once (visible as "waiting…"), even across re-pushes.
+    expect(l.questions).toHaveLength(1);
+    expect(pushLesson(baseInput(), 3000).questions).toHaveLength(1);
+  });
+
+  it("answering a previously-preserved question finally clears it from the buffer", () => {
+    pushLesson(baseInput(), 1000);
+    writeQuestions({ questions: [q], submitted: true });
+    pushLesson(baseInput(), 2000); // resume push — question preserved
+    const answered = pushLesson({ ...baseInput(), answers: [{ questionId: "q1", answer: "a" }] }, 3000);
+    expect(answered.questions).toHaveLength(1);
+    expect(answered.questions[0].answer).toBe("a");
+    expect(readQuestions()).toEqual({ questions: [], submitted: false });
+  });
+
+  it("unsubmitted drafts are neither folded into the lesson nor handed to the agent", () => {
+    pushLesson(baseInput(), 1000);
+    writeQuestions({ questions: [q], submitted: false });
+    const l = pushLesson(baseInput(), 2000);
+    expect(l.questions).toHaveLength(0);
+  });
+
   it("buildLesson is pure over (input, prev) and filters step focusIds to real nodes", () => {
     const l = buildLesson(
       { ...baseInput(), steps: [{ title: "step", summary: "", focusIds: ["n1", "ghost"] }] } as never,

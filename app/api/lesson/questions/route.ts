@@ -5,9 +5,11 @@ import { readQuestions, resetLessonRound, writeQuestions } from "@/lib/lesson-st
 
 export const dynamic = "force-dynamic";
 
-// The user's questions for the current round — the lesson analog of /api/plan/annotations. The
-// narrative panel PUTs in-progress questions whenever they edit; on "Send questions" it POSTs with
-// submitted, so resolveLessonVerdict hands them to the agent on its next poll. Pinned per request.
+// The user's questions for the current round — the lesson analog of /api/plan/annotations. On
+// "Send questions" the tab POSTs with submitted, so resolveLessonVerdict hands them to the agent
+// on its next poll. Pinned per request. (There is deliberately NO draft-autosave PUT: nothing
+// ever read the drafts back, and overwriting the buffer clobbered submitted-but-unanswered
+// questions — the exact "my questions never reached the agent" failure.)
 
 const anchorSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("text"), excerpt: z.string() }),
@@ -31,17 +33,10 @@ export async function GET(req: Request) {
   return runWithWorkspace(workspaceIdFromRequest(req), async () => Response.json(readQuestions()));
 }
 
-// PUT — autosave in-progress questions (not yet sent). Idempotent.
-export async function PUT(req: Request) {
-  const body = bodySchema.parse(await req.json());
-  return runWithWorkspace(workspaceIdFromRequest(req), async () => {
-    writeQuestions({ questions: body.questions, submitted: false });
-    return new Response(null, { status: 204 });
-  });
-}
-
 // POST — "Send questions": mark submitted so the agent's verdict poll picks them up. A submit with
-// no real question is refused (submitted with nothing would gate the loop forever).
+// no real question is refused (submitted with nothing would gate the loop forever). UNIONS with
+// questions already submitted and still unanswered (the agent may be mid-answer, or idle after a
+// tool timeout) — a second send must ADD, never replace-and-swallow.
 export async function POST(req: Request) {
   const body = bodySchema.parse(await req.json());
   return runWithWorkspace(workspaceIdFromRequest(req), async () => {
@@ -49,7 +44,10 @@ export async function POST(req: Request) {
     if (!real.length) {
       return Response.json({ error: "nothing to send — ask at least one question first" }, { status: 400 });
     }
-    writeQuestions({ questions: real, submitted: true });
+    const existing = readQuestions();
+    const ids = new Set(real.map((q) => q.id));
+    const keep = existing.submitted ? existing.questions.filter((q) => !ids.has(q.id)) : [];
+    writeQuestions({ questions: [...keep, ...real], submitted: true });
     return Response.json({ ok: true, count: real.length });
   });
 }

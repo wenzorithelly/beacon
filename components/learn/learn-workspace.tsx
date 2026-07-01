@@ -125,19 +125,6 @@ export function LearnWorkspace({
   const pendingCount =
     (narrativeApi?.count ?? 0) + nodeQuestions.filter((q) => q.question.trim()).length + (overall.trim() ? 1 : 0);
 
-  // Debounced autosave of the round's in-progress questions (so a reload doesn't lose them).
-  useEffect(() => {
-    if (waiting || ended) return;
-    const t = setTimeout(() => {
-      void fetch("/api/lesson/questions", {
-        method: "PUT",
-        headers: { "content-type": "application/json", ...wsHeaders(currentTabWs()) },
-        body: JSON.stringify({ questions: buildQuestions() }),
-      }).catch(() => {});
-    }, 500);
-    return () => clearTimeout(t);
-  }, [buildQuestions, waiting, ended]);
-
   const send = useCallback(async () => {
     if (sending || pendingCount === 0) return;
     setSending(true);
@@ -209,7 +196,7 @@ export function LearnWorkspace({
   return (
     <FileMentionProvider files={repoFiles}>
       <div className="relative flex h-screen flex-col">
-        {waiting && <WaitingOverlay />}
+        {waiting && <WaitingOverlay onDismiss={() => setWaiting(false)} />}
 
         {/* Top-right controls pill — Library / overall question / Send / Save / Close. */}
         <div className="pointer-events-none fixed right-3 top-3 z-30 flex items-center gap-2">
@@ -409,7 +396,10 @@ function OverallQA({ questions }: { questions: LessonQuestion[] }) {
   );
 }
 
-function WaitingOverlay() {
+// Not a dead end: the questions are safely buffered server-side, so the user can always get back
+// to the lesson — answers land via the poll whether or not the overlay is up. Without a dismiss,
+// an idle terminal session (e.g. the blocking tool timed out) traps the user on a spinner forever.
+function WaitingOverlay({ onDismiss }: { onDismiss: () => void }) {
   return (
     <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-background/95 px-6 text-center backdrop-blur-sm">
       <div className="flex size-12 items-center justify-center rounded-full bg-[var(--accent-2,#ff7a45)]/15">
@@ -418,9 +408,16 @@ function WaitingOverlay() {
       <div className="space-y-1">
         <h2 className="text-lg font-semibold text-foreground">Questions sent</h2>
         <p className="max-w-sm text-sm text-muted-foreground">
-          Your terminal session is answering. The updated lesson will appear here automatically.
+          Your terminal session is answering. The updated lesson will appear here automatically —
+          if the session finished its turn, nudge it in the terminal.
         </p>
       </div>
+      <button
+        onClick={onDismiss}
+        className="rounded-full border border-white/12 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+      >
+        Keep reading meanwhile
+      </button>
     </div>
   );
 }
