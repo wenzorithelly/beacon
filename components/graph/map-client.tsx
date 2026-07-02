@@ -821,7 +821,10 @@ export function MapClient({
           ...base.style,
           opacity: on ? 1 : dimmed,
           boxShadow: on && spotlightIds ? SEARCH_HIT_GLOW : base.style?.boxShadow,
-          borderRadius: on && spotlightIds ? 14 : base.style?.borderRadius,
+          // The glow rides the WRAPPER (no radius of its own), so match the card's own
+          // `rounded-lg` exactly — otherwise the ring's corners bulge past the card's and
+          // the two borders pinch/collide at each corner.
+          borderRadius: on && spotlightIds ? "var(--radius-lg)" : base.style?.borderRadius,
           transition: "opacity 120ms, box-shadow 120ms",
         },
       };

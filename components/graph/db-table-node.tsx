@@ -92,14 +92,15 @@ function contentFitWidth(
 ): number {
   const rowPx = (c: DbColumnPayload) => {
     if (draft) {
-      // A modified column renders its from→to delta in place of the type input. Size the card to
-      // the NAME input width (max(6, len+1)ch ≈ 7.3px/char @12px mono) + the right cell — the delta
-      // text at ~8px/char (11px mono, measured) for a modified column, else the fixed 64px type
-      // input — + row chrome (icons, delete, gaps, padding ≈ 94px). So a normal delta shows in
-      // full; the Math.min(312) clamp caps extremes, which then truncate + reveal on hover.
+      // Size the card to the NAME input (max(6, len+1)ch ≈ 7.3px/char @12px mono) + whatever the
+      // right cell ACTUALLY renders — its precedence mirrors the draft row: an FK "→ target" first,
+      // else a modified column's from→to delta, else the fixed 64px type input — all at ~8px/char
+      // (11px mono) — + row chrome (icons, delete, gaps, padding ≈ 94px). So an FK target / delta
+      // shows in full; the Math.min(312) clamp caps extremes, which then truncate + reveal on hover.
       const d = diffColumns?.[c.name];
+      const fk = fkTargets?.[c.name];
       const nameW = Math.max(6, c.name.length + 1) * 7.3;
-      const rightW = d?.kind === "modified" ? d.detail.length * 8 : 64;
+      const rightW = fk ? (fk.length + 2) * 8 : d?.kind === "modified" ? d.detail.length * 8 : 64;
       return Math.round(nameW + rightW) + 94;
     }
     const right = fkTargets?.[c.name] ? fkTargets[c.name].length + 2 : c.type.length;

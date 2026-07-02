@@ -986,7 +986,13 @@ export function DbMapClient({
           ...n.style,
           opacity: on ? 1 : dimmed,
           boxShadow: on && searchMatchIds ? SEARCH_HIT_GLOW : n.style?.boxShadow,
-          borderRadius: on && searchMatchIds ? 12 : n.style?.borderRadius,
+          // Match the wrapped card's own radius so the glow ring hugs the corners instead of
+          // pinching: tables are `rounded-xl`, endpoints `rounded-lg`.
+          borderRadius: on && searchMatchIds
+            ? n.type === "dbTable"
+              ? "var(--radius-xl)"
+              : "var(--radius-lg)"
+            : n.style?.borderRadius,
           transition: "opacity 120ms, box-shadow 120ms",
         },
       };
