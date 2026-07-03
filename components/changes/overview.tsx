@@ -166,7 +166,7 @@ export function ChangesOverview({
           <div className="border-t border-white/5 bg-black/25">
             {/* Keyed by PATH only — a count change re-fetches inside the mounted component
                 (stale diff stays visible while the fresh one loads). */}
-            <FileDiffView key={f.path} file={f} defaultMode="unified" maxBodyHeight={520} onFocus={() => onOpen(f.path)} />
+            <FileDiffView key={f.path} file={f} defaultMode="split" maxBodyHeight={520} onFocus={() => onOpen(f.path)} />
           </div>
         )}
       </div>

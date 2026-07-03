@@ -21,7 +21,7 @@ export function verbFor(status: ChangeStatus): string {
   return status === "added" ? "Added" : status === "deleted" ? "Deleted" : status === "renamed" ? "Renamed" : "Edited";
 }
 
-const VERB_TONE: Record<string, string> = {
+export const VERB_TONE: Record<string, string> = {
   Added: "text-emerald-300",
   Deleted: "text-rose-300",
   Renamed: "text-sky-300",

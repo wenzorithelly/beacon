@@ -71,6 +71,7 @@ export function FileDiffView({
   defaultMode = "split",
   onFocus,
   maxBodyHeight,
+  className,
 }: {
   file: ChangedFile;
   defaultMode?: ViewType;
@@ -78,6 +79,7 @@ export function FileDiffView({
   onFocus?: () => void;
   // Inline usage caps the body so one expanded card can't swallow the whole overview.
   maxBodyHeight?: number;
+  className?: string;
 }) {
   const [mode, setMode] = useState<ViewType>(defaultMode);
 
@@ -352,10 +354,10 @@ export function FileDiffView({
   const heldCount = fileComments.filter((c) => c.held && !c.deliveredAt).length;
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className={cn("flex min-h-0 flex-col", className)}>
       <style>{PRISM_CSS}</style>
       {/* Slim toolbar: comment status + release, view mode, focus, open-in-editor. */}
-      <div className="flex items-center gap-2 border-b border-white/8 px-3 py-1.5">
+      <div className="flex items-center gap-2 border-b border-white/5 px-4 py-1.5">
         {fileComments.length > 0 && (
           <span
             className="flex shrink-0 items-center gap-1 rounded-full border border-[#ff7a45]/25 bg-[#ff7a45]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#ff7a45]"

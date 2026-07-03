@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { FileTree } from "@/components/file-tree/file-tree";
 import { FileDiffView, openInEditor } from "@/components/changes/file-diff";
-import { ViewedCheckbox } from "@/components/changes/file-card";
+import { VERB_TONE, verbFor, ViewedCheckbox } from "@/components/changes/file-card";
 import type { FileStatus, FileLeafInput } from "@/lib/file-tree";
 import type { ChangedFile } from "@/lib/diff-shared";
 import type { ViewState } from "@/lib/viewed-shared";
@@ -294,11 +294,11 @@ export function DiffDetail({
         </aside>
       )}
 
-      {/* RIGHT — the selected file's diff (shared FileDiffView) */}
-      <main className="flex min-w-0 flex-1 flex-col bg-background">
+      {/* RIGHT — the selected file's diff in the same glass-panel system as the overview. */}
+      <main className="flex min-w-0 flex-1 flex-col bg-background p-3">
         {active ? (
-          <>
-            <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/6 bg-white/[0.015]">
+            <div className="flex items-center gap-2.5 border-b border-white/5 px-4 py-2.5">
               {activeStrayed && (
                 <span
                   className="flex shrink-0 items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300"
@@ -307,13 +307,19 @@ export function DiffDetail({
                   <AlertTriangle className="size-3" /> Strayed
                 </span>
               )}
-              <span className="truncate font-mono text-[12px] text-foreground/90" title={active.path}>
+              {/* Same verb column + path treatment as the overview rows — one visual language. */}
+              <span className={cn("shrink-0 text-[9.5px] font-bold uppercase tracking-[0.08em]", VERB_TONE[verbFor(active.status)])}>
+                {verbFor(active.status)}
+              </span>
+              <span className="truncate font-mono text-[12.5px] text-foreground/90" title={active.path}>
                 {active.oldPath ? `${active.oldPath} → ${active.path}` : active.path}
               </span>
-              <span className="shrink-0 text-[11px] tabular-nums text-emerald-400">+{active.additions}</span>
-              <span className="shrink-0 text-[11px] tabular-nums text-rose-400">−{active.deletions}</span>
+              <span className="ml-auto w-24 shrink-0 text-right text-[11.5px] tabular-nums">
+                <span className="text-emerald-400">+{active.additions}</span>{" "}
+                <span className="text-rose-400">−{active.deletions}</span>
+              </span>
               {views && onToggleViewed && (
-                <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground/70">
+                <span className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground/70">
                   {views[active.path] === "invalidated" && "changed since you viewed"}
                   {views[active.path] === "viewed" && "viewed"}
                   <ViewedCheckbox
@@ -323,8 +329,8 @@ export function DiffDetail({
                 </span>
               )}
             </div>
-            <FileDiffView key={active.path} file={active} defaultMode="split" />
-          </>
+            <FileDiffView key={active.path} file={active} defaultMode="split" className="flex-1" />
+          </div>
         ) : (
           <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
             {!repo
