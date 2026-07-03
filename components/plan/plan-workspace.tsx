@@ -509,10 +509,13 @@ export function PlanWorkspace({
                 {approvedSummary.endpoints === 1 ? "" : "s"} → Database
               </button>
             )}
-            {/* Jump straight to watching the agent execute what was just approved. */}
+            {/* Jump straight to watching the agent execute what was just approved. Clearing the
+                card matters: this push stays on /plan, so the component does NOT unmount — a
+                surviving approvedSummary would keep this overlay covering the Changes view. */}
             <button
               onClick={() => {
                 navedRef.current = true;
+                setApprovedSummary(null);
                 router.push(planHref({ view: "changes" }));
               }}
               className="flex items-center gap-2 rounded-lg border border-white/12 px-3 py-2 text-sm text-foreground transition-colors hover:bg-white/[0.06]"
