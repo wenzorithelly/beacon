@@ -45,3 +45,15 @@ describe("GET /api/scope-guard/check", () => {
     expect((await check("anything.ts")).decision).toBe("allow");
   });
 });
+
+describe("creates never gate", () => {
+  it("allows a file that does not exist yet, even off-contract", async () => {
+    await writeContract({ planId: "plan0001", declaredFiles: ["lib/plan-resolve.ts"] });
+    expect((await check("lib/definitely-not-created-yet.ts")).decision).toBe("allow");
+  });
+
+  it("still asks for an EXISTING off-contract file", async () => {
+    await writeContract({ planId: "plan0001", declaredFiles: ["lib/plan-resolve.ts"] });
+    expect((await check("lib/changes.ts")).decision).toBe("ask");
+  });
+});

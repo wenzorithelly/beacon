@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { pinned } from "@/lib/api-workspace";
 import { decideEdit, getActiveContract } from "@/lib/scope-contract";
 import { toRepoRelative } from "@/lib/touched-files";
@@ -11,10 +13,17 @@ export const dynamic = "force-dynamic";
 // flag: every approved plan has a contract (declaredFiles ∪ authorizedExtras), so an edit outside
 // it pauses for the user's authorization. Fail-open: no active contract, or an empty one, → allow,
 // so editing never hangs (the hook also fails open on any error / unreachable daemon).
+//
+// CREATES never gate: the contract protects EXISTING code from off-plan edits — a file that does
+// not exist yet can't be damaged, and new-file creation is the most common legitimate agent move
+// (a hook "ask" would interrupt even bypass-permissions sessions on every new file).
 export const GET = pinned(async (req: Request) => {
   const file = new URL(req.url).searchParams.get("file") ?? "";
   const contract = await getActiveContract();
   if (!contract) return Response.json({ decision: "allow" });
-  const rel = toRepoRelative(file, repoRoot()) ?? file;
+  const root = repoRoot();
+  const rel = toRepoRelative(file, root) ?? file;
+  const abs = isAbsolute(file) ? file : join(root, rel);
+  if (!existsSync(abs)) return Response.json({ decision: "allow" });
   return Response.json(decideEdit({ filePath: rel, contract }));
 });

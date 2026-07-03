@@ -60,16 +60,23 @@ function readUntracked(root: string, rel: string): ChangedFile {
   }
 }
 
+// The ref the working tree is diffed against: the plan's review BASELINE when one is passed and
+// still resolvable (so mid-plan commits stay visible in review), else HEAD, else nothing (fresh
+// repo with no commits).
+function diffBase(root: string, base: string | null | undefined): string[] {
+  if (base && tryGit(["cat-file", "-e", `${base}^{commit}`], root) !== null) return [base];
+  return tryGit(["rev-parse", "--verify", "HEAD"], root) !== null ? ["HEAD"] : [];
+}
+
 // Impure shell: compute the working-tree change LIST for the (pinned) workspace in ONE
-// `git diff HEAD` pass (status, ± counts, symbols, whitespace-only classification), then add
+// `git diff <base>` pass (status, ± counts, symbols, whitespace-only classification), then add
 // untracked files. Content hunks for the detail view stay lazy via readFileDiff().
-export function computeChanges(now: number = Date.now()): ChangesResponse {
+export function computeChanges(now: number = Date.now(), base?: string | null): ChangesResponse {
   const root = repoRoot();
   if (tryGit(["rev-parse", "--is-inside-work-tree"], root) !== "true") {
     return { repo: false, files: [], touched: {} };
   }
-  const head = tryGit(["rev-parse", "--verify", "HEAD"], root) !== null ? ["HEAD"] : [];
-  const raw = runGit(["diff", "--no-color", "--no-ext-diff", ...head], root, false) ?? "";
+  const raw = runGit(["diff", "--no-color", "--no-ext-diff", ...diffBase(root, base)], root, false) ?? "";
 
   const files: ChangedFile[] = [];
   for (const [path, m] of parseFullDiff(raw)) {
@@ -105,12 +112,14 @@ function withinRepo(root: string, rel: string): string | null {
 }
 
 // Impure shell: read one file's raw unified diff for the renderer. Tracked files come straight
-// from `git diff HEAD`; an untracked file (absent from `git diff`) gets a synthesized new-file
-// diff built from its working copy. Never trims — that would shift the diff.
-export function readFileDiff(newPath: string, oldPath: string | null): FileDiff {
+// from `git diff <base>` (the review baseline when active, else HEAD); an untracked file (absent
+// from `git diff`) gets a synthesized new-file diff built from its working copy. Never trims —
+// that would shift the diff.
+export function readFileDiff(newPath: string, oldPath: string | null, base?: string | null): FileDiff {
   const root = repoRoot();
   const target = oldPath ? [oldPath, newPath] : [newPath];
-  const tracked = runGit(["diff", "--no-color", "--no-ext-diff", "HEAD", "--", ...target], root, false) ?? "";
+  const tracked =
+    runGit(["diff", "--no-color", "--no-ext-diff", ...diffBase(root, base), "--", ...target], root, false) ?? "";
   if (tracked.trim()) return { diff: tracked };
 
   const abs = withinRepo(root, newPath);

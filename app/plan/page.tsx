@@ -8,6 +8,7 @@ import { extractBeaconBlock } from "@/lib/plan-block";
 import { resolveHasFrontend } from "@/lib/project-meta";
 import { computeChanges } from "@/lib/changes";
 import { readViewedMap } from "@/lib/viewed-files";
+import { readReviewBaseline, resolveReviewBase } from "@/lib/review-baseline";
 import { contractFiles, getActiveContract, getContractByPlanId } from "@/lib/scope-contract";
 import { readArchivedPlan } from "@/lib/plan-history";
 import { dataDir } from "@/lib/project";
@@ -172,7 +173,10 @@ export default async function PlanPage({
     const showLiveDiff = changesView && (!selectedPlanId || selectedPlanId === activePlanId);
     const changes = showLiveDiff
       ? await (async () => {
-          const c = computeChanges();
+          // Diff against the plan's review baseline (HEAD at approval) so the agent committing
+          // mid-plan never makes its work vanish from review.
+          const base = resolveReviewBase(readReviewBaseline(), activePlanId);
+          const c = computeChanges(Date.now(), base);
           // Importer counts from the live code graph — the "does this break something
           // elsewhere?" signal (CodeFile.inDegree is maintained by the intel daemon).
           const degrees = new Map(

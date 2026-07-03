@@ -30,6 +30,7 @@ import {
 } from "@/lib/plan-annotations-store";
 import { bumpVersion } from "@/lib/ingest";
 import { writeContract } from "@/lib/scope-contract";
+import { captureReviewBaseline } from "@/lib/review-baseline";
 import { resolveMentionedFiles } from "@/lib/file-mention";
 
 // The unification core for the plan feedback loop. EVERY terminal action (approve / discard)
@@ -117,6 +118,9 @@ export async function approvePlan(opts?: { doc?: DraftDoc | null }): Promise<{
     console.error("[approvePlan] scope-contract write failed; approving without it", e);
     declaredFiles = [];
   }
+  // Stamp HEAD as this plan's review baseline — the Changes view diffs against it so the agent
+  // committing mid-plan never makes its work vanish from review. Never blocks the approval.
+  captureReviewBaseline(planId);
 
   const dbCount = doc ? await approveDraft(doc, db, { planId }) : null;
   const promoted = await db

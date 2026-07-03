@@ -41,8 +41,13 @@ try {
     additionalContext?: string;
   } = { hookEventName: "PreToolUse" };
 
+  // A hook "ask" OVERRIDES bypass-permissions — a user who explicitly chose bypass has opted out
+  // of gates, so the scope gate stands down entirely there. Comment delivery below still runs
+  // (additionalContext never blocks anything).
+  const bypass = ev?.permission_mode === "bypassPermissions";
+
   // 1. Scope gate (off-scope edit → ask).
-  if (typeof file === "string" && file) {
+  if (!bypass && typeof file === "string" && file) {
     const res = await fetch(
       `${base}/api/scope-guard/check?file=${encodeURIComponent(file)}`,
       { headers },

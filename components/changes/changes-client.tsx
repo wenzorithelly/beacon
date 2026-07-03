@@ -51,10 +51,10 @@ export function ChangesClient({
       // First render (prevSigs null) is baseline — nothing is "new since you looked" yet.
       const fresh: string[] = [];
       for (const [p, s] of sigs) if (prevSigs.get(p) !== s) fresh.push(p);
-      if (fresh.length) {
-        setUnseen((u) => new Set([...u, ...fresh]));
-        setTransients(new Set(fresh));
-      }
+      // Prune markers for files that left the change list (committed away/reverted) so the
+      // unseen count can never exceed what's on screen.
+      setUnseen((u) => new Set([...[...u].filter((p) => sigs.has(p)), ...fresh]));
+      if (fresh.length) setTransients(new Set(fresh));
     }
   }
   // The transient flash is one-shot: clear it after the animation (timer = external system).
