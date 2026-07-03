@@ -81,8 +81,12 @@ export function FileDiffView({
 }) {
   const [mode, setMode] = useState<ViewType>(defaultMode);
 
-  // Lazy raw diff fetch (re-fetches when the file's counts change → sig in the parent key).
+  // Lazy raw diff fetch. Re-runs when the file's counts change WITHOUT unmounting — the stale
+  // diff stays visible while the fresh one loads (an actively-editing agent bumps counts every
+  // few seconds). A failed fetch surfaces a retry instead of an eternal "Loading diff…".
   const [raw, setRaw] = useState<{ path: string; diff: string } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
   useEffect(() => {
     if (file.binary || file.tooLarge) return;
     let ignore = false;
@@ -93,13 +97,17 @@ export function FileDiffView({
     })
       .then((r) => r.json() as Promise<FileDiff>)
       .then((c) => {
-        if (!ignore) setRaw({ path: file.path, diff: c.diff ?? "" });
+        if (ignore) return;
+        setRaw({ path: file.path, diff: c.diff ?? "" });
+        setFailed(false);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!ignore) setFailed(true);
+      });
     return () => {
       ignore = true;
     };
-  }, [file.path, file.oldPath, file.binary, file.tooLarge, file.additions, file.deletions]);
+  }, [file.path, file.oldPath, file.binary, file.tooLarge, file.additions, file.deletions, retryNonce]);
 
   const parsed: FileData | null = useMemo(() => {
     if (!raw?.diff) return null;
@@ -438,7 +446,13 @@ export function FileDiffView({
             Diff too large to render here.
           </DiffNote>
         ) : !diffReady ? (
-          <DiffNote>Loading diff…</DiffNote>
+          failed ? (
+            <DiffNote icon onOpen={() => setRetryNonce((n) => n + 1)} openLabel="Retry">
+              Couldn&apos;t load the diff.
+            </DiffNote>
+          ) : (
+            <DiffNote>Loading diff…</DiffNote>
+          )
         ) : !parsed || parsed.hunks.length === 0 ? (
           <DiffNote>No textual changes.</DiffNote>
         ) : (
@@ -606,7 +620,17 @@ function ComposerBox({
   );
 }
 
-function DiffNote({ children, icon, onOpen }: { children: React.ReactNode; icon?: boolean; onOpen?: () => void }) {
+function DiffNote({
+  children,
+  icon,
+  onOpen,
+  openLabel = "Open in editor",
+}: {
+  children: React.ReactNode;
+  icon?: boolean;
+  onOpen?: () => void;
+  openLabel?: string;
+}) {
   return (
     <div className="flex items-center gap-2 px-4 py-6 text-[12px] text-muted-foreground">
       {icon && <FileWarning className="size-4 shrink-0 text-amber-300/80" />}
@@ -617,7 +641,7 @@ function DiffNote({ children, icon, onOpen }: { children: React.ReactNode; icon?
           onClick={onOpen}
           className="rounded-full border border-white/12 px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-white/[0.06]"
         >
-          Open in editor
+          {openLabel}
         </button>
       )}
     </div>

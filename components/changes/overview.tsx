@@ -117,13 +117,11 @@ export function ChangesOverview({
         />
         {isOpen && (
           <div className="rounded-b-lg border border-t-0 border-white/8 bg-background/60">
-            <FileDiffView
-              key={`${f.path}:${f.additions}:${f.deletions}`}
-              file={f}
-              defaultMode="unified"
-              maxBodyHeight={480}
-              onFocus={() => onOpen(f.path)}
-            />
+            {/* Keyed by PATH only — a count change re-fetches inside the mounted component
+                (stale diff stays visible while the fresh one loads). Keying by counts remounted
+                on every refresh, which under an actively-editing agent restarted the fetch
+                forever ("Loading diff…" never resolving). */}
+            <FileDiffView key={f.path} file={f} defaultMode="unified" maxBodyHeight={480} onFocus={() => onOpen(f.path)} />
           </div>
         )}
       </div>
