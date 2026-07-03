@@ -1,9 +1,16 @@
 "use client";
 
-import { Check, MessageSquarePlus, AlertTriangle } from "lucide-react";
+import { Check, MessageSquarePlus, AlertTriangle, Copy } from "lucide-react";
 import type { ChangedFile, ChangeStatus } from "@/lib/diff-shared";
 import type { ViewState } from "@/lib/viewed-shared";
+import type { CloneMatch } from "@/lib/clone-detect";
 import { cn } from "@/lib/utils";
+
+// Per-file result of the on-demand quality scan (lint + clone detection).
+export interface FileQuality {
+  lint?: { errors: number; warnings: number };
+  clones: CloneMatch[];
+}
 
 // One changed file, skimmable in a single left-to-right pass: verb + path first (the F-pattern
 // left edge is all a scanner reliably sees), then symbols, then magnitude + risk on the right.
@@ -27,6 +34,7 @@ export function FileCard({
   unseen,
   transient,
   commentCount = 0,
+  quality,
   onOpen,
   onToggleViewed,
 }: {
@@ -35,11 +43,21 @@ export function FileCard({
   unseen: boolean;
   transient: boolean;
   commentCount?: number;
+  quality?: FileQuality;
   onOpen: (path: string) => void;
   onToggleViewed: (file: ChangedFile, next: boolean) => void;
 }) {
   const verb = verbFor(file.status);
   const total = file.additions + file.deletions;
+  // Instant deterministic cues (from the diff pass) — shown only when nonzero, tiny.
+  const cues: { label: string; title: string }[] = [];
+  if (file.cues) {
+    if (file.cues.todos) cues.push({ label: `TODO ${file.cues.todos}`, title: "TODO/FIXME/HACK markers added" });
+    if (file.cues.consoles) cues.push({ label: `log ${file.cues.consoles}`, title: "console.* calls added" });
+    if (file.cues.anys) cues.push({ label: `any ${file.cues.anys}`, title: "`any` types added" });
+    if (file.cues.maxIndent >= 5) cues.push({ label: "deep", title: `Deep nesting added (${file.cues.maxIndent} levels)` });
+  }
+  const topClone = quality?.clones[0];
   return (
     <div
       className={cn(
@@ -65,6 +83,34 @@ export function FileCard({
       {file.formattingOnly && (
         <span className="shrink-0 rounded-full border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
           formatting
+        </span>
+      )}
+      {cues.map((c) => (
+        <span
+          key={c.label}
+          title={c.title}
+          className="hidden shrink-0 rounded-full border border-white/10 px-1.5 py-0.5 text-[9px] text-muted-foreground/80 lg:inline"
+        >
+          {c.label}
+        </span>
+      ))}
+      {quality?.lint && quality.lint.errors + quality.lint.warnings > 0 && (
+        <span
+          title={`Repo linter on this file: ${quality.lint.errors} error(s), ${quality.lint.warnings} warning(s)`}
+          className={cn(
+            "shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-medium",
+            quality.lint.errors > 0 ? "border-rose-400/30 bg-rose-400/10 text-rose-300" : "border-amber-400/25 bg-amber-400/10 text-amber-300/90",
+          )}
+        >
+          lint {quality.lint.errors > 0 ? `${quality.lint.errors}✕` : `${quality.lint.warnings}⚠`}
+        </span>
+      )}
+      {topClone && (
+        <span
+          title={`Added code resembles ${topClone.path} ~L${topClone.line} (${topClone.hits} matching fingerprints)${quality!.clones.length > 1 ? ` — and ${quality!.clones.length - 1} more` : ""}`}
+          className="flex shrink-0 items-center gap-0.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-300"
+        >
+          <Copy className="size-2.5" /> dup?
         </span>
       )}
       {commentCount > 0 && (

@@ -22,6 +22,17 @@ export interface ChangedFile {
   formattingOnly?: boolean;
   // How many files import this one (CodeFile.inDegree) — attached by the server boundary.
   inDegree?: number;
+  // Deterministic quality cues counted over ADDED lines (see QualityCues).
+  cues?: QualityCues;
+}
+
+// Instant, deterministic quality cues from the added lines of a diff — no linter, no AST, no AI.
+// maxIndent is a nesting-depth proxy (indentation IS nesting in every lang this repo ships).
+export interface QualityCues {
+  todos: number; // TODO / FIXME / HACK markers added
+  consoles: number; // console.log/warn/error added
+  anys: number; // `: any` / `as any` / `<any>` added (ts/tsx only)
+  maxIndent: number; // deepest added line, in indent levels (2 spaces or 1 tab = 1 level)
 }
 
 // One file's raw unified git diff, fed to react-diff-view's parseDiff().
@@ -61,6 +72,28 @@ export interface FileDiffMeta {
   // True when EVERY hunk is whitespace-only (and there is ≥1 hunk).
   formattingOnly: boolean;
   hunks: number;
+  // Quality cues counted over the added lines (see QualityCues).
+  cues: QualityCues;
+  // The raw added lines, kept ONLY when the caller opts in (clone scanning) — memory-heavy.
+  addedLines?: string[];
+}
+
+// Count the instant quality cues over a set of added lines. Pure.
+export function qualityCues(added: readonly string[], lang: string): QualityCues {
+  const ts = lang === "typescript";
+  let todos = 0;
+  let consoles = 0;
+  let anys = 0;
+  let maxIndent = 0;
+  for (const l of added) {
+    if (/\b(TODO|FIXME|HACK)\b/.test(l)) todos++;
+    if (/\bconsole\.(log|warn|error|debug)\s*\(/.test(l)) consoles++;
+    if (ts && /(:\s*any\b|\bas any\b|<any>)/.test(l)) anys++;
+    const ws = /^[\t ]*/.exec(l)![0];
+    const levels = ws.replace(/\t/g, "  ").length / 2;
+    if (l.trim() && levels > maxIndent) maxIndent = levels;
+  }
+  return { todos, consoles, anys, maxIndent: Math.floor(maxIndent) };
 }
 
 // The enclosing-declaration context git appends to @@ headers, reduced to one identifier.
@@ -91,12 +124,13 @@ export function isWhitespaceOnlyHunk(removed: string[], added: string[]): boolea
   return true;
 }
 
-export function parseFullDiff(raw: string): Map<string, FileDiffMeta> {
+export function parseFullDiff(raw: string, opts?: { collectAdded?: boolean }): Map<string, FileDiffMeta> {
   const out = new Map<string, FileDiffMeta>();
   let cur: FileDiffMeta | null = null;
   let curPath = "";
   let removed: string[] = [];
   let added: string[] = [];
+  let fileAdded: string[] = [];
   let sawRealHunk = false;
 
   const closeHunk = () => {
@@ -109,6 +143,9 @@ export function parseFullDiff(raw: string): Map<string, FileDiffMeta> {
     if (!cur) return;
     closeHunk();
     cur.formattingOnly = cur.hunks > 0 && !sawRealHunk;
+    cur.cues = qualityCues(fileAdded, langFromPath(curPath));
+    if (opts?.collectAdded) cur.addedLines = fileAdded;
+    fileAdded = [];
     out.set(curPath, cur);
     cur = null;
   };
@@ -119,8 +156,18 @@ export function parseFullDiff(raw: string): Map<string, FileDiffMeta> {
       // `diff --git a/<old> b/<new>` — take the b/ path (a/ recovered from rename headers).
       const m = /^diff --git a\/(.*) b\/(.*)$/.exec(line);
       curPath = m?.[2] ?? "";
-      cur = { status: "modified", additions: 0, deletions: 0, binary: false, symbols: [], formattingOnly: false, hunks: 0 };
+      cur = {
+        status: "modified",
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        symbols: [],
+        formattingOnly: false,
+        hunks: 0,
+        cues: { todos: 0, consoles: 0, anys: 0, maxIndent: 0 },
+      };
       sawRealHunk = false;
+      fileAdded = [];
     } else if (!cur) {
       continue;
     } else if (line.startsWith("rename from ")) {
@@ -144,6 +191,7 @@ export function parseFullDiff(raw: string): Map<string, FileDiffMeta> {
     } else if (line.startsWith("+") && !line.startsWith("+++")) {
       cur.additions += 1;
       added.push(line.slice(1));
+      fileAdded.push(line.slice(1));
     } else if (line.startsWith("-") && !line.startsWith("---")) {
       cur.deletions += 1;
       removed.push(line.slice(1));

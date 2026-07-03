@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, FileText, GitCompare } from "lucide-react";
 import { ChangesOverview, type Lens } from "@/components/changes/overview";
 import { DiffDetail, openInEditor } from "@/components/changes/diff-detail";
+import type { FileQuality } from "@/components/changes/file-card";
 import { currentTabWs } from "@/lib/tab-ws";
 import { fileSig, viewedStates, type ViewedMap } from "@/lib/viewed-shared";
 import type { ChangedFile } from "@/lib/diff-shared";
@@ -81,6 +82,24 @@ export function ChangesClient({
       .catch(() => {});
   }, [files]);
 
+  // On-demand quality scan (repo linter + clone detection) — explicit click, results cached until
+  // the next click; refreshes don't wipe them (paths that left the list just stop matching).
+  const [quality, setQuality] = useState<Record<string, FileQuality> | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const runScan = async () => {
+    setScanning(true);
+    const ws = currentTabWs();
+    const r = (await fetch("/api/changes/quality", {
+      method: "POST",
+      cache: "no-store",
+      headers: ws ? { "x-beacon-workspace": ws } : undefined,
+    })
+      .then((res) => res.json())
+      .catch(() => null)) as { files?: Record<string, FileQuality> } | null;
+    setQuality(r?.files ?? null);
+    setScanning(false);
+  };
+
   const markSeen = (path: string) =>
     setUnseen((u) => {
       const n = new Set(u);
@@ -133,6 +152,9 @@ export function ChangesClient({
         setDetailPath(p);
       }}
       onToggleViewed={toggleViewed}
+      quality={quality}
+      scanning={scanning}
+      onScan={() => void runScan()}
     />
   );
 }

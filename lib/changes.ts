@@ -91,6 +91,7 @@ export function computeChanges(now: number = Date.now(), base?: string | null): 
       tooLarge: m.additions + m.deletions > MAX_CHANGED_LINES || undefined,
       symbols: m.symbols,
       formattingOnly: m.formattingOnly || undefined,
+      cues: m.cues,
     });
   }
 
@@ -101,6 +102,28 @@ export function computeChanges(now: number = Date.now(), base?: string | null): 
 
   files.sort((a, b) => a.path.localeCompare(b.path));
   return { repo: true, files, touched: readTouched(now) };
+}
+
+// The added lines per changed file (vs the same base the list uses) — input for the on-demand
+// quality scan (clone detection). One extra git pass, only when the user asks for a scan.
+export function computeAddedLines(base?: string | null): Map<string, string[]> {
+  const root = repoRoot();
+  const raw = runGit(["diff", "--no-color", "--no-ext-diff", ...diffBase(root, base)], root, false) ?? "";
+  const out = new Map<string, string[]>();
+  for (const [path, m] of parseFullDiff(raw, { collectAdded: true })) {
+    if (m.addedLines?.length) out.set(path, m.addedLines);
+  }
+  // Untracked files are all-added: include their content so brand-new duplicated files get caught.
+  for (const rel of (tryGit(["ls-files", "--others", "--exclude-standard", "-z"], root) ?? "").split("\0").filter(Boolean)) {
+    try {
+      if (statSync(join(root, rel)).size > MAX_FILE_BYTES) continue;
+      const buf = readFileSync(join(root, rel));
+      if (!buf.includes(0)) out.set(rel, buf.toString("utf8").split("\n"));
+    } catch {
+      /* unreadable — skip */
+    }
+  }
+  return out;
 }
 
 // Keep an untrusted `?path` inside the repo (no traversal); returns the absolute path or null.

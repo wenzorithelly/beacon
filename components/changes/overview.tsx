@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ListOrdered, GitCompare, ChevronRight } from "lucide-react";
-import { FileCard } from "@/components/changes/file-card";
+import { Activity, ListOrdered, GitCompare, ChevronRight, ScanSearch, Loader2 } from "lucide-react";
+import { FileCard, type FileQuality } from "@/components/changes/file-card";
 import { groupEpisodes, orderForReview } from "@/lib/changes-order";
 import type { ChangedFile } from "@/lib/diff-shared";
 import type { TouchedMap } from "@/lib/touched-files";
@@ -37,6 +37,9 @@ export function ChangesOverview({
   onLens,
   onOpen,
   onToggleViewed,
+  quality,
+  scanning,
+  onScan,
 }: {
   files: ChangedFile[];
   touched: TouchedMap;
@@ -48,6 +51,10 @@ export function ChangesOverview({
   onLens: (l: Lens) => void;
   onOpen: (path: string) => void;
   onToggleViewed: (file: ChangedFile, next: boolean) => void;
+  // On-demand deterministic quality scan (repo linter + clone detection) — explicit click only.
+  quality: Record<string, FileQuality> | null;
+  scanning: boolean;
+  onScan: () => void;
 }) {
   // Clock for the "· 12s ago" label + episode boundaries — state (not Date.now() in render) so
   // rendering stays pure, ticking every 30s so the label doesn't go stale between refreshes.
@@ -81,6 +88,7 @@ export function ChangesOverview({
       unseen={unseen.has(f.path)}
       transient={transients.has(f.path)}
       commentCount={commentCounts[f.path] ?? 0}
+      quality={quality?.[f.path]}
       onOpen={onOpen}
       onToggleViewed={onToggleViewed}
     />
@@ -126,6 +134,19 @@ export function ChangesOverview({
             {unseen.size > 0 && <span className="text-[#ff7a45]">{unseen.size} unseen · </span>}
             {viewedCount}/{files.length} viewed
           </span>
+          <button
+            type="button"
+            onClick={onScan}
+            disabled={scanning || files.length === 0}
+            title="Run the repo's linter on the changed files + scan added code for duplicated logic (deterministic, local)"
+            className={cn(
+              "flex items-center gap-1 rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-medium transition-colors",
+              scanning ? "text-muted-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/[0.04]",
+            )}
+          >
+            {scanning ? <Loader2 className="size-3 animate-spin" /> : <ScanSearch className="size-3" />}
+            {scanning ? "Scanning…" : quality ? "Re-scan" : "Quality scan"}
+          </button>
           <div className="flex items-center gap-0.5 rounded-full border border-white/10 p-0.5">
             {(["activity", "review"] as const).map((l) => (
               <button
