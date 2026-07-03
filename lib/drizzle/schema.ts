@@ -417,9 +417,11 @@ export const projectMeta = sqliteTable("ProjectMeta", {
 });
 
 // ── Feature gating + plan scope contracts ────────────────────────────────────
-// Generalized per-workspace feature gating, reusable beyond the scope guard: one row per gated
-// capability keyed by `key` (e.g. "scope-guard"); a future gated feature just uses a new key, no
-// migration. `config` is per-feature knobs JSON-encoded (e.g. {"tolerance":0}). Human-only writes.
+// Generalized per-workspace feature gating: one row per gated capability keyed by `key`, `config`
+// is per-feature JSON knobs. DORMANT — its only consumer (the scope guard) became always-on core
+// behavior, so nothing reads/writes this today. Kept (not dropped) because dropping a table is a
+// destructive migration that would break the live daemon; a future gated feature can reuse it, or
+// a later release can drop it once no shipped version references it.
 export const workspaceFlag = sqliteTable(
   "WorkspaceFlag",
   {

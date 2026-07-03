@@ -16,6 +16,10 @@ export interface ArchivedPlan {
   archivedAt: number;
   annotations?: unknown;
   globalComment?: string;
+  // The plan's file-path list, SAVED with the archive (the files it declared at approval). The
+  // Changes view shows this for a plan that isn't the one currently executing — a past plan's live
+  // working-tree diff is gone, so its saved scope is the durable "what this plan touched".
+  files?: string[];
   // Snapshots of the canvas at archive time so the history view can re-render the board
   // even if the live DB has moved on (or, for discarded plans, never had the draft).
   draftDoc?: unknown;        // DraftDoc — tables/relations/endpoints

@@ -597,7 +597,7 @@ server.registerTool(
         .array(z.string())
         .optional()
         .describe(
-          "Repo-relative files THIS plan will touch — the scope contract. When the user has the plan scope-guard enabled, these are frozen at approval and you are held to them while implementing: editing an undeclared file pauses for the user's authorization (which adds it to the contract). Safe to always include; ignored when the guard is off.",
+          "Repo-relative files THIS plan will touch — the scope contract. Frozen at approval; you're held to them while implementing: editing an undeclared file pauses for the user's authorization (which adds it to the contract), and the /plan Changes view groups your edits On-plan vs Strayed against this set. Always list the files you genuinely expect to edit — if omitted, the scope is inferred from the files you name in backticks.",
         ),
     },
   },

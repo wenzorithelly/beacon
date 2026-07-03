@@ -13,7 +13,7 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { MarkdownView } from "@/components/plan/markdown-view";
-import { planHref } from "@/components/plan/use-plan-ws";
+import { currentPlanSelection, planHref } from "@/components/plan/use-plan-ws";
 import { MapClient } from "@/components/graph/map-client";
 import { DbMapClient } from "@/components/graph/db-map-client";
 import { SharePlanButton } from "@/components/share/share-plan-button";
@@ -58,6 +58,8 @@ export function PlanHistoryView({
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<ArchivedPlan | null>(null);
+  // The plan currently being executed (its scope contract is still active) — badged in the list.
+  const [activePlanId, setActivePlanId] = useState<string | null>(null);
   const [boardTab, setBoardTab] = useState<BoardTab>("map");
   // The history list collapses to give the plan + board full width; preference persists.
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
@@ -79,15 +81,30 @@ export function PlanHistoryView({
       return next;
     });
   }, []);
+  // Select a plan AND mirror it into ?plan (via replaceState — snappy, no RSC round-trip) so the
+  // Changes toggle, which reads the URL, ties Changes to this selection instead of the latest.
+  const selectPlan = useCallback((id: string) => {
+    setSelectedId(id);
+    try {
+      window.history.replaceState(window.history.state, "", planHref({ view: "history", plan: id }));
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     void (async () => {
       try {
         const res = await fetch("/api/plan/history");
         if (!res.ok) return;
-        const body = (await res.json()) as { items: HistoryItem[] };
+        const body = (await res.json()) as { items: HistoryItem[]; activePlanId?: string | null };
         setItems(body.items);
-        if (body.items.length && !selectedId) setSelectedId(body.items[0].id);
+        setActivePlanId(body.activePlanId ?? null);
+        if (body.items.length && !selectedId) {
+          // Respect a ?plan deep-link / the selection carried from the Changes toggle; else latest.
+          const fromUrl = currentPlanSelection();
+          setSelectedId(fromUrl && body.items.some((i) => i.id === fromUrl) ? fromUrl : body.items[0].id);
+        }
       } catch {
         /* ignore */
       }
@@ -213,7 +230,7 @@ export function PlanHistoryView({
                   {group.map((p) => (
                     <li key={p.id}>
                       <button
-                        onClick={() => setSelectedId(p.id)}
+                        onClick={() => selectPlan(p.id)}
                         className={cn(
                           "flex w-full items-start gap-1.5 px-3 py-1.5 text-left text-[12px] transition-colors",
                           selectedId === p.id
@@ -236,7 +253,19 @@ export function PlanHistoryView({
                             <X className="size-2.5" />
                           )}
                         </span>
-                        <span className="line-clamp-2">{p.description}</span>
+                        <span className="line-clamp-2 min-w-0 flex-1">{p.description}</span>
+                        {activePlanId === p.id && (
+                          <span
+                            title="This plan is currently being executed"
+                            className="mt-0.5 flex shrink-0 items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-[#ff7a45]"
+                          >
+                            <span className="relative flex size-1.5">
+                              <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#ff7a45] opacity-75" />
+                              <span className="relative inline-flex size-1.5 rounded-full bg-[#ff7a45]" />
+                            </span>
+                            Live
+                          </span>
+                        )}
                       </button>
                     </li>
                   ))}

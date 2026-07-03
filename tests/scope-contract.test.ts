@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
   authorizeFile,
+  contractFiles,
   decideEdit,
   getActiveContract,
+  getContractByPlanId,
   retireContract,
   writeContract,
 } from "@/lib/scope-contract";
@@ -17,24 +19,17 @@ const contract = (over: Partial<{ planId: string; declaredFiles: string[]; autho
   ...over,
 });
 
-describe("decideEdit (pure)", () => {
-  it("allows everything when the guard is disabled", () => {
-    const d = decideEdit({ filePath: "anything.ts", enabled: false, contract: contract() });
-    expect(d.decision).toBe("allow");
-  });
-
+describe("decideEdit (pure, always-on)", () => {
   it("allows when there is no active contract", () => {
-    const d = decideEdit({ filePath: "anything.ts", enabled: true, contract: null });
-    expect(d.decision).toBe("allow");
+    expect(decideEdit({ filePath: "anything.ts", contract: null }).decision).toBe("allow");
   });
 
   it("allows a file inside the declared scope", () => {
-    const d = decideEdit({ filePath: "lib/plan-resolve.ts", enabled: true, contract: contract() });
-    expect(d.decision).toBe("allow");
+    expect(decideEdit({ filePath: "lib/plan-resolve.ts", contract: contract() }).decision).toBe("allow");
   });
 
   it("asks for a file outside the declared scope, naming the file", () => {
-    const d = decideEdit({ filePath: "bin/mcp.ts", enabled: true, contract: contract() });
+    const d = decideEdit({ filePath: "bin/mcp.ts", contract: contract() });
     expect(d.decision).toBe("ask");
     expect(d.reason).toContain("bin/mcp.ts");
   });
@@ -42,28 +37,13 @@ describe("decideEdit (pure)", () => {
   it("allows a file that was previously authorized (joined the contract)", () => {
     const d = decideEdit({
       filePath: "intel/pipeline.ts",
-      enabled: true,
       contract: contract({ authorizedExtras: ["intel/pipeline.ts"] }),
     });
     expect(d.decision).toBe("allow");
   });
 
   it("fails open when the contract declares no files", () => {
-    const d = decideEdit({
-      filePath: "anything.ts",
-      enabled: true,
-      contract: contract({ declaredFiles: [] }),
-    });
-    expect(d.decision).toBe("allow");
-  });
-
-  it("allows a file brought in by tolerance (blast-radius expansion)", () => {
-    const d = decideEdit({
-      filePath: "lib/db.ts",
-      enabled: true,
-      contract: contract(),
-      extraAllowed: ["lib/db.ts"],
-    });
+    const d = decideEdit({ filePath: "anything.ts", contract: contract({ declaredFiles: [] }) });
     expect(d.decision).toBe("allow");
   });
 });
@@ -96,5 +76,26 @@ describe("contract store", () => {
     await writeContract({ planId: "plan0001", declaredFiles: ["a.ts"] });
     await retireContract("plan0001");
     expect(await getActiveContract()).toBeNull();
+  });
+});
+
+// The Changes view ties to the SELECTED plan (not always the executing one): a past plan's saved
+// file list must be readable even though it is no longer the active contract.
+describe("getContractByPlanId / contractFiles (Changes ↔ selected plan)", () => {
+  it("reads a specific plan's contract after a newer plan retired it", async () => {
+    await writeContract({ planId: "plan0001", declaredFiles: ["a.ts"] });
+    await writeContract({ planId: "plan0002", declaredFiles: ["c.ts"] }); // becomes active, retires 0001
+    const past = await getContractByPlanId("plan0001");
+    expect(past?.planId).toBe("plan0001");
+    expect(past?.declaredFiles).toEqual(["a.ts"]);
+    expect(await getContractByPlanId("missing")).toBeNull();
+  });
+
+  it("contractFiles de-dupes declared ∪ authorized and sorts", async () => {
+    await writeContract({ planId: "plan0001", declaredFiles: ["b.ts", "a.ts"] });
+    await authorizeFile("plan0001", "a.ts"); // duplicates a declared file
+    await authorizeFile("plan0001", "c.ts");
+    const c = await getContractByPlanId("plan0001");
+    expect(contractFiles(c!)).toEqual(["a.ts", "b.ts", "c.ts"]);
   });
 });

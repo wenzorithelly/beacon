@@ -62,3 +62,19 @@ export function resolveFileToken(index: FileIndex, token: string): string[] {
   // A bare basename is a reference ONLY when it is unambiguous (matches exactly one file).
   return candidates.length === 1 ? [candidates[0]] : [];
 }
+
+/**
+ * Scan plan/description prose for backticked tokens that resolve to exactly one real repo file,
+ * returning the de-duplicated, sorted file set. Used to seed a plan's scope contract from the
+ * files it NAMES when it ships no explicit `contract` array — the same deterministic resolver the
+ * renderer uses to linkify mentions, so "the plan's scope" == "the files the plan points at".
+ */
+export function resolveMentionedFiles(markdown: string, paths: string[]): string[] {
+  const index = buildFileIndex(paths);
+  const out = new Set<string>();
+  for (const m of markdown.matchAll(/`([^`\n]+)`/g)) {
+    const hits = resolveFileToken(index, m[1]);
+    if (hits.length === 1) out.add(hits[0]);
+  }
+  return [...out].sort();
+}

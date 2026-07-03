@@ -29,8 +29,8 @@ import {
   readStoredAnnotations,
 } from "@/lib/plan-annotations-store";
 import { bumpVersion } from "@/lib/ingest";
-import { getFlag } from "@/lib/feature-flags";
 import { writeContract } from "@/lib/scope-contract";
+import { resolveMentionedFiles } from "@/lib/file-mention";
 
 // The unification core for the plan feedback loop. EVERY terminal action (approve / discard)
 // from EVERY entry point (/plan buttons, the /db canvas buttons) routes through approvePlan /
@@ -95,11 +95,27 @@ export async function approvePlan(opts?: { doc?: DraftDoc | null }): Promise<{
   // prune-planned) AND used as the archive id, so board ↔ history correlate directly.
   const planId = randomUUID().slice(0, 8);
 
-  // Freeze the agent's declared scope into this plan's contract — but only while the scope-guard
-  // flag is on, so we don't accrue empty contract rows when the feature is unused. Approval is the
-  // human's ratification of the declared scope; from here only the user can widen it.
-  if ((await getFlag("scope-guard")).enabled) {
-    await writeContract({ planId, declaredFiles: meta?.contractFiles ?? [] });
+  // Every approval writes this plan's contract — the durable tie between the plan and the changes
+  // that follow (the /plan Changes view groups edits On-plan vs Strayed against it; the always-on
+  // scope-guard hook gates off-scope edits and grows it). Scope is the plan's explicit `contract`
+  // array, or — when it ships none — the real repo files the plan NAMES in backticks (same resolver
+  // the prose uses to linkify), so the tie exists even for plans that never declared a contract.
+  let declaredFiles = meta?.contractFiles ?? [];
+  // The plan-verdict written at the end of this function is the signal the terminal session is
+  // BLOCKED on — writing the scope contract must never be able to prevent it. This block does I/O
+  // (a codeFile query + resolveMentionedFiles) that can throw for some workspaces; before it was
+  // flag-gated and usually skipped, so making it run on every approval added a way for approvePlan
+  // to throw BEFORE writePlanVerdict — leaving the browser showing "Plan approved" while the
+  // terminal is never notified. Isolate it: degrade to no contract, but always reach the verdict.
+  try {
+    if (declaredFiles.length === 0 && snap.markdown) {
+      const repoPaths = (await db.query.codeFile.findMany({ columns: { path: true } })).map((f) => f.path);
+      declaredFiles = resolveMentionedFiles(snap.markdown, repoPaths);
+    }
+    await writeContract({ planId, declaredFiles });
+  } catch (e) {
+    console.error("[approvePlan] scope-contract write failed; approving without it", e);
+    declaredFiles = [];
   }
 
   const dbCount = doc ? await approveDraft(doc, db, { planId }) : null;
@@ -140,6 +156,9 @@ export async function approvePlan(opts?: { doc?: DraftDoc | null }): Promise<{
     verdict: "approved",
     annotations: snap.annotations,
     globalComment: snap.globalComment,
+    // Save this plan's file-path list with the archive — the Changes view shows it when the plan
+    // isn't the one executing (its live diff is gone). Same set the contract freezes.
+    files: declaredFiles,
     draftDoc: snap.draftDoc,
     featureGraph: snap.featureGraph,
   });

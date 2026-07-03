@@ -1,6 +1,7 @@
 import { listHistory, readArchivedPlan } from "@/lib/plan-history";
 import { runWithWorkspace } from "@/lib/db-drizzle";
 import { workspaceIdFromRequest } from "@/lib/workspaces";
+import { getActiveContract } from "@/lib/scope-contract";
 
 export const dynamic = "force-dynamic";
 
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 // the request's workspace (browser cookie / agent header) so history scopes to the dropdown
 // selection, not the global active workspace.
 export async function GET(req: Request) {
-  return runWithWorkspace(workspaceIdFromRequest(req), () => {
+  return runWithWorkspace(workspaceIdFromRequest(req), async () => {
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
     if (id) {
@@ -22,6 +23,9 @@ export async function GET(req: Request) {
       verdict: p.verdict,
       archivedAt: p.archivedAt,
     }));
-    return Response.json({ items });
+    // Which archived plan is the one currently being executed (its contract is still active) — the
+    // history sidebar badges it, and the Changes tab shows ITS live diff (others show a saved list).
+    const activePlanId = (await getActiveContract())?.planId ?? null;
+    return Response.json({ items, activePlanId });
   });
 }

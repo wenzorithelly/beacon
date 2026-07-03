@@ -8,11 +8,10 @@ process.env.BEACON_DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-plan-contract-"
 
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { node } from "@/lib/drizzle/schema";
+import { node, codeFile } from "@/lib/drizzle/schema";
 import { POST as planPost, DELETE as planDelete } from "@/app/api/plan/route";
 import { POST as describePost } from "@/app/api/map/describe/route";
 import { approvePlan } from "@/lib/plan-resolve";
-import { setFlag } from "@/lib/feature-flags";
 import { getActiveContract } from "@/lib/scope-contract";
 import { resetDb } from "./helpers";
 
@@ -32,8 +31,7 @@ describe("freezing a plan's scope contract on approval", () => {
     await db.delete(node).where(eq(node.view, "ROADMAP"));
   });
 
-  it("freezes the declared files into the active contract when the guard is on", async () => {
-    await setFlag("scope-guard", { enabled: true });
+  it("freezes the plan's explicit declared files into the active contract on approval", async () => {
     await planPost(
       reqJson({
         description: "Add scope guard",
@@ -49,15 +47,26 @@ describe("freezing a plan's scope contract on approval", () => {
     expect(active?.planId).toBeTruthy();
   });
 
-  it("writes no contract when the guard is off", async () => {
-    await setFlag("scope-guard", { enabled: false });
+  it("writes the contract on every approval (no flag) from the plan's explicit contract array", async () => {
     await planPost(reqJson({ description: "Add billing", markdown: "# Plan", contract: ["lib/x.ts"] }));
     await approvePlan();
-    expect(await getActiveContract()).toBeNull();
+    const active = await getActiveContract();
+    expect(active).not.toBeNull();
+    expect(active?.declaredFiles).toEqual(["lib/x.ts"]);
+  });
+
+  it("seeds declaredFiles from backticked file mentions when the plan declares no contract", async () => {
+    // The mention resolver only trusts tokens that name a REAL repo file.
+    await db
+      .insert(codeFile)
+      .values({ path: "lib/real-file.ts", lang: "typescript", x: 0, y: 0, inDegree: 0, outDegree: 0, updatedAt: new Date() });
+    await planPost(reqJson({ description: "Touch it", markdown: "We edit `lib/real-file.ts` and `not-a-real.ts`." }));
+    await approvePlan();
+    const active = await getActiveContract();
+    expect(active?.declaredFiles).toEqual(["lib/real-file.ts"]);
   });
 
   it("retires the active contract when the work is registered done", async () => {
-    await setFlag("scope-guard", { enabled: true });
     await planPost(reqJson({ description: "Add scope guard", markdown: "# Plan", contract: ["lib/a.ts"] }));
     await approvePlan();
     expect(await getActiveContract()).not.toBeNull();

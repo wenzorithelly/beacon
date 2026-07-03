@@ -21,8 +21,8 @@ export interface PlanMeta {
   // /api/plan recognise an identical re-push (a crashed/resumed session) and NOT reset the
   // round, so in-flight feedback survives.
   contentHash?: string;
-  // Repo-relative files the agent declared this plan will touch (the scope contract). Frozen
-  // into a PlanContract row at approval when the scope-guard flag is on.
+  // Repo-relative files the agent declared this plan will touch (the scope contract). Frozen into
+  // a PlanContract row on approval (falls back to the files the plan names in backticks).
   contractFiles?: string[];
 }
 

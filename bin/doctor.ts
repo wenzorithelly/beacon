@@ -151,8 +151,7 @@ if (!repoAudit) {
   console.log(`  ${dim("not registered with Beacon and no .mcp.json — run `beacon` here to wire it.")}`);
 } else {
   console.log(`  ${repoAudit.mcpRegistered ? ok(".mcp.json has beacon entry") : bad(".mcp.json missing beacon entry")}`);
-  console.log(`  ${repoAudit.agentsMdBlock ? ok("AGENTS.md has Beacon workflow block") : bad("AGENTS.md missing Beacon workflow block")}`);
-  console.log(`  ${repoAudit.claudeMdImport ? ok("CLAUDE.md @-imports AGENTS.md") : bad("CLAUDE.md does NOT @-import AGENTS.md")}`);
+  console.log(`  ${repoAudit.workflowBlock ? ok("AGENTS.md / CLAUDE.md has Beacon workflow block") : bad("AGENTS.md / CLAUDE.md missing Beacon workflow block")}`);
   console.log(`  ${repoAudit.skills["beacon-init"] ? ok("skill beacon-init (repo)") : bad("skill beacon-init (repo) — missing")}`);
   console.log(`  ${repoAudit.skills["beacon-refresh"] ? ok("skill beacon-refresh (repo)") : bad("skill beacon-refresh (repo) — missing")}`);
   if (codex) {
@@ -173,8 +172,7 @@ const anyMissing =
     : false) ||
   (repoAudit
     ? !repoAudit.mcpRegistered ||
-      !repoAudit.agentsMdBlock ||
-      !repoAudit.claudeMdImport ||
+      !repoAudit.workflowBlock ||
       !repoAudit.skills["beacon-init"] ||
       !repoAudit.skills["beacon-refresh"] ||
       (codex ? !repoAudit.codexSkills["beacon-init"] || !repoAudit.codexSkills["beacon-refresh"] : false)

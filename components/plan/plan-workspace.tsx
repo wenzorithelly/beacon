@@ -14,6 +14,7 @@ import {
   Maximize2,
   Minimize2,
   HelpCircle,
+  GitCompare,
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -26,6 +27,10 @@ import {
 } from "@/components/plan/annotation-panel";
 import type { MapClientHandle } from "@/components/graph/map-client";
 import { PlanHistoryView } from "@/components/plan/plan-history-view";
+import { ChangesClient, PlanFilesList } from "@/components/changes/changes-client";
+import type { ChangedFile } from "@/lib/changes";
+import type { TouchedMap } from "@/lib/touched-files";
+import type { ViewedMap } from "@/lib/viewed-files";
 import { FileMentionProvider } from "@/components/plan/markdown-view";
 import { SharePlanButton } from "@/components/share/share-plan-button";
 import { TabBtn } from "@/components/ui/tab-button";
@@ -74,6 +79,10 @@ export function PlanWorkspace({
   planMarkdown,
   repoFiles = [],
   forceHistory = false,
+  changesView = false,
+  changes = null,
+  contract = null,
+  planFiles = null,
 }: {
   dbProps: DbProps;
   mapProps: MapProps;
@@ -85,6 +94,16 @@ export function PlanWorkspace({
   // though a plan is pending. The history view then shows a back-link returning to the
   // current plan.
   forceHistory?: boolean;
+  // /plan?view=changes → the live execution Changes view (part of the plan lifecycle: watch the
+  // diffs land after you approve). `changes` is the working-tree change list, computed server-side
+  // and enriched with importer counts + the touched/viewed maps for the Mission Control overview.
+  changesView?: boolean;
+  changes?: { repo: boolean; files: ChangedFile[]; touched: TouchedMap; viewed: ViewedMap } | null;
+  // The active plan's scope contract — the Changes view groups edits On-plan vs Strayed against it.
+  contract?: { declaredFiles: string[]; authorizedExtras: string[] } | null;
+  // A non-executing plan selected in history: its SAVED file-path list, shown instead of a live
+  // diff (which only exists for the plan currently executing).
+  planFiles?: string[] | null;
 }) {
   const router = useRouter();
   const { status, discard } = usePlan();
@@ -125,8 +144,28 @@ export function PlanWorkspace({
   // Guards the post-approval auto-nav: a manual button click (or "Done") sets this so the 3s
   // timer below doesn't override where the user chose to go.
   const navedRef = useRef(false);
+  // Set when an approve did NOT confirm — so we never show the "Plan approved" card while the
+  // terminal was actually left waiting (the exact failure the user hit).
+  const [approveError, setApproveError] = useState<string | null>(null);
   const doApprove = useCallback(async () => {
-    await fetch("/api/plan/approve", { method: "POST", headers: wsHeaders(currentPlanWs()) }).catch(() => {});
+    setApproveError(null);
+    const ws = currentPlanWs();
+    try {
+      const res = await fetch("/api/plan/approve", { method: "POST", headers: wsHeaders(ws) });
+      if (!res.ok) throw new Error(`approve ${res.status}`);
+      // Confirm the plan-verdict the terminal is polling actually landed before declaring success.
+      // Without this, a swallowed server error (or an approval written where the poller isn't
+      // looking) still flips the UI to "Plan approved" while the terminal session hangs.
+      const v = (await fetch("/api/plan/verdict", { headers: wsHeaders(ws), cache: "no-store" })
+        .then((r) => r.json())
+        .catch(() => null)) as { kind?: string } | null;
+      if (v?.kind !== "approved") throw new Error("verdict not confirmed");
+    } catch {
+      setApproveError(
+        "Approval didn't reach your terminal session — it wasn't confirmed. Please try Approve again.",
+      );
+      return;
+    }
     setApprovedSummary({ features: status.features, tables: status.tables, endpoints: status.endpoints });
   }, [status.features, status.tables, status.endpoints]);
   // After approval, hold the "Plan approved" card for 3s so the user registers what landed, then
@@ -349,10 +388,50 @@ export function PlanWorkspace({
   };
 
   // Stay mounted while the post-approval "where to find it" card is up (it navigates on click).
-  if ((!status.pending || forceHistory) && !approvedSummary) {
+  // The no-pending-plan surface toggles between plan history and the live execution Changes view
+  // (also reachable while a plan is pending via ?view=changes).
+  if ((!status.pending || forceHistory || changesView) && !approvedSummary) {
     return (
       <FileMentionProvider files={repoFiles}>
-        <PlanHistoryView pendingPlan={status.pending} workspaceId={dbProps.workspaceId} />
+        {/* History ↔ Changes toggle. Watching the agent execute what you approved is part of the
+            plan lifecycle, so it lives here — flip to Changes to see the diffs land, back to
+            History to browse past plans. */}
+        <div className="pointer-events-none fixed left-1/2 top-3 z-30 -translate-x-1/2">
+          <div className="glass pointer-events-auto flex items-center gap-0.5 rounded-full p-0.5">
+            <TabBtn
+              active={!changesView}
+              onClick={() => router.push(planHref({ view: "history" }))}
+              icon={<Archive className="size-3" />}
+            >
+              Plan history
+            </TabBtn>
+            <TabBtn
+              active={changesView}
+              onClick={() => router.push(planHref({ view: "changes" }))}
+              icon={<GitCompare className="size-3" />}
+            >
+              Changes
+            </TabBtn>
+          </div>
+        </div>
+        {changesView && planFiles ? (
+          // A non-executing plan was selected — show its saved file list, not a live diff.
+          <div className="flex h-screen min-h-0 flex-col pt-14">
+            <PlanFilesList files={planFiles} />
+          </div>
+        ) : changesView && changes ? (
+          <div className="flex h-screen min-h-0 flex-col pt-14">
+            <ChangesClient
+              repo={changes.repo}
+              files={changes.files}
+              touched={changes.touched}
+              viewed={changes.viewed}
+              contract={contract}
+            />
+          </div>
+        ) : (
+          <PlanHistoryView pendingPlan={status.pending} workspaceId={dbProps.workspaceId} />
+        )}
       </FileMentionProvider>
     );
   }
@@ -381,6 +460,13 @@ export function PlanWorkspace({
 
   return (
     <div className="relative flex h-screen flex-col">
+      {/* An approval that didn't confirm surfaces here instead of silently flipping to the
+          "Plan approved" card — so the terminal is never left waiting without the user knowing. */}
+      {approveError && (
+        <div className="fixed bottom-4 left-1/2 z-[60] -translate-x-1/2 rounded-lg border border-red-500/40 bg-red-500/15 px-4 py-2 text-sm text-red-200 shadow-xl backdrop-blur">
+          {approveError}
+        </div>
+      )}
       {/* Post-approval "where to find it" card — the committed plan disappears from /plan, so
           this tells the user exactly which board now holds what they approved. */}
       {approvedSummary && (
@@ -423,6 +509,16 @@ export function PlanWorkspace({
                 {approvedSummary.endpoints === 1 ? "" : "s"} → Database
               </button>
             )}
+            {/* Jump straight to watching the agent execute what was just approved. */}
+            <button
+              onClick={() => {
+                navedRef.current = true;
+                router.push(planHref({ view: "changes" }));
+              }}
+              className="flex items-center gap-2 rounded-lg border border-white/12 px-3 py-2 text-sm text-foreground transition-colors hover:bg-white/[0.06]"
+            >
+              <GitCompare className="size-4 text-[#ff7a45]" /> Watch changes
+            </button>
           </div>
           <button
             onClick={() => {

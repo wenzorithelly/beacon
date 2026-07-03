@@ -32,6 +32,25 @@ export async function getActiveContract(prisma: DB = db): Promise<ActiveContract
   };
 }
 
+// A specific plan's contract by its planId (= its archive id). Lets the Changes view scope to a
+// plan the user SELECTED in history, not just the one currently executing. Returns null for a
+// plan that carried no contract (e.g. a discarded plan).
+export async function getContractByPlanId(planId: string, prisma: DB = db): Promise<ActiveContract | null> {
+  const row = await prisma.query.planContract.findFirst({ where: (t, { eq }) => eq(t.planId, planId) });
+  if (!row) return null;
+  return {
+    planId: row.planId,
+    declaredFiles: parseList(row.declaredFiles),
+    authorizedExtras: parseList(row.authorizedExtras),
+  };
+}
+
+// The files a plan declared (declared ∪ user-authorized extras), de-duped and sorted — the list
+// the Changes view shows for a plan that ISN'T the one currently executing (its live diff is gone).
+export function contractFiles(c: ActiveContract): string[] {
+  return Array.from(new Set([...c.declaredFiles, ...c.authorizedExtras])).sort((a, b) => a.localeCompare(b));
+}
+
 export async function writeContract(
   input: { planId: string; declaredFiles: string[] },
   prisma: DB = db,
@@ -74,21 +93,19 @@ export async function retireActiveContract(prisma: DB = db): Promise<void> {
 }
 
 // ── Pure decision core ───────────────────────────────────────────────────────
-// Kept pure (no db) so it's unit-testable and the same logic can run anywhere. The caller resolves
-// the active contract + any tolerance/blast-radius expansion (`extraAllowed`) and the toggle state.
+// Kept pure (no db) so it's unit-testable and the same logic can run anywhere. Always-on: the
+// caller only resolves the active contract — there is no toggle. Fail-open when there's no active
+// contract or it declared nothing.
 export interface DecideEditInput {
   /** repo-relative POSIX path of the file about to be edited */
   filePath: string;
-  enabled: boolean;
   contract: ActiveContract | null;
-  /** files brought in-scope by the tolerance knob (declared files' depth-N blast radius) */
-  extraAllowed?: string[];
 }
 
 export function decideEdit(input: DecideEditInput): { decision: "allow" | "ask"; reason?: string } {
-  const { filePath, enabled, contract, extraAllowed = [] } = input;
-  if (!enabled || !contract) return { decision: "allow" };
-  const allowed = new Set([...contract.declaredFiles, ...contract.authorizedExtras, ...extraAllowed]);
+  const { filePath, contract } = input;
+  if (!contract) return { decision: "allow" };
+  const allowed = new Set([...contract.declaredFiles, ...contract.authorizedExtras]);
   if (allowed.size === 0) return { decision: "allow" }; // fail-open: nothing was declared
   if (allowed.has(filePath)) return { decision: "allow" };
   return {

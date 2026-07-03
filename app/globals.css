@@ -491,3 +491,52 @@
   text-decoration-color: rgb(252 165 165 / 0.7);
   text-decoration-thickness: 2px;
 }
+
+/* Dark theme for react-diff-view on the /changes execution view. react-diff-view ships a light
+   theme via CSS variables; remap them to Beacon's dark palette (emerald add / rose delete, glassy
+   context, geist mono). Scoped to .beacon-diff so nothing else is affected. */
+.beacon-diff {
+  --diff-background-color: transparent;
+  --diff-text-color: var(--foreground);
+  --diff-font-family: var(--font-mono);
+  --diff-selection-background-color: rgb(255 255 255 / 0.10);
+  --diff-gutter-insert-background-color: rgb(52 211 153 / 0.10);
+  --diff-gutter-insert-text-color: rgb(52 211 153 / 0.75);
+  --diff-gutter-delete-background-color: rgb(251 113 133 / 0.10);
+  --diff-gutter-delete-text-color: rgb(251 113 133 / 0.75);
+  --diff-code-insert-background-color: rgb(52 211 153 / 0.12);
+  --diff-code-insert-text-color: var(--foreground);
+  --diff-code-delete-background-color: rgb(251 113 133 / 0.12);
+  --diff-code-delete-text-color: var(--foreground);
+  --diff-code-insert-edit-background-color: rgb(52 211 153 / 0.30);
+  --diff-code-insert-edit-text-color: #eafff5;
+  --diff-code-delete-edit-background-color: rgb(251 113 133 / 0.30);
+  --diff-code-delete-edit-text-color: #fff0f2;
+  --diff-code-selected-background-color: rgb(255 255 255 / 0.08);
+  --diff-gutter-selected-background-color: rgb(255 255 255 / 0.10);
+  --diff-omit-gutter-line-color: rgb(255 255 255 / 0.18);
+  font-size: 12px;
+  background: transparent;
+}
+/* Context (normal) rows: keep gutters muted and code readable on the dark surface, and drop the
+   light-theme cell borders. */
+.beacon-diff .diff-gutter {
+  color: var(--muted-foreground);
+}
+.beacon-diff .diff-code {
+  color: var(--foreground);
+}
+.beacon-diff .diff-hunk-header {
+  background: rgb(255 255 255 / 0.03);
+  color: var(--muted-foreground);
+  border-color: rgb(255 255 255 / 0.08);
+}
+/* Changes view: the one sanctioned motion — a card arriving/updating (change-blindness transient). */
+@keyframes card-arrive {
+  0% {
+    background-color: rgb(255 122 69 / 0.14);
+  }
+  100% {
+    background-color: transparent;
+  }
+}

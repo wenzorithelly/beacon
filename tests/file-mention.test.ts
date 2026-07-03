@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildFileIndex, resolveFileToken } from "@/lib/file-mention";
+import { buildFileIndex, resolveFileToken, resolveMentionedFiles } from "@/lib/file-mention";
 
 // A small repo: several files share the basename `route.ts`, two share a longer suffix
 // (`[id]/route.ts`) for the path-qualified-ambiguity (dropdown) case, plus uniquely-named files.
@@ -70,5 +70,29 @@ describe("resolveFileToken", () => {
 
   it("returns no candidates against an empty index", () => {
     expect(resolveFileToken(buildFileIndex([]), "lib/db.ts")).toEqual([]);
+  });
+});
+
+describe("resolveMentionedFiles (scope-contract seed)", () => {
+  it("collects backticked tokens that resolve to exactly one real file, sorted + deduped", () => {
+    const md = "We edit `lib/db.ts` and `components/plan/markdown-view.tsx`, then `lib/db.ts` again.";
+    expect(resolveMentionedFiles(md, FILES)).toEqual([
+      "components/plan/markdown-view.tsx",
+      "lib/db.ts",
+    ]);
+  });
+
+  it("ignores ambiguous bare names, prose, and non-existent paths", () => {
+    const md = "Touch `route.ts` (ambiguous) and `lib/does-not-exist.ts`; also the `plan` page.";
+    expect(resolveMentionedFiles(md, FILES)).toEqual([]);
+  });
+
+  it("resolves a path-qualified token and strips a :line suffix", () => {
+    const md = "See `app/api/plan/route.ts:42` for the handler.";
+    expect(resolveMentionedFiles(md, FILES)).toEqual(["app/api/plan/route.ts"]);
+  });
+
+  it("returns nothing for prose with no code spans", () => {
+    expect(resolveMentionedFiles("Just a plain sentence.", FILES)).toEqual([]);
   });
 });

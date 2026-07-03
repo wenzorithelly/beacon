@@ -6,6 +6,10 @@ import { getFeatureDraft } from "@/lib/feature-design";
 import { synthesizePlanMarkdown } from "@/lib/plan-markdown";
 import { extractBeaconBlock } from "@/lib/plan-block";
 import { resolveHasFrontend } from "@/lib/project-meta";
+import { computeChanges } from "@/lib/changes";
+import { readViewedMap } from "@/lib/viewed-files";
+import { contractFiles, getActiveContract, getContractByPlanId } from "@/lib/scope-contract";
+import { readArchivedPlan } from "@/lib/plan-history";
 import { dataDir } from "@/lib/project";
 import { currentWorkspace } from "@/lib/workspaces";
 import { resolvePlanWorkspaceId } from "@/lib/request-workspace";
@@ -33,6 +37,10 @@ export default async function PlanPage({
 }) {
   const params = (await searchParams) ?? {};
   const forceHistory = params.view === "history";
+  const changesView = params.view === "changes";
+  // The plan the user selected in history (`?plan`) — the Changes view ties to it. Absent → the
+  // plan currently executing.
+  const planParam = typeof params.plan === "string" ? params.plan : undefined;
   // Pin the whole render to THIS tab's workspace: the `?ws=<id>` param (set by the ExitPlanMode
   // hook) wins so two concurrent agent plans don't collide on the single shared cookie, then the
   // cookie, then the global active workspace. The client reads the same `?ws` to header-pin its
@@ -152,6 +160,49 @@ export default async function PlanPage({
       metaMarkdown ?? synthesizePlanMarkdown(description, draft, featureDraft);
 
     const hasFrontend = await resolveHasFrontend();
+    // ── Changes view ────────────────────────────────────────────────────────────
+    // The LIVE working-tree diff only means something for the plan currently EXECUTING (its
+    // contract is active). If the user selected a different (past) plan in history, its live diff
+    // is gone — so we show that plan's SAVED file-path list instead. Computed only when requested
+    // so a normal plan render never shells git.
+    const activeContract = changesView ? await getActiveContract() : null;
+    const activePlanId = activeContract?.planId ?? null;
+    const selectedPlanId = planParam ?? activePlanId;
+    // Live diff when nothing is selected, or the selection IS the executing plan.
+    const showLiveDiff = changesView && (!selectedPlanId || selectedPlanId === activePlanId);
+    const changes = showLiveDiff
+      ? await (async () => {
+          const c = computeChanges();
+          // Importer counts from the live code graph — the "does this break something
+          // elsewhere?" signal (CodeFile.inDegree is maintained by the intel daemon).
+          const degrees = new Map(
+            (await db.query.codeFile.findMany({ columns: { path: true, inDegree: true } })).map((r) => [r.path, r.inDegree]),
+          );
+          return {
+            repo: c.repo,
+            files: c.files.map((f) => ({ ...f, inDegree: degrees.get(f.path) ?? 0 })),
+            touched: c.touched,
+            viewed: readViewedMap(),
+          };
+        })()
+      : null;
+    // The active plan's scope contract ties the live diff to THIS plan: the diff groups edits
+    // On-plan (declaredFiles ∪ authorizedExtras) vs Strayed against it.
+    const contract =
+      showLiveDiff && activeContract
+        ? { declaredFiles: activeContract.declaredFiles, authorizedExtras: activeContract.authorizedExtras }
+        : null;
+    // A non-executing plan selected in history: its saved file list (persisted on the archive at
+    // approval; fall back to its contract for plans archived before that field existed).
+    let planFiles: string[] | null = null;
+    if (changesView && !showLiveDiff && selectedPlanId) {
+      const archived = readArchivedPlan(selectedPlanId);
+      if (archived?.files?.length) planFiles = archived.files;
+      else {
+        const c = await getContractByPlanId(selectedPlanId);
+        planFiles = c ? contractFiles(c) : [];
+      }
+    }
     return (
       <PlanWorkspace
         dbProps={{ tables, relations, endpoints, draft, workspaceId, diffBase }}
@@ -159,6 +210,10 @@ export default async function PlanPage({
         planMarkdown={planMarkdown}
         repoFiles={repoFiles}
         forceHistory={forceHistory}
+        changesView={changesView}
+        changes={changes}
+        contract={contract}
+        planFiles={planFiles}
       />
     );
   });

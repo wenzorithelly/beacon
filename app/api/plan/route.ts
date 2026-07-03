@@ -27,8 +27,8 @@ const planSchema = z.object({
   markdown: z.string().optional(),
   draft: draftSchema.optional(),
   features: featureSchema.shape.features.optional(),
-  // Repo-relative files the agent declares this plan will touch (the scope contract). Frozen at
-  // approval when the scope-guard flag is on. Also accepted inside the ```beacon block.
+  // Repo-relative files the agent declares this plan will touch (the scope contract). Frozen into
+  // the PlanContract on approval. Also accepted inside the ```beacon block.
   contract: z.array(z.string().trim().min(1)).optional(),
 });
 

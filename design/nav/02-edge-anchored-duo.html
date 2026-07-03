@@ -1,0 +1,126 @@
+<!-- @dsCard group="Navigation" name="Edge-anchored duo" subtitle="Nav left edge · view tabs top-right · canvas tools row below tabs" viewport="1320x600" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Beacon nav — Edge-anchored duo</title>
+<style>
+  :root{--bg:oklch(0.205 0 0);--card:oklch(0.255 0 0);--fg:oklch(0.985 0 0);--muted:oklch(0.708 0 0);--accent:#ff7a45;--emerald:#6ee7b7;--border:rgba(255,255,255,0.10)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased;padding:34px 30px 40px;letter-spacing:-0.01em}
+  .head{display:flex;align-items:baseline;gap:12px;margin-bottom:4px}
+  h1{font-size:19px;font-weight:600}
+  .tag{font-size:11px;color:var(--accent);border:1px solid rgba(255,122,69,.35);background:rgba(255,122,69,.08);border-radius:999px;padding:3px 9px;font-weight:600}
+  .sub{color:var(--muted);font-size:13px;margin:6px 0 4px;max-width:800px;line-height:1.55}
+  .frame-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:24px 0 8px}
+  .stage{position:relative;border-radius:18px;overflow:hidden;border:1px solid rgba(255,255,255,.06);
+    background:
+      radial-gradient(40rem 26rem at 8% -20%, oklch(0.72 0.15 70 / 0.16), transparent 60%),
+      radial-gradient(34rem 28rem at 112% 4%, oklch(0.6 0.2 300 / 0.13), transparent 55%),
+      radial-gradient(32rem 22rem at 50% 130%, oklch(0.6 0.13 250 / 0.10), transparent 60%),
+      var(--bg)}
+  .stage::before{content:"";position:absolute;inset:0;pointer-events:none;background-image:radial-gradient(circle, rgba(255,255,255,.05) 1px, transparent 1.4px);background-size:22px 22px}
+  .stage.desktop{height:150px}.stage.narrow{height:150px;max-width:560px}
+  .gap-guide{position:absolute;top:0;bottom:0;left:50%;width:1px;background:repeating-linear-gradient(180deg, rgba(255,122,69,.22) 0 5px, transparent 5px 11px);z-index:1}
+  .gap-cap{position:absolute;top:24px;left:50%;transform:translateX(-50%);font-size:10px;color:rgba(255,122,69,.75);background:rgba(255,122,69,.07);border:1px solid rgba(255,122,69,.2);border-radius:999px;padding:2px 8px;white-space:nowrap;z-index:2}
+  .glass{background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015)),color-mix(in oklab, var(--card) 86%, transparent);backdrop-filter:blur(44px) saturate(180%);-webkit-backdrop-filter:blur(44px) saturate(180%);border:1px solid var(--border);box-shadow:0 20px 60px -18px rgba(0,0,0,.82), inset 0 1px 0 rgba(255,255,255,.08)}
+  .bar{position:absolute;display:flex;align-items:center;height:40px;border-radius:999px;z-index:5}
+  .bar.left{top:14px;left:14px}
+  .bar.tabs{top:14px;right:14px;padding:0 6px}
+  /* second row, right-aligned, below the tabs — the existing canvas tools */
+  .toolbar{position:absolute;top:64px;right:14px;display:flex;align-items:center;gap:6px;z-index:5}
+  .tool{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--muted);transition:.15s}
+  .tool svg{width:16px;height:16px}
+  .tool:hover{color:var(--fg)}
+  .tool.on{color:var(--emerald)}
+  .brand{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;padding-left:12px}
+  .divider{width:1px;height:20px;background:rgba(255,255,255,.10);margin:0 8px;flex:none}
+  .ws{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--fg);background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:999px;padding:5px 9px}
+  .ws svg{width:14px;height:14px;color:var(--muted)}.ws .chev{width:13px;height:13px;color:var(--muted)}
+  .links{display:flex;align-items:center;gap:2px}
+  .link{font-size:13px;color:var(--muted);padding:5px 11px;border-radius:999px;text-decoration:none;transition:.15s;white-space:nowrap}
+  .link:hover{color:var(--fg);background:rgba(255,255,255,.04)}
+  .link.active{color:var(--fg);background:rgba(255,255,255,.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+  .iconbtn{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:999px;color:var(--muted);transition:.15s}
+  .iconbtn:hover{color:var(--fg);background:rgba(255,255,255,.04)}.iconbtn svg{width:16px;height:16px}
+  .views{display:flex;align-items:center;gap:2px}
+  .view{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--muted);padding:5px 10px;border-radius:999px;border:1px solid transparent;text-decoration:none;transition:.15s;white-space:nowrap}
+  .view svg{width:13px;height:13px;color:var(--muted)}
+  .view:hover{color:var(--fg);background:rgba(255,255,255,.05)}
+  .view.active{color:var(--fg);background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.10);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+  .view.active svg{color:var(--accent)}
+  .note{font-size:12px;color:var(--muted);margin-top:14px;line-height:1.55;max-width:800px}.note b{color:var(--fg);font-weight:600}
+</style>
+</head>
+<body>
+  <div class="head"><span class="tag">Direction 2 · chosen</span><h1>Edge-anchored duo</h1></div>
+  <p class="sub">Nav locked to the <b>left</b> edge, the view-switcher locked to the <b>top-right</b>. The five canvas tools
+     (search · jump-to-next · share · filters · panel) that share that corner today drop to a <b>second right-aligned row
+     directly below the tabs</b> — same right edge, no longer competing with the tabs for it.</p>
+
+  <div class="frame-label">Desktop ≥ 1024px — nav left · tabs top-right · tools row below tabs</div>
+  <div class="stage desktop">
+    <div class="gap-guide"></div>
+    <div class="gap-cap">always-empty center gutter</div>
+
+    <!-- LEFT: global nav -->
+    <div class="bar left glass">
+      <div class="brand"><svg viewBox="20 22 56 56" width="18" height="18" fill="none"><path d="M48 33 L72.5 73 L23.5 73 Z" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/><circle cx="48" cy="29.5" r="7" fill="var(--accent)"/></svg>Beacon</div>
+      <div class="divider"></div>
+      <div class="ws"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M6 12h6a4 4 0 0 0 4-4"/></svg>copilot-xavier<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div>
+      <div class="divider"></div>
+      <div class="links"><a class="link" href="#">Plans</a><a class="link active" href="#">Map</a><a class="link" href="#">Learn</a><a class="link" href="#">Settings</a></div>
+      <div class="divider"></div>
+      <div class="iconbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l6-6V5a2 2 0 0 0-2-2Z"/><path d="M15 21v-5a1 1 0 0 1 1-1h5"/></svg></div>
+    </div>
+
+    <!-- RIGHT row 1: view tabs -->
+    <div class="bar tabs glass">
+      <a class="view active" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>Roadmap</a>
+      <a class="view" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 7v4M12 11H6v5M12 11h6v5"/></svg>Architecture</a>
+      <a class="view" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg>Database</a>
+      <a class="view" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>Files</a>
+    </div>
+
+    <!-- RIGHT row 2: canvas tools (search · jump-to-next · share · filters · panel) -->
+    <div class="toolbar">
+      <div class="tool glass" title="Find a feature"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div>
+      <div class="tool glass on" title="Jump to next to work on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg></div>
+      <div class="tool glass" title="Share board"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg></div>
+      <div class="tool glass" title="Filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg></div>
+      <div class="tool glass" title="Show panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg></div>
+    </div>
+  </div>
+
+  <div class="frame-label">Narrow ~560px — left pill folds links into ☰; tabs go icon-only; tools stay right, below</div>
+  <div class="stage narrow">
+    <div class="bar left glass">
+      <div class="brand"><svg viewBox="20 22 56 56" width="18" height="18" fill="none"><path d="M48 33 L72.5 73 L23.5 73 Z" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/><circle cx="48" cy="29.5" r="7" fill="var(--accent)"/></svg></div>
+      <div class="divider"></div>
+      <div class="ws" style="padding:5px 8px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M6 12h6a4 4 0 0 0 4-4"/></svg>xavier<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div>
+      <div class="divider"></div>
+      <div class="iconbtn" title="Plans · Learn · Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></div>
+      <div style="width:6px"></div>
+    </div>
+    <div class="bar tabs glass">
+      <a class="view active" title="Roadmap" style="padding:6px 8px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11Z"/><circle cx="12" cy="10" r="2.5"/></svg></a>
+      <a class="view" title="Architecture" style="padding:6px 8px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 7v4M12 11H6v5M12 11h6v5"/></svg></a>
+      <a class="view" title="Database" style="padding:6px 8px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></a>
+      <a class="view" title="Files" style="padding:6px 8px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg></a>
+    </div>
+    <div class="toolbar">
+      <div class="tool glass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div>
+      <div class="tool glass on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg></div>
+      <div class="tool glass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg></div>
+      <div class="tool glass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg></div>
+      <div class="tool glass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg></div>
+    </div>
+  </div>
+
+  <p class="note"><b>Solves it:</b> opposite-edge anchoring removes the shared midpoint that overlaps today; the tools
+     sit on their own row so the tabs own the corner cleanly. <b>Note:</b> the tools row keeps each control as a separate
+     glass square (matching today's toolbar), distinct from the stadium tabs above it. Real controls:
+     <b>search · jump-to-next (emerald) · share · filters · panel</b> from <b>map-client.tsx</b>'s top-right Panel.</p>
+</body>
+</html>

@@ -6,7 +6,6 @@ import { beforeEach, describe, expect, it } from "bun:test";
 process.env.BEACON_DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-divergence-"));
 
 import { POST as touchActive } from "@/app/api/map/touch-active/route";
-import { setFlag } from "@/lib/feature-flags";
 import { writeContract, getActiveContract, retireActiveContract } from "@/lib/scope-contract";
 import { resetDb } from "./helpers";
 
@@ -27,7 +26,6 @@ describe("authorized divergences join the contract (POST /api/map/touch-active)"
   });
 
   it("adds an off-scope touched file to the active contract's authorizedExtras", async () => {
-    await setFlag("scope-guard", { enabled: true });
     await writeContract({ planId: "p1", declaredFiles: ["lib/a.ts"] });
 
     await touch(["bin/mcp.ts"]);
@@ -37,7 +35,6 @@ describe("authorized divergences join the contract (POST /api/map/touch-active)"
   });
 
   it("does not record a declared file as a divergence", async () => {
-    await setFlag("scope-guard", { enabled: true });
     await writeContract({ planId: "p1", declaredFiles: ["lib/a.ts"] });
 
     await touch(["lib/a.ts"]);
@@ -45,12 +42,8 @@ describe("authorized divergences join the contract (POST /api/map/touch-active)"
     expect((await getActiveContract())?.authorizedExtras).toEqual([]);
   });
 
-  it("records nothing when the guard is off", async () => {
-    await setFlag("scope-guard", { enabled: false });
-    await writeContract({ planId: "p1", declaredFiles: ["lib/a.ts"] });
-
+  it("records nothing when there is no active contract", async () => {
     await touch(["bin/mcp.ts"]);
-
-    expect((await getActiveContract())?.authorizedExtras).toEqual([]);
+    expect(await getActiveContract()).toBeNull();
   });
 });

@@ -153,10 +153,11 @@ board on /plan. The board is built ONLY from the block — prose is never parsed
 table/endpoint/feature you mention in the prose into the block, or that board will be empty.
 
 - **Declare your scope.** List the repo-relative files this plan will touch in a top-level
-  \`"contract"\` array in the block (or the \`contract\` arg of \`beacon_propose_plan\`). When the user
-  has the plan scope-guard enabled, those files are frozen at approval and you're held to them while
-  implementing — editing an undeclared file pauses for the user's authorization (which then adds it
-  to the contract). Harmless when the guard is off. Declare the files you genuinely expect to edit.
+  \`"contract"\` array in the block (or the \`contract\` arg of \`beacon_propose_plan\`). Those files are
+  frozen at approval and you're held to them while implementing — editing an undeclared file pauses
+  for the user's authorization (which then adds it to the contract), and the /plan Changes view
+  groups your edits On-plan vs Strayed against them. Declare the files you genuinely expect to edit
+  (if omitted, the scope is inferred from the files you name in backticks).
 
 \`beacon_present_plan\` opens /plan and BLOCKS until the user clicks Approve / Discard / submits
 feedback, then returns their verdict. Implement code or migrations ONLY after it returns approval.
@@ -362,34 +363,61 @@ Pull raw planning data anytime with \`beacon_entities\` (features / architecture
 ${WORKFLOW_MARK_END}`;
 
 /**
- * Ensure the design-first rule lives in <repo>/AGENTS.md (marker block, idempotent),
- * and that CLAUDE.md @imports AGENTS.md so Claude Code always loads it.
+ * Which of {AGENTS.md, CLAUDE.md} Beacon writes its managed block(s) into. Claude Code reads
+ * ONLY CLAUDE.md; Codex/Cursor read AGENTS.md — so the block content lives DIRECTLY in whichever
+ * file(s) the user keeps, duplicated when both are present, instead of an `@AGENTS.md` pointer.
+ *   both exist → both (keep each copy fresh; no pointer indirection)
+ *   one exists → that one (never create the file the user doesn't use)
+ *   neither    → both (bootstrap a fresh repo so every agent reads it)
+ * Both block-writers (this + writeContextFiles) share this so their blocks never split across files.
+ */
+export function contextDocTargets(repo: string): string[] {
+  const agents = join(repo, "AGENTS.md");
+  const claude = join(repo, "CLAUDE.md");
+  const hasA = existsSync(agents);
+  const hasC = existsSync(claude);
+  if (!hasA && !hasC) return [agents, claude];
+  const targets: string[] = [];
+  if (hasA) targets.push(agents);
+  if (hasC) targets.push(claude);
+  return targets;
+}
+
+/** Remove a standalone Beacon `@AGENTS.md` import line from CLAUDE.md (idempotent). We now write the
+ *  block content into each file directly, so the pointer is dead weight. Never blanks out or deletes
+ *  the file: every write flow adds the block before this runs, so real content remains; a
+ *  pointer-ONLY CLAUDE.md keeps its pointer until a full init populates it (then the pointer goes). */
+export function stripAgentsPointer(repo: string): void {
+  const claude = join(repo, "CLAUDE.md");
+  if (!existsSync(claude)) return;
+  const before = readFileSync(claude, "utf8");
+  const stripped = before
+    .split("\n")
+    .filter((l) => !/^\s*@\.?\/?AGENTS\.md\s*$/.test(l))
+    .join("\n")
+    .trim();
+  if (stripped && stripped !== before.trim()) writeFileSync(claude, `${stripped}\n`);
+}
+
+/**
+ * Ensure the design-first workflow rule lives in the repo's context doc(s) — see
+ * {@link contextDocTargets} for which file(s). Marker-delimited + idempotent; never adds a pointer.
  */
 export function ensureWorkflowDoc(repo: string): void {
-  const agents = join(repo, "AGENTS.md");
-  let body = "";
-  try {
-    body = readFileSync(agents, "utf8");
-  } catch {
-    /* new file */
-  }
   const re = new RegExp(`${WORKFLOW_MARK_START}[\\s\\S]*?${WORKFLOW_MARK_END}`);
-  body = re.test(body)
-    ? body.replace(re, WORKFLOW_RULE)
-    : `${body.trim()}\n\n${WORKFLOW_RULE}\n`.trimStart();
-  writeFileSync(agents, body.endsWith("\n") ? body : `${body}\n`);
-
-  // CLAUDE.md must @import AGENTS.md (Claude Code reads CLAUDE.md natively).
-  const claude = join(repo, "CLAUDE.md");
-  let cm = "";
-  try {
-    cm = readFileSync(claude, "utf8");
-  } catch {
-    /* new file */
+  for (const target of contextDocTargets(repo)) {
+    let body = "";
+    try {
+      body = readFileSync(target, "utf8");
+    } catch {
+      /* new file */
+    }
+    body = re.test(body)
+      ? body.replace(re, WORKFLOW_RULE)
+      : `${body.trim()}\n\n${WORKFLOW_RULE}\n`.trimStart();
+    writeFileSync(target, body.endsWith("\n") ? body : `${body}\n`);
   }
-  if (!/@AGENTS\.md/.test(cm)) {
-    writeFileSync(claude, `${cm ? `${cm.trim()}\n\n` : ""}@AGENTS.md\n`);
-  }
+  stripAgentsPointer(repo);
 }
 
 /** Ensure <repo>/.mcp.json registers the Beacon MCP server WITH a per-tool `timeout` (idempotent).
@@ -428,8 +456,8 @@ export function ensureMcp(repo: string): { path: string; added: boolean; updated
 export interface RepoAudit {
   repo: string;
   mcpRegistered: boolean;
-  agentsMdBlock: boolean;
-  claudeMdImport: boolean;
+  /** Workflow block present in AGENTS.md and/or CLAUDE.md (whichever the repo uses). */
+  workflowBlock: boolean;
   skills: {
     "beacon-init": boolean;
     "beacon-refresh": boolean;
@@ -452,23 +480,17 @@ export function auditRepo(repo: string): RepoAudit {
   } catch {
     /* no .mcp.json */
   }
-  let agentsMdBlock = false;
-  try {
-    agentsMdBlock = readFileSync(join(repo, "AGENTS.md"), "utf8").includes(WORKFLOW_MARK_START);
-  } catch {
-    /* no AGENTS.md */
-  }
-  let claudeMdImport = false;
-  try {
-    claudeMdImport = /@AGENTS\.md/.test(readFileSync(join(repo, "CLAUDE.md"), "utf8"));
-  } catch {
-    /* no CLAUDE.md */
-  }
+  const workflowBlock = contextDocTargets(repo).some((f) => {
+    try {
+      return readFileSync(f, "utf8").includes(WORKFLOW_MARK_START);
+    } catch {
+      return false;
+    }
+  });
   return {
     repo,
     mcpRegistered,
-    agentsMdBlock,
-    claudeMdImport,
+    workflowBlock,
     skills: {
       "beacon-init": existsSync(join(repo, ".claude", "skills", "beacon-init", "SKILL.md")),
       "beacon-refresh": existsSync(
@@ -534,19 +556,21 @@ export function removeRepoAssets(repo: string): RepoRemoveResult {
     /* no .mcp.json */
   }
 
-  // AGENTS.md — strip just the marker-bounded block; leave the rest.
+  // AGENTS.md / CLAUDE.md — strip just the marker-bounded workflow block wherever it landed
+  // (the block now lives directly in whichever context doc the repo uses); leave the rest.
   let agentsBlockRemoved = false;
-  const agentsPath = join(repo, "AGENTS.md");
-  try {
-    const body = readFileSync(agentsPath, "utf8");
-    const re = new RegExp(`\\n?${WORKFLOW_MARK_START}[\\s\\S]*?${WORKFLOW_MARK_END}\\n?`);
-    if (re.test(body)) {
-      const out = body.replace(re, "\n").replace(/\n{3,}/g, "\n\n").trimStart();
-      writeFileSync(agentsPath, out.endsWith("\n") ? out : `${out}\n`);
-      agentsBlockRemoved = true;
+  const re = new RegExp(`\\n?${WORKFLOW_MARK_START}[\\s\\S]*?${WORKFLOW_MARK_END}\\n?`);
+  for (const path of [join(repo, "AGENTS.md"), join(repo, "CLAUDE.md")]) {
+    try {
+      const body = readFileSync(path, "utf8");
+      if (re.test(body)) {
+        const out = body.replace(re, "\n").replace(/\n{3,}/g, "\n\n").trimStart();
+        writeFileSync(path, out.endsWith("\n") ? out : `${out}\n`);
+        agentsBlockRemoved = true;
+      }
+    } catch {
+      /* no such context doc */
     }
-  } catch {
-    /* no AGENTS.md */
   }
 
   // CLAUDE.md — drop the `@AGENTS.md` line only when the rest of the file is empty

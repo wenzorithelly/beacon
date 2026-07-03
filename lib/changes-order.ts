@@ -1,4 +1,4 @@
-import type { ChangedFile } from "@/lib/changes";
+import type { ChangedFile } from "@/lib/diff-shared";
 import type { TouchedMap } from "@/lib/touched-files";
 
 // Pure projection logic for the Changes overview's two lenses.

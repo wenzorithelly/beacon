@@ -92,6 +92,10 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
 - GET /api/bug-flags
 - DELETE /api/bug-flags/{id}
 - PATCH /api/bug-flags/{id}
+- DELETE /api/changes/comment
+- GET /api/changes/comment
+- POST /api/changes/comment
+- POST /api/changes/comment/claim
 - POST /api/code-graph/position
 - POST /api/context
 - GET /api/context/feature
@@ -117,10 +121,10 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
 - DELETE /api/lesson/questions
 - GET /api/lesson/questions
 - POST /api/lesson/questions
-- PUT /api/lesson/questions
 - POST /api/lesson/save
 - GET /api/lesson/verdict
 - POST /api/map/describe
+- POST /api/map/files
 
 ### Conventions & gotchas
 - This is Next.js 16 App Router with breaking changes — read node_modules/next/dist/docs/ before relying on memory; APIs and conventions differ from older App Router.

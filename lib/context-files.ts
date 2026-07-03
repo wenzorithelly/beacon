@@ -1,13 +1,14 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { contextDocTargets, stripAgentsPointer } from "@/lib/assets";
 import { db } from "@/lib/db-drizzle";
 import { repoName, repoRoot } from "@/lib/project";
 import { getProjectMeta } from "@/lib/project-meta";
 
-// Generates a Beacon-managed project context block. Writes it to AGENTS.md (the
-// cross-tool standard — read natively by Cursor, Codex, Aider…) and ensures CLAUDE.md
-// @imports AGENTS.md so Claude Code reads it too. Both writes are marker-delimited so
-// they never clobber content you wrote yourself.
+// Generates a Beacon-managed project context block, written DIRECTLY into the repo's context
+// doc(s) — AGENTS.md (cross-tool standard, read by Cursor/Codex/Aider…) and/or CLAUDE.md (the
+// only file Claude Code reads) per contextDocTargets. Marker-delimited so it never clobbers your
+// own content, and it never leaves an `@AGENTS.md` pointer behind.
 
 const START = "<!-- beacon:start -->";
 const END = "<!-- beacon:end -->";
@@ -126,28 +127,23 @@ export function upsertBlock(file: string, block: string, headerIfNew: string) {
   writeFileSync(file, content);
 }
 
-/** Write AGENTS.md (body) + ensure CLAUDE.md @imports it. Returns the files written. */
+/** Write the context block into the repo's context doc(s), strip any stale `@AGENTS.md` pointer,
+ *  and return the files written. */
 export async function writeContextFiles(opts: { onlyIfManaged?: boolean } = {}): Promise<string[]> {
   const root = repoRoot();
-  const agents = join(root, "AGENTS.md");
-  const claude = join(root, "CLAUDE.md");
+  let targets = contextDocTargets(root);
 
-  // In auto/keep-fresh mode, only touch files Beacon already manages.
+  // In auto/keep-fresh mode, only refresh files Beacon already manages — never newly adopt a file
+  // (or bootstrap a fresh repo).
   if (opts.onlyIfManaged) {
-    const managed =
-      existsSync(agents) && readFileSync(agents, "utf8").includes(START);
-    if (!managed) return [];
+    targets = targets.filter((f) => existsSync(f) && readFileSync(f, "utf8").includes(START));
+    if (!targets.length) return [];
   }
 
-  const written: string[] = [];
-  upsertBlock(agents, await buildContext(), "# AGENTS.md");
-  written.push(agents);
-
-  // Ensure Claude Code reads it: CLAUDE.md must @import AGENTS.md.
-  const claudeContent = existsSync(claude) ? readFileSync(claude, "utf8") : "";
-  if (!/@?AGENTS\.md/.test(claudeContent)) {
-    upsertBlock(claude, "@AGENTS.md", "# CLAUDE.md");
-    written.push(claude);
+  const body = await buildContext();
+  for (const target of targets) {
+    upsertBlock(target, body, `# ${basename(target)}`);
   }
-  return written;
+  stripAgentsPointer(root);
+  return targets;
 }

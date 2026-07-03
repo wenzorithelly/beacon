@@ -64,7 +64,7 @@ export const GLOBAL_HOOKS = [
     matcher: "Edit|Write|MultiEdit",
     command: "beacon guard",
     description:
-      "Gate edits against the active plan's scope contract (when the scope-guard flag is on): in-scope → allow, off-scope → ask the user to authorize. No-op + fail-open otherwise.",
+      "Gate edits against the active plan's scope contract: in-scope → allow, off-scope → ask the user to authorize. Fail-open when there's no active contract.",
   },
   {
     event: "PostToolUse" as const,
