@@ -142,8 +142,12 @@ type HookEvent = {
 // mode to the user's saved preference (e.g. bypassPermissions) so they don't drop back to
 // manual approval — see lib/preferences.ts. Fail-open allows (no plan / push failed) pass no
 // mode, leaving the session untouched.
-function permissionAllow(mode?: PermissionMode, additionalContext?: string) {
-  return planAllowOutput(mode, additionalContext);
+function permissionAllow(
+  mode?: PermissionMode,
+  additionalContext?: string,
+  updatedInput?: Record<string, unknown>,
+) {
+  return planAllowOutput(mode, additionalContext, updatedInput);
 }
 function permissionDeny(message: string) {
   return {
@@ -236,9 +240,14 @@ function emit(out: unknown): never {
     // /plan, saved globally in ~/.beacon/preferences.json, changeable in Settings). Hand the
     // approved features' node ids back via additionalContext so the agent registers them done
     // in ONE batched describe call instead of fuzzy-matching titles per feature.
+    // Echo the ExitPlanMode input ({ plan }) back as updatedInput: ExitPlanMode's
+    // requiresUserInteraction() is true, so Claude Code DISCARDS a bare allow and drops to the
+    // native plan menu (the Beacon approval never lands). updatedInput makes CC honor the allow.
     if (v.kind === "approved")
       emit(
-        permissionAllow(readPreferences().planApprovalMode, approvedFeaturesContext(v.features)),
+        permissionAllow(readPreferences().planApprovalMode, approvedFeaturesContext(v.features), {
+          plan,
+        }),
       );
     if (v.kind === "discarded")
       emit(

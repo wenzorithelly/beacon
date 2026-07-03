@@ -73,6 +73,25 @@ describe("planAllowOutput (PermissionRequest hook shape)", () => {
     expect(planAllowOutput("default").hookSpecificOutput.additionalContext).toBeUndefined();
     expect(planAllowOutput("default", "   ").hookSpecificOutput.additionalContext).toBeUndefined();
   });
+
+  // Regression: Claude Code discards a PermissionRequest `allow` for a tool whose
+  // requiresUserInteraction() is true (ExitPlanMode) UNLESS the decision carries `updatedInput`
+  // — it returns null and falls back to the native plan menu, so a Beacon approval never lands
+  // in the terminal. Echoing the tool input back as updatedInput makes CC honor the allow.
+  it("carries updatedInput so an ExitPlanMode allow is honored, not dropped to the native menu", () => {
+    const out = planAllowOutput("bypassPermissions", "ctx", { plan: "# Plan\nbody" });
+    expect(out.hookSpecificOutput.decision.updatedInput).toEqual({ plan: "# Plan\nbody" });
+    // The mode switch + context still ride along.
+    expect(out.hookSpecificOutput.decision.updatedPermissions).toEqual([
+      { type: "setMode", mode: "bypassPermissions", destination: "session" },
+    ]);
+    expect(out.hookSpecificOutput.additionalContext).toBe("ctx");
+  });
+
+  it("omits updatedInput when none is given (unchanged for the ask-bridge fail-open)", () => {
+    expect(planAllowOutput().hookSpecificOutput.decision.updatedInput).toBeUndefined();
+    expect(planAllowOutput("default", "x", {}).hookSpecificOutput.decision.updatedInput).toBeUndefined();
+  });
 });
 
 describe("approvedFeaturesContext (post-approval batch instruction)", () => {

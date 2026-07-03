@@ -50,11 +50,25 @@ export function isPermissionMode(v: unknown): v is PermissionMode {
 // `additionalContext`, when set, is injected into the agent's conversation on allow — Beacon
 // uses it to hand back the approved features' node ids so the agent registers them done in one
 // batched describe call instead of fuzzy-matching titles (valid for allow per the CC hook spec).
-export function planAllowOutput(mode?: PermissionMode | null, additionalContext?: string | null) {
+//
+// `updatedInput` — echo the ORIGINAL tool input back here for a tool whose
+// requiresUserInteraction() is true (ExitPlanMode). Claude Code's PermissionRequest handler
+// DISCARDS a bare `allow` for such a tool (`if (!updatedInput && requiresUserInteraction()) return null`)
+// and falls back to the native plan-approval menu — so a Beacon approval never reaches the
+// terminal. Supplying updatedInput (which must satisfy the tool's input schema, so echo it
+// verbatim) makes CC honor the allow ("Hook satisfied user interaction … via updatedInput,
+// bypassing permission prompt"). Omit it for tools that don't require interaction (the ask bridge).
+export function planAllowOutput(
+  mode?: PermissionMode | null,
+  additionalContext?: string | null,
+  updatedInput?: Record<string, unknown> | null,
+) {
   const decision: {
     behavior: "allow";
+    updatedInput?: Record<string, unknown>;
     updatedPermissions?: { type: "setMode"; mode: PermissionMode; destination: "session" }[];
   } = { behavior: "allow" };
+  if (updatedInput && Object.keys(updatedInput).length > 0) decision.updatedInput = updatedInput;
   if (mode) {
     decision.updatedPermissions = [{ type: "setMode", mode, destination: "session" }];
   }
