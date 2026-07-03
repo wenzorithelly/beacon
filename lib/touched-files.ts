@@ -11,6 +11,10 @@ import { writeJsonAtomic } from "@/lib/atomic-write";
 export interface TouchedEntry {
   count: number;
   lastAt: number;
+  // The agent session that last edited this file (Claude Code session_id, reported by the
+  // PostToolUse hook). Lets diff-comments route to the session that owns the file when several
+  // sessions share one repo. Absent for edits reported by older hook binaries.
+  session?: string;
 }
 export type TouchedMap = Record<string, TouchedEntry>;
 
@@ -43,14 +47,19 @@ function normalizeMap(map: TouchedMap, root: string): TouchedMap {
   return out;
 }
 
-// Pure: bump each path's edit count and stamp lastAt = now. Extracted so it's unit-testable
-// without touching the filesystem.
-export function mergeTouched(prev: TouchedMap, paths: ReadonlyArray<string>, now: number): TouchedMap {
+// Pure: bump each path's edit count, stamp lastAt = now and the editing session. Extracted so
+// it's unit-testable without touching the filesystem.
+export function mergeTouched(
+  prev: TouchedMap,
+  paths: ReadonlyArray<string>,
+  now: number,
+  session?: string,
+): TouchedMap {
   const next: TouchedMap = { ...prev };
   for (const raw of paths) {
     const p = raw.trim();
     if (!p) continue;
-    next[p] = { count: (next[p]?.count ?? 0) + 1, lastAt: now };
+    next[p] = { count: (next[p]?.count ?? 0) + 1, lastAt: now, session: session ?? next[p]?.session };
   }
   return next;
 }
@@ -74,12 +83,22 @@ export function readTouched(now: number = Date.now()): TouchedMap {
   }
 }
 
-export function recordTouched(paths: string[], now: number): TouchedMap {
+export function recordTouched(paths: string[], now: number, session?: string): TouchedMap {
   const root = repoRoot();
   const rel = paths.map((p) => toRepoRelative(p, root)).filter((p): p is string => !!p);
-  const next = mergeTouched(readTouched(), rel, now);
+  const next = mergeTouched(readTouched(), rel, now, session);
   writeJsonAtomic(touchedPath(), next);
   return next;
+}
+
+// Each session's most recent edit — the "is this session still alive?" signal comment routing
+// uses so an owner-locked comment can't be stranded by a closed session.
+export function sessionLastSeen(map: TouchedMap): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const e of Object.values(map)) {
+    if (e.session && e.lastAt > (out.get(e.session) ?? 0)) out.set(e.session, e.lastAt);
+  }
+  return out;
 }
 
 export function clearTouched(): void {

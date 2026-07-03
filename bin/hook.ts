@@ -36,7 +36,9 @@ try {
     await fetch(`${daemonBaseUrl()}/api/map/touch-active`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-beacon-workspace": wsId },
-      body: JSON.stringify({ files }),
+      // session: which agent session made this edit — lets diff-comments route to the session
+      // that owns a file when several sessions share the repo.
+      body: JSON.stringify({ files, session: typeof ev.session_id === "string" ? ev.session_id : undefined }),
     }).catch(() => {});
   }
 } catch {

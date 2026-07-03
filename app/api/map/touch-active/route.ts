@@ -22,8 +22,9 @@ export const POST = pinned(async (req: Request) => {
         : [];
     if (!files.length) return new Response("files required", { status: 400 });
 
-    // Touched-Files overlay: record every edited path with an updated count + timestamp.
-    recordTouched(files, Date.now());
+    // Touched-Files overlay: record every edited path with an updated count + timestamp, and the
+    // editing session (routes diff-comments to the right session in multi-session repos).
+    recordTouched(files, Date.now(), typeof body.session === "string" ? body.session : undefined);
 
     // Scope contract: a touched file OUTSIDE the active contract is a divergence the user just
     // authorized at the pre-edit prompt (the edit went through), so fold it into the contract.

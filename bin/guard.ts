@@ -47,9 +47,11 @@ try {
   const bypass = ev?.permission_mode === "bypassPermissions";
 
   // ONE request per edit: the scope decision AND the user's undelivered Changes-diff
-  // line-comments (claim=1 drains them as non-blocking additionalContext).
+  // line-comments (claim=1 drains them as non-blocking additionalContext; the session id routes
+  // owned comments to THIS session in multi-session repos).
+  const session = typeof ev.session_id === "string" ? ev.session_id : "";
   const res = await fetch(
-    `${base}/api/scope-guard/check?claim=1&file=${encodeURIComponent(typeof file === "string" ? file : "")}`,
+    `${base}/api/scope-guard/check?claim=1&session=${encodeURIComponent(session)}&file=${encodeURIComponent(typeof file === "string" ? file : "")}`,
     { headers },
   ).catch(() => null);
   if (res?.ok) {

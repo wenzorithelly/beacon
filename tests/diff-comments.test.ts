@@ -8,6 +8,8 @@ process.env.BEACON_DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-diff-comments-"
 
 import {
   addDiffComment,
+  claimableBy,
+  OWNER_STALE_MS,
   claimUndeliveredDiffComments,
   clearDiffComments,
   listDiffComments,
@@ -91,5 +93,36 @@ describe("diff-comments store", () => {
     addDiffComment({ file: "a.ts", line: 1, body: "x" });
     clearDiffComments();
     expect(listDiffComments()).toHaveLength(0);
+  });
+});
+
+describe("multi-session routing (claimableBy + session-scoped claim)", () => {
+  const NOW = 1_000_000_000;
+  const seen = new Map([["sessA", NOW - 1000], ["sessB", NOW - 1000]]);
+
+  it("unowned comments and sessionless claims keep the open behavior", () => {
+    expect(claimableBy({ owner: undefined }, "sessA", seen, NOW)).toBe(true);
+    expect(claimableBy({ owner: "sessB" }, undefined, seen, NOW)).toBe(true);
+  });
+
+  it("owned comments go only to their owner while the owner is alive", () => {
+    expect(claimableBy({ owner: "sessA" }, "sessA", seen, NOW)).toBe(true);
+    expect(claimableBy({ owner: "sessA" }, "sessB", seen, NOW)).toBe(false);
+  });
+
+  it("a stale owner's comments become fair game", () => {
+    const stale = new Map([["sessA", NOW - OWNER_STALE_MS - 1]]);
+    expect(claimableBy({ owner: "sessA" }, "sessB", stale, NOW)).toBe(true);
+  });
+
+  it("claim drains only the claiming session's comments; the rest stay pending", () => {
+    addDiffComment({ file: "a.ts", line: 1, body: "for A", owner: "sessA" });
+    addDiffComment({ file: "b.ts", line: 1, body: "for B", owner: "sessB" });
+    addDiffComment({ file: "c.ts", line: 1, body: "for anyone" });
+    const got = claimUndeliveredDiffComments(Date.now(), "sessA", new Map([["sessA", Date.now()], ["sessB", Date.now()]]));
+    expect(got.map((c) => c.body).sort()).toEqual(["for A", "for anyone"]);
+    // B's comment is still waiting for B.
+    const gotB = claimUndeliveredDiffComments(Date.now(), "sessB", new Map([["sessB", Date.now()]]));
+    expect(gotB.map((c) => c.body)).toEqual(["for B"]);
   });
 });

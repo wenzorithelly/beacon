@@ -23,9 +23,30 @@ export interface DiffComment {
   text?: string;
   // Held comments accumulate as a batch — the claim skips them until the user releases the batch.
   held?: boolean;
+  // The agent session that owned the target file when the comment was written (from the
+  // touched-files store). With several sessions in one repo, the claim delivers an owned comment
+  // ONLY to its owner — until the owner goes stale, when any session may take it.
+  owner?: string;
   createdAt: number;
   // Set once the guard hook has surfaced this comment to the agent — never re-delivered after.
   deliveredAt?: number;
+}
+
+// An owner that hasn't edited for this long may be a closed session — its comments become fair
+// game for any session so a note is never stranded.
+export const OWNER_STALE_MS = 10 * 60_000;
+
+// Pure routing decision: may `session` claim this comment? Unowned comments and claims from
+// old guard binaries (no session reported) keep today's behavior — anyone may claim.
+export function claimableBy(
+  c: Pick<DiffComment, "owner">,
+  session: string | undefined,
+  ownerLastSeen: ReadonlyMap<string, number>,
+  now: number,
+): boolean {
+  if (!c.owner || !session) return true;
+  if (c.owner === session) return true;
+  return (ownerLastSeen.get(c.owner) ?? 0) < now - OWNER_STALE_MS;
 }
 
 function commentsPath(): string {
@@ -57,6 +78,7 @@ export function addDiffComment(input: {
   body: string;
   text?: string;
   held?: boolean;
+  owner?: string;
 }): DiffComment {
   const c: DiffComment = {
     id: randomUUID().slice(0, 8),
@@ -66,6 +88,7 @@ export function addDiffComment(input: {
     body: input.body.trim(),
     text: input.text?.trim() || undefined,
     held: input.held || undefined,
+    owner: input.owner || undefined,
     createdAt: Date.now(),
   };
   const all = read();
@@ -109,10 +132,15 @@ export function clearDiffComments(): void {
 
 // Return the not-yet-delivered comments AND mark them delivered in one step — the guard hook calls
 // this as it injects them, so each comment reaches the agent exactly once (claim-on-read). Held
-// comments are skipped: they wait as a batch until the user releases them.
-export function claimUndeliveredDiffComments(now: number = Date.now()): DiffComment[] {
+// comments are skipped (they wait as a batch), and owned comments go only to their owning session
+// (see claimableBy) so two sessions sharing a repo each hear the notes meant for them.
+export function claimUndeliveredDiffComments(
+  now: number = Date.now(),
+  session?: string,
+  ownerLastSeen: ReadonlyMap<string, number> = new Map(),
+): DiffComment[] {
   const all = read();
-  const pending = all.filter((c) => !c.deliveredAt && !c.held);
+  const pending = all.filter((c) => !c.deliveredAt && !c.held && claimableBy(c, session, ownerLastSeen, now));
   if (pending.length === 0) return [];
   for (const c of pending) c.deliveredAt = now;
   write(all);

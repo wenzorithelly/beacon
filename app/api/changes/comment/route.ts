@@ -6,6 +6,7 @@ import {
   removeDiffComment,
   setDiffCommentHeld,
 } from "@/lib/diff-comments";
+import { readTouched } from "@/lib/touched-files";
 
 export const dynamic = "force-dynamic";
 
@@ -37,8 +38,18 @@ export const POST = pinned(async (req: Request) => {
   if (!file || !text || !Number.isFinite(line) || line < 1) {
     return Response.json({ error: "file, line and body are required" }, { status: 400 });
   }
+  // Stamp the owning session: whoever last edited the target file is the session this comment is
+  // about — the claim then delivers it there, not to whichever session edits first.
   return Response.json({
-    comment: addDiffComment({ file, line, side: b.side, body: text, text: b.text, held: b.held }),
+    comment: addDiffComment({
+      file,
+      line,
+      side: b.side,
+      body: text,
+      text: b.text,
+      held: b.held,
+      owner: readTouched()[file]?.session,
+    }),
   });
 });
 

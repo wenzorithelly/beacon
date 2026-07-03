@@ -3,7 +3,7 @@ import { isAbsolute, join } from "node:path";
 import { pinned } from "@/lib/api-workspace";
 import { decideEdit, getActiveContract } from "@/lib/scope-contract";
 import { claimUndeliveredDiffComments, renderDiffCommentsForAgent } from "@/lib/diff-comments";
-import { toRepoRelative } from "@/lib/touched-files";
+import { readTouched, sessionLastSeen, toRepoRelative } from "@/lib/touched-files";
 import { repoRoot } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
@@ -22,9 +22,12 @@ export const GET = pinned(async (req: Request) => {
   const params = new URL(req.url).searchParams;
   const file = params.get("file") ?? "";
   // `claim=1` also drains the user's undelivered diff line-comments into `additionalContext`
-  // (claim-on-read), so the guard hook makes ONE request per edit instead of two.
+  // (claim-on-read), so the guard hook makes ONE request per edit instead of two. The claiming
+  // session's id routes owned comments to the right session in multi-session repos.
   const additionalContext = params.get("claim")
-    ? renderDiffCommentsForAgent(claimUndeliveredDiffComments()) || undefined
+    ? renderDiffCommentsForAgent(
+        claimUndeliveredDiffComments(Date.now(), params.get("session") || undefined, sessionLastSeen(readTouched())),
+      ) || undefined
     : undefined;
 
   const contract = await getActiveContract();
