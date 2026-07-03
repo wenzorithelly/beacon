@@ -136,14 +136,9 @@ export function ChangesOverview({
   };
 
   return (
-    // Adaptive width: a comfortable reading column while skimming cards, but the moment a diff is
-    // expanded the container stretches to use the screen — code wants width, prose wants measure.
-    <div
-      className={cn(
-        "mx-auto flex h-full w-full min-h-0 flex-col px-4 transition-[max-width] duration-300",
-        expanded.size > 0 ? "max-w-[1600px] px-8" : "max-w-3xl",
-      )}
-    >
+    // One stable, generous width — the screen is there to be used, and a layout that reshapes
+    // itself when a card expands reads as a glitch, not as smart.
+    <div className="mx-auto flex h-full w-full min-h-0 max-w-[1800px] flex-col px-8">
       {/* ── Overview strip ── */}
       <div className="shrink-0 space-y-2 border-b border-white/8 py-3">
         <div className="flex items-center gap-2 text-[13px]">
