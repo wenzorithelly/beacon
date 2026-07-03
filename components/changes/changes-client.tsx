@@ -67,8 +67,10 @@ export function ChangesClient({
 
   const views = useMemo(() => viewedStates(files, viewedMap), [files, viewedMap]);
 
-  // Comment counts per file for the card chips.
+  // Comment counts per file for the card chips. `commentsNonce` bumps when a comment is created
+  // outside FileDiffView (the quality-flag dialog) so the chips refresh immediately.
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [commentsNonce, setCommentsNonce] = useState(0);
   useEffect(() => {
     const ws = currentTabWs();
     fetch("/api/changes/comment", { cache: "no-store", headers: ws ? { "x-beacon-workspace": ws } : undefined })
@@ -80,7 +82,7 @@ export function ChangesClient({
         setCommentCounts(counts);
       })
       .catch(() => {});
-  }, [files]);
+  }, [files, commentsNonce]);
 
   // On-demand quality scan (repo linter + clone detection) — explicit click, results cached until
   // the next click; refreshes don't wipe them (paths that left the list just stop matching).
@@ -158,6 +160,7 @@ export function ChangesClient({
       quality={quality}
       scanning={scanning}
       onScan={() => void runScan()}
+      onCommentAdded={() => setCommentsNonce((n) => n + 1)}
     />
   );
 }

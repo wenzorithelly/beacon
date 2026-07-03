@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ListOrdered, GitCompare, ChevronRight, ScanSearch, Loader2 } from "lucide-react";
+import { Activity, ListOrdered, GitCompare, ChevronRight, ScanSearch, Loader2, Flag, X } from "lucide-react";
 import { FileCard, type FileQuality } from "@/components/changes/file-card";
 import { FileDiffView } from "@/components/changes/file-diff";
 import { groupEpisodes, orderForReview } from "@/lib/changes-order";
+import { currentTabWs } from "@/lib/tab-ws";
 import type { ChangedFile } from "@/lib/diff-shared";
 import type { TouchedMap } from "@/lib/touched-files";
 import type { ViewState } from "@/lib/viewed-shared";
@@ -55,6 +56,7 @@ export function ChangesOverview({
   quality,
   scanning,
   onScan,
+  onCommentAdded,
 }: {
   files: ChangedFile[];
   touched: TouchedMap;
@@ -73,6 +75,8 @@ export function ChangesOverview({
   quality: Record<string, FileQuality> | null;
   scanning: boolean;
   onScan: () => void;
+  // A comment was created outside FileDiffView (the flag dialog) — refresh the count chips.
+  onCommentAdded: () => void;
 }) {
   // Clock for the "· 12s ago" label + episode boundaries — state (not Date.now() in render) so
   // rendering stays pure, ticking every 30s so the label doesn't go stale between refreshes.
@@ -145,6 +149,22 @@ export function ChangesOverview({
   const shownPaths = useMemo(() => new Set(sections.flatMap((s) => s.paths)), [sections]);
   const heldCount = frozen ? files.filter((f) => !shownPaths.has(f.path)).length : 0;
 
+  // "Flag to the agent": a quality chip opens this prefilled composer; sending ships the message
+  // through the line-comment channel (delivered at the agent's next edit, holdable like any note).
+  const [flag, setFlag] = useState<{ file: ChangedFile; text: string; hold: boolean; sending: boolean } | null>(null);
+  const sendFlag = async () => {
+    if (!flag || !flag.text.trim() || flag.sending) return;
+    setFlag({ ...flag, sending: true });
+    const ws = currentTabWs();
+    await fetch("/api/changes/comment", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(ws ? { "x-beacon-workspace": ws } : {}) },
+      body: JSON.stringify({ file: flag.file.path, line: 1, side: "new", body: flag.text.trim(), held: flag.hold || undefined }),
+    }).catch(() => {});
+    setFlag(null);
+    onCommentAdded();
+  };
+
   const card = (f: ChangedFile, meta?: { rank?: number; ago?: string }) => {
     const isOpen = expanded.has(f.path);
     return (
@@ -161,6 +181,7 @@ export function ChangesOverview({
           ago={meta?.ago}
           onOpen={toggleExpand}
           onToggleViewed={onToggleViewed}
+          onFlag={(file, prefill) => setFlag({ file, text: prefill, hold: false, sending: false })}
         />
         {isOpen && (
           <div className="border-t border-white/5 bg-black/25">
@@ -255,6 +276,72 @@ export function ChangesOverview({
           </div>
         </div>
       </div>
+
+      {/* ── Flag-to-agent composer ── */}
+      {flag && (
+        <div className="fixed right-6 top-20 z-40 w-96 rounded-xl border border-white/10 bg-card p-3 shadow-2xl">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <Flag className="size-3 text-[#ff7a45]" /> Flag to the agent
+            </span>
+            <button
+              type="button"
+              onClick={() => setFlag(null)}
+              title="Close"
+              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+          <div className="mb-1.5 truncate font-mono text-[11px] text-muted-foreground" title={flag.file.path}>
+            {flag.file.path}
+          </div>
+          <textarea
+            autoFocus
+            value={flag.text}
+            onChange={(e) => setFlag({ ...flag, text: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void sendFlag();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setFlag(null);
+              }
+            }}
+            rows={4}
+            className="w-full resize-y rounded border border-white/10 bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-[#ff7a45]/40"
+          />
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void sendFlag()}
+              disabled={!flag.text.trim() || flag.sending}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                flag.text.trim() && !flag.sending
+                  ? "bg-[#ff7a45]/20 text-[#ff7a45] hover:bg-[#ff7a45]/30"
+                  : "text-muted-foreground opacity-50",
+              )}
+            >
+              {flag.sending ? "Sending…" : "Send to agent"}
+            </button>
+            <label
+              className="ml-auto flex cursor-pointer items-center gap-1 text-[10px] text-muted-foreground"
+              title="Hold this flag back — batch several, then Release to send them together"
+            >
+              <input
+                type="checkbox"
+                checked={flag.hold}
+                onChange={(e) => setFlag({ ...flag, hold: e.target.checked })}
+                className="size-3 accent-[#ff7a45]"
+              />
+              hold (batch)
+            </label>
+          </div>
+          <p className="mt-1.5 text-[10px] text-muted-foreground/70">Delivered at the agent&apos;s next edit.</p>
+        </div>
+      )}
 
       {/* ── Panels ── */}
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto py-3">

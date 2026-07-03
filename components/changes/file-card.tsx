@@ -40,6 +40,7 @@ export function FileCard({
   ago,
   onOpen,
   onToggleViewed,
+  onFlag,
 }: {
   file: ChangedFile;
   view: ViewState;
@@ -55,16 +56,40 @@ export function FileCard({
   ago?: string;
   onOpen: (path: string) => void;
   onToggleViewed: (file: ChangedFile, next: boolean) => void;
+  // A quality signal is only useful if it can reach the agent: chips open a prefilled flag
+  // composer whose message ships through the line-comment channel (agent's next edit).
+  onFlag?: (file: ChangedFile, prefill: string) => void;
 }) {
   const verb = verbFor(file.status);
   const total = file.additions + file.deletions;
-  // Instant deterministic cues (from the diff pass) — shown only when nonzero, tiny.
-  const cues: { label: string; title: string }[] = [];
+  // Instant deterministic cues (from the diff pass) — shown only when nonzero, tiny. Each carries
+  // the prefilled message its flag would send to the agent.
+  const cues: { label: string; title: string; prefill: string }[] = [];
   if (file.cues) {
-    if (file.cues.todos) cues.push({ label: `TODO ${file.cues.todos}`, title: "TODO/FIXME/HACK markers added" });
-    if (file.cues.consoles) cues.push({ label: `log ${file.cues.consoles}`, title: "console.* calls added" });
-    if (file.cues.anys) cues.push({ label: `any ${file.cues.anys}`, title: "`any` types added" });
-    if (file.cues.maxIndent >= 5) cues.push({ label: "deep", title: `Deep nesting added (${file.cues.maxIndent} levels)` });
+    if (file.cues.todos)
+      cues.push({
+        label: `TODO ${file.cues.todos}`,
+        title: "TODO/FIXME/HACK markers added",
+        prefill: `[quality scan] \`${file.path}\` adds ${file.cues.todos} TODO/FIXME marker(s). Resolve them now or explain why they're deferred.`,
+      });
+    if (file.cues.consoles)
+      cues.push({
+        label: `log ${file.cues.consoles}`,
+        title: "console.* calls added",
+        prefill: `[quality scan] \`${file.path}\` adds ${file.cues.consoles} console.* call(s). Remove debug logging before finishing.`,
+      });
+    if (file.cues.anys)
+      cues.push({
+        label: `any ${file.cues.anys}`,
+        title: "`any` types added",
+        prefill: `[quality scan] \`${file.path}\` adds ${file.cues.anys} \`any\` type(s). Replace them with real types.`,
+      });
+    if (file.cues.maxIndent >= 5)
+      cues.push({
+        label: "deep",
+        title: `Deep nesting added (${file.cues.maxIndent} levels)`,
+        prefill: `[quality scan] \`${file.path}\` adds deeply nested code (${file.cues.maxIndent} indent levels). Flatten it — early returns or extracted helpers.`,
+      });
   }
   const topClone = quality?.clones[0];
   return (
@@ -111,32 +136,52 @@ export function FileCard({
         </span>
       )}
       {cues.map((c) => (
-        <span
+        <button
           key={c.label}
-          title={c.title}
-          className="hidden shrink-0 rounded-full border border-white/10 px-1.5 py-0.5 text-[9px] text-muted-foreground/80 lg:inline"
+          type="button"
+          title={`${c.title} — click to flag it to the agent`}
+          onClick={() => onFlag?.(file, c.prefill)}
+          className="hidden shrink-0 cursor-pointer rounded-full border border-white/10 px-1.5 py-0.5 text-[9px] text-muted-foreground/80 transition-colors hover:border-white/25 hover:text-foreground lg:inline"
         >
           {c.label}
-        </span>
+        </button>
       ))}
       {quality?.lint && quality.lint.errors + quality.lint.warnings > 0 && (
-        <span
-          title={`Repo linter on this file: ${quality.lint.errors} error(s), ${quality.lint.warnings} warning(s)`}
+        <button
+          type="button"
+          title={`Repo linter on this file: ${quality.lint.errors} error(s), ${quality.lint.warnings} warning(s) — click to flag it to the agent`}
+          onClick={() =>
+            onFlag?.(
+              file,
+              `[quality scan] \`${file.path}\` has ${quality.lint!.errors} lint error(s) and ${quality.lint!.warnings} warning(s) from the repo's own linter. Run it on this file and fix what it reports.`,
+            )
+          }
           className={cn(
-            "shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-medium",
-            quality.lint.errors > 0 ? "border-rose-400/30 bg-rose-400/10 text-rose-300" : "border-amber-400/25 bg-amber-400/10 text-amber-300/90",
+            "shrink-0 cursor-pointer rounded-full border px-1.5 py-0.5 text-[9px] font-medium transition-colors",
+            quality.lint.errors > 0
+              ? "border-rose-400/30 bg-rose-400/10 text-rose-300 hover:bg-rose-400/20"
+              : "border-amber-400/25 bg-amber-400/10 text-amber-300/90 hover:bg-amber-400/20",
           )}
         >
           lint {quality.lint.errors > 0 ? `${quality.lint.errors}✕` : `${quality.lint.warnings}⚠`}
-        </span>
+        </button>
       )}
       {topClone && (
-        <span
-          title={`Added code resembles ${topClone.path} ~L${topClone.line} (${topClone.hits} matching fingerprints)${quality!.clones.length > 1 ? ` — and ${quality!.clones.length - 1} more` : ""}`}
-          className="flex shrink-0 items-center gap-0.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-300"
+        <button
+          type="button"
+          title={`Added code resembles ${topClone.path} ~L${topClone.line} (${topClone.hits} matching fingerprints)${quality!.clones.length > 1 ? ` — and ${quality!.clones.length - 1} more` : ""} — click to flag it to the agent`}
+          onClick={() =>
+            onFlag?.(
+              file,
+              `[quality scan] The code added to \`${file.path}\` looks duplicated from ${quality!.clones
+                .map((m) => `\`${m.path}\` ~L${m.line} (${m.hits} matches)`)
+                .join(", ")}. Reuse or extract the shared logic instead of duplicating it.`,
+            )
+          }
+          className="flex shrink-0 cursor-pointer items-center gap-0.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-300 transition-colors hover:bg-amber-400/20"
         >
           <Copy className="size-2.5" /> dup?
-        </span>
+        </button>
       )}
       {commentCount > 0 && (
         <span className="flex shrink-0 items-center gap-0.5 text-[10px] text-[#ff7a45]">
