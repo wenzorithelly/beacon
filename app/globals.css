@@ -522,9 +522,15 @@
    light-theme cell borders. */
 .beacon-diff .diff-gutter {
   color: var(--muted-foreground);
+  padding: 0 0.5ch;
 }
 .beacon-diff .diff-code {
   color: var(--foreground);
+}
+/* Slim the line-number columns: the library reserves 7ch each (×2 per side in split view) — 5ch
+   holds five digits, and every reclaimed ch is code that doesn't wrap to the next line. */
+.beacon-diff .diff-gutter-col {
+  width: 5ch;
 }
 .beacon-diff .diff-hunk-header {
   background: rgb(255 255 255 / 0.03);

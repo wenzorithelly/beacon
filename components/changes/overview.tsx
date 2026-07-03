@@ -179,9 +179,8 @@ export function ChangesOverview({
   };
 
   return (
-    // One stable, generous width — the screen is there to be used, and a layout that reshapes
-    // itself when a card expands reads as a glitch, not as smart.
-    <div className="mx-auto flex h-full w-full min-h-0 max-w-[1800px] flex-col px-8">
+    // One stable, edge-to-edge layout — every horizontal ch is code that doesn't wrap.
+    <div className="mx-auto flex h-full w-full min-h-0 flex-col px-4">
       {/* ── Instrument strip ── */}
       <div className="glass mt-3 shrink-0 space-y-2 rounded-2xl px-4 py-3">
         <div className="flex items-center gap-2 text-[13px]">
