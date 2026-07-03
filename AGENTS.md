@@ -30,6 +30,7 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
   - Schema ingest & layout — Upserts tables/columns/relations/endpoints (empty sections never delete; curated domain/description preserved), reconciles endpoint↔table usage, prunes planned entities with no active plan, and auto-lays-out the board. (app/api/db/prune-planned/route.ts, app/api/db/reconcile-endpoints/route.ts, app/api/ingest/route.ts, lib/endpoint-layout.ts, lib/endpoint-reconcile.ts, lib/ingest.ts)
 - **HOOKS**
   - Claude Code hooks bridge — PermissionRequest hook (`beacon plan`) pipes ExitPlanMode markdown → /plan (Claude Code only); PostToolUse hook (`beacon hook`) reports file edits from Claude's Edit/Write AND Codex's apply_patch; the Stop-hook nudge reads both transcript formats. (bin/hook.ts, bin/plan.ts, bin/prompt.ts, bin/stop-hook.ts, lib/hook-files.ts, lib/stop-hook-detect.ts)
+  - Agent-ask bridge — Intercepts the agent's native AskUserQuestion + permission prompts via hooks and round-trips the answer through a Beacon modal (disk-state + poll loop, like the plan loop) (app/api/ask/route.ts, bin/ask.ts, components/ask/ask-modal.tsx, lib/ask-store.ts)
 - **INFRA**
   - Live refresh (SSE) — Per-workspace SSE stream that pushes a {v, nav} payload: version bumps refresh the open canvas, nav-intents navigate it; each tick also records per-workspace tab presence. (app/api/stream/route.ts, components/live-refresh.tsx, lib/nav-decide.ts, lib/nav-intent.ts, lib/tab-presence.ts)
 - **INIT**
@@ -49,6 +50,7 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
 - **PLAN**
   - Plan review loop — Receives proposed plans, blocks for the verdict, bundles inline annotations + /map and /db board edits into structured feedback, and archives every plan. (app/api/plan/annotations/route.ts, app/api/plan/approve/route.ts, app/api/plan/history/route.ts, app/api/plan/markdown/route.ts, app/api/plan/route.ts, lib/annotations.ts)
   - Plan scope guard — Per-plan scope contracts: declare→freeze→pre-edit gate (ask)→authorize-grows-contract, behind a generalized WorkspaceFlag (app/api/flags/route.ts, app/api/scope-guard/check/route.ts, bin/guard.ts, components/scope-guard-card.tsx, lib/feature-flags.ts, lib/scope-contract.ts)
+  - Changes review surface — Overview-first live review of the agent's working-tree changes with lenses, viewed-tracking, line-comments back to the agent, and deterministic quality signals (app/api/changes/quality/route.ts, app/api/changes/route.ts, components/changes/changes-client.tsx, components/changes/diff-detail.tsx, components/changes/file-card.tsx, components/changes/overview.tsx)
 - **UI**
   - Notes notebook — Workspace rich-text notebook the agent can @-mention and convert into features. (components/notes/note-editor.tsx, components/notes/notes-drawer.tsx, lib/note-markdown.ts, lib/note-resource.ts, lib/notes.ts)
   - Board annotations — Persistent per-workspace annotation pins + cards on the /map canvases (BoardAnnotation table + /api/board-annotations CRUD); on /plan the same surface renders feedback-bundle annotations instead. (app/api/board-annotations/route.ts, components/graph/annotation-node.tsx, lib/annotation-anchors.ts, lib/board-annotations.ts)
@@ -85,6 +87,7 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
 - `_NodeTags`: A, B
 
 ### Endpoints
+- GET /api/ask
 - GET /api/board-annotations
 - DELETE /api/board-annotations/{id}
 - PATCH /api/board-annotations/{id}
@@ -95,7 +98,10 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
 - DELETE /api/changes/comment
 - GET /api/changes/comment
 - POST /api/changes/comment
+- PATCH /api/changes/comment
 - POST /api/changes/comment/claim
+- POST /api/changes/quality
+- POST /api/changes/viewed
 - POST /api/code-graph/position
 - POST /api/context
 - GET /api/context/feature
@@ -121,10 +127,6 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
 - DELETE /api/lesson/questions
 - GET /api/lesson/questions
 - POST /api/lesson/questions
-- POST /api/lesson/save
-- GET /api/lesson/verdict
-- POST /api/map/describe
-- POST /api/map/files
 
 ### Conventions & gotchas
 - This is Next.js 16 App Router with breaking changes — read node_modules/next/dist/docs/ before relying on memory; APIs and conventions differ from older App Router.

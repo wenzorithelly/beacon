@@ -9,6 +9,7 @@ import { PlanProvider } from "@/components/plan/plan-context";
 import { PlanBar } from "@/components/plan/plan-bar";
 import { NotesProvider } from "@/components/notes/notes-context";
 import { NotesDrawer } from "@/components/notes/notes-drawer";
+import { AskModal } from "@/components/ask/ask-modal";
 import { UpdateBanner } from "@/components/update-banner";
 import { repoName } from "@/lib/project";
 import { appVersion } from "@/lib/app-version";
@@ -55,6 +56,7 @@ export default function RootLayout({
               </PlanProvider>
               <NotesDrawer />
             </NotesProvider>
+            <AskModal />
             <UpdateBanner currentVersion={appVersion()} />
           </>
         )}

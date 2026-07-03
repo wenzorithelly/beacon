@@ -61,6 +61,10 @@ export const PLAN_POLL_INTERVAL_MS = 1500;
 // and, when hit, kills the hook silently and drops the user to a terminal permission prompt). The
 // gap to 600s is headroom for hook startup (self-heal + daemon boot).
 export const PLAN_HOOK_REARM_MS = 8 * 60 * 1000; // 8 min
+// The `beacon ask` bridge (bin/ask.ts): a question re-asked with the same content within this
+// window of being answered is treated as an agent retry-loop and let through to the terminal
+// instead of re-surfacing in Beacon. See lib/ask-store.isLoopRepush.
+export const ASK_LOOP_GUARD_MS = 60 * 1000; // 60s
 export const PLAN_TOOL_TIMEOUT_MS = 30 * 60 * 1000; // 30 min — MCP tool call internal loop (resumable)
 // Per-tool wall-clock timeout written into each repo's .mcp.json for the Beacon MCP server. MUST
 // exceed PLAN_TOOL_TIMEOUT_MS so the blocking plan tools finish their loop and return a resumable

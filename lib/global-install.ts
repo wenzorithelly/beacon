@@ -79,6 +79,20 @@ export const GLOBAL_HOOKS = [
     description: "Pipe the agent's plan markdown into Beacon's /plan canvas for review.",
   },
   {
+    event: "PreToolUse" as const,
+    matcher: "AskUserQuestion",
+    command: "beacon ask",
+    description:
+      "Surface the agent's AskUserQuestion in Beacon's modal; your pick flows back as the answer (falls through to the terminal if Beacon isn't open).",
+  },
+  {
+    event: "PermissionRequest" as const,
+    matcher: "Edit|Write|MultiEdit|Bash|NotebookEdit",
+    command: "beacon ask",
+    description:
+      "Surface edit/create/run approvals in Beacon's modal; your allow/deny flows back (falls through to the terminal prompt if Beacon isn't open).",
+  },
+  {
     event: "UserPromptSubmit" as const,
     matcher: "*",
     command: "beacon prompt",
