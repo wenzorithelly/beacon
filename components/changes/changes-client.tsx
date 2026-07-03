@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, FileText, GitCompare } from "lucide-react";
 import { ChangesOverview, type Lens } from "@/components/changes/overview";
 import { DiffDetail, openInEditor } from "@/components/changes/diff-detail";
@@ -39,24 +39,30 @@ export function ChangesClient({
     setViewedMap(viewed);
   }
 
-  // Arrival tracking: previous sig per path lives in a ref; a changed/new sig marks the file
-  // unseen + transient (one effect reads THEN writes the ref, so ordering can't break).
-  const prevSigs = useRef<Map<string, string> | null>(null);
+  // Arrival tracking: compare each file's sig against the previous render's, DURING render
+  // (adjust-state-on-prop-change pattern) — a changed/new sig marks the file unseen + transient.
+  const sigs = useMemo(() => new Map(files.map((f) => [f.path, fileSig(f)])), [files]);
+  const [prevSigs, setPrevSigs] = useState<Map<string, string> | null>(null);
   const [unseen, setUnseen] = useState<Set<string>>(new Set());
   const [transients, setTransients] = useState<Set<string>>(new Set());
+  if (prevSigs !== sigs) {
+    setPrevSigs(sigs);
+    if (prevSigs) {
+      // First render (prevSigs null) is baseline — nothing is "new since you looked" yet.
+      const fresh: string[] = [];
+      for (const [p, s] of sigs) if (prevSigs.get(p) !== s) fresh.push(p);
+      if (fresh.length) {
+        setUnseen((u) => new Set([...u, ...fresh]));
+        setTransients(new Set(fresh));
+      }
+    }
+  }
+  // The transient flash is one-shot: clear it after the animation (timer = external system).
   useEffect(() => {
-    const sigs = new Map(files.map((f) => [f.path, fileSig(f)]));
-    const prev = prevSigs.current;
-    prevSigs.current = sigs;
-    if (!prev) return; // first render — nothing is "new since you looked"
-    const fresh: string[] = [];
-    for (const [p, s] of sigs) if (prev.get(p) !== s) fresh.push(p);
-    if (!fresh.length) return;
-    setUnseen((u) => new Set([...u, ...fresh]));
-    setTransients(new Set(fresh));
+    if (transients.size === 0) return;
     const t = setTimeout(() => setTransients(new Set()), 1800);
     return () => clearTimeout(t);
-  }, [files]);
+  }, [transients]);
 
   const views = useMemo(() => viewedStates(files, viewedMap), [files, viewedMap]);
 
@@ -69,7 +75,7 @@ export function ChangesClient({
       .then((r) => {
         const counts: Record<string, number> = {};
         for (const c of r.comments ?? []) counts[c.file] = (counts[c.file] ?? 0) + 1;
-        // eslint-disable-next-line react-hooks/set-state-in-effect
+         
         setCommentCounts(counts);
       })
       .catch(() => {});
