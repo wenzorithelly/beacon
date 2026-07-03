@@ -70,34 +70,40 @@ export function FileCard({
   return (
     <div
       className={cn(
-        "group flex w-full items-center gap-2 border border-white/8 bg-card/40 px-3 py-2 text-left transition-colors hover:bg-white/[0.04]",
-        expanded ? "rounded-t-lg border-b-0" : "rounded-lg",
+        "group flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-white/[0.035]",
         transient && "animate-[card-arrive_1.6s_ease-out]",
-        view === "viewed" && !expanded && "opacity-55",
+        expanded && "bg-white/[0.03]",
+        view === "viewed" && !expanded && "opacity-50",
       )}
     >
       {/* Unseen dot — persistent until opened/viewed (change blindness: transients get missed). */}
       <span className={cn("size-1.5 shrink-0 rounded-full", unseen ? "bg-[#ff7a45]" : "bg-transparent")} />
       {rank !== undefined && (
-        <span className="w-4 shrink-0 text-right text-[10px] font-semibold tabular-nums text-muted-foreground/60" title="Importance rank — size × how many files import it">
+        <span
+          className="w-5 shrink-0 text-right text-[10px] font-semibold tabular-nums text-muted-foreground/50"
+          title="Importance rank — size × how many files import it"
+        >
           {rank}
         </span>
       )}
-      <button type="button" onClick={() => onOpen(file.path)} className="flex min-w-0 flex-1 items-baseline gap-2">
+      <button type="button" onClick={() => onOpen(file.path)} className="flex min-w-0 flex-1 items-baseline gap-2.5">
         <ChevronRight
-          className={cn("size-3 shrink-0 self-center text-muted-foreground/50 transition-transform", expanded && "rotate-90")}
+          className={cn("size-3 shrink-0 self-center text-muted-foreground/40 transition-transform", expanded && "rotate-90")}
         />
-        <span className={cn("shrink-0 text-[11px] font-semibold", VERB_TONE[verb])}>{verb}</span>
-        <span className="truncate font-mono text-[12px] text-foreground/90" title={file.path}>
+        {/* Fixed-width verb column → every path starts on the same crisp left edge. */}
+        <span className={cn("w-12 shrink-0 text-[9.5px] font-bold uppercase tracking-[0.08em]", VERB_TONE[verb])}>
+          {verb}
+        </span>
+        <span className="truncate font-mono text-[12.5px] text-foreground/90" title={file.path}>
           {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
         </span>
         {file.symbols.length > 0 && (
-          <span className="hidden truncate text-[10.5px] text-muted-foreground/70 md:inline">
+          <span className="hidden truncate text-[10.5px] text-muted-foreground/60 md:inline">
             ↳ {file.symbols.slice(0, 3).join(", ")}
             {file.symbols.length > 3 ? "…" : ""}
           </span>
         )}
-        {ago && <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/60">· {ago}</span>}
+        {ago && <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/50">{ago}</span>}
       </button>
       {file.formattingOnly && (
         <span className="shrink-0 rounded-full border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
@@ -147,13 +153,10 @@ export function FileCard({
           {file.inDegree}
         </span>
       )}
-      <span className="shrink-0 text-[11px] tabular-nums">
+      {/* Fixed-width, right-aligned ± column — vertical rhythm down the whole list. */}
+      <span className="w-24 shrink-0 text-right text-[11.5px] tabular-nums" title={`${total} changed lines`}>
         <span className="text-emerald-400">+{file.additions}</span>{" "}
         <span className="text-rose-400">−{file.deletions}</span>
-      </span>
-      {/* Mini magnitude bar: width ∝ share of a 200-line chunk, capped. */}
-      <span aria-hidden className="hidden h-1 w-10 shrink-0 overflow-hidden rounded-full bg-white/10 sm:block">
-        <span className="block h-full bg-white/35" style={{ width: `${Math.min(100, (total / 200) * 100)}%` }} />
       </span>
       <ViewedCheckbox view={view} onToggle={(next) => onToggleViewed(file, next)} />
     </div>
