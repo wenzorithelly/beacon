@@ -151,6 +151,7 @@ export function ChangesClient({
         markSeen(p);
         setDetailPath(p);
       }}
+      onSeen={markSeen}
       onToggleViewed={toggleViewed}
       quality={quality}
       scanning={scanning}

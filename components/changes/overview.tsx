@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, ListOrdered, GitCompare, ChevronRight, ScanSearch, Loader2 } from "lucide-react";
 import { FileCard, type FileQuality } from "@/components/changes/file-card";
+import { FileDiffView } from "@/components/changes/file-diff";
 import { groupEpisodes, orderForReview } from "@/lib/changes-order";
 import type { ChangedFile } from "@/lib/diff-shared";
 import type { TouchedMap } from "@/lib/touched-files";
@@ -36,6 +37,7 @@ export function ChangesOverview({
   lens,
   onLens,
   onOpen,
+  onSeen,
   onToggleViewed,
   quality,
   scanning,
@@ -49,7 +51,10 @@ export function ChangesOverview({
   commentCounts: Record<string, number>;
   lens: Lens;
   onLens: (l: Lens) => void;
+  // Full-page focus (the detail view) — reached from an expanded card's Focus button.
   onOpen: (path: string) => void;
+  // Mark a file seen (clears its unseen dot) — fired when its card expands.
+  onSeen: (path: string) => void;
   onToggleViewed: (file: ChangedFile, next: boolean) => void;
   // On-demand deterministic quality scan (repo linter + clone detection) — explicit click only.
   quality: Record<string, FileQuality> | null;
@@ -80,19 +85,55 @@ export function ChangesOverview({
   const episodes = useMemo(() => groupEpisodes(files, touched, now), [files, touched, now]);
   const review = useMemo(() => orderForReview(files), [files]);
 
-  const card = (f: ChangedFile) => (
-    <FileCard
-      key={f.path}
-      file={f}
-      view={views[f.path] ?? "unviewed"}
-      unseen={unseen.has(f.path)}
-      transient={transients.has(f.path)}
-      commentCount={commentCounts[f.path] ?? 0}
-      quality={quality?.[f.path]}
-      onOpen={onOpen}
-      onToggleViewed={onToggleViewed}
-    />
-  );
+  // Inline expansion: clicking a card opens its diff RIGHT UNDER it (details on demand, in
+  // context — no page swap). The Focus button inside the diff goes full-page for concentration.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpand = (path: string) => {
+    onSeen(path);
+    setExpanded((s) => {
+      const n = new Set(s);
+      if (n.has(path)) n.delete(path);
+      else n.add(path);
+      return n;
+    });
+  };
+
+  const card = (f: ChangedFile, meta?: { rank?: number; ago?: string }) => {
+    const isOpen = expanded.has(f.path);
+    return (
+      <div key={f.path}>
+        <FileCard
+          file={f}
+          view={views[f.path] ?? "unviewed"}
+          unseen={unseen.has(f.path)}
+          transient={transients.has(f.path)}
+          commentCount={commentCounts[f.path] ?? 0}
+          quality={quality?.[f.path]}
+          expanded={isOpen}
+          rank={meta?.rank}
+          ago={meta?.ago}
+          onOpen={toggleExpand}
+          onToggleViewed={onToggleViewed}
+        />
+        {isOpen && (
+          <div className="rounded-b-lg border border-t-0 border-white/8 bg-background/60">
+            <FileDiffView
+              key={`${f.path}:${f.additions}:${f.deletions}`}
+              file={f}
+              defaultMode="unified"
+              maxBodyHeight={480}
+              onFocus={() => onOpen(f.path)}
+            />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const agoFor = (f: ChangedFile) => {
+    const at = touched[f.path]?.lastAt ?? (f.oldPath ? touched[f.oldPath]?.lastAt : undefined);
+    return at ? ago(now - at) : undefined;
+  };
 
   return (
     <div className="mx-auto flex h-full w-full min-h-0 max-w-3xl flex-col px-4">
@@ -174,18 +215,23 @@ export function ChangesOverview({
             No uncommitted changes yet — the agent&apos;s edits land here live.
           </p>
         ) : lens === "activity" ? (
+          // ACTIVITY: the agent's story — grouped by recency episodes, per-card "n ago" stamps.
           episodes.map((e) => (
             <section key={e.key}>
               <h2 className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
                 {e.label} <span className="opacity-60">· {e.files.length}</span>
               </h2>
-              <div className="space-y-1">{e.files.map(card)}</div>
+              <div className="space-y-1">{e.files.map((f) => card(f, { ago: agoFor(f) }))}</div>
             </section>
           ))
         ) : (
+          // REVIEW: a ranked audit pass — riskiest first (size × importers), tests adjacent.
           <>
-            <div className="space-y-1">{review.main.map(card)}</div>
-            {review.noise.length > 0 && <NoiseGroup files={review.noise} render={card} />}
+            <h2 className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+              Riskiest first <span className="normal-case tracking-normal opacity-60">— change size × importers, tests beside their code</span>
+            </h2>
+            <div className="space-y-1">{review.main.map((f, i) => card(f, { rank: i + 1 }))}</div>
+            {review.noise.length > 0 && <NoiseGroup files={review.noise} render={(f) => card(f)} />}
           </>
         )}
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, MessageSquarePlus, AlertTriangle, Copy } from "lucide-react";
+import { Check, MessageSquarePlus, AlertTriangle, Copy, ChevronRight } from "lucide-react";
 import type { ChangedFile, ChangeStatus } from "@/lib/diff-shared";
 import type { ViewState } from "@/lib/viewed-shared";
 import type { CloneMatch } from "@/lib/clone-detect";
@@ -35,6 +35,9 @@ export function FileCard({
   transient,
   commentCount = 0,
   quality,
+  expanded = false,
+  rank,
+  ago,
   onOpen,
   onToggleViewed,
 }: {
@@ -44,6 +47,12 @@ export function FileCard({
   transient: boolean;
   commentCount?: number;
   quality?: FileQuality;
+  // Inline-expansion affordance (chevron rotates when the diff is open under the card).
+  expanded?: boolean;
+  // Review lens: 1-based importance rank — makes the "riskiest first" order legible.
+  rank?: number;
+  // Activity lens: "2m ago" recency — makes the timeline nature legible.
+  ago?: string;
   onOpen: (path: string) => void;
   onToggleViewed: (file: ChangedFile, next: boolean) => void;
 }) {
@@ -61,14 +70,23 @@ export function FileCard({
   return (
     <div
       className={cn(
-        "group flex w-full items-center gap-2 rounded-lg border border-white/8 bg-card/40 px-3 py-2 text-left transition-colors hover:bg-white/[0.04]",
+        "group flex w-full items-center gap-2 border border-white/8 bg-card/40 px-3 py-2 text-left transition-colors hover:bg-white/[0.04]",
+        expanded ? "rounded-t-lg border-b-0" : "rounded-lg",
         transient && "animate-[card-arrive_1.6s_ease-out]",
-        view === "viewed" && "opacity-55",
+        view === "viewed" && !expanded && "opacity-55",
       )}
     >
       {/* Unseen dot — persistent until opened/viewed (change blindness: transients get missed). */}
       <span className={cn("size-1.5 shrink-0 rounded-full", unseen ? "bg-[#ff7a45]" : "bg-transparent")} />
+      {rank !== undefined && (
+        <span className="w-4 shrink-0 text-right text-[10px] font-semibold tabular-nums text-muted-foreground/60" title="Importance rank — size × how many files import it">
+          {rank}
+        </span>
+      )}
       <button type="button" onClick={() => onOpen(file.path)} className="flex min-w-0 flex-1 items-baseline gap-2">
+        <ChevronRight
+          className={cn("size-3 shrink-0 self-center text-muted-foreground/50 transition-transform", expanded && "rotate-90")}
+        />
         <span className={cn("shrink-0 text-[11px] font-semibold", VERB_TONE[verb])}>{verb}</span>
         <span className="truncate font-mono text-[12px] text-foreground/90" title={file.path}>
           {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
@@ -79,6 +97,7 @@ export function FileCard({
             {file.symbols.length > 3 ? "…" : ""}
           </span>
         )}
+        {ago && <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/60">· {ago}</span>}
       </button>
       {file.formattingOnly && (
         <span className="shrink-0 rounded-full border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
