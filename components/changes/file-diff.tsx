@@ -259,10 +259,13 @@ export function FileDiffView({
     [openComposer],
   );
 
-  // Hover a gutter → the "+" affordance (GitHub muscle memory) instead of an invisible click zone.
+  // Hover a line → ONE "+" affordance (GitHub muscle memory). Each row renders TWO gutter cells
+  // (old + new line-number columns), so gate on the side the comment would actually anchor to —
+  // old for deletions, new for everything else — or every hover grows a twin pill.
   const renderGutter = useCallback(
     ({ change, side, inHoverState, renderDefault }: GutterOptions) => {
-      if (inHoverState && change) {
+      const anchorSide = change && isDelete(change) ? "old" : "new";
+      if (inHoverState && change && side === anchorSide) {
         return (
           <button
             type="button"

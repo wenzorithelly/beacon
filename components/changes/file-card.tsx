@@ -155,27 +155,34 @@ export function FileCard({
       <span aria-hidden className="hidden h-1 w-10 shrink-0 overflow-hidden rounded-full bg-white/10 sm:block">
         <span className="block h-full bg-white/35" style={{ width: `${Math.min(100, (total / 200) * 100)}%` }} />
       </span>
-      <button
-        type="button"
-        onClick={() => onToggleViewed(file, view !== "viewed")}
-        title={
-          view === "viewed"
-            ? "Viewed — click to unmark"
-            : view === "invalidated"
-              ? "Changed since you viewed it — click to re-mark"
-              : "Mark as viewed"
-        }
-        className={cn(
-          "flex size-5 shrink-0 items-center justify-center rounded border text-[10px] transition-colors",
-          view === "viewed"
-            ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-300"
-            : view === "invalidated"
-              ? "border-amber-400/40 bg-amber-500/10 text-amber-300"
-              : "border-white/15 text-transparent hover:text-muted-foreground",
-        )}
-      >
-        {view === "invalidated" ? "!" : <Check className="size-3" />}
-      </button>
+      <ViewedCheckbox view={view} onToggle={(next) => onToggleViewed(file, next)} />
     </div>
+  );
+}
+
+// The viewed mark, shared by the overview cards AND the detail header — one look, one behavior.
+export function ViewedCheckbox({ view, onToggle }: { view: ViewState; onToggle: (next: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(view !== "viewed")}
+      title={
+        view === "viewed"
+          ? "Viewed — click to unmark"
+          : view === "invalidated"
+            ? "Changed since you viewed it — click to re-mark"
+            : "Mark as viewed"
+      }
+      className={cn(
+        "flex size-5 shrink-0 items-center justify-center rounded border text-[10px] transition-colors",
+        view === "viewed"
+          ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-300"
+          : view === "invalidated"
+            ? "border-amber-400/40 bg-amber-500/10 text-amber-300"
+            : "border-white/15 text-transparent hover:text-muted-foreground",
+      )}
+    >
+      {view === "invalidated" ? "!" : <Check className="size-3" />}
+    </button>
   );
 }

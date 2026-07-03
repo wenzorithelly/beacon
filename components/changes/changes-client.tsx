@@ -134,6 +134,8 @@ export function ChangesClient({
         contract={contract}
         initialPath={detailPath}
         onBack={() => setDetailPath(null)}
+        views={views}
+        onToggleViewed={toggleViewed}
       />
     );
   }

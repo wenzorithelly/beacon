@@ -14,8 +14,10 @@ import {
 } from "lucide-react";
 import { FileTree } from "@/components/file-tree/file-tree";
 import { FileDiffView, openInEditor } from "@/components/changes/file-diff";
+import { ViewedCheckbox } from "@/components/changes/file-card";
 import type { FileStatus, FileLeafInput } from "@/lib/file-tree";
 import type { ChangedFile } from "@/lib/diff-shared";
+import type { ViewState } from "@/lib/viewed-shared";
 import { cn } from "@/lib/utils";
 
 // Re-exported so existing importers (PlanFilesList) keep working.
@@ -47,6 +49,8 @@ export function DiffDetail({
   contract,
   initialPath,
   onBack,
+  views,
+  onToggleViewed,
 }: {
   repo: boolean;
   files: ChangedFile[];
@@ -54,6 +58,10 @@ export function DiffDetail({
   contract?: { declaredFiles: string[]; authorizedExtras: string[] } | null;
   initialPath: string | null;
   onBack: () => void;
+  // Viewed state + toggle, threaded from the orchestrator so a file can be marked viewed right
+  // where it was just read — not only back on the overview cards.
+  views?: Record<string, ViewState>;
+  onToggleViewed?: (file: ChangedFile, next: boolean) => void;
 }) {
   const sessionSet = useMemo(() => new Set(touched), [touched]);
   const inSession = (f: ChangedFile) => sessionSet.has(f.path) || (!!f.oldPath && sessionSet.has(f.oldPath));
@@ -304,6 +312,16 @@ export function DiffDetail({
               </span>
               <span className="shrink-0 text-[11px] tabular-nums text-emerald-400">+{active.additions}</span>
               <span className="shrink-0 text-[11px] tabular-nums text-rose-400">−{active.deletions}</span>
+              {views && onToggleViewed && (
+                <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground/70">
+                  {views[active.path] === "invalidated" && "changed since you viewed"}
+                  {views[active.path] === "viewed" && "viewed"}
+                  <ViewedCheckbox
+                    view={views[active.path] ?? "unviewed"}
+                    onToggle={(next) => onToggleViewed(active, next)}
+                  />
+                </span>
+              )}
             </div>
             <FileDiffView key={active.path} file={active} defaultMode="split" />
           </>
