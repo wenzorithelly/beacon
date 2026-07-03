@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { pinned } from "@/lib/api-workspace";
 import { decideEdit, getActiveContract } from "@/lib/scope-contract";
+import { claimUndeliveredDiffComments, renderDiffCommentsForAgent } from "@/lib/diff-comments";
 import { toRepoRelative } from "@/lib/touched-files";
 import { repoRoot } from "@/lib/project";
 
@@ -18,12 +19,19 @@ export const dynamic = "force-dynamic";
 // not exist yet can't be damaged, and new-file creation is the most common legitimate agent move
 // (a hook "ask" would interrupt even bypass-permissions sessions on every new file).
 export const GET = pinned(async (req: Request) => {
-  const file = new URL(req.url).searchParams.get("file") ?? "";
+  const params = new URL(req.url).searchParams;
+  const file = params.get("file") ?? "";
+  // `claim=1` also drains the user's undelivered diff line-comments into `additionalContext`
+  // (claim-on-read), so the guard hook makes ONE request per edit instead of two.
+  const additionalContext = params.get("claim")
+    ? renderDiffCommentsForAgent(claimUndeliveredDiffComments()) || undefined
+    : undefined;
+
   const contract = await getActiveContract();
-  if (!contract) return Response.json({ decision: "allow" });
+  if (!contract) return Response.json({ decision: "allow", additionalContext });
   const root = repoRoot();
   const rel = toRepoRelative(file, root) ?? file;
   const abs = isAbsolute(file) ? file : join(root, rel);
-  if (!existsSync(abs)) return Response.json({ decision: "allow" });
-  return Response.json(decideEdit({ filePath: rel, contract }));
+  if (!existsSync(abs)) return Response.json({ decision: "allow", additionalContext });
+  return Response.json({ ...decideEdit({ filePath: rel, contract }), additionalContext });
 });

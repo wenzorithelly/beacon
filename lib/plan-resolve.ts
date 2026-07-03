@@ -31,6 +31,7 @@ import {
 import { bumpVersion } from "@/lib/ingest";
 import { writeContract } from "@/lib/scope-contract";
 import { captureReviewBaseline } from "@/lib/review-baseline";
+import { clearDiffComments } from "@/lib/diff-comments";
 import { resolveMentionedFiles } from "@/lib/file-mention";
 
 // The unification core for the plan feedback loop. EVERY terminal action (approve / discard)
@@ -75,12 +76,14 @@ async function snapshotPlan(): Promise<PlanSnapshot> {
 }
 
 // Wipe everything a resolved plan leaves behind EXCEPT the plan-verdict — that's the signal
-// the pollers are waiting on.
+// the pollers are waiting on. Diff line-comments belong to the round too: wiping them here means
+// last round's notes can never resurface on an unrelated future diff at coincidental line numbers.
 async function cleanupPlan(): Promise<void> {
   await clearFeatureDraft();
   clearDraftDoc();
   clearPlanMeta();
   clearStoredAnnotations();
+  clearDiffComments();
 }
 
 export async function approvePlan(opts?: { doc?: DraftDoc | null }): Promise<{

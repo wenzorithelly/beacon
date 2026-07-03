@@ -14,9 +14,15 @@ import { writeJsonAtomic } from "@/lib/atomic-write";
 export interface DiffComment {
   id: string;
   file: string; // repo-relative POSIX path
-  line: number; // 1-based line number on `side`
+  line: number; // 1-based line number on `side` AT COMPOSE TIME (content re-anchors later)
   side: "old" | "new";
   body: string;
+  // The anchored line's trimmed content, captured at compose time. The diff shifts constantly
+  // under a working agent, so the UI RE-ANCHORS by content each refresh; when this text no longer
+  // appears, the comment renders as "the agent changed this line since your comment".
+  text?: string;
+  // Held comments accumulate as a batch — the claim skips them until the user releases the batch.
+  held?: boolean;
   createdAt: number;
   // Set once the guard hook has surfaced this comment to the agent — never re-delivered after.
   deliveredAt?: number;
@@ -49,6 +55,8 @@ export function addDiffComment(input: {
   line: number;
   side?: "old" | "new";
   body: string;
+  text?: string;
+  held?: boolean;
 }): DiffComment {
   const c: DiffComment = {
     id: randomUUID().slice(0, 8),
@@ -56,6 +64,8 @@ export function addDiffComment(input: {
     line: Math.max(1, Math.floor(input.line)),
     side: input.side === "old" ? "old" : "new",
     body: input.body.trim(),
+    text: input.text?.trim() || undefined,
+    held: input.held || undefined,
     createdAt: Date.now(),
   };
   const all = read();
@@ -68,11 +78,41 @@ export function removeDiffComment(id: string): void {
   write(read().filter((c) => c.id !== id));
 }
 
+// Toggle a comment's hold. Releasing (held=false) makes it claimable by the agent's next edit.
+export function setDiffCommentHeld(id: string, held: boolean): void {
+  const all = read();
+  const c = all.find((x) => x.id === id);
+  if (!c) return;
+  c.held = held || undefined;
+  write(all);
+}
+
+// Release the whole held batch at once — they ship together on the agent's next edit.
+export function releaseHeldDiffComments(): number {
+  const all = read();
+  let n = 0;
+  for (const c of all) {
+    if (c.held && !c.deliveredAt) {
+      c.held = undefined;
+      n++;
+    }
+  }
+  if (n) write(all);
+  return n;
+}
+
+// Comments belong to a plan round: a new approval/discard wipes them so last week's notes can
+// never resurface on an unrelated future diff.
+export function clearDiffComments(): void {
+  write([]);
+}
+
 // Return the not-yet-delivered comments AND mark them delivered in one step — the guard hook calls
-// this as it injects them, so each comment reaches the agent exactly once (claim-on-read).
+// this as it injects them, so each comment reaches the agent exactly once (claim-on-read). Held
+// comments are skipped: they wait as a batch until the user releases them.
 export function claimUndeliveredDiffComments(now: number = Date.now()): DiffComment[] {
   const all = read();
-  const pending = all.filter((c) => !c.deliveredAt);
+  const pending = all.filter((c) => !c.deliveredAt && !c.held);
   if (pending.length === 0) return [];
   for (const c of pending) c.deliveredAt = now;
   write(all);

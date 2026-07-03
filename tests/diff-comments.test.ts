@@ -9,9 +9,12 @@ process.env.BEACON_DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-diff-comments-"
 import {
   addDiffComment,
   claimUndeliveredDiffComments,
+  clearDiffComments,
   listDiffComments,
+  releaseHeldDiffComments,
   removeDiffComment,
   renderDiffCommentsForAgent,
+  setDiffCommentHeld,
 } from "@/lib/diff-comments";
 
 // Reset the store between tests by removing every comment.
@@ -62,5 +65,31 @@ describe("diff-comments store", () => {
     expect(out).toContain("app/x.ts");
     expect(out).toContain("line 42");
     expect(out).toContain("use a token");
+  });
+
+  it("held comments are skipped by the claim until released", () => {
+    addDiffComment({ file: "a.ts", line: 1, body: "held one", held: true });
+    addDiffComment({ file: "a.ts", line: 2, body: "instant one" });
+    expect(claimUndeliveredDiffComments().map((c) => c.body)).toEqual(["instant one"]);
+    // Release the batch → the held comment becomes claimable.
+    expect(releaseHeldDiffComments()).toBe(1);
+    expect(claimUndeliveredDiffComments().map((c) => c.body)).toEqual(["held one"]);
+  });
+
+  it("setDiffCommentHeld toggles a single comment's hold", () => {
+    const c = addDiffComment({ file: "a.ts", line: 1, body: "x", held: true });
+    setDiffCommentHeld(c.id, false);
+    expect(claimUndeliveredDiffComments().map((x) => x.id)).toEqual([c.id]);
+  });
+
+  it("stores the anchored line text for content re-anchoring", () => {
+    const c = addDiffComment({ file: "a.ts", line: 5, body: "note", text: "  const x = 1;  " });
+    expect(c.text).toBe("const x = 1;");
+  });
+
+  it("clearDiffComments wipes the round", () => {
+    addDiffComment({ file: "a.ts", line: 1, body: "x" });
+    clearDiffComments();
+    expect(listDiffComments()).toHaveLength(0);
   });
 });

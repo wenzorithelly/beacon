@@ -16,6 +16,7 @@ import {
   type ChangeData,
   type ChangeEventArgs,
   type HunkData,
+  type GutterOptions,
 } from "react-diff-view";
 import "react-diff-view/style/index.css";
 import { refractor } from "refractor";
@@ -279,11 +280,14 @@ export function DiffDetail({
   }, [activePath]);
 
   // ── Line-comments on the diff → the running agent ────────────────────────────
-  // Click a line to leave a comment; it's stored per file+line, and the PreToolUse guard hook
-  // injects it as non-blocking context at the agent's next edit. Comments (re)load per active file.
+  // Hover a gutter → "+" → comment; it's stored per file+line WITH the line's content, and the
+  // PreToolUse guard hook injects it as non-blocking context at the agent's next edit. The diff
+  // shifts constantly under a working agent, so comments RE-ANCHOR by content each refresh; a
+  // comment whose line no longer exists renders in the orphan strip ("the agent changed this").
   const [fileComments, setFileComments] = useState<DiffComment[]>([]);
-  const [composer, setComposer] = useState<{ key: string; line: number; side: "old" | "new" } | null>(null);
+  const [composer, setComposer] = useState<{ key: string; line: number; side: "old" | "new"; text: string } | null>(null);
   const [draft, setDraft] = useState("");
+  const [holdDraft, setHoldDraft] = useState(false);
   const reloadComments = useCallback(async (path: string) => {
     const ws = currentTabWs();
     const r = (await fetch(`/api/changes/comment?file=${encodeURIComponent(path)}`, {
@@ -309,12 +313,34 @@ export function DiffDetail({
     await fetch("/api/changes/comment", {
       method: "POST",
       headers: { "content-type": "application/json", ...(ws ? { "x-beacon-workspace": ws } : {}) },
-      body: JSON.stringify({ file: active.path, line: composer.line, side: composer.side, body: draft.trim() }),
+      body: JSON.stringify({
+        file: active.path,
+        line: composer.line,
+        side: composer.side,
+        body: draft.trim(),
+        text: composer.text,
+        held: holdDraft || undefined,
+      }),
     }).catch(() => {});
     setComposer(null);
     setDraft("");
+    setHoldDraft(false);
     void reloadComments(active.path);
-  }, [composer, active, draft, reloadComments]);
+  }, [composer, active, draft, holdDraft, reloadComments]);
+
+  // Toggle one comment's hold / release the whole held batch.
+  const patchComment = useCallback(
+    async (body: { id?: string; held?: boolean; release?: boolean }) => {
+      const ws = currentTabWs();
+      await fetch("/api/changes/comment", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", ...(ws ? { "x-beacon-workspace": ws } : {}) },
+        body: JSON.stringify(body),
+      }).catch(() => {});
+      if (active) void reloadComments(active.path);
+    },
+    [active, reloadComments],
+  );
 
   const deleteComment = useCallback(
     async (id: string) => {
@@ -328,41 +354,83 @@ export function DiffDetail({
     [active, reloadComments],
   );
 
-  // Map "side:line" → the diff's changeKey so stored comments (kept by line) can be placed as
-  // widgets, and so a clicked line opens the composer on the right change.
-  const changeKeyByLine = useMemo(() => {
-    const m = new Map<string, string>();
-    if (!parsed) return m;
+  // Index the CURRENT diff two ways: "side:line" → changeKey (composer placement) and
+  // side → trimmed content → [{key,line}] (content re-anchoring of stored comments).
+  const diffIndex = useMemo(() => {
+    const byLine = new Map<string, string>();
+    const byContent = { old: new Map<string, { key: string; line: number }[]>(), new: new Map<string, { key: string; line: number }[]>() };
+    if (!parsed) return { byLine, byContent };
+    const push = (side: "old" | "new", t: string, key: string, line: number) => {
+      if (!t) return;
+      const arr = byContent[side].get(t);
+      if (arr) arr.push({ key, line });
+      else byContent[side].set(t, [{ key, line }]);
+    };
     for (const h of parsed.hunks)
       for (const ch of h.changes) {
         const key = getChangeKey(ch);
+        const t = ch.content.trim();
         const nl = computeNewLineNumber(ch);
-        if (nl && nl > 0) m.set(`new:${nl}`, key);
+        if (nl && nl > 0) {
+          byLine.set(`new:${nl}`, key);
+          push("new", t, key, nl);
+        }
         const ol = computeOldLineNumber(ch);
-        if (ol && ol > 0) m.set(`old:${ol}`, key);
+        if (ol && ol > 0) {
+          byLine.set(`old:${ol}`, key);
+          push("old", t, key, ol);
+        }
       }
-    return m;
+    return { byLine, byContent };
   }, [parsed]);
+
+  const openComposer = useCallback((ch: ChangeData, sideHint?: "old" | "new") => {
+    const side: "old" | "new" = sideHint === "old" || (sideHint === undefined && isDelete(ch)) ? "old" : "new";
+    const line = side === "old" ? computeOldLineNumber(ch) : computeNewLineNumber(ch);
+    if (!line || line <= 0) return;
+    setComposer({ key: getChangeKey(ch), line, side, text: ch.content.trim() });
+    setDraft("");
+  }, []);
 
   const gutterEvents = useMemo(
     () => ({
       onClick: (args: ChangeEventArgs) => {
         const ch = args.change as ChangeData | null;
-        if (!ch) return;
-        // Use the clicked SIDE when the event carries it (split view); fall back to change type.
-        const side: "old" | "new" = args.side === "old" || (args.side === undefined && isDelete(ch)) ? "old" : "new";
-        const line = side === "old" ? computeOldLineNumber(ch) : computeNewLineNumber(ch);
-        if (!line || line <= 0) return;
-        setComposer({ key: getChangeKey(ch), line, side });
-        setDraft("");
+        if (ch) openComposer(ch, args.side);
       },
     }),
-    [],
+    [openComposer],
   );
 
-  // One widget per line-key: the comments stored there + the composer if it targets that line.
-  const widgets = useMemo(() => {
+  // Hover a gutter → the "+" affordance (GitHub muscle memory) instead of an invisible click zone.
+  const renderGutter = useCallback(
+    ({ change, side, inHoverState, renderDefault }: GutterOptions) => {
+      if (inHoverState && change) {
+        return (
+          <button
+            type="button"
+            title="Comment on this line — the agent gets it at its next edit"
+            className="flex w-full items-center justify-center rounded-sm bg-[#ff7a45] text-[13px] font-bold leading-none text-white"
+            onClick={(e) => {
+              e.stopPropagation();
+              openComposer(change, side);
+            }}
+          >
+            +
+          </button>
+        );
+      }
+      return renderDefault();
+    },
+    [openComposer],
+  );
+
+  // Place each stored comment: 1. exact content match on its side (nearest to the stored line —
+  // the agent shifting code moves the comment WITH the line), 2. legacy line match, 3. orphaned
+  // (the agent changed/removed that line — surfaced in the strip above the diff, never dropped).
+  const { widgets, orphans } = useMemo(() => {
     const byKey = new Map<string, { comments: DiffComment[]; composer: boolean }>();
+    const orphaned: DiffComment[] = [];
     const at = (k: string) => {
       let v = byKey.get(k);
       if (!v) {
@@ -372,8 +440,17 @@ export function DiffDetail({
       return v;
     };
     for (const c of fileComments) {
-      const k = changeKeyByLine.get(`${c.side}:${c.line}`);
-      if (k) at(k).comments.push(c);
+      const candidates = c.text ? diffIndex.byContent[c.side].get(c.text) : undefined;
+      if (candidates?.length) {
+        const best = candidates.reduce((a, b) => (Math.abs(a.line - c.line) <= Math.abs(b.line - c.line) ? a : b));
+        at(best.key).comments.push(c);
+      } else {
+        const k = diffIndex.byLine.get(`${c.side}:${c.line}`);
+        // Line-only fallback ONLY for legacy comments with no stored text — with text stored, a
+        // missing content match means the line truly changed.
+        if (!c.text && k) at(k).comments.push(c);
+        else orphaned.push(c);
+      }
     }
     if (composer) at(composer.key).composer = true;
     const w: Record<string, React.ReactNode> = {};
@@ -381,12 +458,19 @@ export function DiffDetail({
       w[k] = (
         <div className="border-y border-[#ff7a45]/20 bg-[#ff7a45]/[0.04] px-3 py-2">
           {v.comments.map((c) => (
-            <CommentCard key={c.id} c={c} onDelete={() => void deleteComment(c.id)} />
+            <CommentCard
+              key={c.id}
+              c={c}
+              onDelete={() => void deleteComment(c.id)}
+              onToggleHeld={(held) => void patchComment({ id: c.id, held })}
+            />
           ))}
           {v.composer && (
             <ComposerBox
               value={draft}
               onChange={setDraft}
+              hold={holdDraft}
+              onHold={setHoldDraft}
               onSubmit={() => void addComment()}
               onCancel={() => {
                 setComposer(null);
@@ -397,8 +481,10 @@ export function DiffDetail({
         </div>
       );
     }
-    return w;
-  }, [fileComments, changeKeyByLine, composer, draft, addComment, deleteComment]);
+    return { widgets: w, orphans: orphaned };
+  }, [fileComments, diffIndex, composer, draft, holdDraft, addComment, deleteComment, patchComment]);
+
+  const heldCount = fileComments.filter((c) => c.held && !c.deliveredAt).length;
 
   // Below this sidebar width the header would wrap, so labels collapse to icons (title hides,
   // scope pill + plan badge become icon-only with the text moved to tooltips).
@@ -556,8 +642,18 @@ export function DiffDetail({
                   <MessageSquarePlus className="size-3" /> {fileComments.length}
                 </span>
               )}
+              {heldCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void patchComment({ release: true })}
+                  title="Send the held comments to the agent as one batch (delivered at its next edit)"
+                  className="flex shrink-0 items-center gap-1 rounded-full border border-[#ff7a45]/40 bg-[#ff7a45]/15 px-2 py-0.5 text-[10px] font-semibold text-[#ff7a45] transition-colors hover:bg-[#ff7a45]/25"
+                >
+                  Release {heldCount} held
+                </button>
+              )}
               <span className="hidden shrink-0 text-[10px] text-muted-foreground/45 lg:inline">
-                click a line # to comment
+                hover a line · + to comment
               </span>
               <div className="ml-auto flex shrink-0 items-center gap-0.5">
                 <div className="flex items-center gap-0.5 rounded-full border border-white/10 p-0.5">
@@ -595,6 +691,24 @@ export function DiffDetail({
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
+              {/* Orphaned comments — the agent changed/removed the commented line. Kept visible
+                  (supervision happy path: the agent responded to you), never silently dropped. */}
+              {orphans.length > 0 && (
+                <div className="border-b border-amber-400/20 bg-amber-400/[0.05] px-3 py-2">
+                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-amber-300/90">
+                    The agent changed these lines since your comment
+                  </div>
+                  {orphans.map((c) => (
+                    <CommentCard
+                      key={c.id}
+                      c={c}
+                      orphaned
+                      onDelete={() => void deleteComment(c.id)}
+                      onToggleHeld={(held) => void patchComment({ id: c.id, held })}
+                    />
+                  ))}
+                </div>
+              )}
               {active.binary ? (
                 <DiffNote icon>Binary file — no text diff.</DiffNote>
               ) : active.tooLarge ? (
@@ -614,6 +728,7 @@ export function DiffDetail({
                   tokens={tokens}
                   widgets={widgets}
                   gutterEvents={gutterEvents}
+                  renderGutter={renderGutter}
                 >
                   {(hunks) =>
                     hunks.map((h) =>
@@ -653,15 +768,51 @@ export function DiffDetail({
   );
 }
 
-// A stored line-comment shown as a widget under its diff line — deletable, with delivery status.
-function CommentCard({ c, onDelete }: { c: DiffComment; onDelete: () => void }) {
+// A stored line-comment shown as a widget under its diff line — deletable, hold-toggleable, with
+// delivery status. The orphan variant shows the ORIGINAL line the comment anchored to.
+function CommentCard({
+  c,
+  orphaned = false,
+  onDelete,
+  onToggleHeld,
+}: {
+  c: DiffComment;
+  orphaned?: boolean;
+  onDelete: () => void;
+  onToggleHeld: (held: boolean) => void;
+}) {
+  const status = c.deliveredAt
+    ? "sent to agent"
+    : c.held
+      ? "held — release to send"
+      : "pending — sent on the agent's next edit";
   return (
     <div className="group mb-1 flex items-start gap-2 rounded-md border border-white/10 bg-background/60 px-2.5 py-1.5">
       <MessageSquarePlus className="mt-0.5 size-3.5 shrink-0 text-[#ff7a45]" />
       <div className="min-w-0 flex-1">
+        {orphaned && c.text && (
+          <div className="mb-0.5 truncate font-mono text-[10px] text-muted-foreground/70" title={c.text}>
+            was: <span className="line-through">{c.text}</span>
+          </div>
+        )}
         <div className="whitespace-pre-wrap text-[12px] leading-snug text-foreground/90">{c.body}</div>
-        <div className="mt-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/60">
-          line {c.line} · {c.deliveredAt ? "sent to agent" : "pending — sent on the agent's next edit"}
+        <div className="mt-0.5 flex items-center gap-1.5 text-[9px] uppercase tracking-wide text-muted-foreground/60">
+          <span>line {c.line} · {status}</span>
+          {!c.deliveredAt && (
+            <button
+              type="button"
+              onClick={() => onToggleHeld(!c.held)}
+              className={cn(
+                "rounded-full border px-1.5 py-px font-semibold transition-colors",
+                c.held
+                  ? "border-[#ff7a45]/40 text-[#ff7a45] hover:bg-[#ff7a45]/15"
+                  : "border-white/15 text-muted-foreground hover:text-foreground",
+              )}
+              title={c.held ? "Release this comment (sends at the agent's next edit)" : "Hold this comment back to batch it"}
+            >
+              {c.held ? "release" : "hold"}
+            </button>
+          )}
         </div>
       </div>
       <button
@@ -676,15 +827,19 @@ function CommentCard({ c, onDelete }: { c: DiffComment; onDelete: () => void }) 
   );
 }
 
-// Inline composer opened by clicking a diff line.
+// Inline composer opened from a line's hover-"+" (or a gutter click).
 function ComposerBox({
   value,
   onChange,
+  hold,
+  onHold,
   onSubmit,
   onCancel,
 }: {
   value: string;
   onChange: (v: string) => void;
+  hold: boolean;
+  onHold: (h: boolean) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }) {
@@ -726,6 +881,15 @@ function ComposerBox({
         >
           Cancel
         </button>
+        <label className="ml-auto flex cursor-pointer items-center gap-1 text-[10px] text-muted-foreground" title="Hold this comment back — batch several, then Release to send them together">
+          <input
+            type="checkbox"
+            checked={hold}
+            onChange={(e) => onHold(e.target.checked)}
+            className="size-3 accent-[#ff7a45]"
+          />
+          hold (batch)
+        </label>
       </div>
     </div>
   );

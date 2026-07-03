@@ -46,32 +46,22 @@ try {
   // (additionalContext never blocks anything).
   const bypass = ev?.permission_mode === "bypassPermissions";
 
-  // 1. Scope gate (off-scope edit → ask).
-  if (!bypass && typeof file === "string" && file) {
-    const res = await fetch(
-      `${base}/api/scope-guard/check?file=${encodeURIComponent(file)}`,
-      { headers },
-    ).catch(() => null);
-    if (res?.ok) {
-      const d = (await res.json().catch(() => null)) as
-        | { decision?: string; reason?: string }
-        | null;
-      if (d?.decision === "ask") {
-        out.permissionDecision = "ask";
-        out.permissionDecisionReason =
-          d.reason ?? "This edit is outside the current plan's declared scope.";
-      }
+  // ONE request per edit: the scope decision AND the user's undelivered Changes-diff
+  // line-comments (claim=1 drains them as non-blocking additionalContext).
+  const res = await fetch(
+    `${base}/api/scope-guard/check?claim=1&file=${encodeURIComponent(typeof file === "string" ? file : "")}`,
+    { headers },
+  ).catch(() => null);
+  if (res?.ok) {
+    const d = (await res.json().catch(() => null)) as
+      | { decision?: string; reason?: string; additionalContext?: string }
+      | null;
+    if (!bypass && d?.decision === "ask" && typeof file === "string" && file) {
+      out.permissionDecision = "ask";
+      out.permissionDecisionReason =
+        d.reason ?? "This edit is outside the current plan's declared scope.";
     }
-  }
-
-  // 2. Deliver the user's Changes-diff line-comments (non-blocking, next edit, any file).
-  const claim = await fetch(`${base}/api/changes/comment/claim`, {
-    method: "POST",
-    headers,
-  }).catch(() => null);
-  if (claim?.ok) {
-    const c = (await claim.json().catch(() => null)) as { additionalContext?: string } | null;
-    if (c?.additionalContext) out.additionalContext = c.additionalContext;
+    if (d?.additionalContext) out.additionalContext = d.additionalContext;
   }
 
   if (out.permissionDecision || out.additionalContext) {
