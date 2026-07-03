@@ -12,6 +12,7 @@ import {
   OWNER_STALE_MS,
   claimUndeliveredDiffComments,
   clearDiffComments,
+  isCommentStale,
   listDiffComments,
   releaseHeldDiffComments,
   removeDiffComment,
@@ -93,6 +94,38 @@ describe("diff-comments store", () => {
     addDiffComment({ file: "a.ts", line: 1, body: "x" });
     clearDiffComments();
     expect(listDiffComments()).toHaveLength(0);
+  });
+});
+
+describe("stale comments (the agent changed the lines before delivery)", () => {
+  const c = { text: "if (!allow(clientKey(req), 100)) {", side: "new" as const };
+
+  it("not stale while the commented line still exists in the working file", () => {
+    expect(isCommentStale(c, "foo\nif (!allow(clientKey(req), 100)) {\nbar")).toBe(false);
+  });
+
+  it("stale once the line's content is gone from the file", () => {
+    expect(isCommentStale(c, "if (!allow(clientKey(req), config.rateLimit)) {")).toBe(true);
+  });
+
+  it("stale when the file itself is gone", () => {
+    expect(isCommentStale(c, null)).toBe(true);
+  });
+
+  it("never stale for old-side or textless comments (nothing to re-check against)", () => {
+    expect(isCommentStale({ ...c, side: "old" }, "anything")).toBe(false);
+    expect(isCommentStale({ text: undefined, side: "new" }, "anything")).toBe(false);
+  });
+
+  it("render appends a since-changed note for stale comments only", () => {
+    const base = { id: "1", file: "a.ts", line: 7, side: "new" as const, body: "use config", createdAt: 0 };
+    const out = renderDiffCommentsForAgent([
+      { ...base, stale: true },
+      { ...base, id: "2", line: 9, body: "fresh note" },
+    ]);
+    const [first, second] = out.split("\n- ").slice(1);
+    expect(first).toContain("already changed since");
+    expect(second).not.toContain("already changed since");
   });
 });
 

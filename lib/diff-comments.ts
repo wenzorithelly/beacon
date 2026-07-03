@@ -147,11 +147,33 @@ export function claimUndeliveredDiffComments(
   return pending;
 }
 
+// Has the commented line's content vanished from the working file since compose time? Delivery
+// still happens (the feedback may well apply), but the agent gets a heads-up so a note about
+// already-rewritten code doesn't read as a fresh instruction. Old-side comments anchor to the
+// BASE version, which the working file can't confirm — never flagged. Pure: the caller reads
+// the file (null = the file itself is gone).
+export function isCommentStale(
+  c: Pick<DiffComment, "text" | "side">,
+  workingFileContent: string | null,
+): boolean {
+  if (!c.text || c.side === "old") return false;
+  if (workingFileContent === null) return true;
+  return !workingFileContent.includes(c.text);
+}
+
 // Render claimed comments into the `additionalContext` string the agent reads before its next edit.
 // Pure — unit-tested. Empty in → empty out (the hook then emits nothing).
-export function renderDiffCommentsForAgent(comments: readonly DiffComment[]): string {
+export function renderDiffCommentsForAgent(
+  comments: readonly (DiffComment & { stale?: boolean })[],
+): string {
   if (!comments.length) return "";
-  const lines = comments.map((c) => `- \`${c.file}\` line ${c.line} — ${c.body}`);
+  const lines = comments.map(
+    (c) =>
+      `- \`${c.file}\` line ${c.line} — ${c.body}` +
+      (c.stale
+        ? "\n  (note: the commented lines have already changed since this was written — re-check before acting)"
+        : ""),
+  );
   return [
     "The user left comment(s) on your code changes in Beacon's Changes view. Read them and adjust " +
       "your approach before continuing:",
