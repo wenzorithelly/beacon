@@ -8,6 +8,7 @@ process.env.BEACON_DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-diff-comments-"
 
 import {
   addDiffComment,
+  answerDiffComment,
   claimableBy,
   OWNER_STALE_MS,
   claimUndeliveredDiffComments,
@@ -94,6 +95,83 @@ describe("diff-comments store", () => {
     addDiffComment({ file: "a.ts", line: 1, body: "x" });
     clearDiffComments();
     expect(listDiffComments()).toHaveLength(0);
+  });
+});
+
+describe("questions (ask the agent → answer back → durable Q&A)", () => {
+  it("adds a question (kind=question); a plain comment has no kind", () => {
+    const q = addDiffComment({ file: "a.ts", line: 3, body: "why a new table?", kind: "question" });
+    expect(q.kind).toBe("question");
+    const c = addDiffComment({ file: "a.ts", line: 4, body: "rename this" });
+    expect(c.kind).toBeUndefined();
+  });
+
+  it("answerDiffComment fills the answer + timestamp and returns the row", () => {
+    const q = addDiffComment({ file: "a.ts", line: 3, body: "why?", kind: "question" });
+    const answered = answerDiffComment(q.id, "  because reasons  ");
+    expect(answered?.answer).toBe("because reasons");
+    expect(answered?.answeredAt).toBeGreaterThan(0);
+    expect(listDiffComments().find((c) => c.id === q.id)?.answer).toBe("because reasons");
+  });
+
+  it("answerDiffComment is a no-op for an unknown id, a plain comment, or an empty answer", () => {
+    const c = addDiffComment({ file: "a.ts", line: 1, body: "not a question" });
+    expect(answerDiffComment("nope", "x")).toBeNull();
+    expect(answerDiffComment(c.id, "x")).toBeNull(); // comments can't be answered
+    const q = addDiffComment({ file: "a.ts", line: 2, body: "q?", kind: "question" });
+    expect(answerDiffComment(q.id, "   ")).toBeNull();
+  });
+
+  it("first answer wins — a second answerDiffComment does NOT clobber", () => {
+    const q = addDiffComment({ file: "a.ts", line: 3, body: "q?", kind: "question" });
+    expect(answerDiffComment(q.id, "first")?.answer).toBe("first");
+    expect(answerDiffComment(q.id, "second")).toBeNull(); // already answered
+    expect(listDiffComments().find((c) => c.id === q.id)?.answer).toBe("first");
+  });
+
+  it("round wipe keeps DELIVERED/ANSWERED questions but drops undelivered ones (no resurface)", () => {
+    addDiffComment({ file: "a.ts", line: 1, body: "a comment" }); // comment → wiped
+    const undelivered = addDiffComment({ file: "a.ts", line: 2, body: "in-flight q", kind: "question" });
+    const delivered = addDiffComment({ file: "a.ts", line: 3, body: "delivered q", kind: "question" });
+    claimUndeliveredDiffComments(); // marks `delivered` (and `undelivered`… so re-add one truly undelivered)
+    // Re-add a genuinely undelivered question AFTER the claim.
+    const fresh = addDiffComment({ file: "a.ts", line: 4, body: "fresh undelivered q", kind: "question" });
+    clearDiffComments();
+    const left = listDiffComments().map((c) => c.id).sort();
+    // `delivered` + `undelivered` were both claimed above (deliveredAt set) → kept; `fresh` dropped.
+    expect(left).toEqual([delivered.id, undelivered.id].sort());
+    expect(left).not.toContain(fresh.id);
+  });
+
+  it("round wipe caps the durable question log so it can't grow unbounded", () => {
+    for (let i = 0; i < 130; i++) {
+      const q = addDiffComment({ file: "a.ts", line: i + 1, body: `q${i}`, kind: "question" });
+      answerDiffComment(q.id, "ans"); // answered → durable
+    }
+    clearDiffComments();
+    expect(listDiffComments().length).toBe(100); // QUESTION_LOG_CAP
+  });
+
+  it("questions deliver to the agent like comments, with the beacon answer command", () => {
+    const q = addDiffComment({ file: "app/x.ts", line: 9, body: "own cart only?", kind: "question" });
+    const claimed = claimUndeliveredDiffComments();
+    expect(claimed.map((c) => c.id)).toContain(q.id);
+    const out = renderDiffCommentsForAgent(claimed);
+    expect(out).toContain("asked question");
+    expect(out).toContain(`beacon answer ${q.id}`);
+    expect(out).toContain("own cart only?");
+  });
+
+  it("renders comments and questions in separate sections", () => {
+    const out = renderDiffCommentsForAgent([
+      { id: "c1", file: "a.ts", line: 1, side: "new", body: "adjust this", createdAt: 0 },
+      { id: "q1", kind: "question", file: "a.ts", line: 2, side: "new", body: "why this?", createdAt: 0 },
+    ]);
+    expect(out).toContain("left comment(s)");
+    expect(out).toContain("asked question(s)");
+    expect(out).toContain("beacon answer q1");
+    // The comment is NOT rendered with an answer command.
+    expect(out).not.toContain("beacon answer c1");
   });
 });
 

@@ -57,7 +57,7 @@ export function FileCard({
   onOpen: (path: string) => void;
   onToggleViewed: (file: ChangedFile, next: boolean) => void;
   // A quality signal is only useful if it can reach the agent: chips open a prefilled flag
-  // composer whose message ships through the line-comment channel (agent's next edit).
+  // composer whose message ships through the line-comment channel (agent's next edit or reply).
   onFlag?: (file: ChangedFile, prefill: string) => void;
 }) {
   const verb = verbFor(file.status);

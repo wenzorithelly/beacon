@@ -1,20 +1,28 @@
 #!/usr/bin/env bun
 /**
  * Beacon Stop hook. The agent's CLI (Claude Code or Codex) runs this when the agent finishes a
- * turn. If the agent ended by asking the user — in prose — to approve a plan or decide how to
- * proceed (instead of presenting it through Beacon), we BLOCK the stop and feed back an
- * instruction to present the plan via the `beacon_present_plan` MCP tool, so it opens on /plan
- * for review. This closes the gap where the agent never triggers Beacon's plan loop — Claude
- * Code in auto/normal mode (no ExitPlanMode), and Codex always (it has no ExitPlanMode at all).
+ * turn. It does TWO things, both best-effort and never-throw:
  *
- * Best-effort + bounded: honors `stop_hook_active` (so it nudges at most once per stuck point,
- * never an infinite loop) and never throws — a hook error must never trap the session.
+ *  1. Line-comment delivery at TURN-END — drains the user's undelivered Changes-view line-comments
+ *     and BLOCKS the stop with them, so a comment reaches the agent even when it never edits a file
+ *     again (running commands, git, or just answering the user). The edit-time delivery (the
+ *     `beacon guard` PreToolUse hook) only fires before an Edit/Write, so a comment left while the
+ *     agent is doing anything else used to be stranded — this is the catch-all. Claim-on-read marks
+ *     each comment delivered, so blocking here can NEVER loop (the next stop has nothing to deliver).
  *
- * Hook input (stdin): { stop_hook_active: boolean, transcript_path: string, ... }
- * Hook output (stdout, only when nudging): { "decision": "block", "reason": "…" }
+ *  2. Plan-nudge — if the agent ended by asking the user, in prose, to approve a plan or decide how
+ *     to proceed (instead of presenting it through Beacon), BLOCK and feed back an instruction to
+ *     present it via `beacon_present_plan` so it opens on /plan. Closes the gap where the agent never
+ *     triggers Beacon's plan loop — Claude Code in auto/normal mode (no ExitPlanMode), Codex always.
+ *     Bounded by `stop_hook_active` (nudges at most once per stuck point, never an infinite loop).
+ *
+ * Hook input (stdin): { stop_hook_active: boolean, transcript_path: string, cwd?, session_id?, ... }
+ * Hook output (stdout, only when blocking): { "decision": "block", "reason": "…" }
  */
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { shouldNudgeToPresentPlan } from "@/lib/stop-hook-detect";
+import { agentWorkspaceHeaders } from "@/lib/workspaces";
+import { daemonBaseUrl } from "@/lib/daemon-server";
 
 const NUDGE =
   "It looks like you ended your turn asking the user to approve a plan or decide how to " +
@@ -46,21 +54,52 @@ let input = "";
 for await (const chunk of process.stdin) input += chunk;
 
 try {
-  const ev = JSON.parse(input || "{}") as { stop_hook_active?: boolean; transcript_path?: string };
-  // Already nudged once this stuck point → let the agent stop (no loops; respects the cap).
+  const ev = JSON.parse(input || "{}") as {
+    stop_hook_active?: boolean;
+    transcript_path?: string;
+    cwd?: string;
+    session_id?: string;
+  };
+  // Already blocked once this stuck point → let the agent stop (bounds BOTH concerns below, so a
+  // comment delivery can never burn the budget the plan-nudge needs — they share one block).
   if (ev.stop_hook_active) process.exit(0);
-  const path = ev.transcript_path;
-  if (typeof path !== "string" || !path) process.exit(0);
 
-  let jsonl = "";
+  // Collect every reason to block this stop, then emit ONE block combining them. Both are
+  // best-effort and independent; either alone, both together, or neither.
+  const reasons: string[] = [];
+
+  // 1. Undelivered Changes-view comments/questions (claim-on-read → each delivered exactly once),
+  //    so a note lands even when the agent stopped editing files (running commands, answering).
   try {
-    jsonl = readTail(path);
+    const session = typeof ev.session_id === "string" ? ev.session_id : "";
+    const res = await fetch(
+      `${daemonBaseUrl()}/api/changes/comment/claim?session=${encodeURIComponent(session)}`,
+      {
+        method: "POST",
+        headers: agentWorkspaceHeaders(typeof ev.cwd === "string" ? ev.cwd : undefined),
+        signal: AbortSignal.timeout(2500),
+      },
+    ).catch(() => null);
+    const ctx = res?.ok
+      ? ((await res.json().catch(() => null)) as { additionalContext?: string } | null)?.additionalContext
+      : "";
+    if (ctx && ctx.trim()) reasons.push(ctx);
   } catch {
-    process.exit(0); // can't read transcript → don't block
+    /* fail-open: comment delivery must never trap the turn */
   }
 
-  if (shouldNudgeToPresentPlan(jsonl)) {
-    process.stdout.write(JSON.stringify({ decision: "block", reason: NUDGE }));
+  // 2. Plan-nudge — the agent ended asking (in prose) to approve a plan instead of presenting it.
+  const path = ev.transcript_path;
+  if (typeof path === "string" && path) {
+    try {
+      if (shouldNudgeToPresentPlan(readTail(path))) reasons.push(NUDGE);
+    } catch {
+      /* can't read transcript → skip the nudge */
+    }
+  }
+
+  if (reasons.length) {
+    process.stdout.write(JSON.stringify({ decision: "block", reason: reasons.join("\n\n---\n\n") }));
   }
 } catch {
   /* never trap the session on a hook error */

@@ -1,9 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { pinned } from "@/lib/api-workspace";
 import { decideEdit, getActiveContract } from "@/lib/scope-contract";
-import { claimUndeliveredDiffComments, isCommentStale, renderDiffCommentsForAgent } from "@/lib/diff-comments";
-import { readTouched, sessionLastSeen, toRepoRelative } from "@/lib/touched-files";
+import { claimAndRenderForAgent } from "@/lib/diff-comments";
+import { toRepoRelative } from "@/lib/touched-files";
 import { repoRoot } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
@@ -22,24 +22,11 @@ export const GET = pinned(async (req: Request) => {
   const params = new URL(req.url).searchParams;
   const file = params.get("file") ?? "";
   const root = repoRoot();
-  // `claim=1` also drains the user's undelivered diff line-comments into `additionalContext`
-  // (claim-on-read), so the guard hook makes ONE request per edit instead of two. The claiming
-  // session's id routes owned comments to the right session in multi-session repos. Comments
-  // whose anchored line has ALREADY changed still deliver, flagged so they don't read as fresh.
+  // `claim=1` also drains the user's undelivered diff line-comments/questions into `additionalContext`
+  // (claim-on-read), so the guard hook makes ONE request per edit instead of two. Shared with the
+  // turn-end stop-hook path via claimAndRenderForAgent — same session routing + staleness note.
   const additionalContext = params.get("claim")
-    ? renderDiffCommentsForAgent(
-        claimUndeliveredDiffComments(Date.now(), params.get("session") || undefined, sessionLastSeen(readTouched())).map(
-          (c) => {
-            let content: string | null = null;
-            try {
-              content = readFileSync(join(root, c.file), "utf8");
-            } catch {
-              /* gone/unreadable -> stale */
-            }
-            return { ...c, stale: isCommentStale(c, content) };
-          },
-        ),
-      ) || undefined
+    ? claimAndRenderForAgent(params.get("session") || undefined) || undefined
     : undefined;
 
   const contract = await getActiveContract();

@@ -15,9 +15,9 @@ export const dynamic = "force-dynamic";
 //   POST /api/changes/comment         → add one { file, line, side?, body, text?, held? }
 //   PATCH /api/changes/comment        → { id, held } toggle hold · { release: true } release batch
 //   DELETE /api/changes/comment?id=…  → remove one
-// Pinned so comments land in the repo the tab is viewing (the one the agent is working in). The
-// PreToolUse guard hook drains undelivered comments via the scope-guard check (?claim=1) or the
-// legacy /api/changes/comment/claim.
+// Pinned so comments land in the repo the tab is viewing (the one the agent is working in). Two
+// channels drain undelivered comments/questions: the PreToolUse guard's scope-guard check (?claim=1)
+// on the agent's next edit, and /api/changes/comment/claim from the stop-hook at turn-end.
 export const GET = pinned(async (req: Request) => {
   const file = new URL(req.url).searchParams.get("file") || undefined;
   return Response.json({ comments: listDiffComments(file) });
@@ -31,6 +31,7 @@ export const POST = pinned(async (req: Request) => {
     body?: string;
     text?: string;
     held?: boolean;
+    kind?: "comment" | "question";
   };
   const file = (b.file ?? "").trim();
   const text = (b.body ?? "").trim();
@@ -39,7 +40,8 @@ export const POST = pinned(async (req: Request) => {
     return Response.json({ error: "file, line and body are required" }, { status: 400 });
   }
   // Stamp the owning session: whoever last edited the target file is the session this comment is
-  // about — the claim then delivers it there, not to whichever session edits first.
+  // about — the claim then delivers it there, not to whichever session edits first. `kind:"question"`
+  // makes it a Q&A entry the agent answers via `beacon answer <id>`.
   return Response.json({
     comment: addDiffComment({
       file,
@@ -48,6 +50,7 @@ export const POST = pinned(async (req: Request) => {
       body: text,
       text: b.text,
       held: b.held,
+      kind: b.kind === "question" ? "question" : undefined,
       owner: readTouched()[file]?.session,
     }),
   });

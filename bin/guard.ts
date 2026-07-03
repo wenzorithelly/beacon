@@ -19,7 +19,7 @@
  * Edit|Write|MultiEdit). The companion PostToolUse hook (`beacon hook`) records an authorized
  * divergence into the contract so the same file isn't asked about twice.
  */
-import { idForPath, repoRootFrom } from "@/lib/workspaces";
+import { agentWorkspaceHeaders } from "@/lib/workspaces";
 import { daemonBaseUrl } from "@/lib/daemon-server";
 
 let input = "";
@@ -28,11 +28,11 @@ for await (const chunk of process.stdin) input += chunk;
 try {
   const ev = JSON.parse(input || "{}");
   const file = ev?.tool_input?.file_path;
-  // Pin both calls to the repo the session runs IN (same id `beacon hook` / `beacon mcp` derive),
-  // so they read THIS repo's contract + comments, not whatever workspace the browser last viewed.
-  const wsId = idForPath(repoRootFrom(typeof ev.cwd === "string" ? ev.cwd : undefined));
+  // Pin both calls to the repo the session runs IN (id + path, so the daemon self-heals to THIS repo
+  // even if the id isn't registered), so they read THIS repo's contract + comments, not whatever
+  // workspace the browser last viewed.
   const base = daemonBaseUrl();
-  const headers = { "x-beacon-workspace": wsId };
+  const headers = agentWorkspaceHeaders(typeof ev.cwd === "string" ? ev.cwd : undefined);
 
   const out: {
     hookEventName: "PreToolUse";

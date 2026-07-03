@@ -84,6 +84,10 @@ if (sub === "mcp") {
   await import(mod("bin/guard.ts"));
 } else if (sub === "plan") {
   await import(mod("bin/plan.ts"));
+} else if (sub === "ask") {
+  await import(mod("bin/ask.ts"));
+} else if (sub === "answer") {
+  await import(mod("bin/answer.ts"));
 } else if (sub === "prompt") {
   await import(mod("bin/prompt.ts"));
 } else if (sub === "stop-hook") {

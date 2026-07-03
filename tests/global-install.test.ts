@@ -277,7 +277,7 @@ describe("selfHealGlobal", () => {
     expect(result.skillsAdded).toEqual(
       expect.arrayContaining(["beacon-init", "beacon-refresh", "beacon-plan", "beacon-explain"]),
     );
-    expect(result.hooksAdded).toBe(5);
+    expect(result.hooksAdded).toBe(7); // +2: beacon ask (PreToolUse AskUserQuestion, PermissionRequest edits)
     expect(result.claudeMdBlockTouched).toBe(true);
 
     const after = auditGlobal();
@@ -377,5 +377,13 @@ describe("entry-point self-heal (subprocess)", () => {
   it("bin/plan.ts imports selfHealGlobal so plan-mode triggers re-apply global assets", () => {
     const src = readFileSync(join(PKG_DIR, "bin", "plan.ts"), "utf8");
     expect(src).toContain("selfHealGlobal");
+  });
+
+  // The Stop hook is the catch-all that delivers Changes-view line-comments at turn-end (so a
+  // comment lands even when the agent stops editing files). A refactor must not silently drop it.
+  it("bin/stop-hook.ts claims diff comments at turn-end and blocks with them", () => {
+    const src = readFileSync(join(PKG_DIR, "bin", "stop-hook.ts"), "utf8");
+    expect(src).toContain("/api/changes/comment/claim");
+    expect(src).toContain('"block"');
   });
 });

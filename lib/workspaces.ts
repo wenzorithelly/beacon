@@ -289,6 +289,17 @@ function loneWorkspaceId(): string | null {
 // repo. Browsers never send it (they only have an id), so it can't move a browser's view.
 export const BEACON_WS_PATH_HEADER = "x-beacon-workspace-path";
 
+// The headers an agent-side hook/CLI sends to pin a daemon request to its OWN repo: the workspace id
+// AND the repo path. Sending BOTH lets `resolveRequestWorkspaceId` self-heal — if the id isn't
+// registered yet (a repo never opened with `beacon`, or a path that hashes differently), it registers
+// the repo from the path instead of silently falling back to the browser's active workspace. Use this
+// everywhere a bin posts to the daemon (hook / guard / stop-hook / answer) so delivery never
+// mis-targets. `cwd` defaults to this process's cwd (where the agent spawned the hook).
+export function agentWorkspaceHeaders(cwd: string = process.cwd()): Record<string, string> {
+  const path = repoRootFrom(cwd);
+  return { "x-beacon-workspace": idForPath(path), [BEACON_WS_PATH_HEADER]: path };
+}
+
 /**
  * Async superset of {@link workspaceIdFromRequest} for WRITE boundaries (pinned routes + the intel
  * watcher's ingest routes). Resolves the workspace to pin to, and SELF-HEALS an agent's workspace so

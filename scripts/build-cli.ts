@@ -21,6 +21,8 @@ const ENTRYPOINTS = [
   "bin/hook.ts",
   "bin/guard.ts",
   "bin/plan.ts",
+  "bin/ask.ts",
+  "bin/answer.ts",
   "bin/prompt.ts",
   "bin/stop-hook.ts",
   "bin/doctor.ts",

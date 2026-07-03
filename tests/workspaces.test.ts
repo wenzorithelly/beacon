@@ -43,6 +43,7 @@ const {
   isWorkspaceDeleted,
   tombstoneWorkspace,
   clearWorkspaceTombstone,
+  agentWorkspaceHeaders,
 } = await import("@/lib/workspaces");
 const { pinned } = await import("@/lib/api-workspace");
 
@@ -106,6 +107,27 @@ describe("registrable-path + deletion tombstone guards", () => {
     const req = new Request("http://x", { headers: { [BEACON_WS_PATH_HEADER]: homedir() } });
     expect(await resolveRequestWorkspaceId(req)).toBeNull();
     expect(getWorkspace(idForPath(homedir()))).toBeNull();
+  });
+});
+
+describe("agentWorkspaceHeaders (hooks/CLI → daemon self-heal)", () => {
+  it("sends the id AND the repo path, with the id = hash of that path", () => {
+    const h = agentWorkspaceHeaders(process.cwd());
+    const path = h[BEACON_WS_PATH_HEADER];
+    expect(path).toBeTruthy();
+    // Both headers agree so resolveRequestWorkspaceId's path self-heal is accepted (id === hash(path)).
+    expect(h["x-beacon-workspace"]).toBe(idForPath(path));
+  });
+
+  it("lets an unregistered-but-real repo resolve via the path header instead of the active fallback", async () => {
+    // A repo whose id was never registered: id-only would fall back to active; id+path self-registers.
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), "beacon-agent-repo-")));
+    setActiveId(addWorkspace(realpathSync(mkdtempSync(join(tmpdir(), "beacon-other-")))).id); // a DIFFERENT active ws
+    const headers = agentWorkspaceHeaders(repo);
+    expect(getWorkspace(headers["x-beacon-workspace"])).toBeNull(); // not registered yet
+    const resolved = await resolveRequestWorkspaceId(new Request("http://x", { headers }));
+    expect(resolved).toBe(idForPath(repo)); // pinned to the agent's repo, NOT the active one
+    rmSync(repo, { recursive: true, force: true });
   });
 });
 

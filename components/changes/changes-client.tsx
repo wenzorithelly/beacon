@@ -67,22 +67,43 @@ export function ChangesClient({
 
   const views = useMemo(() => viewedStates(files, viewedMap), [files, viewedMap]);
 
-  // Comment counts per file for the card chips. `commentsNonce` bumps when a comment is created
-  // outside FileDiffView (the quality-flag dialog) so the chips refresh immediately.
-  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  // All comments+questions for the workspace — drives the per-file count chips AND the Questions
+  // lens. `commentsNonce` bumps when a comment is created outside FileDiffView (the quality-flag
+  // dialog) and on the answer-poll tick, so both refresh without a full navigation.
+  const [allComments, setAllComments] = useState<DiffComment[]>([]);
   const [commentsNonce, setCommentsNonce] = useState(0);
   useEffect(() => {
     const ws = currentTabWs();
     fetch("/api/changes/comment", { cache: "no-store", headers: ws ? { "x-beacon-workspace": ws } : undefined })
       .then((r) => r.json() as Promise<{ comments?: DiffComment[] }>)
-      .then((r) => {
-        const counts: Record<string, number> = {};
-        for (const c of r.comments ?? []) counts[c.file] = (counts[c.file] ?? 0) + 1;
-         
-        setCommentCounts(counts);
-      })
+      .then((r) => setAllComments(r.comments ?? []))
       .catch(() => {});
   }, [files, commentsNonce]);
+  // The card chip counts COMMENTS only — questions have their own count on the Questions lens, so
+  // folding them in here would inflate the "line-comments" chip with unrelated Q&A.
+  const commentCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of allComments) if (c.kind !== "question") counts[c.file] = (counts[c.file] ?? 0) + 1;
+    return counts;
+  }, [allComments]);
+  const questions = useMemo(() => allComments.filter((c) => c.kind === "question"), [allComments]);
+  // Poll for the agent's answers while a question is still open — `beacon answer` lands them
+  // externally, so nothing local would otherwise refresh. Questions are DURABLE, so an abandoned
+  // (never-answered) one would poll forever; cap the window at 15 min. A new question (pendingCount
+  // changes) re-arms it; it stops entirely once every question is answered.
+  const pendingCount = questions.filter((q) => !q.answer).length;
+  useEffect(() => {
+    if (pendingCount === 0) return;
+    const started = Date.now();
+    const t = setInterval(() => {
+      if (Date.now() - started > 15 * 60_000) {
+        clearInterval(t);
+        return;
+      }
+      setCommentsNonce((n) => n + 1);
+    }, 4000);
+    return () => clearInterval(t);
+  }, [pendingCount]);
 
   // On-demand quality scan (repo linter + clone detection) — explicit click, results cached until
   // the next click; refreshes don't wipe them (paths that left the list just stop matching).
@@ -149,6 +170,7 @@ export function ChangesClient({
       unseen={unseen}
       transients={transients}
       commentCounts={commentCounts}
+      questions={questions}
       lens={lens}
       onLens={setLens}
       onOpen={(p) => {

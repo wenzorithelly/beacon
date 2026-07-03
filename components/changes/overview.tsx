@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ListOrdered, GitCompare, ChevronRight, ScanSearch, Loader2, Flag, X } from "lucide-react";
+import { Activity, ListOrdered, GitCompare, ChevronRight, ScanSearch, Loader2, Flag, X, HelpCircle, ExternalLink } from "lucide-react";
 import { FileCard, type FileQuality } from "@/components/changes/file-card";
-import { FileDiffView } from "@/components/changes/file-diff";
+import { FileDiffView, openInEditor, AgentAnswer, AwaitingAnswer } from "@/components/changes/file-diff";
 import { groupEpisodes, orderForReview } from "@/lib/changes-order";
 import { currentTabWs } from "@/lib/tab-ws";
 import type { ChangedFile } from "@/lib/diff-shared";
+import type { DiffComment } from "@/lib/diff-comments";
 import type { TouchedMap } from "@/lib/touched-files";
 import type { ViewState } from "@/lib/viewed-shared";
 import { cn } from "@/lib/utils";
@@ -14,10 +15,10 @@ import { cn } from "@/lib/utils";
 // The glance layer. Overview first, details on demand (Shneiderman): an instrument strip (live
 // activity, magnitude vs the ~400-LOC review-attention budget, unseen/viewed, lenses), then file
 // rows grouped into glass PANELS — common region, the strongest grouping cue. While any diff is
-// expanded the reading surface FREEZES: row order and grouping pin, and newly-arriving files
-// queue behind a "show" pill instead of reshuffling what the user is reading.
+// expanded the reading surface pins row ORDER so it can't reshuffle mid-read; files arriving
+// meanwhile are APPENDED into their section live (no click, no reshuffle of what you're reading).
 
-export type Lens = "activity" | "review";
+export type Lens = "activity" | "review" | "questions";
 
 // Research budget (SmartBear/Cisco): defect detection degrades sharply past ~400 changed lines.
 const REVIEW_BUDGET_LINES = 400;
@@ -48,6 +49,7 @@ export function ChangesOverview({
   unseen,
   transients,
   commentCounts,
+  questions,
   lens,
   onLens,
   onOpen,
@@ -64,6 +66,8 @@ export function ChangesOverview({
   unseen: Set<string>;
   transients: Set<string>;
   commentCounts: Record<string, number>;
+  // Every kind:"question" entry across the workspace — the durable Q&A log the Questions lens shows.
+  questions: DiffComment[];
   lens: Lens;
   onLens: (l: Lens) => void;
   // Full-page focus (the detail view) — reached from an expanded card's Focus button.
@@ -134,23 +138,40 @@ export function ChangesOverview({
     [lens, episodes, review],
   );
 
-  // ── The frozen reading surface ────────────────────────────────────────────────
+  // ── The pinned reading surface ────────────────────────────────────────────────
   // A list must not reshuffle under someone reading it. While any diff is expanded, the section
-  // structure pins (adjust-on-state-change pattern — no effects); files arriving meanwhile are
-  // COUNTED, not inserted, and flush in on the pill click or when the last card collapses. Data
-  // inside pinned rows stays live (looked up by path at render).
+  // ORDER pins (adjust-on-state-change pattern — no effects) so existing rows never jump. Files
+  // arriving meanwhile are APPENDED live into their section (see `sections`) — so new changes still
+  // show up on their own, no click, without moving what you're reading. Pinned rows' data stays live
+  // (looked up by path at render). On collapse the surface unpins and shows the live order directly.
   const [frozen, setFrozen] = useState<{ lens: Lens; sections: Section[] } | null>(null);
   if (expanded.size > 0 && (frozen === null || frozen.lens !== lens)) {
     setFrozen({ lens, sections: liveSections });
   } else if (expanded.size === 0 && frozen !== null) {
     setFrozen(null);
   }
-  const sections = frozen ? frozen.sections : liveSections;
-  const shownPaths = useMemo(() => new Set(sections.flatMap((s) => s.paths)), [sections]);
-  const heldCount = frozen ? files.filter((f) => !shownPaths.has(f.path)).length : 0;
+  // Merge new arrivals into the frozen order by APPENDING (to the matching section, or a new trailing
+  // one) — never reordering existing rows, so the card you're reading stays put. `shownPaths` guards
+  // against a file that changed episode showing up twice.
+  const sections = useMemo(() => {
+    if (!frozen) return liveSections;
+    const frozenKeys = new Set(frozen.sections.map((s) => s.key));
+    const shownPaths = new Set(frozen.sections.flatMap((s) => s.paths));
+    const merged = frozen.sections.map((s) => {
+      const live = liveSections.find((l) => l.key === s.key);
+      const extra = live ? live.paths.filter((p) => !shownPaths.has(p)) : [];
+      return extra.length ? { ...s, paths: [...s.paths, ...extra] } : s;
+    });
+    for (const live of liveSections) {
+      if (frozenKeys.has(live.key)) continue;
+      const paths = live.paths.filter((p) => !shownPaths.has(p));
+      if (paths.length) merged.push({ ...live, paths });
+    }
+    return merged;
+  }, [frozen, liveSections]);
 
   // "Flag to the agent": a quality chip opens this prefilled composer; sending ships the message
-  // through the line-comment channel (delivered at the agent's next edit, holdable like any note).
+  // through the line-comment channel (delivered on the agent's next edit or reply, holdable like any note).
   const [flag, setFlag] = useState<{ file: ChangedFile; text: string; hold: boolean; sending: boolean } | null>(null);
   const sendFlag = async () => {
     if (!flag || !flag.text.trim() || flag.sending) return;
@@ -258,7 +279,13 @@ export function ChangesOverview({
             {scanning ? "Scanning…" : quality ? "Re-scan" : "Quality scan"}
           </button>
           <div className="flex items-center gap-0.5 rounded-full border border-white/10 p-0.5">
-            {(["activity", "review"] as const).map((l) => (
+            {(
+              [
+                { l: "activity", icon: <Activity className="size-3" />, label: "Activity", title: "What the agent is doing, newest first" },
+                { l: "review", icon: <ListOrdered className="size-3" />, label: "Review", title: "Importance-first for a careful pass" },
+                { l: "questions", icon: <HelpCircle className="size-3" />, label: "Questions", title: "Questions you asked the agent + its answers" },
+              ] as const
+            ).map(({ l, icon, label, title }) => (
               <button
                 key={l}
                 type="button"
@@ -267,10 +294,15 @@ export function ChangesOverview({
                   "flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors",
                   lens === l ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground",
                 )}
-                title={l === "activity" ? "What the agent is doing, newest first" : "Importance-first for a careful pass"}
+                title={title}
               >
-                {l === "activity" ? <Activity className="size-3" /> : <ListOrdered className="size-3" />}
-                {l === "activity" ? "Activity" : "Review"}
+                {icon}
+                {label}
+                {l === "questions" && questions.length > 0 && (
+                  <span className="ml-0.5 rounded-full bg-[#ff7a45]/20 px-1 text-[9px] font-semibold text-[#ff7a45]">
+                    {questions.length}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -339,25 +371,15 @@ export function ChangesOverview({
               hold (batch)
             </label>
           </div>
-          <p className="mt-1.5 text-[10px] text-muted-foreground/70">Delivered at the agent&apos;s next edit.</p>
+          <p className="mt-1.5 text-[10px] text-muted-foreground/70">Delivered on the agent&apos;s next edit or reply.</p>
         </div>
       )}
 
       {/* ── Panels ── */}
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto py-3">
-        {heldCount > 0 && (
-          <div className="sticky top-0 z-10 flex justify-center">
-            <button
-              type="button"
-              onClick={() => setFrozen({ lens, sections: liveSections })}
-              title="The list is pinned while you read — click to bring the new changes in"
-              className="rounded-full border border-[#ff7a45]/40 bg-[#191009] px-3 py-1 text-[11px] font-semibold text-[#ff7a45] shadow-lg transition-colors hover:bg-[#ff7a45]/15"
-            >
-              {heldCount} new change{heldCount === 1 ? "" : "s"} — show
-            </button>
-          </div>
-        )}
-        {files.length === 0 ? (
+        {lens === "questions" ? (
+          <QuestionsPanel questions={questions} />
+        ) : files.length === 0 ? (
           <p className="py-8 text-center text-[12px] text-muted-foreground">
             No uncommitted changes yet — the agent&apos;s edits land here live.
           </p>
@@ -373,6 +395,64 @@ export function ChangesOverview({
           })
         )}
       </div>
+    </div>
+  );
+}
+
+// The Questions lens: the durable Q&A log — every question you asked the agent on the diff, grouped
+// by file, each with the agent's answer (or an awaiting-answer state). "Always there" even after the
+// diff moves on, since questions survive the round wipe. Click a file to open it in your editor.
+function QuestionsPanel({ questions }: { questions: DiffComment[] }) {
+  if (questions.length === 0) {
+    return (
+      <div className="py-10 text-center text-[12px] text-muted-foreground">
+        No questions yet. Open a file, switch the diff to <span className="text-[#ff7a45]">Ask</span> mode, and ask the
+        agent about a line — its answer lands back here.
+      </div>
+    );
+  }
+  // Newest first, grouped by file.
+  const byFile = new Map<string, DiffComment[]>();
+  for (const q of [...questions].sort((a, b) => b.createdAt - a.createdAt)) {
+    const arr = byFile.get(q.file);
+    if (arr) arr.push(q);
+    else byFile.set(q.file, [q]);
+  }
+  return (
+    <div className="space-y-3">
+      {[...byFile.entries()].map(([file, qs]) => (
+        <div key={file} className="glass overflow-hidden rounded-2xl">
+          <button
+            type="button"
+            onClick={() => openInEditor(file)}
+            title="Open in editor"
+            className="group flex w-full items-center gap-2 border-b border-white/5 px-3 py-2 text-left"
+          >
+            <HelpCircle className="size-3.5 shrink-0 text-[#ff7a45]" />
+            <span className="truncate font-mono text-[12px] text-foreground/90">{file}</span>
+            <span className="text-[10px] tabular-nums text-muted-foreground">{qs.length}</span>
+            <ExternalLink className="ml-auto size-3 shrink-0 text-transparent transition-colors group-hover:text-muted-foreground/70" />
+          </button>
+          <div className="space-y-2 p-3">
+            {qs.map((q) => (
+              <div key={q.id} className="rounded-lg border border-white/10 bg-background/50 p-2.5">
+                <div className="flex items-start gap-2">
+                  <HelpCircle className="mt-0.5 size-3.5 shrink-0 text-[#ff7a45]" />
+                  <div className="min-w-0 flex-1">
+                    <div className="whitespace-pre-wrap text-[12.5px] leading-snug text-foreground">{q.body}</div>
+                    <div className="mt-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/60">line {q.line}</div>
+                  </div>
+                </div>
+                {q.answer ? (
+                  <AgentAnswer answer={q.answer} className="ml-5 mt-2" />
+                ) : (
+                  <AwaitingAnswer delivered={!!q.deliveredAt} className="ml-5 mt-1.5 text-[10px]" />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

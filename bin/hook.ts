@@ -10,7 +10,7 @@
  */
 import { selfHealGlobal } from "@/lib/global-install";
 import { filesFromToolEvent } from "@/lib/hook-files";
-import { idForPath, repoRootFrom } from "@/lib/workspaces";
+import { agentWorkspaceHeaders } from "@/lib/workspaces";
 import { daemonBaseUrl } from "@/lib/daemon-server";
 
 // Resolved per call from server.json so the hook reaches the daemon on its ACTUAL port (which
@@ -32,10 +32,12 @@ try {
     // derives — so edits attach to THIS repo's map, not whatever workspace the browser (or a
     // background agent) last flipped active. The event carries the session cwd; fall back to
     // this process's cwd (the agent CLI spawns the hook in the repo).
-    const wsId = idForPath(repoRootFrom(typeof ev.cwd === "string" ? ev.cwd : undefined));
     await fetch(`${daemonBaseUrl()}/api/map/touch-active`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-beacon-workspace": wsId },
+      headers: {
+        "content-type": "application/json",
+        ...agentWorkspaceHeaders(typeof ev.cwd === "string" ? ev.cwd : undefined),
+      },
       // session: which agent session made this edit — lets diff-comments route to the session
       // that owns a file when several sessions share the repo.
       body: JSON.stringify({ files, session: typeof ev.session_id === "string" ? ev.session_id : undefined }),

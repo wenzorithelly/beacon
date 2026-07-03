@@ -20,7 +20,7 @@ import {
 } from "react-diff-view";
 import "react-diff-view/style/index.css";
 import { refractor } from "refractor";
-import { Columns2, Rows2, ExternalLink, FileWarning, Maximize2, MessageSquarePlus, Trash2 } from "lucide-react";
+import { Columns2, Rows2, ExternalLink, FileWarning, Maximize2, MessageSquarePlus, HelpCircle, Sparkles, Loader2, Trash2 } from "lucide-react";
 import { currentTabWs } from "@/lib/tab-ws";
 import { isWhitespaceOnlyHunk } from "@/lib/diff-shared";
 import type { ChangedFile, FileDiff } from "@/lib/diff-shared";
@@ -144,6 +144,10 @@ export function FileDiffView({
   const [composer, setComposer] = useState<{ key: string; line: number; side: "old" | "new"; text: string } | null>(null);
   const [draft, setDraft] = useState("");
   const [holdDraft, setHoldDraft] = useState(false);
+  // "Ask" mode: the same hover-"+" / composer creates a QUESTION the agent answers via
+  // `beacon answer <id>`, instead of a one-way comment. A file-level toggle so the mode is explicit;
+  // the cursor turns into a help cursor over the diff so it's obvious which mode you're in.
+  const [askMode, setAskMode] = useState(false);
   const reloadComments = useCallback(async () => {
     const ws = currentTabWs();
     const r = (await fetch(`/api/changes/comment?file=${encodeURIComponent(file.path)}`, {
@@ -172,6 +176,23 @@ export function FileDiffView({
     };
   }, [file.path]);
 
+  // While a question is unanswered, poll for the agent's reply — `beacon answer` lands it externally,
+  // so there's no local mutation to trigger a reload. Bounded to 15 min so an abandoned (durable)
+  // question can't poll forever; a new pending question re-arms it, and it stops once all are answered.
+  const pendingAnswerCount = fileComments.filter((c) => c.kind === "question" && !c.answer).length;
+  useEffect(() => {
+    if (pendingAnswerCount === 0) return;
+    const started = Date.now();
+    const t = setInterval(() => {
+      if (Date.now() - started > 15 * 60_000) {
+        clearInterval(t);
+        return;
+      }
+      void reloadComments();
+    }, 4000);
+    return () => clearInterval(t);
+  }, [pendingAnswerCount, reloadComments]);
+
   const addComment = useCallback(async () => {
     if (!composer || !draft.trim()) return;
     const ws = currentTabWs();
@@ -185,13 +206,14 @@ export function FileDiffView({
         body: draft.trim(),
         text: composer.text,
         held: holdDraft || undefined,
+        kind: askMode ? "question" : undefined,
       }),
     }).catch(() => {});
     setComposer(null);
     setDraft("");
     setHoldDraft(false);
     void reloadComments();
-  }, [composer, draft, holdDraft, file.path, reloadComments]);
+  }, [composer, draft, holdDraft, askMode, file.path, reloadComments]);
 
   const patchComment = useCallback(
     async (body: { id?: string; held?: boolean; release?: boolean }) => {
@@ -269,6 +291,22 @@ export function FileDiffView({
     [openComposer],
   );
 
+  // Highlight text → open the composer on that line. Without this, selecting code did NOTHING (the
+  // only affordance was the hover-"+"). On mouse-up we act ONLY when there's a real, non-empty
+  // selection — a plain click leaves the selection collapsed, so it falls through to the gutter "+".
+  // The comment still anchors to the whole line (content re-anchoring); the selection just picks it.
+  const codeEvents = useMemo(
+    () => ({
+      onMouseUp: (args: ChangeEventArgs) => {
+        const sel = typeof window !== "undefined" ? window.getSelection() : null;
+        if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+        const ch = args.change as ChangeData | null;
+        if (ch) openComposer(ch, args.side);
+      },
+    }),
+    [openComposer],
+  );
+
   // Hover a line → ONE "+" affordance (GitHub muscle memory). Each row renders TWO gutter cells
   // (old + new line-number columns), so gate on the side the comment would actually anchor to —
   // old for deletions, new for everything else — or every hover grows a twin pill.
@@ -279,7 +317,7 @@ export function FileDiffView({
         return (
           <button
             type="button"
-            title="Comment on this line — the agent gets it at its next edit"
+            title="Add a comment or question on this line (mode set in the toolbar)"
             className="flex w-full items-center justify-center rounded-sm bg-[#ff7a45] text-[13px] font-bold leading-none text-white"
             onClick={(e) => {
               e.stopPropagation();
@@ -338,6 +376,7 @@ export function FileDiffView({
               onChange={setDraft}
               hold={holdDraft}
               onHold={setHoldDraft}
+              isQuestion={askMode}
               onSubmit={() => void addComment()}
               onCancel={() => {
                 setComposer(null);
@@ -349,7 +388,7 @@ export function FileDiffView({
       );
     }
     return { widgets: w, orphans: orphaned };
-  }, [fileComments, diffIndex, composer, draft, holdDraft, addComment, deleteComment, patchComment]);
+  }, [fileComments, diffIndex, composer, draft, holdDraft, askMode, addComment, deleteComment, patchComment]);
 
   const heldCount = fileComments.filter((c) => c.held && !c.deliveredAt).length;
 
@@ -361,7 +400,7 @@ export function FileDiffView({
         {fileComments.length > 0 && (
           <span
             className="flex shrink-0 items-center gap-1 rounded-full border border-[#ff7a45]/25 bg-[#ff7a45]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#ff7a45]"
-            title="Line-comments on this file (sent to the agent at its next edit)"
+            title="Line-comments on this file (sent to the agent on its next edit or reply)"
           >
             <MessageSquarePlus className="size-3" /> {fileComments.length}
           </span>
@@ -370,13 +409,40 @@ export function FileDiffView({
           <button
             type="button"
             onClick={() => void patchComment({ release: true })}
-            title="Send the held comments to the agent as one batch (delivered at its next edit)"
+            title="Send the held comments to the agent as one batch (delivered on its next edit or reply)"
             className="flex shrink-0 items-center gap-1 rounded-full border border-[#ff7a45]/40 bg-[#ff7a45]/15 px-2 py-0.5 text-[10px] font-semibold text-[#ff7a45] transition-colors hover:bg-[#ff7a45]/25"
           >
             Release {heldCount} held
           </button>
         )}
-        <span className="shrink-0 text-[10px] text-muted-foreground/45">hover a line · + to comment</span>
+        {/* Mode toggle: Comment (one-way feedback) vs Ask (question the agent answers back). */}
+        <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-white/10 p-0.5">
+          <button
+            type="button"
+            onClick={() => setAskMode(false)}
+            title="Comment mode — leave one-way feedback the agent applies"
+            className={cn(
+              "flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors",
+              !askMode ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <MessageSquarePlus className="size-3" /> Comment
+          </button>
+          <button
+            type="button"
+            onClick={() => setAskMode(true)}
+            title="Ask mode — ask the agent a question about this code; it answers back into Beacon"
+            className={cn(
+              "flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors",
+              askMode ? "bg-[#ff7a45]/20 text-[#ff7a45]" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <HelpCircle className="size-3" /> Ask
+          </button>
+        </div>
+        <span className="shrink-0 text-[10px] text-muted-foreground/45">
+          {askMode ? "highlight or hover a line → ask" : "highlight or hover a line → comment"}
+        </span>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
           <div className="flex items-center gap-0.5 rounded-full border border-white/10 p-0.5">
             <button
@@ -423,7 +489,10 @@ export function FileDiffView({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto" style={maxBodyHeight ? { maxHeight: maxBodyHeight } : undefined}>
+      <div
+        className={cn("min-h-0 flex-1 overflow-auto", askMode && "cursor-help")}
+        style={maxBodyHeight ? { maxHeight: maxBodyHeight } : undefined}
+      >
         {/* Orphaned comments — the agent changed/removed the commented line. Never dropped. */}
         {orphans.length > 0 && (
           <div className="border-b border-amber-400/20 bg-amber-400/[0.05] px-3 py-2">
@@ -466,6 +535,7 @@ export function FileDiffView({
             tokens={tokens}
             widgets={widgets}
             gutterEvents={gutterEvents}
+            codeEvents={codeEvents}
             renderGutter={renderGutter}
           >
             {(hunks) =>
@@ -508,60 +578,101 @@ function CommentCard({
   onDelete: () => void;
   onToggleHeld: (held: boolean) => void;
 }) {
-  const status = c.deliveredAt
+  const isQuestion = c.kind === "question";
+  const delivery = c.deliveredAt
     ? "sent to agent"
     : c.held
       ? "held — release to send"
-      : "pending — sent on the agent's next edit";
+      : isQuestion
+        ? "pending — sent on the agent's next turn" // a question is delivered so the agent can reply — "or reply" would be circular
+        : "pending — sent on the agent's next edit or reply";
   return (
-    <div className="group mb-1 flex items-start gap-2 rounded-md border border-white/10 bg-background/60 px-2.5 py-1.5">
-      <MessageSquarePlus className="mt-0.5 size-3.5 shrink-0 text-[#ff7a45]" />
-      <div className="min-w-0 flex-1">
-        {orphaned && c.text && (
-          <div className="mb-0.5 truncate font-mono text-[10px] text-muted-foreground/70" title={c.text}>
-            was: <span className="line-through">{c.text}</span>
-          </div>
+    <div className="group mb-1 rounded-md border border-white/10 bg-background/60 px-2.5 py-1.5">
+      <div className="flex items-start gap-2">
+        {isQuestion ? (
+          <HelpCircle className="mt-0.5 size-3.5 shrink-0 text-[#ff7a45]" />
+        ) : (
+          <MessageSquarePlus className="mt-0.5 size-3.5 shrink-0 text-[#ff7a45]" />
         )}
-        <div className="whitespace-pre-wrap text-[12px] leading-snug text-foreground/90">{c.body}</div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-[9px] uppercase tracking-wide text-muted-foreground/60">
-          <span>
-            line {c.line} · {status}
-          </span>
-          {!c.deliveredAt && (
-            <button
-              type="button"
-              onClick={() => onToggleHeld(!c.held)}
-              className={cn(
-                "rounded-full border px-1.5 py-px font-semibold transition-colors",
-                c.held
-                  ? "border-[#ff7a45]/40 text-[#ff7a45] hover:bg-[#ff7a45]/15"
-                  : "border-white/15 text-muted-foreground hover:text-foreground",
-              )}
-              title={c.held ? "Release this comment (sends at the agent's next edit)" : "Hold this comment back to batch it"}
-            >
-              {c.held ? "release" : "hold"}
-            </button>
+        <div className="min-w-0 flex-1">
+          {orphaned && c.text && (
+            <div className="mb-0.5 truncate font-mono text-[10px] text-muted-foreground/70" title={c.text}>
+              was: <span className="line-through">{c.text}</span>
+            </div>
           )}
+          <div className="whitespace-pre-wrap text-[12px] leading-snug text-foreground/90">{c.body}</div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[9px] uppercase tracking-wide text-muted-foreground/60">
+            <span>
+              {isQuestion ? `question · line ${c.line}` : `line ${c.line}`} · {delivery}
+            </span>
+            {isQuestion && !c.answer && c.deliveredAt && <AwaitingAnswer delivered />}
+            {!c.deliveredAt && (
+              <button
+                type="button"
+                onClick={() => onToggleHeld(!c.held)}
+                className={cn(
+                  "rounded-full border px-1.5 py-px font-semibold transition-colors",
+                  c.held
+                    ? "border-[#ff7a45]/40 text-[#ff7a45] hover:bg-[#ff7a45]/15"
+                    : "border-white/15 text-muted-foreground hover:text-foreground",
+                )}
+                title={
+                  c.held
+                    ? `Release this ${isQuestion ? "question" : "comment"} (sends on the agent's next edit or reply)`
+                    : `Hold this ${isQuestion ? "question" : "comment"} back to batch it`
+                }
+              >
+                {c.held ? "release" : "hold"}
+              </button>
+            )}
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={onDelete}
+          title={isQuestion ? "Delete question" : "Delete comment"}
+          className="shrink-0 rounded p-0.5 text-muted-foreground/60 opacity-0 transition-opacity hover:text-red-300 group-hover:opacity-100"
+        >
+          <Trash2 className="size-3" />
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={onDelete}
-        title="Delete comment"
-        className="shrink-0 rounded p-0.5 text-muted-foreground/60 opacity-0 transition-opacity hover:text-red-300 group-hover:opacity-100"
-      >
-        <Trash2 className="size-3" />
-      </button>
+      {isQuestion && c.answer && <AgentAnswer answer={c.answer} className="ml-5 mt-1.5" />}
     </div>
   );
 }
 
-// Inline composer opened from a line's hover-"+" (or a gutter click).
+// The agent's answer to a question, once it runs `beacon answer <id>`. Rendered as text (markdown
+// source is readable as-is) so the card carries no heavy renderer. Exported + shared by the inline
+// CommentCard AND the Questions lens (overview.tsx) so the two presentations never drift.
+export function AgentAnswer({ answer, className }: { answer: string; className?: string }) {
+  return (
+    <div className={cn("rounded-md border border-sky-400/20 bg-sky-400/[0.06] px-2.5 py-1.5", className)}>
+      <div className="mb-1 flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-sky-300/90">
+        <Sparkles className="size-3" /> Agent&apos;s answer
+      </div>
+      <div className="whitespace-pre-wrap text-[12px] leading-relaxed text-foreground/90">{answer}</div>
+    </div>
+  );
+}
+
+// The waiting state of a delivered-but-unanswered question (shared with the Questions lens).
+export function AwaitingAnswer({ delivered, className }: { delivered: boolean; className?: string }) {
+  return (
+    <span className={cn("flex items-center gap-1 text-sky-300/80", className)}>
+      <Loader2 className="size-2.5 animate-spin" />
+      {delivered ? "awaiting the agent's answer…" : "queued — sent on the agent's next turn"}
+    </span>
+  );
+}
+
+// Inline composer opened from a line's hover-"+" (or a gutter click). `isQuestion` (Ask mode) sends
+// it as a question the agent answers back, and swaps the copy accordingly.
 function ComposerBox({
   value,
   onChange,
   hold,
   onHold,
+  isQuestion = false,
   onSubmit,
   onCancel,
 }: {
@@ -569,6 +680,7 @@ function ComposerBox({
   onChange: (v: string) => void;
   hold: boolean;
   onHold: (h: boolean) => void;
+  isQuestion?: boolean;
   onSubmit: () => void;
   onCancel: () => void;
 }) {
@@ -588,7 +700,11 @@ function ComposerBox({
           }
         }}
         rows={2}
-        placeholder="Comment on this line — the agent gets it at its next edit (⌘/Ctrl+Enter to send)"
+        placeholder={
+          isQuestion
+            ? "Ask the agent about this line — it answers back into Beacon (⌘/Ctrl+Enter to send)"
+            : "Comment on this line — the agent gets it on its next edit or reply (⌘/Ctrl+Enter to send)"
+        }
         className="w-full resize-y rounded border border-white/10 bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-[#ff7a45]/40"
       />
       <div className="mt-1 flex items-center gap-2">
@@ -597,11 +713,12 @@ function ComposerBox({
           onClick={onSubmit}
           disabled={!value.trim()}
           className={cn(
-            "rounded-md px-2 py-1 text-[11px] font-semibold transition-colors",
+            "flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors",
             value.trim() ? "bg-[#ff7a45]/20 text-[#ff7a45] hover:bg-[#ff7a45]/30" : "text-muted-foreground opacity-50",
           )}
         >
-          Comment
+          {isQuestion ? <HelpCircle className="size-3" /> : <MessageSquarePlus className="size-3" />}
+          {isQuestion ? "Ask" : "Comment"}
         </button>
         <button
           type="button"
@@ -612,7 +729,11 @@ function ComposerBox({
         </button>
         <label
           className="ml-auto flex cursor-pointer items-center gap-1 text-[10px] text-muted-foreground"
-          title="Hold this comment back — batch several, then Release to send them together"
+          title={
+            isQuestion
+              ? "Hold this question back — batch several, then Release to send them together"
+              : "Hold this comment back — batch several, then Release to send them together"
+          }
         >
           <input type="checkbox" checked={hold} onChange={(e) => onHold(e.target.checked)} className="size-3 accent-[#ff7a45]" />
           hold (batch)
