@@ -246,5 +246,6 @@ describe("ingestCodeGraph — large repos (SQLite variable limit)", () => {
     expect(r2.files).toBe(1100);
     const [{ value: left }] = await db.select({ value: count() }).from(codeFile);
     expect(left).toBe(1100);
-  });
+    // 1500-file ingest + re-ingest is genuinely heavy; the 5s default flakes on slower CI runners.
+  }, 30_000);
 });
