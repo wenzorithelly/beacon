@@ -4,10 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, FileText, GitCompare } from "lucide-react";
 import { ChangesOverview, type Lens } from "@/components/changes/overview";
 import { DiffDetail, openInEditor } from "@/components/changes/diff-detail";
+import { FocusView } from "@/components/changes/focus-view";
 import type { FileQuality } from "@/components/changes/file-card";
 import { currentTabWs } from "@/lib/tab-ws";
 import { fileSig, viewedStates, type ViewedMap } from "@/lib/viewed-shared";
-import type { ChangedFile } from "@/lib/diff-shared";
+import { latestEditedFile, type ChangedFile } from "@/lib/diff-shared";
 import type { TouchedMap } from "@/lib/touched-files";
 import type { DiffComment } from "@/lib/diff-comments";
 
@@ -30,6 +31,9 @@ export function ChangesClient({
 }) {
   const [lens, setLens] = useState<Lens>("activity");
   const [detailPath, setDetailPath] = useState<string | null>(null);
+  const [focus, setFocus] = useState(false);
+  // The file the agent is touching right now — what focus mode follows and the "Editing X" header names.
+  const latest = useMemo(() => latestEditedFile(files, touched), [files, touched]);
   // Optimistic local viewed-map; when a server refresh delivers a new `viewed` prop it wins
   // (persisted truth). Render-time reconciliation — the sanctioned adjust-state-on-prop-change
   // pattern — instead of a setState-in-effect cascade.
@@ -148,6 +152,18 @@ export function ChangesClient({
     }).catch(() => {});
   };
 
+  if (focus) {
+    return (
+      <FocusView
+        repo={repo}
+        files={files}
+        currentPath={latest?.path ?? null}
+        onExit={() => setFocus(false)}
+        views={views}
+        onToggleViewed={toggleViewed}
+      />
+    );
+  }
   if (detailPath !== null) {
     return (
       <DiffDetail
@@ -183,6 +199,7 @@ export function ChangesClient({
       scanning={scanning}
       onScan={() => void runScan()}
       onCommentAdded={() => setCommentsNonce((n) => n + 1)}
+      onFocus={() => setFocus(true)}
     />
   );
 }

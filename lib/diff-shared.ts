@@ -206,6 +206,23 @@ export function realLineCount(lines: string[]): number {
   return lines.length > 0 && lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
 }
 
+// The file the agent most recently edited that's STILL in the change set — what the "Editing X"
+// header names and the file that focus mode follows. Intersecting with `files` keeps a
+// since-committed path from winning (it has no diff to show), and resolving `oldPath` catches a
+// file touched under its pre-rename name. Null when nothing in the diff was touched this session.
+// Pure — the header and focus target share it so the label and the click target can't disagree.
+export function latestEditedFile(
+  files: readonly { path: string; oldPath?: string | null }[],
+  touched: Record<string, { lastAt: number } | undefined>,
+): { path: string; lastAt: number } | null {
+  let best: { path: string; lastAt: number } | null = null;
+  for (const f of files) {
+    const at = touched[f.path]?.lastAt ?? (f.oldPath ? touched[f.oldPath]?.lastAt : undefined);
+    if (at !== undefined && (!best || at > best.lastAt)) best = { path: f.path, lastAt: at };
+  }
+  return best;
+}
+
 // Summarize an untracked file for the list (all additions). Pure so it's testable.
 export function untrackedFile(path: string, content: string): ChangedFile {
   const n = realLineCount(content.split("\n"));

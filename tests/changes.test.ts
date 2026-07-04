@@ -3,11 +3,34 @@ import {
   computeChanges,
   isWhitespaceOnlyHunk,
   langFromPath,
+  latestEditedFile,
   MAX_CHANGED_LINES,
   parseFullDiff,
   symbolFromHunkContext,
   untrackedFile,
 } from "@/lib/changes";
+
+describe("latestEditedFile", () => {
+  const f = (path: string, oldPath?: string) => ({ path, oldPath });
+  it("returns the most recently touched file that's still in the change set", () => {
+    const files = [f("a.ts"), f("b.ts"), f("c.ts")];
+    const touched = { "a.ts": { lastAt: 100 }, "b.ts": { lastAt: 300 }, "c.ts": { lastAt: 200 } };
+    expect(latestEditedFile(files, touched)?.path).toBe("b.ts");
+  });
+  it("ignores touched files no longer in the diff (committed/reverted away)", () => {
+    const files = [f("a.ts")];
+    const touched = { "gone.ts": { lastAt: 999 }, "a.ts": { lastAt: 10 } };
+    expect(latestEditedFile(files, touched)?.path).toBe("a.ts");
+  });
+  it("resolves a renamed file by its pre-rename path", () => {
+    const files = [f("new.ts", "old.ts")];
+    const touched = { "old.ts": { lastAt: 42 } };
+    expect(latestEditedFile(files, touched)).toEqual({ path: "new.ts", lastAt: 42 });
+  });
+  it("is null when no file in the diff was touched this session", () => {
+    expect(latestEditedFile([f("a.ts")], {})).toBeNull();
+  });
+});
 
 describe("langFromPath", () => {
   it("maps extensions to highlight.js languages", () => {

@@ -6,7 +6,7 @@ import { FileCard, type FileQuality } from "@/components/changes/file-card";
 import { FileDiffView, openInEditor, AgentAnswer, AwaitingAnswer } from "@/components/changes/file-diff";
 import { groupEpisodes, orderForReview } from "@/lib/changes-order";
 import { currentTabWs } from "@/lib/tab-ws";
-import type { ChangedFile } from "@/lib/diff-shared";
+import { latestEditedFile, type ChangedFile } from "@/lib/diff-shared";
 import type { DiffComment } from "@/lib/diff-comments";
 import type { TouchedMap } from "@/lib/touched-files";
 import type { ViewState } from "@/lib/viewed-shared";
@@ -59,6 +59,7 @@ export function ChangesOverview({
   scanning,
   onScan,
   onCommentAdded,
+  onFocus,
 }: {
   files: ChangedFile[];
   touched: TouchedMap;
@@ -81,6 +82,8 @@ export function ChangesOverview({
   onScan: () => void;
   // A comment was created outside FileDiffView (the flag dialog) — refresh the count chips.
   onCommentAdded: () => void;
+  // Enter focus mode — the live over-the-shoulder view of the file the agent is editing now.
+  onFocus?: () => void;
 }) {
   // Clock for the "· 12s ago" label + episode boundaries — state (not Date.now() in render) so
   // rendering stays pure, ticking every 30s so the label doesn't go stale between refreshes.
@@ -95,11 +98,7 @@ export function ChangesOverview({
   );
   const totalLines = totals.add + totals.del;
   const budgetPct = Math.min(100, (totalLines / REVIEW_BUDGET_LINES) * 100);
-  const latest = useMemo(() => {
-    let best: { path: string; lastAt: number } | null = null;
-    for (const [path, e] of Object.entries(touched)) if (!best || e.lastAt > best.lastAt) best = { path, lastAt: e.lastAt };
-    return best;
-  }, [touched]);
+  const latest = useMemo(() => latestEditedFile(files, touched), [files, touched]);
   const live = !!latest && now - latest.lastAt < 60_000;
   const viewedCount = files.filter((f) => views[f.path] === "viewed").length;
 
@@ -231,11 +230,19 @@ export function ChangesOverview({
             <span className="relative inline-flex size-2 rounded-full bg-[#ff7a45]" />
           </span>
           {latest ? (
-            <span className="min-w-0 truncate">
+            <button
+              type="button"
+              onClick={onFocus}
+              disabled={!onFocus}
+              title="Focus mode — follow the agent's edits live"
+              className="group/foc min-w-0 truncate rounded text-left transition-colors enabled:hover:text-foreground disabled:cursor-default"
+            >
               <span className="text-muted-foreground">{live ? "Editing" : "Last edited"}</span>{" "}
-              <span className="font-mono text-[12px] text-foreground/90">{latest.path}</span>{" "}
+              <span className="font-mono text-[12px] text-foreground/90 underline-offset-2 group-hover/foc:underline">
+                {latest.path}
+              </span>{" "}
               <span className="text-muted-foreground">· {ago(now - latest.lastAt)}</span>
-            </span>
+            </button>
           ) : (
             <span className="text-muted-foreground">No agent edits this session</span>
           )}
@@ -256,11 +263,6 @@ export function ChangesOverview({
               style={{ width: `${budgetPct}%` }}
             />
           </span>
-          {totalLines > REVIEW_BUDGET_LINES && (
-            <span className="rounded-full border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium text-amber-300/90">
-              over the review budget — review soon
-            </span>
-          )}
           <span className="ml-auto tabular-nums">
             {unseen.size > 0 && <span className="text-[#ff7a45]">{unseen.size} unseen · </span>}
             {viewedCount}/{files.length} viewed
