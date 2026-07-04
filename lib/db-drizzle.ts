@@ -46,15 +46,18 @@ function createDbClient(dbUrl: string): DB {
 
 const globalForDb = globalThis as unknown as {
   dzByUrl?: Map<string, DB>;
-  dzDefault?: DB;
 };
 
-// The env-configured client (DATABASE_URL) — used by the CLI, watcher, seeds, tests, and as the
-// fallback when no workspace is active.
-export const defaultDb = globalForDb.dzDefault ?? createDbClient(DEFAULT_URL);
-if (process.env.NODE_ENV !== "production") globalForDb.dzDefault = defaultDb;
-
 const clients = (globalForDb.dzByUrl ??= new Map<string, DB>());
+
+// The env-configured fallback client (DATABASE_URL, else file:./dev.db) — used only when no
+// workspace resolves. LAZY on purpose: creating a libSQL client runs a PRAGMA that opens the file,
+// so an eager module-level client dropped a stray dev.db in cwd every time this module was imported
+// — including in the per-repo `beacon mcp` server, which never actually falls back here (it pins the
+// workspace db). Routing through getDb() defers creation until something truly resolves to it.
+export function defaultDb(): DB {
+  return getDb(DEFAULT_URL);
+}
 
 export function getDb(dbUrl: string): DB {
   let c = clients.get(dbUrl);
@@ -112,9 +115,9 @@ export function ensureDefaultDb(url: string = DEFAULT_URL): Promise<void> {
 // ready by the time any query runs. (Provisioning a missing db inside a sync getter used to mean a
 // blocking out-of-process `bun` spawn on first access; moving it to the boundary removes that.)
 function activeDb(): DB {
-  if (process.env.BEACON_REPO) return defaultDb;
+  if (process.env.BEACON_REPO) return defaultDb();
   const id = getPinnedWorkspaceId() ?? getActiveId();
-  if (!id) return defaultDb;
+  if (!id) return defaultDb();
   return getDb(dbUrlFor(id));
 }
 
