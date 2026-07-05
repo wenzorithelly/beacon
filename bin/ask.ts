@@ -10,10 +10,11 @@
  *     plan hook owns that) — the agent asks to edit/create/run. We push it, wait, then emit the
  *     user's allow/deny decision.
  *
- * Only redirects into Beacon when the daemon is ALREADY up (the user is looking at it). If Beacon
- * isn't running / is unreachable / times out / the loop-guard trips, we FAIL OPEN to the terminal:
- * a question falls through (its normal terminal UI shows); an approval emits no decision (Claude
- * Code's own permission prompt shows). Never auto-approves anything the user didn't see.
+ * Only redirects into Beacon when a Beacon tab is ALREADY OPEN for the repo (the user is looking
+ * at it) — it never SPAWNS a tab, so an agent question can't yank focus off the terminal. If no
+ * tab is open / Beacon is unreachable / it times out / the loop-guard trips, we FAIL OPEN to the
+ * terminal: a question falls through (its normal terminal UI shows); an approval emits no decision
+ * (Claude Code's own permission prompt shows). Never auto-approves anything the user didn't see.
  *
  * Hook input (stdin): the event JSON. Output (stdout): the hook decision, or nothing (fall through).
  */
@@ -27,7 +28,6 @@ import {
 import { PLAN_HOOK_REARM_MS, PLAN_POLL_INTERVAL_MS } from "@/lib/constants";
 import { daemonBaseUrl } from "@/lib/daemon-server";
 import { planAllowOutput } from "@/lib/permission-modes";
-import { openPlanTabIfNone } from "@/lib/plan-open";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -84,14 +84,6 @@ function gitToplevel(cwd?: string): string {
 }
 const workspaceIdForPath = (p: string) =>
   createHash("sha256").update(p).digest("hex").slice(0, 12);
-async function urlOk(url: string, headers?: Record<string, string>): Promise<boolean> {
-  try {
-    return (await fetch(url, { headers })).ok;
-  } catch {
-    return false;
-  }
-}
-
 (async () => {
   const event = await readStdinJson<HookEvent>();
   if (!event) failOpen();
@@ -102,9 +94,16 @@ async function urlOk(url: string, headers?: Record<string, string>): Promise<boo
   const wsId = workspaceIdForPath(gitToplevel(event.cwd));
   const headers = { "content-type": "application/json", "x-beacon-workspace": wsId };
 
-  // Only intercept into Beacon if the daemon is actually up — otherwise the user isn't looking at
-  // Beacon, so fall through to the terminal.
-  if (!(await urlOk(`${base}/api/workspace`))) failOpen();
+  // Only intercept into Beacon if a Beacon tab is ACTUALLY OPEN for this repo — the global modal
+  // renders in that already-open tab. When nothing is open (the user is working in the terminal),
+  // fall through so the question/approval shows its native terminal UI instead of a browser tab
+  // popping open and stealing focus. Presence is the SSE-stream heartbeat (any /map, /db, /plan…
+  // page), not merely daemon-up: the daemon is usually up with no tab in view.
+  const tabLive = await fetch(`${base}/api/tab/presence`, { headers })
+    .then((r) => (r.ok ? (r.json() as Promise<{ live?: boolean }>) : null))
+    .then((p) => !!p?.live)
+    .catch(() => false);
+  if (!tabLive) failOpen();
 
   // Activate the repo's workspace so the modal (and its verdict) bind to THIS repo.
   await fetch(`${base}/api/workspace/activate?id=${wsId}`).catch(() => {});
@@ -121,10 +120,8 @@ async function urlOk(url: string, headers?: Record<string, string>): Promise<boo
   if (!pushed || pushed.loop || !pushed.id) failOpen();
   const id = pushed.id;
 
-  // Make sure a Beacon tab is up so the global modal renders (reuses the plan-tab opener).
-  await openPlanTabIfNone(base, wsId).catch(() => {});
-
-  // Long-poll for the user's answer, re-arming before Claude Code's ~10-min hook wall.
+  // No tab-opening here: we already confirmed a tab is live above, so the global modal renders in
+  // it. Long-poll for the user's answer, re-arming before Claude Code's ~10-min hook wall.
   const deadline = Date.now() + PLAN_HOOK_REARM_MS;
   while (Date.now() < deadline) {
     await sleep(PLAN_POLL_INTERVAL_MS);
