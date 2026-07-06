@@ -35,17 +35,19 @@ interface Meta {
 // Node status (covers both ROADMAP and ARCHITECTURE values).
 export const STATUS_META: Record<string, Meta> = {
   // roadmap
-  DONE: { label: "Done", className: "border-emerald-500/30 bg-emerald-500/15 text-emerald-300" },
-  IN_PROGRESS: { label: "In progress", className: "border-sky-500/30 bg-sky-500/15 text-sky-300" },
-  PENDING: { label: "Pending", className: "border-amber-500/30 bg-amber-500/10 text-amber-200" },
-  BLOCKED: { label: "Blocked", className: "border-orange-500/30 bg-orange-500/15 text-orange-300" },
-  CANCELLED: { label: "Cancelled", className: "border-zinc-500/30 bg-zinc-500/10 text-zinc-400 line-through" },
-  DEPRIORITIZED: { label: "Deprioritized", className: "border-zinc-600/40 bg-zinc-600/10 text-zinc-400" },
+  // Text uses a dark-mode split: a 700 shade reads on the pale tint in light theme, the original
+  // 300/200 on the dark canvas. bg/border tints work as-is on both.
+  DONE: { label: "Done", className: "border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" },
+  IN_PROGRESS: { label: "In progress", className: "border-sky-500/30 bg-sky-500/15 text-sky-700 dark:text-sky-300" },
+  PENDING: { label: "Pending", className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200" },
+  BLOCKED: { label: "Blocked", className: "border-orange-500/30 bg-orange-500/15 text-orange-700 dark:text-orange-300" },
+  CANCELLED: { label: "Cancelled", className: "border-zinc-500/30 bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 line-through" },
+  DEPRIORITIZED: { label: "Deprioritized", className: "border-zinc-600/40 bg-zinc-600/10 text-zinc-600 dark:text-zinc-400" },
   // architecture disposition
-  KEEP: { label: "Keep", className: "border-emerald-500/30 bg-emerald-500/15 text-emerald-300" },
-  REBUILD: { label: "Rebuild", className: "border-violet-500/30 bg-violet-500/15 text-violet-300" },
-  REPLACE: { label: "Replace", className: "border-rose-500/30 bg-rose-500/15 text-rose-300" },
-  DROP: { label: "Drop", className: "border-zinc-500/30 bg-zinc-500/10 text-zinc-400 line-through" },
+  KEEP: { label: "Keep", className: "border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" },
+  REBUILD: { label: "Rebuild", className: "border-violet-500/30 bg-violet-500/15 text-violet-700 dark:text-violet-300" },
+  REPLACE: { label: "Replace", className: "border-rose-500/30 bg-rose-500/15 text-rose-700 dark:text-rose-300" },
+  DROP: { label: "Drop", className: "border-zinc-500/30 bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 line-through" },
 };
 
 // ── Plan review loop timing ──────────────────────────────────────────────────

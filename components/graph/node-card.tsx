@@ -346,7 +346,7 @@ function Metric({
       <div
         className={cn(
           "text-[13px] font-semibold leading-none tracking-tight tabular-nums",
-          danger && "text-rose-300",
+          danger && "text-rose-700 dark:text-rose-300",
         )}
       >
         {value}
@@ -424,8 +424,8 @@ function BugFlagButton({ nodeId }: { nodeId: string }) {
         }}
         className={cn(
           noDrag,
-          "absolute -right-3 top-[calc(50%-28px)] z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-md transition-all hover:border-rose-400/50 hover:text-rose-300",
-          open ? "border-rose-400/50 text-rose-300 opacity-100" : "opacity-0 group-hover/nc:opacity-100",
+          "absolute -right-3 top-[calc(50%-28px)] z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-md transition-all hover:border-rose-400/50 hover:text-rose-600 dark:hover:text-rose-300",
+          open ? "border-rose-400/50 text-rose-600 opacity-100 dark:text-rose-300" : "opacity-0 group-hover/nc:opacity-100",
         )}
       >
         <Bug className="size-3" />
@@ -439,7 +439,7 @@ function BugFlagButton({ nodeId }: { nodeId: string }) {
           )}
         >
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-rose-300">
+            <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">
               <Bug className="size-3" /> Flag a bug
             </span>
             <button
@@ -471,7 +471,7 @@ function BugFlagButton({ nodeId }: { nodeId: string }) {
             type="button"
             disabled={busy || !note.trim()}
             onClick={() => void submit()}
-            className="mt-1.5 w-full rounded-md bg-rose-500/15 py-1 text-[11px] font-semibold text-rose-300 transition-colors hover:bg-rose-500/25 disabled:opacity-50"
+            className="mt-1.5 w-full rounded-md bg-rose-500/15 py-1 text-[11px] font-semibold text-rose-700 transition-colors hover:bg-rose-500/25 disabled:opacity-50 dark:text-rose-300"
           >
             {busy ? "Flagging…" : "Flag bug"}
           </button>
@@ -730,7 +730,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
       {openBugs > 0 && (
         <span
           title={`${openBugs} open bug flag(s)`}
-          className="flex items-center gap-1 rounded bg-rose-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-rose-300"
+          className="flex items-center gap-1 rounded bg-rose-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300"
         >
           <Bug className="size-2.5" />
           {openBugs}
@@ -739,7 +739,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
       {(data.signals?.untested ?? 0) > 0 && (
         <span
           title={`${data.signals!.untested} of ${data.signals!.total} attached file(s) have no test importing them`}
-          className="flex items-center gap-1 rounded bg-amber-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-300"
+          className="flex items-center gap-1 rounded bg-amber-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300"
         >
           <FlaskConical className="size-2.5" />
           {data.signals!.untested}
@@ -748,7 +748,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
       {data.signals?.auth && (
         <span
           title="touches auth-sensitive files"
-          className="flex items-center gap-1 rounded bg-red-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-red-300"
+          className="flex items-center gap-1 rounded bg-red-500/15 px-1 text-[9px] font-semibold uppercase tracking-wide text-red-700 dark:text-red-300"
         >
           <Lock className="size-2.5" /> auth
         </span>
@@ -807,7 +807,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
               className={cn(
                 noDrag,
                 "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] transition-colors",
-                confirmDel ? "bg-red-500/20 text-red-300" : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-red-300",
+                confirmDel ? "bg-red-500/20 text-red-700 dark:text-red-300" : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-red-600 dark:hover:text-red-300",
               )}
             >
               <Trash2 className="size-3" />
@@ -824,7 +824,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
               title="Ask the agent a question about this (answered in its next round)"
               className={cn(
                 noDrag,
-                "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-sky-300/90 hover:bg-sky-500/15 hover:text-sky-300",
+                "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-sky-700/90 hover:bg-sky-500/15 hover:text-sky-700 dark:text-sky-300/90 dark:hover:text-sky-300",
               )}
             >
               <MessageCircleQuestion className="size-3" /> Ask
@@ -975,7 +975,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
             title={isBug ? "Bug — something to fix" : data.isChild ? "Sub-task of a feature" : "Feature — top-level roadmap item"}
             className={cn(
               "flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-              isBug ? "bg-rose-500/15 text-rose-300" : data.isChild ? "bg-zinc-500/15 text-zinc-300" : "bg-sky-500/15 text-sky-300",
+              isBug ? "bg-rose-500/15 text-rose-700 dark:text-rose-300" : data.isChild ? "bg-zinc-500/15 text-zinc-600 dark:text-zinc-300" : "bg-sky-500/15 text-sky-700 dark:text-sky-300",
             )}
           >
             {isBug && <Bug className="size-2.5" />}
@@ -985,7 +985,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
             <LayerSelect layer={data.layer} onSave={(v) => save({ layer: v })} readOnly={readOnly} />
           )}
           {suggested && (
-            <span className={cn("flex items-center gap-1 rounded bg-violet-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-300", accepting && "opacity-50")}>
+            <span className={cn("flex items-center gap-1 rounded bg-violet-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300", accepting && "opacity-50")}>
               <Sparkles className="size-2.5" /> IA
               <button
                 type="button"
@@ -995,7 +995,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
                   stop(e);
                   acceptSuggestion();
                 }}
-                className={cn(noDrag, "-my-0.5 rounded p-0.5 hover:bg-emerald-500/20 hover:text-emerald-300")}
+                className={cn(noDrag, "-my-0.5 rounded p-0.5 hover:bg-emerald-500/20 hover:text-emerald-600 dark:hover:text-emerald-300")}
               >
                 <Check className="size-2.5" />
               </button>
@@ -1007,7 +1007,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
                   stop(e);
                   removeNode(id);
                 }}
-                className={cn(noDrag, "-my-0.5 -ml-0.5 rounded p-0.5 hover:bg-red-500/20 hover:text-red-300")}
+                className={cn(noDrag, "-my-0.5 -ml-0.5 rounded p-0.5 hover:bg-red-500/20 hover:text-red-600 dark:hover:text-red-300")}
               >
                 <X className="size-2.5" />
               </button>

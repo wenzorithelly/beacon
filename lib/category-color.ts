@@ -3,19 +3,21 @@
 // a fixed palette — same name → same color, every time. The class strings are FULL literals so
 // Tailwind's content scan picks them up (interpolated class names would never be generated).
 
+// Text is a dark-mode split: the 700 shade reads on the pale 15%-tint in light theme; the original
+// 300/200 stays for the dark canvas. bg tint is the same on both. Full literals for the content scan.
 const PALETTE = [
-  "bg-emerald-500/15 text-emerald-300",
-  "bg-sky-500/15 text-sky-300",
-  "bg-violet-500/15 text-violet-300",
-  "bg-amber-500/15 text-amber-200",
-  "bg-rose-500/15 text-rose-300",
-  "bg-cyan-500/15 text-cyan-300",
-  "bg-fuchsia-500/15 text-fuchsia-300",
-  "bg-lime-500/15 text-lime-300",
-  "bg-orange-500/15 text-orange-300",
-  "bg-teal-500/15 text-teal-300",
-  "bg-indigo-500/15 text-indigo-300",
-  "bg-pink-500/15 text-pink-300",
+  "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+  "bg-sky-500/15 text-sky-700 dark:text-sky-300",
+  "bg-violet-500/15 text-violet-700 dark:text-violet-300",
+  "bg-amber-500/15 text-amber-700 dark:text-amber-200",
+  "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+  "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300",
+  "bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300",
+  "bg-lime-500/15 text-lime-700 dark:text-lime-300",
+  "bg-orange-500/15 text-orange-700 dark:text-orange-300",
+  "bg-teal-500/15 text-teal-700 dark:text-teal-300",
+  "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300",
+  "bg-pink-500/15 text-pink-700 dark:text-pink-300",
 ] as const;
 
 // Region surfaces (the group containers behind cards): the SAME palette index as the badge so
