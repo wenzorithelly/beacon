@@ -172,6 +172,7 @@ export function ChangesClient({
         touched={Object.keys(touched)}
         contract={contract}
         initialPath={detailPath}
+        livePath={latest?.path ?? null}
         onBack={() => setDetailPath(null)}
         views={views}
         onToggleViewed={toggleViewed}

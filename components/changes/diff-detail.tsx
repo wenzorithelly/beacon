@@ -48,6 +48,7 @@ export function DiffDetail({
   touched,
   contract,
   initialPath,
+  livePath,
   onBack,
   views,
   onToggleViewed,
@@ -57,6 +58,8 @@ export function DiffDetail({
   touched: string[];
   contract?: { declaredFiles: string[]; authorizedExtras: string[] } | null;
   initialPath: string | null;
+  // The file the agent is editing right now — its tree row gets the live accent + pulse.
+  livePath?: string | null;
   onBack: () => void;
   // Viewed state + toggle, threaded from the orchestrator so a file can be marked viewed right
   // where it was just read — not only back on the overview cards.
@@ -249,18 +252,18 @@ export function DiffDetail({
               </p>
             ) : groups ? (
               <>
-                <TreeGroup label="On plan" tone="plan" files={groups.onPlan} onSelect={setSelected} emptyNote="No plan files changed yet." />
+                <TreeGroup label="On plan" tone="plan" files={groups.onPlan} onSelect={setSelected} selectedPath={activePath} livePath={livePath} emptyNote="No plan files changed yet." />
                 {groups.strayed.length > 0 ? (
-                  <TreeGroup label="Strayed" tone="warn" files={groups.strayed} onSelect={setSelected} />
+                  <TreeGroup label="Strayed" tone="warn" files={groups.strayed} onSelect={setSelected} selectedPath={activePath} livePath={livePath} />
                 ) : groups.onPlan.length > 0 ? (
                   <p className="mb-1 px-2 py-1 text-[10px] text-emerald-400/70">✓ No strays — all session edits are on-plan.</p>
                 ) : null}
                 {groups.other.length > 0 && (
-                  <TreeGroup label="Other uncommitted" tone="muted" files={groups.other} onSelect={setSelected} defaultOpen={false} />
+                  <TreeGroup label="Other uncommitted" tone="muted" files={groups.other} onSelect={setSelected} selectedPath={activePath} livePath={livePath} defaultOpen={false} />
                 )}
               </>
             ) : (
-              <FileTree files={toTree(visibleList)} onSelect={setSelected} />
+              <FileTree files={toTree(visibleList)} onSelect={setSelected} selectedPath={activePath} livePath={livePath} />
             )}
           </div>
         </aside>
@@ -356,6 +359,8 @@ function TreeGroup({
   tone,
   files,
   onSelect,
+  selectedPath,
+  livePath,
   defaultOpen = true,
   emptyNote,
 }: {
@@ -363,6 +368,8 @@ function TreeGroup({
   tone: GroupTone;
   files: ChangedFile[];
   onSelect: (path: string) => void;
+  selectedPath?: string | null;
+  livePath?: string | null;
   defaultOpen?: boolean;
   emptyNote?: string;
 }) {
@@ -385,7 +392,7 @@ function TreeGroup({
       </button>
       {open &&
         (files.length > 0 ? (
-          <FileTree files={toTree(files)} onSelect={onSelect} />
+          <FileTree files={toTree(files)} onSelect={onSelect} selectedPath={selectedPath} livePath={livePath} />
         ) : emptyNote ? (
           <p className="px-2 py-1 pl-6 text-[10px] text-muted-foreground/70">{emptyNote}</p>
         ) : null)}

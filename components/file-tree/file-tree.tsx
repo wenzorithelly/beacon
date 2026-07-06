@@ -54,12 +54,18 @@ function TreeRows({
   collapsed,
   onToggle,
   onSelect,
+  selectedPath,
+  livePath,
 }: {
   nodes: TreeNode[];
   depth: number;
   collapsed: Set<string>;
   onToggle: (path: string) => void;
   onSelect: (file: TreeFile) => void;
+  // The file currently open in the detail pane — its row gets the "selected" highlight.
+  selectedPath?: string | null;
+  // The file the agent is editing right now — its row gets an accent tint + a live pulse dot.
+  livePath?: string | null;
 }) {
   return (
     <ul className={cn(depth > 0 && "ml-[7px] border-l border-white/10 pl-1.5")}>
@@ -92,40 +98,72 @@ function TreeRows({
                 collapsed={collapsed}
                 onToggle={onToggle}
                 onSelect={onSelect}
+                selectedPath={selectedPath}
+                livePath={livePath}
               />
             )}
           </li>
         ) : (
-          <li key={`f:${node.path}`}>
-            <button
-              type="button"
-              onClick={() => onSelect(node)}
-              title={node.path}
-              className="flex w-full items-center gap-1.5 rounded py-1 pl-[18px] pr-1.5 text-left transition-colors hover:bg-white/[0.06]"
-            >
-              <FileIcon
-                name={node.name}
-                className={cn(
-                  "size-3.5 shrink-0",
-                  node.status ? STATUS_TEXT[node.status] : "text-muted-foreground",
-                )}
-              />
-              <span
-                className={cn(
-                  "truncate text-[11px]",
-                  node.status ? STATUS_TEXT[node.status] : "text-foreground/90",
-                )}
-              >
-                {node.name}
-              </span>
-              <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                {node.meta && <span className="text-[9px] text-teal-300/80">{node.meta}</span>}
-                {node.status && (
-                  <span className={cn("size-1.5 rounded-full", STATUS_DOT[node.status])} />
-                )}
-              </span>
-            </button>
-          </li>
+          (() => {
+            const isSelected = node.path === selectedPath;
+            const isLive = node.path === livePath;
+            return (
+              <li key={`f:${node.path}`}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(node)}
+                  title={node.path}
+                  aria-current={isSelected ? "true" : undefined}
+                  className={cn(
+                    "flex w-full items-center gap-1.5 rounded py-1 pl-[18px] pr-1.5 text-left transition-colors",
+                    isSelected
+                      ? "bg-white/[0.10]"
+                      : isLive
+                        ? "bg-[#ff7a45]/[0.08] hover:bg-[#ff7a45]/[0.13]"
+                        : "hover:bg-white/[0.06]",
+                  )}
+                >
+                  <FileIcon
+                    name={node.name}
+                    className={cn(
+                      "size-3.5 shrink-0",
+                      isLive
+                        ? "text-[#ff7a45]"
+                        : node.status
+                          ? STATUS_TEXT[node.status]
+                          : "text-muted-foreground",
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      "truncate text-[11px]",
+                      isLive
+                        ? "font-medium text-[#ff7a45]"
+                        : isSelected
+                          ? "text-foreground"
+                          : node.status
+                            ? STATUS_TEXT[node.status]
+                            : "text-foreground/90",
+                    )}
+                  >
+                    {node.name}
+                  </span>
+                  <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                    {isLive && (
+                      <span
+                        className="size-1.5 rounded-full bg-[#ff7a45] motion-safe:animate-pulse"
+                        title="The agent is editing this file now"
+                      />
+                    )}
+                    {node.meta && <span className="text-[9px] text-teal-300/80">{node.meta}</span>}
+                    {node.status && (
+                      <span className={cn("size-1.5 rounded-full", STATUS_DOT[node.status])} />
+                    )}
+                  </span>
+                </button>
+              </li>
+            );
+          })()
         ),
       )}
     </ul>
@@ -138,6 +176,8 @@ export function FileTree({
   collapse = true,
   emptyLabel,
   className,
+  selectedPath,
+  livePath,
 }: {
   files: FileLeafInput[];
   /** File click handler. Defaults to opening the file in the configured editor. */
@@ -146,6 +186,10 @@ export function FileTree({
   collapse?: boolean;
   emptyLabel?: string;
   className?: string;
+  /** Highlight the row for the file open in the detail pane. */
+  selectedPath?: string | null;
+  /** Accent + pulse the row for the file the agent is editing right now. */
+  livePath?: string | null;
 }) {
   const tree = useMemo(() => buildFileTree(files, { collapseSingleChildFolders: collapse }), [
     files,
@@ -175,6 +219,8 @@ export function FileTree({
         collapsed={collapsed}
         onToggle={toggle}
         onSelect={(file) => (onSelect ? onSelect(file.path) : openInEditor(file.path))}
+        selectedPath={selectedPath}
+        livePath={livePath}
       />
     </div>
   );
