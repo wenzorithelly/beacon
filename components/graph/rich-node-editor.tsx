@@ -84,10 +84,14 @@ export function RichNodeEditor({
         // Stop keystrokes bubbling to the canvas (delete/space/etc. are canvas shortcuts).
         onKeyDown={(e) => e.stopPropagation()}
         className={cn(
-          "node-editor min-h-[3.5rem] rounded",
+          "node-editor rounded",
+          // The inset writing surface only appears while the editor is EDITABLE — a read-only
+          // render (detail sidebar view mode, shared boards) shows the rich text clean, no box.
           bare
-            ? "text-[15px] leading-relaxed"
-            : "bg-white/[0.04] px-1.5 py-1 text-xs focus-within:bg-white/[0.08]",
+            ? "min-h-[3.5rem] text-[15px] leading-relaxed"
+            : editable
+              ? "min-h-[3.5rem] bg-[var(--ink-hover)] px-1.5 py-1 text-xs focus-within:bg-[var(--ink-active)]"
+              : "text-xs",
           compact && "max-h-[24rem] overflow-y-auto",
         )}
       />
@@ -109,7 +113,7 @@ function Toolbar({ editor, compact }: { editor: Editor; compact?: boolean }) {
       <ToolbarButton label="Italic" active={editor.isActive("italic")} onClick={() => c().toggleItalic().run()}>
         <Italic className={size} />
       </ToolbarButton>
-      <span aria-hidden className="mx-0.5 h-3.5 w-px bg-white/10" />
+      <span aria-hidden className="mx-0.5 h-3.5 w-px bg-border" />
       <ToolbarButton label="Checklist" active={editor.isActive("taskList")} onClick={() => c().toggleTaskList().run()}>
         <ListChecks className={size} />
       </ToolbarButton>

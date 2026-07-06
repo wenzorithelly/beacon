@@ -115,7 +115,8 @@ export type MapNodeData = {
 
 export type MapNode = Node<MapNodeData>;
 
-const PRIORITIES = [
+// Exported: the detail sidebar renders the same labels in its Priority property row.
+export const PRIORITIES = [
   { v: 0, l: "P0 · critical" },
   { v: 1, l: "P1 · high" },
   { v: 2, l: "P2 · medium" },
@@ -215,8 +216,9 @@ function LayerSelect({
 
 // Status → stripe color for the zoomed-out (title-only) card. When a card is too small to show its
 // status pill, this left stripe carries the status at a glance — the signal you scan a zoomed-out
-// board for. Roadmap statuses + architecture dispositions both map here.
-const STATUS_STRIPE: Record<string, string> = {
+// board for. Roadmap statuses + architecture dispositions both map here. Exported: the detail
+// sidebar reuses it as the status dot in its property rows.
+export const STATUS_STRIPE: Record<string, string> = {
   DONE: "#34d399",
   IN_PROGRESS: "#38bdf8",
   PENDING: "#fbbf24",

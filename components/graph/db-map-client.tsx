@@ -1434,13 +1434,13 @@ export function DbMapClient({
 
           {/* View tabs — anchored to the RIGHT edge (was top-center) so they can't drift into the
               left-pinned top nav; the canvas tools stack directly below them (`!mt-14`). Both shift
-              left with the same `!mr-[332px]` when the detail sidebar opens so it never covers them. */}
+              left with the same `!mr-[352px]` when the detail sidebar opens so it never covers them. */}
           {!embedded && (
             <Panel
               position="top-right"
               className={cn(
                 "glass rounded-full px-1 py-0.5 transition-[margin] duration-200",
-                panelOpen && "!mr-[332px]",
+                panelOpen && "!mr-[352px]",
               )}
             >
               <CanvasTabs
@@ -1459,7 +1459,7 @@ export function DbMapClient({
             position="top-right"
             className={cn(
               "!mt-14 flex items-center gap-1 transition-[margin] duration-200",
-              panelOpen && "!mr-[332px]",
+              panelOpen && "!mr-[352px]",
               embedded && "hidden",
             )}
           >
