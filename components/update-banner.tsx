@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ArrowUpCircle, Check, Copy, X } from "lucide-react";
 import { INSTALL_COMMAND, NPM_LATEST_URL } from "@/lib/release";
 import { isNewerVersion } from "@/lib/semver";
+import { isDesktopShell } from "@/lib/shell";
 
 // Bottom-right "new version available" nudge. Renders only in the local tool (the layout
 // mounts it solely in non-public mode). On mount it asks the npm registry for the latest
@@ -18,6 +19,7 @@ export function UpdateBanner({ currentVersion }: { currentVersion: string }) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    if (isDesktopShell()) return; // desktop shell updates via electron-updater — never nag / fetch here
     let cancelled = false;
     (async () => {
       try {
@@ -37,6 +39,11 @@ export function UpdateBanner({ currentVersion }: { currentVersion: string }) {
     };
   }, [currentVersion]);
 
+  // Desktop shell owns updates (electron-updater); the banner's curl command is wrong in-app. The
+  // effect above never sets `latest` there, so this is belt-and-braces — and it also hides the banner
+  // if the shell marker is present at render time. SSR-safe: false on the server, so the initial
+  // (null) render matches.
+  if (isDesktopShell()) return null;
   if (!latest) return null;
 
   const copy = async () => {
