@@ -50,6 +50,16 @@ export const node = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date())
       .$onUpdate(() => new Date()),
+    // Linear two-way sync (source="LINEAR" nodes only): last-writer-wins markers.
+    // externalUpdatedAt = last Linear issue.updatedAt mirrored (detects a Linear-side change);
+    // externalSyncedAt  = wall-clock of the last reconcile write (detects a Beacon-side edit,
+    // since an inbound apply also bumps updatedAt via $onUpdate). See lib/linear/sync.ts.
+    externalUpdatedAt: integer({ mode: "timestamp_ms" }),
+    externalSyncedAt: integer({ mode: "timestamp_ms" }),
+    // JSON of the Linear-side field values last mirrored ({title,plain,status,priority}), so
+    // write-back pushes ONLY the fields changed in Beacon — never clobbering priority/description
+    // (or firing at all) on an unrelated edit like a canvas drag. See lib/linear/sync.ts.
+    externalSnapshot: text(),
   },
   (t) => [
     index("Node_cluster_idx").on(t.cluster),

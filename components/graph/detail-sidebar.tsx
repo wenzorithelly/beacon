@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bug, Maximize2, MessageSquarePlus, Sparkles, X } from "lucide-react";
+import { Bug, ExternalLink, Maximize2, MessageSquarePlus, Sparkles, X } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { RichNodeEditor } from "@/components/graph/rich-node-editor";
 import { FileTree } from "@/components/file-tree/file-tree";
@@ -279,11 +279,23 @@ function NodeDetail({
           />
         </div>
       </div>
-      {node.sourceRef && (
+      {node.source === "LINEAR" && node.sourceRef ? (
+        <a
+          href={node.sourceRef}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium transition-colors hover:border-[var(--accent-2,#ff7a45)] hover:text-[var(--accent-2,#ff7a45)]"
+        >
+          <span className="font-mono">{node.sourceRef.match(/\/issue\/([^/]+)/)?.[1] ?? "Linear issue"}</span>
+          <span className="flex items-center gap-1 text-muted-foreground">
+            Open in Linear <ExternalLink className="size-3.5" />
+          </span>
+        </a>
+      ) : node.sourceRef ? (
         <div className="rounded-md border border-border bg-card px-2 py-1.5 font-mono text-xs text-muted-foreground">
           {node.sourceRef}
         </div>
-      )}
+      ) : null}
 
       {node.files.length > 0 && (
         <div>

@@ -64,6 +64,20 @@
       "when": 1781550451941,
       "tag": "0008_good_lucky_pierre",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1783353631709,
+      "tag": "0009_huge_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1783355822120,
+      "tag": "0010_boring_purifiers",
+      "breakpoints": true
     }
   ]
 }

@@ -49,6 +49,17 @@ export async function register() {
     }
   }
 
+  // Linear ↔ Beacon sync poll. Runs in the packaged prod daemon too (before the prod return, like
+  // telemetry) — that's where users actually work; no-ops on every workspace without Linear set up.
+  if (!isDeployedSite) {
+    try {
+      const { startLinearSync } = await import("@/lib/linear/daemon");
+      startLinearSync();
+    } catch {
+      /* sync must never break boot */
+    }
+  }
+
   if (process.env.NODE_ENV === "production") return;
   if (process.env.BEACON_NO_INLINE_WATCH === "1") return;
 
