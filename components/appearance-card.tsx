@@ -176,7 +176,7 @@ export function AppearanceCard() {
           Theme and surface for this browser. Changes apply instantly and are remembered here.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="grid gap-6 lg:grid-cols-2">
         <div>
           <p className="mb-2 text-xs font-medium text-muted-foreground">Theme</p>
           <div className="flex gap-2">
