@@ -178,7 +178,7 @@ export function DiffDetail({
     all: { label: "All", Icon: List, title: "All uncommitted changes" },
   } as const;
   const scopePill = (
-    <div className="ml-auto flex items-center gap-0.5 rounded-full border border-white/10 p-0.5">
+    <div className="ml-auto flex items-center gap-0.5 rounded-full border border-border p-0.5">
       {(["session", "all"] as const).map((s) => {
         const { label, Icon, title } = SCOPE_META[s];
         const disabled = s === "session" && !hasSession;
@@ -191,7 +191,7 @@ export function DiffDetail({
             className={cn(
               "flex items-center justify-center rounded-full text-[10px] font-medium transition-colors",
               narrow ? "size-5" : "px-2 py-0.5",
-              effScope === s ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground",
+              effScope === s ? "bg-[var(--ink-active)] text-foreground" : "text-muted-foreground hover:text-foreground",
               disabled && "opacity-40",
             )}
             title={title}
@@ -207,13 +207,13 @@ export function DiffDetail({
     <div ref={containerRef} className="flex min-h-0 flex-1">
       {/* LEFT — changed-files tree (collapsible + drag-resizable) */}
       {sidebarOpen ? (
-        <aside style={{ width: sidebarW }} className="flex min-w-0 shrink-0 flex-col border-r border-white/10 bg-background">
+        <aside style={{ width: sidebarW }} className="flex min-w-0 shrink-0 flex-col border-r border-border bg-background">
           <div className="flex items-center gap-2 px-3 pb-2 pt-3">
             <button
               type="button"
               onClick={onBack}
               title="Back to overview"
-              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
             >
               <ArrowLeft className="size-3.5" />
             </button>
@@ -221,7 +221,7 @@ export function DiffDetail({
               type="button"
               onClick={toggleSidebar}
               title="Hide the file list"
-              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
             >
               <PanelLeftClose className="size-3.5" />
             </button>
@@ -271,18 +271,18 @@ export function DiffDetail({
       {sidebarOpen ? (
         <div
           onPointerDown={onResizeDown}
-          className="group relative w-px shrink-0 cursor-col-resize bg-white/10 hover:bg-white/20"
+          className="group relative w-px shrink-0 cursor-col-resize bg-border hover:bg-[var(--ink-active)]"
           title="Drag to resize"
         >
           <div className="absolute inset-y-0 -left-1.5 right-[-6px] z-10" />
         </div>
       ) : (
-        <aside className="flex w-10 shrink-0 flex-col items-center gap-1 border-r border-white/10 bg-background py-2">
+        <aside className="flex w-10 shrink-0 flex-col items-center gap-1 border-r border-border bg-background py-2">
           <button
             type="button"
             onClick={onBack}
             title="Back to overview"
-            className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             <ArrowLeft className="size-4" />
           </button>
@@ -290,7 +290,7 @@ export function DiffDetail({
             type="button"
             onClick={toggleSidebar}
             title={`Show the file list · ${visibleList.length}`}
-            className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             <PanelLeftOpen className="size-4" />
           </button>
@@ -300,8 +300,8 @@ export function DiffDetail({
       {/* RIGHT — the selected file's diff in the same glass-panel system as the overview. */}
       <main className="flex min-w-0 flex-1 flex-col bg-background p-3">
         {active ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/6 bg-white/[0.015]">
-            <div className="flex items-center gap-2.5 border-b border-white/5 px-4 py-2.5">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-white/[0.015]">
+            <div className="flex items-center gap-2.5 border-b border-border px-4 py-2.5">
               {activeStrayed && (
                 <span
                   className="flex shrink-0 items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300"
@@ -381,7 +381,7 @@ function TreeGroup({
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "flex w-full items-center gap-1.5 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors hover:bg-white/[0.04]",
+          "flex w-full items-center gap-1.5 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors hover:bg-[var(--ink-hover)]",
           t.text,
         )}
       >

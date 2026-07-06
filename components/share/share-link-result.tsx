@@ -21,7 +21,7 @@ export function ShareLinkResult({
           readOnly
           value={url}
           onFocus={(e) => e.currentTarget.select()}
-          className="min-w-0 flex-1 rounded-md border border-white/10 bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none"
+          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none"
         />
         <Button size="sm" variant="outline" onClick={onCopy}>
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}

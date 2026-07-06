@@ -186,7 +186,7 @@ const MentionList = forwardRef<{ onKeyDown: (p: { event: KeyboardEvent }) => boo
             onMouseEnter={() => setSel(i)}
             className={cn(
               "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[12px]",
-              i === sel ? "bg-white/[0.1] text-foreground" : "text-foreground/85 hover:bg-white/[0.05]",
+              i === sel ? "bg-[var(--ink-active)] text-foreground" : "text-foreground/85 hover:bg-[var(--ink-hover)]",
             )}
           >
             <span aria-hidden className="shrink-0 text-[11px] opacity-80">

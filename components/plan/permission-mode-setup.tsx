@@ -70,13 +70,13 @@ export function PermissionModeSetup({
                 "flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors",
                 mode === o.value
                   ? "border-emerald-500/50 bg-emerald-500/10"
-                  : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]",
+                  : "border-border bg-white/[0.03] hover:bg-[var(--ink-hover)]",
               )}
             >
               <span
                 className={cn(
                   "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
-                  mode === o.value ? "border-emerald-400 bg-emerald-400/20" : "border-white/30",
+                  mode === o.value ? "border-emerald-400 bg-emerald-400/20" : "border-border",
                 )}
               >
                 {mode === o.value && <Check className="size-3 text-emerald-300" />}

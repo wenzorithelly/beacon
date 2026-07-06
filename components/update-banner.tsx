@@ -72,7 +72,7 @@ export function UpdateBanner({ currentVersion }: { currentVersion: string }) {
                 type="button"
                 onClick={dismiss}
                 aria-label="Dismiss"
-                className="shrink-0 rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                className="shrink-0 rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
               >
                 <X className="size-3.5" />
               </button>
@@ -85,7 +85,7 @@ export function UpdateBanner({ currentVersion }: { currentVersion: string }) {
               type="button"
               onClick={copy}
               title="Copy the update command"
-              className="mt-2.5 flex w-full items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-left font-mono text-[11px] text-muted-foreground transition-colors hover:border-white/20 hover:text-foreground"
+              className="mt-2.5 flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-black/30 px-2.5 py-1.5 text-left font-mono text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
             >
               <span className="truncate">{INSTALL_COMMAND}</span>
               {copied ? (

@@ -208,7 +208,7 @@ export function LinearCard() {
               className="flex items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground"
             >
               <span
-                className={`flex size-4 items-center justify-center rounded border ${status.onlyMine ? "border-[var(--accent-2,#ff7a45)] bg-[var(--accent-2,#ff7a45)]/20 text-[var(--accent-2,#ff7a45)]" : "border-white/20"}`}
+                className={`flex size-4 items-center justify-center rounded border ${status.onlyMine ? "border-[var(--accent-2,#ff7a45)] bg-[var(--accent-2,#ff7a45)]/20 text-[var(--accent-2,#ff7a45)]" : "border-border"}`}
               >
                 {status.onlyMine && <Check className="size-3" />}
               </span>

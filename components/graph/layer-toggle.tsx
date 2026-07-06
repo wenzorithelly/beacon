@@ -48,8 +48,8 @@ export function LayerToggle({
             className={cn(
               "flex h-7 items-center gap-1.5 rounded-md px-2 text-[10px] font-semibold uppercase tracking-wide transition-colors",
               on
-                ? "bg-white/[0.12] text-foreground"
-                : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+                ? "bg-[var(--ink-active)] text-foreground"
+                : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
             )}
           >
             <span

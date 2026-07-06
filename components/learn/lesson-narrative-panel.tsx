@@ -219,7 +219,7 @@ export function LessonNarrativePanel({
       {popover && (
         <div
           style={{ position: "fixed", left: popover.x + 4, top: popover.y - 34, zIndex: 60 }}
-          className="rounded-md border border-white/15 bg-card/95 p-0.5 shadow-lg backdrop-blur"
+          className="rounded-md border border-border bg-card/95 p-0.5 shadow-lg backdrop-blur"
         >
           <button
             onClick={() => {
@@ -277,7 +277,7 @@ function QuestionComposer({
     <div
       ref={boxRef}
       style={{ position: "fixed", left: x + 4, top: y - 6, zIndex: 60 }}
-      className="w-72 rounded-md border border-white/15 bg-card/95 p-1.5 shadow-xl backdrop-blur"
+      className="w-72 rounded-md border border-border bg-card/95 p-1.5 shadow-xl backdrop-blur"
       onBlur={(e) => {
         if (boxRef.current?.contains(e.relatedTarget as Node | null)) return;
         confirm();
@@ -300,7 +300,7 @@ function QuestionComposer({
             onCancel();
           }
         }}
-        className="h-16 w-full resize-none rounded bg-white/[0.05] px-1.5 py-1 text-xs outline-none placeholder:text-muted-foreground/50 focus:bg-white/[0.08]"
+        className="h-16 w-full resize-none rounded bg-[var(--ink-hover)] px-1.5 py-1 text-xs outline-none placeholder:text-muted-foreground/50 focus:bg-[var(--ink-active)]"
       />
       <div className="mt-1 flex items-center justify-end gap-1">
         <button

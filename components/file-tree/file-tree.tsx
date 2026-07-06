@@ -68,7 +68,7 @@ function TreeRows({
   livePath?: string | null;
 }) {
   return (
-    <ul className={cn(depth > 0 && "ml-[7px] border-l border-white/10 pl-1.5")}>
+    <ul className={cn(depth > 0 && "ml-[7px] border-l border-border pl-1.5")}>
       {nodes.map((node) =>
         node.kind === "folder" ? (
           <li key={`d:${node.path}`}>
@@ -76,7 +76,7 @@ function TreeRows({
               type="button"
               onClick={() => onToggle(node.path)}
               title={node.path}
-              className="flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              className="flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
             >
               <ChevronRight
                 className={cn(
@@ -117,10 +117,10 @@ function TreeRows({
                   className={cn(
                     "flex w-full items-center gap-1.5 rounded py-1 pl-[18px] pr-1.5 text-left transition-colors",
                     isSelected
-                      ? "bg-white/[0.10]"
+                      ? "bg-[var(--ink-active)]"
                       : isLive
                         ? "bg-[#ff7a45]/[0.08] hover:bg-[#ff7a45]/[0.13]"
-                        : "hover:bg-white/[0.06]",
+                        : "hover:bg-[var(--ink-hover)]",
                   )}
                 >
                   <FileIcon

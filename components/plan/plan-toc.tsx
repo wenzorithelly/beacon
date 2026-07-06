@@ -68,7 +68,7 @@ export function PlanToc({ markdown }: { markdown: string }) {
   };
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-white/5 bg-background pt-16">
+    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-background pt-16">
       <div className="px-4 pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         Sections
       </div>
@@ -87,8 +87,8 @@ export function PlanToc({ markdown }: { markdown: string }) {
               className={cn(
                 "block w-full truncate rounded py-1 pr-2 text-left text-[12px] leading-snug transition-colors",
                 active === it.id
-                  ? "bg-white/10 font-medium text-foreground"
-                  : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+                  ? "bg-[var(--ink-active)] font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
               )}
             >
               {it.label}

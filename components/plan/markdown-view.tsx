@@ -257,7 +257,7 @@ function highlightJson(json: string): ReactNode[] {
 export function CodeBlock({ text }: { text: string }) {
   const json = formatMaybeJson(text);
   return (
-    <pre className="overflow-x-auto rounded-lg border border-white/10 bg-white/[0.06] p-3 text-[12px] leading-relaxed">
+    <pre className="overflow-x-auto rounded-lg border border-border bg-white/[0.06] p-3 text-[12px] leading-relaxed">
       <code className="whitespace-pre font-mono [overflow-wrap:normal]">
         {json ? highlightJson(json) : <span className="text-foreground/85">{text}</span>}
       </code>
@@ -278,10 +278,10 @@ export function TableBlock({ block }: { block: Block }) {
   const alignClass = (i: number) =>
     align[i] === "center" ? "text-center" : align[i] === "right" ? "text-right" : "text-left";
   return (
-    <div className="overflow-x-auto rounded-lg border border-white/10">
+    <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full border-collapse text-[13px] [overflow-wrap:normal]">
         <thead>
-          <tr className="border-b border-white/15 bg-white/[0.04]">
+          <tr className="border-b border-border bg-white/[0.04]">
             {head.map((c, i) => (
               <th
                 key={i}
@@ -297,7 +297,7 @@ export function TableBlock({ block }: { block: Block }) {
         </thead>
         <tbody>
           {body.map((r, ri) => (
-            <tr key={ri} className="border-b border-white/5 last:border-0">
+            <tr key={ri} className="border-b border-border last:border-0">
               {r.map((c, ci) => (
                 <td key={ci} className={cn("px-3 py-1.5 align-top text-foreground/90", alignClass(ci))}>
                   <Inline text={c} />
@@ -372,7 +372,7 @@ export function renderBlockShell(
           id={anchorId}
           className={
             reading
-              ? "mt-6 scroll-mt-24 border-b border-white/10 pb-1 text-lg font-semibold text-foreground"
+              ? "mt-6 scroll-mt-24 border-b border-border pb-1 text-lg font-semibold text-foreground"
               : "mt-3 text-sm font-semibold text-muted-foreground"
           }
         >
@@ -428,7 +428,7 @@ export function renderBlockShell(
         <blockquote
           className={cn(
             "whitespace-pre-wrap border-l-2 pl-3 italic",
-            reading ? "border-white/15 text-foreground/80" : "border-white/10 text-foreground/75",
+            reading ? "border-border text-foreground/80" : "border-border text-foreground/75",
           )}
         >
           {inline}
@@ -566,7 +566,7 @@ function FileMention({ token, paths }: { token: string; paths: string[] }) {
         {token}
       </span>
       {ambiguous && open && (
-        <span className="absolute left-0 top-full z-50 mt-1 block min-w-[14rem] overflow-hidden rounded-md border border-white/10 bg-[#1b1b1f] shadow-xl">
+        <span className="absolute left-0 top-full z-50 mt-1 block min-w-[14rem] overflow-hidden rounded-md border border-border bg-[#1b1b1f] shadow-xl">
           {paths.map((p) => (
             <button
               key={p}
@@ -575,7 +575,7 @@ function FileMention({ token, paths }: { token: string; paths: string[] }) {
                 openInEditor(p);
                 setOpen(false);
               }}
-              className="block w-full truncate px-2.5 py-1.5 text-left font-mono text-[12px] text-foreground/85 hover:bg-white/10 hover:text-[var(--accent-2,#ff7a45)]"
+              className="block w-full truncate px-2.5 py-1.5 text-left font-mono text-[12px] text-foreground/85 hover:bg-[var(--ink-hover)] hover:text-[var(--accent-2,#ff7a45)]"
             >
               {p}
             </button>

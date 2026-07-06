@@ -97,14 +97,14 @@ export function CanvasSearch({
             }
           }}
           placeholder={placeholder}
-          className="w-full rounded-md border border-white/10 bg-white/[0.04] py-1 pl-2 pr-7 text-[12px] outline-none placeholder:text-muted-foreground/50 focus:bg-white/[0.08]"
+          className="w-full rounded-md border border-border bg-[var(--ink-hover)] py-1 pl-2 pr-7 text-[12px] outline-none placeholder:text-muted-foreground/50 focus:bg-[var(--ink-active)]"
         />
         {query && (
           <button
             type="button"
             onClick={() => onQuery("")}
             title="Clear search"
-            className="absolute right-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-white/10 hover:text-foreground"
+            className="absolute right-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             <X className="size-3.5" />
           </button>
@@ -122,7 +122,7 @@ export function CanvasSearch({
               onPick(h.id);
               setOpen(false); // picking flies to the node + closes the search
             }}
-            className="group flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-white/5"
+            className="group flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-[var(--ink-hover)]"
           >
             <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground transition-colors group-hover:text-foreground">
               {h.label}

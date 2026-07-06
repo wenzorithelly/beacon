@@ -210,7 +210,7 @@ export function ChangesClient({
 export function PlanFilesList({ files }: { files: string[] }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <GitCompare className="size-4 shrink-0 text-[#ff7a45]" />
         <h1 className="text-sm font-semibold tracking-tight">Plan files</h1>
         <span className="text-[11px] tabular-nums text-muted-foreground">{files.length}</span>
@@ -231,7 +231,7 @@ export function PlanFilesList({ files }: { files: string[] }) {
                   type="button"
                   onClick={() => openInEditor(f)}
                   title="Open in editor"
-                  className="group flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[12px] text-foreground/90 transition-colors hover:bg-white/[0.05]"
+                  className="group flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[12px] text-foreground/90 transition-colors hover:bg-[var(--ink-hover)]"
                 >
                   <FileText className="size-3.5 shrink-0 text-muted-foreground/60" />
                   <span className="truncate">{f}</span>

@@ -62,7 +62,7 @@ export function FocusView({
           type="button"
           onClick={onExit}
           title="Back to overview"
-          className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
         </button>
@@ -81,7 +81,7 @@ export function FocusView({
             type="button"
             onClick={() => setPaused(false)}
             title="Resume following the agent's edits"
-            className="flex items-center gap-1.5 rounded-full border border-white/12 px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
             <Pause className="size-3" /> Paused while you read · resume
           </button>
@@ -99,9 +99,9 @@ export function FocusView({
           onPointerDownCapture={() => setPaused(true)}
           onWheelCapture={() => setPaused(true)}
           onKeyDownCapture={() => setPaused(true)}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/6 bg-white/[0.015]"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-white/[0.015]"
         >
-          <div className="flex items-center gap-2.5 border-b border-white/5 px-4 py-2.5">
+          <div className="flex items-center gap-2.5 border-b border-border px-4 py-2.5">
             <span className={cn("shrink-0 text-[9.5px] font-bold uppercase tracking-[0.08em]", VERB_TONE[verbFor(file.status)])}>
               {verbFor(file.status)}
             </span>

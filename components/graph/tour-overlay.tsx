@@ -31,7 +31,7 @@ export function TourOverlay({
 
   return (
     <GlassPanel className="absolute bottom-3 left-3 top-16 z-10 flex w-72 flex-col rounded-2xl">
-      <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2.5">
+      <div className="flex items-center justify-between border-b border-border px-3.5 py-2.5">
         <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           <Compass className="size-3.5" />
           Guided tour
@@ -39,14 +39,14 @@ export function TourOverlay({
         <button
           onClick={onExit}
           title="End tour (Esc)"
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
         >
           <X className="size-4" />
         </button>
       </div>
 
       {/* Current step headline */}
-      <div className="border-b border-white/10 px-3.5 py-3">
+      <div className="border-b border-border px-3.5 py-3">
         <div className="text-[10px] font-medium uppercase tracking-wide text-[var(--accent-2,#ff7a45)]">
           Step {index + 1} / {steps.length}
         </div>
@@ -65,8 +65,8 @@ export function TourOverlay({
                 className={cn(
                   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
                   i === index
-                    ? "bg-white/[0.08] text-foreground"
-                    : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
+                    ? "bg-[var(--ink-active)] text-foreground"
+                    : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
                 )}
               >
                 <span
@@ -74,7 +74,7 @@ export function TourOverlay({
                     "flex size-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold",
                     i === index
                       ? "bg-[var(--accent-2,#ff7a45)] text-background"
-                      : "bg-white/10 text-muted-foreground",
+                      : "bg-[var(--ink-active)] text-muted-foreground",
                   )}
                 >
                   {i + 1}
@@ -87,11 +87,11 @@ export function TourOverlay({
       </div>
 
       {/* Footer nav */}
-      <div className="flex items-center justify-between gap-2 border-t border-white/10 p-2">
+      <div className="flex items-center justify-between gap-2 border-t border-border p-2">
         <button
           onClick={onPrev}
           disabled={atStart}
-          className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-foreground disabled:opacity-40"
+          className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground transition-colors enabled:hover:bg-[var(--ink-hover)] enabled:hover:text-foreground disabled:opacity-40"
         >
           <ChevronLeft className="size-3.5" /> Prev
         </button>
@@ -105,7 +105,7 @@ export function TourOverlay({
         ) : (
           <button
             onClick={onNext}
-            className="flex items-center gap-1 rounded-md bg-white/10 px-3 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:bg-white/[0.16]"
+            className="flex items-center gap-1 rounded-md bg-foreground/10 px-3 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:bg-foreground/20"
           >
             Next <ChevronRight className="size-3.5" />
           </button>

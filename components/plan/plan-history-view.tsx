@@ -195,11 +195,11 @@ export function PlanHistoryView({
           <span className="text-[10px] text-muted-foreground">
             {new Date(selected.archivedAt).toLocaleString()}
           </span>
-          <span aria-hidden className="h-4 w-px bg-white/10" />
+          <span aria-hidden className="h-4 w-px bg-border" />
           {/* Share THIS past plan as a read-only link. */}
           <SharePlanButton
             planId={selected.id}
-            className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           />
         </div>
       )}
@@ -207,15 +207,15 @@ export function PlanHistoryView({
       {/* The two columns (history list + selected plan) fill the space below the back-link row. */}
       <div className="flex min-h-0 flex-1">
       {sidebarOpen ? (
-        <aside className="flex w-64 min-w-0 shrink-0 flex-col border-r border-white/5 bg-card/30">
-          <div className="flex items-center justify-between border-b border-white/5 px-3 py-2">
+        <aside className="flex w-64 min-w-0 shrink-0 flex-col border-r border-border bg-card/30">
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
               Plan history · {items.length}
             </span>
             <button
               onClick={toggleSidebar}
               title="Collapse history"
-              className="flex size-5 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              className="flex size-5 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
             >
               <PanelLeftClose className="size-3.5" />
             </button>
@@ -234,8 +234,8 @@ export function PlanHistoryView({
                         className={cn(
                           "flex w-full items-start gap-1.5 px-3 py-1.5 text-left text-[12px] transition-colors",
                           selectedId === p.id
-                            ? "bg-white/[0.06] text-foreground"
-                            : "text-muted-foreground hover:bg-white/[0.03] hover:text-foreground",
+                            ? "bg-[var(--ink-active)] text-foreground"
+                            : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
                         )}
                       >
                         <span
@@ -275,11 +275,11 @@ export function PlanHistoryView({
           </ul>
         </aside>
       ) : (
-        <aside className="flex w-10 shrink-0 flex-col items-center border-r border-white/5 bg-card/30 py-2">
+        <aside className="flex w-10 shrink-0 flex-col items-center border-r border-border bg-card/30 py-2">
           <button
             onClick={toggleSidebar}
             title={`Show plan history · ${items.length}`}
-            className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             <PanelLeftOpen className="size-4" />
           </button>
@@ -306,7 +306,7 @@ export function PlanHistoryView({
                 </p>
               )}
               {selected.globalComment && (
-                <div className="mt-4 rounded-lg border border-white/5 bg-card/40 p-3">
+                <div className="mt-4 rounded-lg border border-border bg-card/40 p-3">
                   <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                     Overall feedback
                   </div>
@@ -319,7 +319,7 @@ export function PlanHistoryView({
           {/* RIGHT — the real canvases, read-only. Map/Database tab pill floats over the board
               (only when BOTH sides have content), exactly like the presented-plan layout. */}
           {hasBoard && (
-            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col border-l border-white/5">
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col border-l border-border">
               {mapHasContent && dbHasContent && (
                 <div className="pointer-events-none absolute left-3 top-3 z-20">
                   <div className="glass pointer-events-auto flex items-center gap-1 rounded-full p-0.5">

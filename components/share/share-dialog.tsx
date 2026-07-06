@@ -69,7 +69,7 @@ export function ShareBoardButton({ defaultSelection = "ALL" }: { defaultSelectio
             <ShareLinkResult url={url} copied={copied} onCopy={copy} />
           ) : (
             <>
-              <div className="flex rounded-lg border border-white/10 bg-background/40 p-0.5">
+              <div className="flex rounded-lg border border-border bg-background/40 p-0.5">
                 {OPTIONS.map((o) => (
                   <button
                     key={o.value}
@@ -77,7 +77,7 @@ export function ShareBoardButton({ defaultSelection = "ALL" }: { defaultSelectio
                     className={cn(
                       "flex-1 rounded-md px-1.5 py-1.5 text-[11px] font-medium transition-colors",
                       sel === o.value
-                        ? "bg-white/10 text-foreground"
+                        ? "bg-[var(--ink-active)] text-foreground"
                         : "text-muted-foreground hover:text-foreground",
                     )}
                   >

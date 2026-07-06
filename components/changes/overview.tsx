@@ -214,7 +214,7 @@ export function ChangesOverview({
           onFlag={(file, prefill) => setFlag({ file, text: prefill, hold: false, sending: false })}
         />
         {isOpen && (
-          <div className="border-t border-white/5 bg-black/25">
+          <div className="border-t border-border bg-black/25">
             {/* Keyed by PATH only — a count change re-fetches inside the mounted component
                 (stale diff stays visible while the fresh one loads). */}
             <FileDiffView key={f.path} file={f} defaultMode="split" maxBodyHeight={520} onFocus={() => onOpen(f.path)} />
@@ -266,7 +266,7 @@ export function ChangesOverview({
           </span>
           <span
             aria-hidden
-            className="h-1 w-24 overflow-hidden rounded-full bg-white/10"
+            className="h-1 w-24 overflow-hidden rounded-full bg-[var(--ink-active)]"
             title={`~${REVIEW_BUDGET_LINES} changed lines is the review-attention budget`}
           >
             <span
@@ -284,14 +284,14 @@ export function ChangesOverview({
             disabled={scanning || files.length === 0}
             title="Run the repo's linter on the changed files + scan added code for duplicated logic (deterministic, local)"
             className={cn(
-              "flex items-center gap-1 rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-medium transition-colors",
-              scanning ? "text-muted-foreground" : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
+              "flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium transition-colors",
+              scanning ? "text-muted-foreground" : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
             )}
           >
             {scanning ? <Loader2 className="size-3 animate-spin" /> : <ScanSearch className="size-3" />}
             {scanning ? "Scanning…" : quality ? "Re-scan" : "Quality scan"}
           </button>
-          <div className="flex items-center gap-0.5 rounded-full border border-white/10 p-0.5">
+          <div className="flex items-center gap-0.5 rounded-full border border-border p-0.5">
             {(
               [
                 { l: "activity", icon: <Activity className="size-3" />, label: "Activity", title: "What the agent is doing, newest first" },
@@ -305,7 +305,7 @@ export function ChangesOverview({
                 onClick={() => onLens(l)}
                 className={cn(
                   "flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors",
-                  lens === l ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground",
+                  lens === l ? "bg-[var(--ink-active)] text-foreground" : "text-muted-foreground hover:text-foreground",
                 )}
                 title={title}
               >
@@ -324,7 +324,7 @@ export function ChangesOverview({
 
       {/* ── Flag-to-agent composer ── */}
       {flag && (
-        <div className="fixed right-6 top-20 z-40 w-96 rounded-xl border border-white/10 bg-card p-3 shadow-2xl">
+        <div className="fixed right-6 top-20 z-40 w-96 rounded-xl border border-border bg-card p-3 shadow-2xl">
           <div className="mb-2 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               <Flag className="size-3 text-[#ff7a45]" /> Flag to the agent
@@ -355,7 +355,7 @@ export function ChangesOverview({
               }
             }}
             rows={4}
-            className="w-full resize-y rounded border border-white/10 bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-[#ff7a45]/40"
+            className="w-full resize-y rounded border border-border bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-[#ff7a45]/40"
           />
           <div className="mt-2 flex items-center gap-2">
             <button
@@ -439,7 +439,7 @@ function QuestionsPanel({ questions }: { questions: DiffComment[] }) {
             type="button"
             onClick={() => openInEditor(file)}
             title="Open in editor"
-            className="group flex w-full items-center gap-2 border-b border-white/5 px-3 py-2 text-left"
+            className="group flex w-full items-center gap-2 border-b border-border px-3 py-2 text-left"
           >
             <HelpCircle className="size-3.5 shrink-0 text-[#ff7a45]" />
             <span className="truncate font-mono text-[12px] text-foreground/90">{file}</span>
@@ -448,7 +448,7 @@ function QuestionsPanel({ questions }: { questions: DiffComment[] }) {
           </button>
           <div className="space-y-2 p-3">
             {qs.map((q) => (
-              <div key={q.id} className="rounded-lg border border-white/10 bg-background/50 p-2.5">
+              <div key={q.id} className="rounded-lg border border-border bg-background/50 p-2.5">
                 <div className="flex items-start gap-2">
                   <HelpCircle className="mt-0.5 size-3.5 shrink-0 text-[#ff7a45]" />
                   <div className="min-w-0 flex-1">
@@ -477,7 +477,7 @@ function SectionPanel({ section, count, children }: { section: Section; count: n
   return (
     <section
       className={cn(
-        "overflow-hidden rounded-xl border border-white/6 bg-white/[0.015]",
+        "overflow-hidden rounded-xl border border-border bg-white/[0.015]",
         section.accent && "border-l-2 border-l-[#ff7a45]/40",
         section.dim && "opacity-80",
       )}
@@ -486,7 +486,7 @@ function SectionPanel({ section, count, children }: { section: Section; count: n
         type="button"
         onClick={() => section.dim && setOpen((o) => !o)}
         className={cn(
-          "flex w-full items-center gap-1.5 border-b border-white/5 px-4 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80",
+          "flex w-full items-center gap-1.5 border-b border-border px-4 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80",
           section.dim && "cursor-pointer hover:text-muted-foreground",
         )}
         disabled={!section.dim}

@@ -45,7 +45,7 @@ export function SharedBoardView({ snapshot }: { snapshot: BoardsSnapshot }) {
                   className={cn(
                     "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
                     active === t
-                      ? "bg-white/10 text-foreground"
+                      ? "bg-[var(--ink-active)] text-foreground"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >

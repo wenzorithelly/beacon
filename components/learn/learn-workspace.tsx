@@ -204,27 +204,27 @@ export function LearnWorkspace({
             <button
               onClick={() => router.push("/learn?view=library")}
               title="Saved lessons"
-              className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
             >
               <Library className="size-3.5" />
             </button>
-            <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
+            <span aria-hidden className="mx-1 h-5 w-px bg-border" />
             <button
               onClick={() => setOverallOpen((b) => !b)}
               title="Ask an overall question"
               className={cn(
                 "relative flex size-8 items-center justify-center rounded-full transition-colors",
                 overallOpen
-                  ? "bg-white/10 text-foreground"
+                  ? "bg-[var(--ink-active)] text-foreground"
                   : overall.trim()
                     ? "text-[var(--accent-2,#ff7a45)]"
-                    : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+                    : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
               )}
             >
               <MessageSquare className="size-3.5" />
               {overall.trim() && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-[var(--accent-2,#ff7a45)]" />}
             </button>
-            <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
+            <span aria-hidden className="mx-1 h-5 w-px bg-border" />
             <button
               onClick={() => void send()}
               disabled={sending || pendingCount === 0}
@@ -290,7 +290,7 @@ export function LearnWorkspace({
             {overallQs.length > 0 && <OverallQA questions={overallQs} />}
           </div>
 
-          <div className="w-px shrink-0 bg-white/5" />
+          <div className="w-px shrink-0 bg-border" />
 
           {/* RIGHT — the EXISTING architecture canvas, fed with the lesson. */}
           <div className="relative min-w-0 flex-1 bg-background" style={{ width: "50%" }}>
@@ -336,7 +336,7 @@ function AskBox({
   const v = onChange ? value : local;
   const set = (s: string) => (onChange ? onChange(s) : setLocal(s));
   return (
-    <div className="fixed right-3 top-16 z-30 w-80 rounded-xl border border-white/10 bg-card p-3 shadow-xl">
+    <div className="fixed right-3 top-16 z-30 w-80 rounded-xl border border-border bg-card p-3 shadow-xl">
       <div className="mb-1 flex items-center justify-between">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere]">{label}</span>
         <button onClick={onClose} title="Close" className="rounded p-0.5 text-muted-foreground hover:text-foreground">
@@ -355,7 +355,7 @@ function AskBox({
         }}
         placeholder={placeholder}
         rows={3}
-        className="w-full resize-y rounded border border-white/5 bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-[var(--accent-2,#ff7a45)]/40"
+        className="w-full resize-y rounded border border-border bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-[var(--accent-2,#ff7a45)]/40"
       />
       {onSubmit && (
         <button
@@ -374,12 +374,12 @@ function AskBox({
 // Node-anchored Q&A shows in the canvas detail sidebar; text-anchored answers paint in the narrative.
 function OverallQA({ questions }: { questions: LessonQuestion[] }) {
   return (
-    <div className="max-h-44 shrink-0 space-y-1.5 overflow-y-auto border-t border-white/10 bg-background/60 px-5 py-3">
+    <div className="max-h-44 shrink-0 space-y-1.5 overflow-y-auto border-t border-border bg-background/60 px-5 py-3">
       <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         <MessageSquare className="size-3" /> Overall Q&amp;A
       </div>
       {questions.map((q) => (
-        <div key={q.id} className="rounded-md border border-white/10 bg-background/40 p-2">
+        <div key={q.id} className="rounded-md border border-border bg-background/40 p-2">
           <div className="text-[12px] font-medium text-foreground">{q.question}</div>
           {q.answer ? (
             <div className="mt-1 text-[12px] leading-relaxed text-foreground/85">
@@ -414,7 +414,7 @@ function WaitingOverlay({ onDismiss }: { onDismiss: () => void }) {
       </div>
       <button
         onClick={onDismiss}
-        className="rounded-full border border-white/12 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+        className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
       >
         Keep reading meanwhile
       </button>
@@ -438,7 +438,7 @@ function EmptyState() {
 function EndCard({ ended, savedId, onBrowse }: { ended: "saved" | "closed"; savedId: string | null; onBrowse: () => void }) {
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-5 px-6 text-center">
-      <div className={cn("flex size-12 items-center justify-center rounded-full", ended === "saved" ? "bg-emerald-500/15" : "bg-white/10")}>
+      <div className={cn("flex size-12 items-center justify-center rounded-full", ended === "saved" ? "bg-emerald-500/15" : "bg-[var(--ink-active)]")}>
         {ended === "saved" ? <Check className="size-6 text-emerald-300" /> : <X className="size-6 text-muted-foreground" />}
       </div>
       <div className="space-y-1">
@@ -447,7 +447,7 @@ function EndCard({ ended, savedId, onBrowse }: { ended: "saved" | "closed"; save
           {ended === "saved" ? "It's in your library — reopen it anytime." : "Closed without saving."}
         </p>
       </div>
-      <button onClick={onBrowse} className="rounded-full border border-white/12 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground">
+      <button onClick={onBrowse} className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground">
         <Library className="mr-1 inline size-3.5" /> {savedId ? "Browse the library" : "Open the library"}
       </button>
     </div>

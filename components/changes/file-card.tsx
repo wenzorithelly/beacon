@@ -95,9 +95,9 @@ export function FileCard({
   return (
     <div
       className={cn(
-        "group flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-white/[0.035]",
+        "group flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-[var(--ink-hover)]",
         transient && "animate-[card-arrive_1.6s_ease-out]",
-        expanded && "bg-white/[0.03]",
+        expanded && "bg-[var(--ink-hover)]",
         view === "viewed" && !expanded && "opacity-50",
       )}
     >
@@ -131,7 +131,7 @@ export function FileCard({
         {ago && <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/50">{ago}</span>}
       </button>
       {file.formattingOnly && (
-        <span className="shrink-0 rounded-full border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
+        <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
           formatting
         </span>
       )}
@@ -141,7 +141,7 @@ export function FileCard({
           type="button"
           title={`${c.title} — click to flag it to the agent`}
           onClick={() => onFlag?.(file, c.prefill)}
-          className="hidden shrink-0 cursor-pointer rounded-full border border-white/10 px-1.5 py-0.5 text-[9px] text-muted-foreground/80 transition-colors hover:border-white/25 hover:text-foreground lg:inline"
+          className="hidden shrink-0 cursor-pointer rounded-full border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground/80 transition-colors hover:border-border hover:text-foreground lg:inline"
         >
           {c.label}
         </button>
@@ -227,7 +227,7 @@ export function ViewedCheckbox({ view, onToggle }: { view: ViewState; onToggle: 
           ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-300"
           : view === "invalidated"
             ? "border-amber-400/40 bg-amber-500/10 text-amber-300"
-            : "border-white/15 text-transparent hover:text-muted-foreground",
+            : "border-border text-transparent hover:text-muted-foreground",
       )}
     >
       {view === "invalidated" ? "!" : <Check className="size-3" />}

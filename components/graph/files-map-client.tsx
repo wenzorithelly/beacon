@@ -841,7 +841,7 @@ export function FilesMapClient({
         <LodReporter onLod={setLod} thresholds={FILES_LOD} />
         <Controls
           position="bottom-right"
-          className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
+          className="!overflow-hidden !rounded-xl !border !border-border [&_button]:!border-border [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
         />
         <Panel position="bottom-left" style={{ marginBottom: 118 }}>
           <CanvasToolToggle tool={canvasTool} onChange={setCanvasTool} />
@@ -902,7 +902,7 @@ export function FilesMapClient({
           zoomable
           position="bottom-left"
           style={{ width: 140, height: 90 }}
-          className="!overflow-hidden !rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
+          className="!overflow-hidden !rounded-xl !border !border-border !bg-card/50 !backdrop-blur"
           nodeColor={() => "#555"}
         />
 
@@ -964,7 +964,7 @@ export function FilesMapClient({
                   rfRef.current?.fitView({ nodes: ids, duration: 600, padding: 0.3, maxZoom: 1 });
               }}
               title={`${g.count} files — click to zoom to ${g.group}`}
-              className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
             >
               <span
                 aria-hidden
@@ -1067,14 +1067,14 @@ export function FilesMapClient({
           the "edited this session" summary when nothing is selected. */}
       {panelOpen && (
         <GlassPanel className="absolute bottom-3 right-3 top-16 z-10 flex w-72 flex-col rounded-2xl">
-          <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-2.5">
+          <div className="flex items-center justify-between border-b border-border px-3.5 py-2.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               {selectedId ? "File" : "Edited this session"}
             </span>
             <button
               onClick={closePanel}
               title="Close panel"
-              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
             >
               <X className="size-4" />
             </button>
@@ -1112,7 +1112,7 @@ export function FilesMapClient({
                   onClick={() =>
                     fetch(`/api/open?path=${encodeURIComponent(selectedId)}`).catch(() => {})
                   }
-                  className="w-full rounded-md border border-white/10 px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                  className="w-full rounded-md border border-border px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
                 >
                   Open in editor
                 </button>

@@ -125,9 +125,9 @@ export function NotesDrawer() {
         open ? "translate-x-0" : "pointer-events-none translate-x-full",
       )}
     >
-      <GlassPanel className="flex h-full w-[420px] flex-col rounded-l-2xl border-l border-white/10">
+      <GlassPanel className="flex h-full w-[420px] flex-col rounded-l-2xl border-l border-border">
         {/* header */}
-        <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <StickyNote className="size-4 text-[var(--accent-2,#ff7a45)]" />
           <span className="text-sm font-semibold tracking-tight">Notes</span>
           <span className="ml-auto" />
@@ -136,7 +136,7 @@ export function NotesDrawer() {
             onClick={create}
             aria-label="New note"
             title="New note"
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             <Plus className="size-4" />
           </button>
@@ -145,14 +145,14 @@ export function NotesDrawer() {
             onClick={close}
             aria-label="Close notes"
             title="Close"
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             <X className="size-4" />
           </button>
         </div>
 
         {/* note list */}
-        <div className="max-h-44 shrink-0 overflow-y-auto border-b border-white/10 p-1.5">
+        <div className="max-h-44 shrink-0 overflow-y-auto border-b border-border p-1.5">
           {notes.length === 0 ? (
             <p className="px-2 py-3 text-[13px] text-muted-foreground">
               No notes yet. Hit <span className="text-foreground">+</span> to start one.
@@ -163,7 +163,7 @@ export function NotesDrawer() {
                 key={n.id}
                 className={cn(
                   "group flex items-center gap-1 rounded-md px-2 py-1.5 text-[13px]",
-                  n.id === selectedId ? "bg-white/[0.09] text-foreground" : "text-muted-foreground hover:bg-white/[0.04]",
+                  n.id === selectedId ? "bg-[var(--ink-active)] text-foreground" : "text-muted-foreground hover:bg-[var(--ink-hover)]",
                 )}
               >
                 <button
@@ -179,7 +179,7 @@ export function NotesDrawer() {
                   onClick={() => togglePin(n)}
                   aria-label={n.pinned ? "Unpin" : "Pin"}
                   title={n.pinned ? "Unpin" : "Pin"}
-                  className="rounded p-1 opacity-0 transition hover:bg-white/[0.08] hover:text-foreground group-hover:opacity-100"
+                  className="rounded p-1 opacity-0 transition hover:bg-[var(--ink-hover)] hover:text-foreground group-hover:opacity-100"
                 >
                   {n.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
                 </button>
@@ -188,7 +188,7 @@ export function NotesDrawer() {
                   onClick={() => remove(n.id)}
                   aria-label="Delete note"
                   title="Delete"
-                  className="rounded p-1 opacity-0 transition hover:bg-white/[0.08] hover:text-red-300 group-hover:opacity-100"
+                  className="rounded p-1 opacity-0 transition hover:bg-[var(--ink-hover)] hover:text-red-300 group-hover:opacity-100"
                 >
                   <Trash2 className="size-3.5" />
                 </button>

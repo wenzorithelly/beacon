@@ -44,13 +44,13 @@ function LibraryList({ lessons }: { lessons: SavedLessonSummary[] }) {
         </h1>
         <button
           onClick={() => router.push(learnHref({}))}
-          className="rounded-full border border-white/12 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
         >
           Back to current lesson
         </button>
       </div>
       {lessons.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-white/10 px-4 py-12 text-center text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed border-border px-4 py-12 text-center text-sm text-muted-foreground">
           No saved lessons yet. Ask your terminal session to explain something, then click <b>Save</b>.
         </div>
       ) : (
@@ -59,7 +59,7 @@ function LibraryList({ lessons }: { lessons: SavedLessonSummary[] }) {
             <button
               key={l.id}
               onClick={() => router.push(learnHref({ view: "library", id: l.id }))}
-              className="block w-full rounded-lg border border-white/10 bg-white/[0.02] p-3 text-left transition-colors hover:border-white/20 hover:bg-white/[0.04]"
+              className="block w-full rounded-lg border border-border bg-white/[0.02] p-3 text-left transition-colors hover:border-border hover:bg-[var(--ink-hover)]"
             >
               <div className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
                 <BookOpen className="size-4 text-[var(--accent-2,#ff7a45)]" /> {l.title}
@@ -89,7 +89,7 @@ function SavedLessonView({ lesson, repoFiles }: { lesson: Lesson; repoFiles: str
         <div className="pointer-events-none fixed right-3 top-3 z-30">
           <button
             onClick={() => router.push(learnHref({ view: "library" }))}
-            className="glass pointer-events-auto flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="glass pointer-events-auto flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             <ArrowLeft className="size-3.5" /> Library
           </button>
@@ -109,7 +109,7 @@ function SavedLessonView({ lesson, repoFiles }: { lesson: Lesson; repoFiles: str
             )}
           </div>
 
-          <div className="w-px shrink-0 bg-white/5" />
+          <div className="w-px shrink-0 bg-border" />
 
           {/* RIGHT — the frozen concept map (the existing canvas), read-only. */}
           <div className="min-w-0 flex-1 bg-background" style={{ width: "50%" }}>
@@ -129,7 +129,7 @@ function SavedQA({ q, nodeTitle }: { q: LessonQuestion; nodeTitle?: string }) {
         ? nodeTitle ?? "Node"
         : `“${q.anchor.excerpt.slice(0, 48)}…”`;
   return (
-    <div className="rounded-md border border-white/10 bg-background/40 p-2">
+    <div className="rounded-md border border-border bg-background/40 p-2">
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80">{where}</div>
       <div className="mt-0.5 text-[12px] font-medium text-foreground">{q.question}</div>
       {q.answer && (

@@ -431,7 +431,7 @@ export function AnnotationPanel({
                   submitted
                     ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
                     : liveCount === 0
-                      ? "border-white/10 text-muted-foreground opacity-50"
+                      ? "border-border text-muted-foreground opacity-50"
                       : "border-sky-500/40 bg-sky-500/15 text-sky-300 hover:bg-sky-500/25",
                 )}
                 title={
@@ -447,7 +447,7 @@ export function AnnotationPanel({
             {globalOpen && (
               <div
                 ref={globalPopoverRef}
-                className="absolute right-0 top-[calc(100%+6px)] z-50 w-[320px] rounded-md border border-white/10 bg-card p-2 shadow-xl"
+                className="absolute right-0 top-[calc(100%+6px)] z-50 w-[320px] rounded-md border border-border bg-card p-2 shadow-xl"
               >
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -481,7 +481,7 @@ export function AnnotationPanel({
                   }}
                   placeholder="Plan-level notes — e.g. 'split this into two phases' or 'wrong abstraction'…"
                   rows={4}
-                  className="w-full resize-y rounded border border-white/5 bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-sky-400/40"
+                  className="w-full resize-y rounded border border-border bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-sky-400/40"
                 />
                 <div className="mt-1 text-right text-[9px] text-muted-foreground/70">
                   ⌘/Ctrl+Enter to submit · Esc to close
@@ -519,7 +519,7 @@ export function AnnotationPanel({
       {popover && (
         <div
           style={clampedFixed(popover.x + 4, popover.y + 6, 76, 34)}
-          className="flex items-center gap-0.5 rounded-md border border-white/15 bg-card/95 p-0.5 shadow-lg backdrop-blur"
+          className="flex items-center gap-0.5 rounded-md border border-border bg-card/95 p-0.5 shadow-lg backdrop-blur"
         >
           <button
             onClick={() => {
@@ -603,7 +603,7 @@ function InlineComposer({
     <div
       ref={boxRef}
       style={{ position: "fixed", left: pos.left, top: pos.top, zIndex: 60 }}
-      className="w-64 rounded-md border border-white/15 bg-card/95 p-1.5 shadow-xl backdrop-blur"
+      className="w-64 rounded-md border border-border bg-card/95 p-1.5 shadow-xl backdrop-blur"
       // Only treat focus LEAVING the whole composer as an implicit save — focus moving from
       // the textarea to the buttons must not auto-confirm under the user's click.
       onBlur={(e) => {
@@ -628,7 +628,7 @@ function InlineComposer({
             onCancel();
           }
         }}
-        className="h-16 w-full resize-none rounded bg-white/[0.05] px-1.5 py-1 text-xs outline-none placeholder:text-muted-foreground/50 focus:bg-white/[0.08]"
+        className="h-16 w-full resize-none rounded bg-[var(--ink-hover)] px-1.5 py-1 text-xs outline-none placeholder:text-muted-foreground/50 focus:bg-[var(--ink-active)]"
       />
       <div className="mt-1 flex items-center justify-end gap-1">
         <button
@@ -672,7 +672,7 @@ export function CommentsList({
 }) {
   if (annotations.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-white/10 px-3 py-6 text-center text-[11px] text-muted-foreground">
+      <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-[11px] text-muted-foreground">
         Highlight any text in the plan to leave an inline comment.
       </div>
     );

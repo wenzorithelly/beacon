@@ -120,7 +120,7 @@ export function DeletableEdge(props: EdgeProps) {
                 void deleteElements({ edges: [{ id: props.id }] });
               }}
               title="Delete (or press Backspace)"
-              className="flex size-7 items-center justify-center rounded-full border border-white/20 bg-card/95 text-red-300 shadow-lg backdrop-blur-md transition-colors hover:bg-red-500/25 hover:text-red-200"
+              className="flex size-7 items-center justify-center rounded-full border border-border bg-card/95 text-red-300 shadow-lg backdrop-blur-md transition-colors hover:bg-red-500/25 hover:text-red-200"
             >
               <Trash2 className="size-3.5" />
             </button>

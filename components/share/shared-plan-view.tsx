@@ -38,7 +38,7 @@ export function SharedPlanView({ snapshot }: { snapshot: PlanShareSnapshot }) {
 
       {/* Mobile-only Plan / Board switch — hidden once there is room for both (md+). */}
       {hasBoard && (
-        <div className="flex shrink-0 border-b border-white/5 bg-card/40 md:hidden">
+        <div className="flex shrink-0 border-b border-border bg-card/40 md:hidden">
           {(["plan", "board"] as const).map((p) => (
             <button
               key={p}
@@ -72,7 +72,7 @@ export function SharedPlanView({ snapshot }: { snapshot: PlanShareSnapshot }) {
         {hasBoard && (
           <div
             className={cn(
-              "relative min-h-0 flex-1 flex-col border-l border-white/5",
+              "relative min-h-0 flex-1 flex-col border-l border-border",
               pane === "board" ? "flex" : "hidden md:flex",
             )}
           >

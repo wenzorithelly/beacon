@@ -158,14 +158,14 @@ export function Chip({
 }) {
   const palette = {
     default: on
-      ? "border-foreground/40 bg-white/10 text-foreground"
-      : "border-white/10 text-muted-foreground hover:text-foreground",
+      ? "border-foreground/40 bg-[var(--ink-active)] text-foreground"
+      : "border-border text-muted-foreground hover:text-foreground",
     danger: on
       ? "border-red-500/40 bg-red-500/15 text-red-300"
-      : "border-white/10 text-muted-foreground hover:text-foreground",
+      : "border-border text-muted-foreground hover:text-foreground",
     accent: on
       ? "border-sky-500/40 bg-sky-500/15 text-sky-300"
-      : "border-white/10 text-muted-foreground hover:text-foreground",
+      : "border-border text-muted-foreground hover:text-foreground",
   } as const;
   return (
     <button

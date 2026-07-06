@@ -19,7 +19,7 @@ export function SharedViewHeader({
   verdict?: "approved" | "discarded" | null;
 }) {
   return (
-    <header className="relative z-20 flex h-12 shrink-0 items-center gap-2 border-b border-white/5 bg-card/40 px-3 backdrop-blur sm:gap-3 sm:px-4">
+    <header className="relative z-20 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card/40 px-3 backdrop-blur sm:gap-3 sm:px-4">
       <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/[0.06] px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
         <Eye className="size-3" /> Read-only
       </span>

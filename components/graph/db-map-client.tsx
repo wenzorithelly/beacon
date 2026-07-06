@@ -1382,7 +1382,7 @@ export function DbMapClient({
           <LodReporter onLod={setLod} thresholds={DB_LOD} />
           <Controls
             position="bottom-right"
-            className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
+            className="!overflow-hidden !rounded-xl !border !border-border [&_button]:!border-border [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
           />
           {!embedded && (
             <MiniMap
@@ -1390,7 +1390,7 @@ export function DbMapClient({
               zoomable
               position="bottom-left"
               style={{ width: 140, height: 90 }}
-              className="!overflow-hidden !rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
+              className="!overflow-hidden !rounded-xl !border !border-border !bg-card/50 !backdrop-blur"
               nodeColor="#555"
             />
           )}
@@ -1423,7 +1423,7 @@ export function DbMapClient({
                       setBusy(false);
                     }
                   }}
-                  className="flex h-6 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-40"
+                  className="flex h-6 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground disabled:opacity-40"
                 >
                   <LayoutGrid className="size-3" />
                   {busy ? "Arranging…" : "Arrange"}
@@ -1552,7 +1552,7 @@ export function DbMapClient({
                 <button
                   type="button"
                   onClick={clearFilters}
-                  className="mt-1 w-full rounded-md border border-white/10 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+                  className="mt-1 w-full rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
                 >
                   clear filters
                 </button>
@@ -1577,13 +1577,13 @@ export function DbMapClient({
             >
               <ul className="space-y-1.5 text-[10.5px] text-muted-foreground">
                 <li className="flex items-center gap-2">
-                  <span className="inline-block rounded border border-white/15 bg-white/[0.06] px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-foreground/80">
+                  <span className="inline-block rounded border border-border bg-white/[0.06] px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-foreground/80">
                     table
                   </span>
                   <span>a database table · its columns</span>
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="inline-block rounded border border-white/15 bg-white/[0.06] px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-foreground/80">
+                  <span className="inline-block rounded border border-border bg-white/[0.06] px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-foreground/80">
                     endpoint
                   </span>
                   <span>an API route · reads / writes tables</span>
@@ -1640,7 +1640,7 @@ export function DbMapClient({
                 onClick={undo}
                 disabled={!canUndo}
                 title="Undo (⌘Z)"
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
               >
                 <Undo2 className="size-3.5" /> undo
               </button>
@@ -1648,7 +1648,7 @@ export function DbMapClient({
                 onClick={redo}
                 disabled={!canRedo}
                 title="Redo (⇧⌘Z)"
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
               >
                 <Redo2 className="size-3.5" /> redo
               </button>
@@ -1658,7 +1658,7 @@ export function DbMapClient({
                   standalone /map board, where there's no plan bar. undo/redo stay in both. */}
               {!embedded && (
                 <>
-                  <span className="mx-1 h-4 w-px bg-white/10" />
+                  <span className="mx-1 h-4 w-px bg-border" />
                   <button
                     onClick={discard}
                     disabled={busy}

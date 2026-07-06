@@ -490,7 +490,7 @@ export function PlanWorkspace({
                   navedRef.current = true;
                   router.push("/map?view=ROADMAP");
                 }}
-                className="flex items-center gap-2 rounded-lg border border-white/12 px-3 py-2 text-sm text-foreground transition-colors hover:bg-white/[0.06]"
+                className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-[var(--ink-hover)]"
               >
                 <MapPinned className="size-4 text-sky-300" /> {approvedSummary.features} feature
                 {approvedSummary.features === 1 ? "" : "s"} → Map
@@ -502,7 +502,7 @@ export function PlanWorkspace({
                   navedRef.current = true;
                   router.push("/map?view=DATABASE");
                 }}
-                className="flex items-center gap-2 rounded-lg border border-white/12 px-3 py-2 text-sm text-foreground transition-colors hover:bg-white/[0.06]"
+                className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-[var(--ink-hover)]"
               >
                 <Database className="size-4 text-violet-300" /> {approvedSummary.tables} table
                 {approvedSummary.tables === 1 ? "" : "s"} · {approvedSummary.endpoints} endpoint
@@ -518,7 +518,7 @@ export function PlanWorkspace({
                 setApprovedSummary(null);
                 router.push(planHref({ view: "changes" }));
               }}
-              className="flex items-center gap-2 rounded-lg border border-white/12 px-3 py-2 text-sm text-foreground transition-colors hover:bg-white/[0.06]"
+              className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-[var(--ink-hover)]"
             >
               <GitCompare className="size-4 text-[#ff7a45]" /> Watch changes
             </button>
@@ -529,7 +529,7 @@ export function PlanWorkspace({
               setApprovedSummary(null);
               router.push(planHref({ view: "history" }));
             }}
-            className="rounded-full border border-white/12 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             Done — browse plan history
           </button>
@@ -557,7 +557,7 @@ export function PlanWorkspace({
           </div>
           <button
             onClick={() => router.push(planHref({ view: "history" }))}
-            className="rounded-full border border-white/12 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             Browse past plans
           </button>
@@ -571,7 +571,7 @@ export function PlanWorkspace({
           <button
             onClick={() => setExpanded(false)}
             title="Collapse — show the board again"
-            className="glass pointer-events-auto flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="glass pointer-events-auto flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             <Minimize2 className="size-3.5" />
           </button>
@@ -580,13 +580,13 @@ export function PlanWorkspace({
         <button
           onClick={() => router.push(planHref({ view: "history" }))}
           title="Browse past plans (you can come back to this one)"
-          className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
         >
           <Archive className="size-3.5" />
         </button>
         {/* Share THIS (currently-open) plan as a read-only link. */}
-        <SharePlanButton className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground" />
-        <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
+        <SharePlanButton className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground" />
+        <span aria-hidden className="mx-1 h-5 w-px bg-border" />
         {/* ONE button opens the side panel — Details + Comments live as tabs inside it (no
             separate comments button). The comment-count badge rides here so pending comments
             still show at a glance. The panel lives INSIDE the board pane, so it only exists when
@@ -600,7 +600,7 @@ export function PlanWorkspace({
                 ? `Open the side panel · ${annoApi.annotationCount} comment${annoApi.annotationCount === 1 ? "" : "s"} so far`
                 : "Open the side panel (details + comments)"
             }
-            className="relative flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="relative flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             <PanelRight className="size-3.5" />
             {annoApi && (annoApi.annotationCount ?? 0) > 0 && (
@@ -622,10 +622,10 @@ export function PlanWorkspace({
           className={cn(
             "relative flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
             annoApi?.globalOpen
-              ? "bg-white/10 text-foreground"
+              ? "bg-[var(--ink-active)] text-foreground"
               : annoApi?.hasGlobalComment
                 ? "text-sky-300 hover:bg-sky-500/15"
-                : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+                : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
           )}
         >
           <MessageSquare className="size-3.5" />
@@ -639,10 +639,10 @@ export function PlanWorkspace({
           className={cn(
             "relative flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
             askOpen
-              ? "bg-white/10 text-foreground"
+              ? "bg-[var(--ink-active)] text-foreground"
               : questions.length
                 ? "text-sky-300 hover:bg-sky-500/15"
-                : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+                : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
           )}
         >
           <HelpCircle className="size-3.5" />
@@ -652,7 +652,7 @@ export function PlanWorkspace({
             </span>
           )}
         </button>
-        <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
+        <span aria-hidden className="mx-1 h-5 w-px bg-border" />
         <button
           onClick={() => annoApi?.submit()}
           disabled={
@@ -724,7 +724,7 @@ export function PlanWorkspace({
 
       {/* "Explain This Node" composer — questions ride back with Submit (plan-loop piggyback). */}
       {askOpen && (
-        <div className="fixed right-3 top-16 z-30 w-80 rounded-xl border border-white/10 bg-card p-3 shadow-xl">
+        <div className="fixed right-3 top-16 z-30 w-80 rounded-xl border border-border bg-card p-3 shadow-xl">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Ask the agent
@@ -747,7 +747,7 @@ export function PlanWorkspace({
               {questions.map((q, i) => (
                 <li
                   key={i}
-                  className="group flex items-start justify-between gap-2 rounded-md border border-white/5 bg-background/40 px-2 py-1"
+                  className="group flex items-start justify-between gap-2 rounded-md border border-border bg-background/40 px-2 py-1"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-mono text-[10px] text-sky-300/90">{q.target}</div>
@@ -791,7 +791,7 @@ export function PlanWorkspace({
               <button
                 onClick={() => setExpanded(true)}
                 title="Expand the plan to full width"
-                className="glass pointer-events-auto flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                className="glass pointer-events-auto flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
               >
                 <Maximize2 className="size-3.5" />
               </button>
@@ -814,7 +814,7 @@ export function PlanWorkspace({
         {showBoard && (
           <div
             onPointerDown={onResizeDown}
-            className="group relative w-px shrink-0 cursor-col-resize bg-white/5 hover:bg-white/15"
+            className="group relative w-px shrink-0 cursor-col-resize bg-border hover:bg-[var(--ink-active)]"
             title="Drag to resize"
           >
             <div className="absolute inset-y-0 -left-1.5 right-[-6px] z-10" />
@@ -936,7 +936,7 @@ function AskComposer({
         <select
           value={target}
           onChange={(e) => setTarget(e.target.value)}
-          className="w-full rounded border border-white/10 bg-background px-2 py-1 text-[11px] outline-none focus:border-sky-400/40"
+          className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] outline-none focus:border-sky-400/40"
         >
           {targets.map((t) => (
             <option key={t} value={t} className="bg-card">
@@ -956,7 +956,7 @@ function AskComposer({
         }}
         rows={2}
         placeholder="e.g. why a new table instead of reusing users? (⌘/Ctrl+Enter to add)"
-        className="w-full resize-y rounded border border-white/10 bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-sky-400/40"
+        className="w-full resize-y rounded border border-border bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-sky-400/40"
       />
       <button
         onClick={add}

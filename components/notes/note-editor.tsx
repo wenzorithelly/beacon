@@ -52,7 +52,7 @@ function Toolbar({ editor }: { editor: Editor }) {
   useEditorTick(editor); // keep isActive() highlights current
   const c = () => editor.chain().focus();
   return (
-    <div className="flex items-center gap-0.5 border-b border-white/10 pb-2">
+    <div className="flex items-center gap-0.5 border-b border-border pb-2">
       <ToolbarButton label="Bold" active={editor.isActive("bold")} onClick={() => c().toggleBold().run()}>
         <Bold className="size-4" />
       </ToolbarButton>
@@ -69,7 +69,7 @@ function Toolbar({ editor }: { editor: Editor }) {
       <ToolbarButton label="Strikethrough" active={editor.isActive("strike")} onClick={() => c().toggleStrike().run()}>
         <Strikethrough className="size-4" />
       </ToolbarButton>
-      <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
+      <span aria-hidden className="mx-1 h-5 w-px bg-border" />
       <ToolbarButton label="Checklist" active={editor.isActive("taskList")} onClick={() => c().toggleTaskList().run()}>
         <ListChecks className="size-4" />
       </ToolbarButton>

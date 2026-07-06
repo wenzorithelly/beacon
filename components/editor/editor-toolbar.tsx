@@ -39,8 +39,8 @@ export function ToolbarButton({
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={cn(
-        "nodrag nopan rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground",
-        active && "bg-white/[0.12] text-foreground",
+        "nodrag nopan rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground",
+        active && "bg-[var(--ink-active)] text-foreground",
       )}
     >
       {children}

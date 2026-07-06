@@ -1652,7 +1652,7 @@ export function MapClient({
 
         <Controls
           position="bottom-right"
-          className="!overflow-hidden !rounded-xl !border !border-white/10 [&_button]:!border-white/10 [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
+          className="!overflow-hidden !rounded-xl !border !border-border [&_button]:!border-border [&_button]:!bg-card/70 [&_button]:!text-foreground [&_button]:!backdrop-blur"
         />
 
         {/* Legend popover stacked above the React Flow Controls (+/-/fit/lock).
@@ -1752,7 +1752,7 @@ export function MapClient({
             zoomable
             position="bottom-left"
             style={{ width: 140, height: 90 }}
-            className="!overflow-hidden !rounded-xl !border !border-white/10 !bg-card/50 !backdrop-blur"
+            className="!overflow-hidden !rounded-xl !border !border-border !bg-card/50 !backdrop-blur"
             nodeColor={(n) => ((n.data as MapNodeData)?.priority === 0 ? "#ff3860" : "#555")}
           />
         )}
@@ -1774,7 +1774,7 @@ export function MapClient({
               <button
                 onClick={arrangeArchitecture}
                 title="Arrange components into a left→right dependency flow, grouped by domain"
-                className="flex h-6 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                className="flex h-6 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
               >
                 <LayoutGrid className="size-3" />
                 Arrange
@@ -1792,8 +1792,8 @@ export function MapClient({
                   className={cn(
                     "h-7 rounded-full px-2.5 text-[11px] font-medium transition-colors",
                     arrangedBy === o.value
-                      ? "bg-white/[0.12] text-foreground"
-                      : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+                      ? "bg-[var(--ink-active)] text-foreground"
+                      : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
                   )}
                 >
                   {o.label}
@@ -1814,7 +1814,7 @@ export function MapClient({
                   ? "Add component (click, or drag onto the board to place it)"
                   : "Add feature (click, or drag onto the board to place it)"
               }
-              className="flex h-8 cursor-grab items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-white/[0.06] active:cursor-grabbing"
+              className="flex h-8 cursor-grab items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-[var(--ink-hover)] active:cursor-grabbing"
             >
                 <Plus className="size-3.5 text-[var(--accent-2,#ff7a45)]" />
               {view === "ARCHITECTURE" ? "Component" : "Feature"}
@@ -1829,13 +1829,13 @@ export function MapClient({
                   e.dataTransfer.effectAllowed = "copy";
                 }}
                 title="Add bug (click, or drag onto the board to place it)"
-                className="flex h-8 cursor-grab items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-white/[0.06] active:cursor-grabbing"
+                className="flex h-8 cursor-grab items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-[var(--ink-hover)] active:cursor-grabbing"
               >
                 <BugIcon className="size-3.5 text-rose-400" />
                 Bug
               </button>
             )}
-            <span aria-hidden className="mx-0.5 h-5 w-px bg-white/10" />
+            <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
             <button
               onClick={() => {
                 setPlacing(null);
@@ -1849,8 +1849,8 @@ export function MapClient({
               className={cn(
                 "flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium transition-colors",
                 pickingParent
-                  ? "bg-white/[0.1] text-foreground"
-                  : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+                  ? "bg-[var(--ink-active)] text-foreground"
+                  : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
               )}
             >
               <GitBranch className="size-3.5" />
@@ -2010,7 +2010,7 @@ export function MapClient({
               <button
                 type="button"
                 onClick={clearFilters}
-                className="mt-1 w-full rounded-md border border-white/10 px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+                className="mt-1 w-full rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
               >
                 clear filters
               </button>
@@ -2055,7 +2055,7 @@ export function MapClient({
       {/* Click-to-place ghost: follows the cursor while a node is armed from the create palette. */}
       {(placing || pickingParent) && ghostPos && (
         <div
-          className="pointer-events-none fixed z-50 flex translate-x-3 translate-y-3 items-center gap-1.5 rounded-lg border border-white/15 bg-card/95 px-2.5 py-1.5 text-xs shadow-xl backdrop-blur"
+          className="pointer-events-none fixed z-50 flex translate-x-3 translate-y-3 items-center gap-1.5 rounded-lg border border-border bg-card/95 px-2.5 py-1.5 text-xs shadow-xl backdrop-blur dark:border-white/15"
           style={{ left: ghostPos.x, top: ghostPos.y }}
         >
           <span

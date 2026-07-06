@@ -396,7 +396,7 @@ export function FileDiffView({
     <div className={cn("flex min-h-0 flex-col", className)}>
       <style>{PRISM_CSS}</style>
       {/* Slim toolbar: comment status + release, view mode, focus, open-in-editor. */}
-      <div className="flex items-center gap-2 border-b border-white/5 px-4 py-1.5">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-1.5">
         {fileComments.length > 0 && (
           <span
             className="flex shrink-0 items-center gap-1 rounded-full border border-[#ff7a45]/25 bg-[#ff7a45]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#ff7a45]"
@@ -416,14 +416,14 @@ export function FileDiffView({
           </button>
         )}
         {/* Mode toggle: Comment (one-way feedback) vs Ask (question the agent answers back). */}
-        <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-white/10 p-0.5">
+        <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border p-0.5">
           <button
             type="button"
             onClick={() => setAskMode(false)}
             title="Comment mode — leave one-way feedback the agent applies"
             className={cn(
               "flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors",
-              !askMode ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground",
+              !askMode ? "bg-[var(--ink-active)] text-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >
             <MessageSquarePlus className="size-3" /> Comment
@@ -444,14 +444,14 @@ export function FileDiffView({
           {askMode ? "highlight or hover a line → ask" : "highlight or hover a line → comment"}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          <div className="flex items-center gap-0.5 rounded-full border border-white/10 p-0.5">
+          <div className="flex items-center gap-0.5 rounded-full border border-border p-0.5">
             <button
               type="button"
               onClick={() => setMode("split")}
               title="Split view"
               className={cn(
                 "flex size-5 items-center justify-center rounded-full transition-colors",
-                mode === "split" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground",
+                mode === "split" ? "bg-[var(--ink-active)] text-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
               <Columns2 className="size-3" />
@@ -462,7 +462,7 @@ export function FileDiffView({
               title="Unified view"
               className={cn(
                 "flex size-5 items-center justify-center rounded-full transition-colors",
-                mode === "unified" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground",
+                mode === "unified" ? "bg-[var(--ink-active)] text-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
               <Rows2 className="size-3" />
@@ -473,7 +473,7 @@ export function FileDiffView({
               type="button"
               onClick={onFocus}
               title="Focus — open this file full-page"
-              className="flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+              className="flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
             >
               <Maximize2 className="size-3" />
             </button>
@@ -482,7 +482,7 @@ export function FileDiffView({
             type="button"
             onClick={() => openInEditor(file.path)}
             title="Open in editor"
-            className="flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            className="flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             <ExternalLink className="size-3" />
           </button>
@@ -547,7 +547,7 @@ export function FileDiffView({
                       <button
                         type="button"
                         onClick={() => setShowFormatting((s) => new Set([...s, h.content]))}
-                        className="rounded-full border border-white/12 px-2 py-0.5 text-[10px] hover:bg-white/[0.06]"
+                        className="rounded-full border border-border px-2 py-0.5 text-[10px] hover:bg-[var(--ink-hover)]"
                       >
                         show
                       </button>
@@ -587,7 +587,7 @@ function CommentCard({
         ? "pending — sent on the agent's next turn" // a question is delivered so the agent can reply — "or reply" would be circular
         : "pending — sent on the agent's next edit or reply";
   return (
-    <div className="group mb-1 rounded-md border border-white/10 bg-background/60 px-2.5 py-1.5">
+    <div className="group mb-1 rounded-md border border-border bg-background/60 px-2.5 py-1.5">
       <div className="flex items-start gap-2">
         {isQuestion ? (
           <HelpCircle className="mt-0.5 size-3.5 shrink-0 text-[#ff7a45]" />
@@ -614,7 +614,7 @@ function CommentCard({
                   "rounded-full border px-1.5 py-px font-semibold transition-colors",
                   c.held
                     ? "border-[#ff7a45]/40 text-[#ff7a45] hover:bg-[#ff7a45]/15"
-                    : "border-white/15 text-muted-foreground hover:text-foreground",
+                    : "border-border text-muted-foreground hover:text-foreground",
                 )}
                 title={
                   c.held
@@ -705,7 +705,7 @@ function ComposerBox({
             ? "Ask the agent about this line — it answers back into Beacon (⌘/Ctrl+Enter to send)"
             : "Comment on this line — the agent gets it on its next edit or reply (⌘/Ctrl+Enter to send)"
         }
-        className="w-full resize-y rounded border border-white/10 bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-[#ff7a45]/40"
+        className="w-full resize-y rounded border border-border bg-background px-2 py-1.5 text-[12px] leading-snug outline-none focus:border-[#ff7a45]/40"
       />
       <div className="mt-1 flex items-center gap-2">
         <button
@@ -762,7 +762,7 @@ function DiffNote({
         <button
           type="button"
           onClick={onOpen}
-          className="rounded-full border border-white/12 px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-white/[0.06]"
+          className="rounded-full border border-border px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-[var(--ink-hover)]"
         >
           {openLabel}
         </button>

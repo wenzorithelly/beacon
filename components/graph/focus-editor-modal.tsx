@@ -72,7 +72,7 @@ export function FocusEditorModal({
         className="flex max-h-[82vh] w-[min(720px,92vw)] flex-col rounded-2xl duration-150 animate-in fade-in zoom-in-95"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Description
           </span>
@@ -84,7 +84,7 @@ export function FocusEditorModal({
             type="button"
             onClick={commit}
             title="Close (Esc)"
-            className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+            className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             <X className="size-4" />
           </button>
@@ -100,7 +100,7 @@ export function FocusEditorModal({
           />
         </div>
 
-        <div className="flex items-center gap-3 border-t border-white/10 px-4 py-2.5 text-[11.5px] text-muted-foreground">
+        <div className="flex items-center gap-3 border-t border-border px-4 py-2.5 text-[11.5px] text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <span className="size-1.5 rounded-full bg-emerald-400" /> Autosaves
           </span>
