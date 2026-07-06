@@ -10,9 +10,11 @@
  *     plan hook owns that) — the agent asks to edit/create/run. We push it, wait, then emit the
  *     user's allow/deny decision.
  *
- * Only redirects into Beacon when a Beacon tab is ALREADY OPEN for the repo (the user is looking
- * at it) — it never SPAWNS a tab, so an agent question can't yank focus off the terminal. If no
- * tab is open / Beacon is unreachable / it times out / the loop-guard trips, we FAIL OPEN to the
+ * Only redirects into Beacon when a Beacon tab is OPEN **AND FOCUSED** for the repo (the user is
+ * actually looking at it — visible + document.hasFocus()) — it never SPAWNS a tab, so an agent
+ * question can't yank focus off the terminal, and a tab merely open BEHIND the terminal doesn't
+ * hijack the question. If Beacon isn't the focused window / is unreachable / times out / the
+ * loop-guard trips, we FAIL OPEN to the
  * terminal: a question falls through (its normal terminal UI shows); an approval emits no decision
  * (Claude Code's own permission prompt shows). Never auto-approves anything the user didn't see.
  *
@@ -94,16 +96,35 @@ const workspaceIdForPath = (p: string) =>
   const wsId = workspaceIdForPath(gitToplevel(event.cwd));
   const headers = { "content-type": "application/json", "x-beacon-workspace": wsId };
 
-  // Only intercept into Beacon if a Beacon tab is ACTUALLY OPEN for this repo — the global modal
-  // renders in that already-open tab. When nothing is open (the user is working in the terminal),
-  // fall through so the question/approval shows its native terminal UI instead of a browser tab
-  // popping open and stealing focus. Presence is the SSE-stream heartbeat (any /map, /db, /plan…
-  // page), not merely daemon-up: the daemon is usually up with no tab in view.
-  const tabLive = await fetch(`${base}/api/tab/presence`, { headers })
+  // Only intercept into Beacon if the user is ACTIVELY LOOKING at a Beacon tab for this repo — the
+  // global modal renders in that focused tab. We gate on FOCUSED-view presence (lib/view-presence:
+  // the client beats it only while visible + document.hasFocus()), NOT the SSE-connection
+  // tab-presence — the latter stays live for a tab sitting open BEHIND the terminal, which is
+  // exactly what used to strand a question on Beacon while the user waited in the terminal. When
+  // Beacon isn't the focused window, fall through so the question/approval shows its native
+  // terminal UI.
+  const tabLive = await fetch(`${base}/api/tab/view`, { headers })
     .then((r) => (r.ok ? (r.json() as Promise<{ live?: boolean }>) : null))
     .then((p) => !!p?.live)
     .catch(() => false);
-  if (!tabLive) failOpen();
+  if (!tabLive) {
+    // The terminal owns the answer (you're not looking at Beacon). Still MIRROR a QUESTION to
+    // Beacon as a read-only visual aid — GET /api/ask auto-clears it when the transcript shows the
+    // native picker was answered (or when it goes stale). Best-effort; then fall through to the
+    // picker. Only questions: approvals have no transcript "answered" marker to auto-clear them, so
+    // we don't mirror those. No workspace-activate here — a display-only mirror mustn't yank the view.
+    if (ask.kind === "question" && event.transcript_path) {
+      // Timeout-bounded so a slow/hung daemon can never delay the native terminal picker the user
+      // is actually waiting on — the mirror is a best-effort aid, the terminal owns the answer.
+      await fetch(`${base}/api/ask`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ ...ask, mode: "mirror", transcriptPath: event.transcript_path }),
+        signal: AbortSignal.timeout(1500),
+      }).catch(() => {});
+    }
+    failOpen();
+  }
 
   // Activate the repo's workspace so the modal (and its verdict) bind to THIS repo.
   await fetch(`${base}/api/workspace/activate?id=${wsId}`).catch(() => {});

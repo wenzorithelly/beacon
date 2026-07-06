@@ -53,5 +53,32 @@ export function LiveRefresh() {
     };
     return () => es.close();
   }, [router]);
+
+  // Beat a FOCUSED-view presence (lib/view-presence) only while THIS tab is the frontmost, visible
+  // window. The agent-ask bridge (bin/ask.ts) gates on it: a question/approval is surfaced in
+  // Beacon's modal only when the user is actually looking here — never when Beacon merely sits open
+  // behind the terminal (which the SSE-connection tab-presence can't tell apart). When it goes
+  // stale, the next agent question falls through to the terminal instead of being stranded here.
+  useEffect(() => {
+    const ws = currentTabWs();
+    const beat = () => {
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      fetch("/api/tab/view", {
+        method: "POST",
+        headers: ws ? { "x-beacon-workspace": ws } : undefined,
+      }).catch(() => {});
+    };
+    beat();
+    const id = setInterval(beat, 3_000);
+    // Beat the instant focus/visibility is regained so switching to Beacon is picked up promptly.
+    window.addEventListener("focus", beat);
+    document.addEventListener("visibilitychange", beat);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", beat);
+      document.removeEventListener("visibilitychange", beat);
+    };
+  }, []);
+
   return null;
 }

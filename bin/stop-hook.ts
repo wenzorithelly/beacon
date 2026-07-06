@@ -19,7 +19,7 @@
  * Hook input (stdin): { stop_hook_active: boolean, transcript_path: string, cwd?, session_id?, ... }
  * Hook output (stdout, only when blocking): { "decision": "block", "reason": "…" }
  */
-import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { readFileTail } from "@/lib/read-tail";
 import { shouldNudgeToPresentPlan } from "@/lib/stop-hook-detect";
 import { agentWorkspaceHeaders } from "@/lib/workspaces";
 import { daemonBaseUrl } from "@/lib/daemon-server";
@@ -32,23 +32,10 @@ const NUDGE =
   "and BLOCKS until the user approves, discards, or leaves feedback, then returns their verdict. " +
   "If this was NOT a plan (just a quick question), ignore this and continue.";
 
-// Read only the tail of the transcript — it can be many MB and this runs on EVERY turn end, so
-// reading it whole would add latency to every response. The last assistant message is at the end;
-// a partial first line from starting mid-file is fine (lastAssistantText skips unparseable lines).
-function readTail(path: string, maxBytes = 65_536): string {
-  const fd = openSync(path, "r");
-  try {
-    const size = fstatSync(fd).size;
-    const start = Math.max(0, size - maxBytes);
-    const len = size - start;
-    if (len <= 0) return "";
-    const buf = Buffer.alloc(len);
-    readSync(fd, buf, 0, len, start);
-    return buf.toString("utf8");
-  } finally {
-    closeSync(fd);
-  }
-}
+// Read only the tail of the transcript (readFileTail) — it can be many MB and this runs on EVERY
+// turn end, so reading it whole would add latency to every response. The last assistant message is
+// at the end; a partial first line from starting mid-file is fine (lastAssistantText skips it).
+const TRANSCRIPT_TAIL_BYTES = 65_536;
 
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
@@ -92,7 +79,7 @@ try {
   const path = ev.transcript_path;
   if (typeof path === "string" && path) {
     try {
-      if (shouldNudgeToPresentPlan(readTail(path))) reasons.push(NUDGE);
+      if (shouldNudgeToPresentPlan(readFileTail(path, TRANSCRIPT_TAIL_BYTES))) reasons.push(NUDGE);
     } catch {
       /* can't read transcript → skip the nudge */
     }

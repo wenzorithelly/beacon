@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, X } from "lucide-react";
 import type { PendingAsk } from "@/lib/ask-store";
 import { Button } from "@/components/ui/button";
 import { GlassPanel } from "@/components/ui/glass-panel";
@@ -31,6 +31,8 @@ export function AskModal() {
         if (!r.ok || !alive) return;
         const { ask: next } = (await r.json()) as { ask: PendingAsk | null };
         if (!alive) return;
+        // A mirror self-clears server-side in GET /api/ask (answered-in-terminal or stale), so a
+        // resolved mirror simply comes back as null here — no separate poll needed.
         if (next && next.id === dismissed.current) return; // already answered; awaiting clear
         setAsk((cur) => (cur?.id === next?.id ? cur : next));
       } catch {
@@ -76,6 +78,51 @@ export function AskModal() {
   );
 
   if (!ask) return null;
+
+  // Mirror: a read-only visual aid shown while the terminal owns the answer. Non-blocking corner
+  // card (no backdrop — you answer in the terminal), auto-clears when the transcript shows the
+  // answer landed. A manual dismiss just hides it locally until then.
+  if (ask.mode === "mirror" && ask.kind === "question" && ask.question) {
+    return (
+      <div className="fixed right-4 bottom-4 z-[70] w-full max-w-sm">
+        <GlassPanel className="rounded-2xl border border-border/60 p-4 shadow-2xl">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[0.7rem] font-medium text-muted-foreground">
+              {ask.question.header || "The agent is asking"}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                dismissed.current = ask.id;
+                setAsk(null);
+              }}
+              className="text-muted-foreground transition-colors hover:text-foreground"
+              aria-label="Dismiss"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+          <p className="mb-3 text-sm font-medium text-foreground">{ask.question.question}</p>
+          <div className="flex flex-col gap-1.5">
+            {ask.question.options.map((o) => (
+              <div
+                key={o.label}
+                className="rounded-lg border border-border bg-background/40 px-3 py-1.5"
+              >
+                <span className="text-sm text-foreground">{o.label}</span>
+                {o.description && (
+                  <span className="mt-0.5 block text-xs text-muted-foreground">{o.description}</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[0.7rem] text-muted-foreground">
+            Answer in your terminal — this is a mirror.
+          </p>
+        </GlassPanel>
+      </div>
+    );
+  }
 
   const toggle = (label: string) =>
     setChecked((s) => {

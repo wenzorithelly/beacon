@@ -30,11 +30,23 @@ export interface AskApproval {
   preview: string; // diff / command / content
 }
 
+/** interactive = blocking modal, Beacon owns the answer (user is focused here). mirror = read-only
+ *  display while the terminal owns the answer (user isn't on Beacon); it auto-clears when the
+ *  transcript shows the native picker was answered. Absent ⇒ interactive (back-compat). */
+export type AskMode = "interactive" | "mirror";
+
 export interface PendingAsk {
   id: string;
   kind: AskKind;
   hash: string;
   createdAt: number;
+  mode?: AskMode;
+  /** mirror only — the CC session transcript to watch for the answered tool_result. */
+  transcriptPath?: string;
+  /** mirror only — the transcript byte size WHEN this mirror was pushed. The answered-check scans
+   *  only bytes written after it, so a PRIOR answer to an identical question can't false-clear a
+   *  re-ask (which mirror mode allows — it skips the loop-guard). */
+  transcriptOffset?: number;
   question?: AskQuestion;
   approval?: AskApproval;
 }
@@ -75,6 +87,21 @@ export function questionAnswerReason(q: AskQuestion, selected: string[]): string
     `This IS their answer — treat AskUserQuestion as answered with ${plural} and continue. ` +
     `Do NOT call AskUserQuestion again for this question.`
   );
+}
+
+/** Does this transcript show the given AskUserQuestion already answered? Claude Code records the
+ *  answer as a tool_result: `Your questions have been answered: "<q>"="<answer>"`. We watch for it
+ *  so a mirror clears once the user answers in the terminal. Match the marker AND the question on
+ *  the SAME JSONL line (one message per line) — the question ALSO appears in the un-answered
+ *  tool_use line, and an older answer elsewhere carries the marker, so matching them separately
+ *  false-positives. The question is JSON-escaped to match how it reads inside the JSONL string. */
+export function transcriptShowsAnswered(transcript: string, question: string): boolean {
+  if (!question || !transcript) return false;
+  const needle = JSON.stringify(question).slice(1, -1); // question with JSON-string escaping
+  for (const line of transcript.split("\n")) {
+    if (line.includes("Your questions have been answered") && line.includes(needle)) return true;
+  }
+  return false;
 }
 
 /** Loop-guard: a question re-asked with the same hash within the guard window of being answered
@@ -123,6 +150,7 @@ export interface HookEvent {
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   cwd?: string;
+  transcript_path?: string;
 }
 
 /** Turn a Claude Code hook event into an ask payload, or null when it's not ours (→ fall through).
@@ -190,17 +218,31 @@ export const clearAskResolution = (): void => rmSync(resolutionPath(), { force: 
 /** Register a new pending ask, applying the loop-guard. Returns `{loop:true}` (caller should let
  *  the tool through) or `{loop:false, id}` after writing the pending ask + clearing stale state. */
 export function pushAsk(
-  args: { kind: AskKind; hash: string; question?: AskQuestion; approval?: AskApproval },
+  args: {
+    kind: AskKind;
+    hash: string;
+    question?: AskQuestion;
+    approval?: AskApproval;
+    mode?: AskMode;
+    transcriptPath?: string;
+    transcriptOffset?: number;
+  },
   now: number,
 ): { loop: true } | { loop: false; id: string } {
-  if (isLoopRepush(readAskResolution(), args.hash, args.kind, now)) return { loop: true };
+  // Mirror is display-only (the terminal owns the answer, the hook never blocks on it), so it skips
+  // the loop-guard and the resolution reset — those exist to stop an interactive re-ask storm.
+  const mirror = args.mode === "mirror";
+  if (!mirror && isLoopRepush(readAskResolution(), args.hash, args.kind, now)) return { loop: true };
   const id = makeAskId(args.hash, now);
-  clearAskResolution();
+  if (!mirror) clearAskResolution();
   writePendingAsk({
     id,
     kind: args.kind,
     hash: args.hash,
     createdAt: now,
+    mode: args.mode,
+    transcriptPath: args.transcriptPath,
+    transcriptOffset: args.transcriptOffset,
     question: args.question,
     approval: args.approval,
   });

@@ -65,6 +65,11 @@ export const PLAN_HOOK_REARM_MS = 8 * 60 * 1000; // 8 min
 // window of being answered is treated as an agent retry-loop and let through to the terminal
 // instead of re-surfacing in Beacon. See lib/ask-store.isLoopRepush.
 export const ASK_LOOP_GUARD_MS = 60 * 1000; // 60s
+// A read-only mirror (a question shown on Beacon while the terminal owns the answer) auto-clears
+// when the transcript shows it answered. This is the backstop for the abandoned/interrupted case
+// (never answered, or the transcript is gone): a mirror older than this is treated as stale and
+// dropped, so it can't linger as a phantom card. Generous — a real pending question can sit a while.
+export const MIRROR_TTL_MS = 30 * 60 * 1000; // 30 min
 export const PLAN_TOOL_TIMEOUT_MS = 30 * 60 * 1000; // 30 min — MCP tool call internal loop (resumable)
 // Per-tool wall-clock timeout written into each repo's .mcp.json for the Beacon MCP server. MUST
 // exceed PLAN_TOOL_TIMEOUT_MS so the blocking plan tools finish their loop and return a resumable
