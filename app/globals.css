@@ -49,23 +49,26 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* LIGHT theme = Beacon in daylight: a faintly-warm paper background with WHITE cards that lift
+     above it (mirroring how dark cards lift above the dark bg). Ink is near-black; the brand
+     orange stays the only accent. */
+  --background: oklch(0.985 0.004 75);
+  --foreground: oklch(0.205 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.205 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.24 0 0);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.965 0.004 75);
+  --secondary-foreground: oklch(0.24 0 0);
+  --muted: oklch(0.965 0.004 75);
+  --muted-foreground: oklch(0.45 0 0);
+  --accent: oklch(0.955 0.004 75);
+  --accent-foreground: oklch(0.24 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border: oklch(0.905 0.005 75);
+  --input: oklch(0.905 0.005 75);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -74,13 +77,26 @@
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.205 0 0);
+  --sidebar-primary: oklch(0.24 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-accent: oklch(0.955 0.004 75);
+  --sidebar-accent-foreground: oklch(0.24 0 0);
+  --sidebar-border: oklch(0.905 0.005 75);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* ── Theme-aware primitives (light values here, dark overrides in .dark) ──────────────────
+     The brand accent is the ONE accent in both themes. `ink-*` are the low-alpha fills used for
+     hover/active chrome (black ink on light, white ink on dark) so components stop hardcoding
+     `bg-white/N`. glass-shadow/sheen + dot-color let the shared surfaces read in both themes. */
+  --accent-2: #ff7a45;
+  --ink-hover: oklch(0 0 0 / 0.045);
+  --ink-active: oklch(0 0 0 / 0.08);
+  --dot-color: oklch(0 0 0 / 0.09);
+  --glass-shadow: rgba(20, 22, 30, 0.12);
+  --glass-sheen: oklch(1 0 0 / 0.65);
+  --scrollbar-thumb: oklch(0 0 0 / 0.22);
+  --scrollbar-thumb-hover: oklch(0 0 0 / 0.36);
 }
 
 .dark {
@@ -117,6 +133,16 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* Dark overrides for the theme-aware primitives — these preserve the shipped dark look
+     (white ink at low alpha, deep drop-shadow, faint white dot grid). */
+  --ink-hover: oklch(1 0 0 / 0.05);
+  --ink-active: oklch(1 0 0 / 0.09);
+  --dot-color: oklch(1 0 0 / 0.08);
+  --glass-shadow: rgba(0, 0, 0, 0.82);
+  --glass-sheen: oklch(1 0 0 / 0.08);
+  --scrollbar-thumb: oklch(1 0 0 / 0.16);
+  --scrollbar-thumb-hover: oklch(1 0 0 / 0.3);
 }
 
 @layer base {
@@ -152,29 +178,69 @@
   }
 }
 
+/* Light theme reworks the ambient body glow: the dark wash (warm + violet + blue) muddies on
+   paper, so light gets a single warm-orange whisper (the one accent) at low strength. Unlayered
+   so it wins over the @layer base body rule regardless of specificity. */
+[data-theme="light"] body {
+  background-image:
+    radial-gradient(55rem 38rem at 8% -12%, oklch(0.78 0.13 60 / 0.06), transparent 60%),
+    radial-gradient(46rem 34rem at 108% 6%, oklch(0.8 0.09 45 / 0.05), transparent 58%);
+}
+
 @layer components {
   /* Frosted-glass surface for floating panels, sidebars, and chrome.
      Frost + tint + specular edge highlight + layered depth shadow. The richer
      sheen/noise layers live in the <GlassPanel> component (components/ui/glass-panel). */
   .glass {
     /* Mostly-opaque tint (was 34%) + a stronger blur so panel content reads cleanly instead
-       of the canvas/text behind bleeding through. */
+       of the canvas/text behind bleeding through. Border + shadow are theme-aware tokens: in
+       dark they resolve to the shipped white-hairline / deep-shadow; in light to a warm hairline
+       and a soft shadow (the heavy black drop would read as a bruise on paper). */
     background:
       linear-gradient(180deg, oklch(1 0 0 / 0.04), oklch(1 0 0 / 0.015)),
       color-mix(in oklab, var(--card) 88%, transparent);
     backdrop-filter: blur(44px) saturate(180%);
     -webkit-backdrop-filter: blur(44px) saturate(180%);
-    border: 1px solid oklch(1 0 0 / 0.1);
+    border: 1px solid var(--border);
     box-shadow:
-      0 20px 60px -18px rgba(0, 0, 0, 0.82),
-      inset 0 1px 0 oklch(1 0 0 / 0.08);
+      0 20px 60px -18px var(--glass-shadow),
+      inset 0 1px 0 var(--glass-sheen);
   }
   /* Lighter variant for inline toolbars/chips. */
   .glass-soft {
     background: color-mix(in oklab, var(--card) 80%, transparent);
     backdrop-filter: blur(28px) saturate(160%);
     -webkit-backdrop-filter: blur(28px) saturate(160%);
-    border: 1px solid oklch(1 0 0 / 0.08);
+    border: 1px solid var(--border);
+  }
+
+  /* ── Surface preference: glass (default) · tinted (no blur) · solid (opaque) ───────────────
+     Set on <html data-surface> from the Appearance settings. Implemented once here at the utility
+     layer so every component that paints with .glass / .glass-soft flips without any per-component
+     change. `tinted` keeps the translucent tint but drops the (expensive) live blur; `solid` drops
+     the translucency too — near-black panels in dark, white in light.
+     // ponytail: glass mode is left exactly as shipped (blur on both .glass and the lighter
+     // .glass-soft). The "reserve blur for floating chrome only" editing note is honored by which
+     // utility a surface already uses (nav/overlays/sidebar = .glass; chips = .glass-soft), not by
+     // auditing every call site — that'd be a component sweep for no visible gain. */
+  [data-surface="tinted"] .glass,
+  [data-surface="tinted"] .glass-soft,
+  [data-surface="solid"] .glass,
+  [data-surface="solid"] .glass-soft {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  [data-surface="tinted"] .glass {
+    background:
+      linear-gradient(180deg, oklch(1 0 0 / 0.04), oklch(1 0 0 / 0.015)),
+      color-mix(in oklab, var(--card) 94%, transparent);
+  }
+  [data-surface="tinted"] .glass-soft {
+    background: color-mix(in oklab, var(--card) 90%, transparent);
+  }
+  [data-surface="solid"] .glass,
+  [data-surface="solid"] .glass-soft {
+    background: var(--card);
   }
 
   /* Cursor tool: the "select" (pointer) tool box-selects on an empty-pane drag — show a
@@ -236,7 +302,9 @@
   /* Same look as the landing page's plan-review mock: its .bm-canvas dot pattern over the
      .glass window tone (--card, the warmer charcoal) — NOT the darker page --background. */
   background-color: color-mix(in oklab, var(--card) 94%, white 1%);
-  background-image: radial-gradient(oklch(1 0 0 / 0.08) 1px, transparent 1px);
+  /* Dot color is theme-aware (faint white on the dark canvas, faint black on the light one) so
+     the grid never vanishes into its background. */
+  background-image: radial-gradient(var(--dot-color) 1px, transparent 1px);
   background-size: 22px 22px;
   background-position: 0 0;
 }
@@ -247,12 +315,8 @@
    per-container class — add nothing, it just inherits. Firefox / modern browsers honour the
    standard `scrollbar-*` props; Chromium / Safari use the `::-webkit-scrollbar` pseudos. The
    thumb is inset with a transparent border + padding-box clip so it reads as a slim floating
-   pill while keeping a comfortable hit area, and brightens slightly on hover. Tokenised so the
-   look is themeable from one place. */
-:root {
-  --scrollbar-thumb: oklch(1 0 0 / 0.16);
-  --scrollbar-thumb-hover: oklch(1 0 0 / 0.3);
-}
+   pill while keeping a comfortable hit area, and brightens slightly on hover. The thumb color is
+   a theme-aware token (defined per theme above) so it stays visible on light + dark. */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
@@ -311,7 +375,7 @@
 }
 .note-prose code,
 .node-prose code {
-  background: oklch(1 0 0 / 0.06);
+  background: var(--ink-active);
   border-radius: 4px;
   padding: 0 0.25rem;
   font-family: var(--font-geist-mono);
@@ -391,7 +455,7 @@
   float: left;
   height: 0;
   pointer-events: none;
-  color: oklch(1 0 0 / 0.34);
+  color: color-mix(in oklab, var(--muted-foreground) 65%, transparent);
 }
 
 /* @-mention chips — a slim accent pill the editor renders for a beacon:// reference, so a

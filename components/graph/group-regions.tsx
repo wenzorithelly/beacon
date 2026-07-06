@@ -49,7 +49,7 @@ export function GroupRegions({
           }}
           className={cn(
             "rounded-2xl border",
-            tone === "category" ? categoryRegionClass(r.key) : "border-white/[0.08] bg-white/[0.015]",
+            tone === "category" ? categoryRegionClass(r.key) : "border-border bg-[var(--ink-hover)]",
             far && "bg-card/80",
           )}
         >

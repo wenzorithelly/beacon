@@ -56,6 +56,7 @@ import { LodReporter, useZoomLOD } from "@/components/graph/use-zoom-lod";
 import { FILES_LOD, type Lod } from "@/lib/zoom-lod";
 import { categoryHex } from "@/lib/category-color";
 import { cn } from "@/lib/utils";
+import { useColorMode } from "@/components/theme/use-color-mode";
 
 // Files view: the import graph of the repo. One node per source file, one edge
 // per static/dynamic import. Circular edges (precomputed at ingest via Tarjan's
@@ -474,6 +475,8 @@ export function FilesMapClient({
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   // "Show only circular" — toggled by clicking the red badge in the top-right.
   const [circularOnly, setCircularOnly] = useState(false);
+  // React Flow colorMode tracks the app theme (see useColorMode) so light theme isn't overridden.
+  const colorMode = useColorMode();
   // Touched-Files: "focus edits" dims everything except files edited this session (focus+context).
   const [editsOnly, setEditsOnly] = useState(false);
   // Layer emphasis (FE/BE/FS pills): dims non-matching files instead of hiding them.
@@ -818,7 +821,7 @@ export function FilesMapClient({
           persistPos(node.id, node.position.x, node.position.y)
         }
         deleteKeyCode={null}
-        colorMode="dark"
+        colorMode={colorMode}
         fitView
         // Land at the colorful dot web, never on the far-zoom summary blocks: the fit can
         // zoom out to take in the whole graph, but not past the dots' readable range.

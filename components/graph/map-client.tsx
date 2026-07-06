@@ -80,6 +80,7 @@ import { GroupRegions } from "@/components/graph/group-regions";
 import { LodReporter } from "@/components/graph/use-zoom-lod";
 import type { Lod } from "@/lib/zoom-lod";
 import { cn } from "@/lib/utils";
+import { useColorMode } from "@/components/theme/use-color-mode";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
 
 const GROUP_BY_OPTIONS: { value: RoadmapGroupBy; label: string }[] = [
@@ -316,6 +317,9 @@ export function MapClient({
   // shadows, transitions) for the duration via a `.rf-panning` class, then restore on settle —
   // this is what makes finger-dragging a big board on a phone feel smooth instead of stuttery.
   const [panning, setPanning] = useState(false);
+  // React Flow's colorMode must track the app theme, or its `.dark` root re-scopes the whole
+  // canvas to the dark palette in light theme (see useColorMode).
+  const colorMode = useColorMode();
 
   // Mirror panel state in refs so the imperative controlRef can inspect it without
   // capturing stale closure values.
@@ -1628,7 +1632,7 @@ export function MapClient({
           persistPosition(node.id, node.position.x, node.position.y);
         }}
         deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
-        colorMode="dark"
+        colorMode={colorMode}
         fitView
         // Open at readable cards (mid LOD), never on the far-zoom summary blocks — a huge
         // board gets cropped rather than reduced to specks; panning covers the rest.

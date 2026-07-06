@@ -184,7 +184,7 @@ function LayerSelect({
           // The dropdown chevron (trigger's direct-child svg) stays hidden until the PILL itself is
           // hovered (like the category chip), so it reads as a clean badge at rest; the layer icon
           // lives inside the value span, so it's unaffected.
-          "!h-5 shrink-0 gap-1 rounded !border-0 !bg-white/10 !px-1.5 !py-0 text-[9px] font-semibold uppercase tracking-wide text-zinc-300 [&_svg]:size-2.5 [&>svg]:hidden hover:[&>svg]:block",
+          "!h-5 shrink-0 gap-1 rounded !border-0 !bg-[var(--ink-active)] !px-1.5 !py-0 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground [&_svg]:size-2.5 [&>svg]:hidden hover:[&>svg]:block",
         )}
       >
         <SelectValue>
@@ -247,7 +247,7 @@ function PrioritySpine({ priority, rank }: { priority: number; rank: number | un
   const hue = PRIORITY_HUE[priority] ?? PRIORITY_HUE[3];
   return (
     <div
-      className="flex w-5 shrink-0 flex-col items-center gap-1 self-stretch border-r border-white/[0.06] py-1.5"
+      className="flex w-5 shrink-0 flex-col items-center gap-1 self-stretch border-r border-border py-1.5"
       title={PRIORITIES[priority]?.l ?? "priority"}
     >
       {rank != null && (
@@ -255,7 +255,7 @@ function PrioritySpine({ priority, rank }: { priority: number; rank: number | un
           title={`#${rank} in the work order`}
           className={cn(
             "flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
-            rank === 1 ? "bg-emerald-400 text-black" : "bg-white/10 text-muted-foreground",
+            rank === 1 ? "bg-emerald-400 text-black" : "bg-[var(--ink-active)] text-muted-foreground",
           )}
         >
           {rank}
@@ -288,7 +288,7 @@ function CornerTools({
         // Floats just OUTSIDE the card (below it) so it never overlaps the card's own controls
         // (category/status top, edit actions in the expand body). It's a DOM child of the card, so
         // hovering it keeps group-hover/nc active; flush (no gap) avoids a hover dead-zone.
-        "absolute z-20 flex items-center gap-0.5 rounded-lg p-0.5 transition-colors group-hover/nc:border group-hover/nc:border-white/10 group-hover/nc:bg-card/90 group-hover/nc:shadow-lg group-hover/nc:backdrop-blur",
+        "absolute z-20 flex items-center gap-0.5 rounded-lg p-0.5 transition-colors group-hover/nc:border group-hover/nc:border-border group-hover/nc:bg-card/90 group-hover/nc:shadow-lg group-hover/nc:backdrop-blur",
         className ?? "right-2 top-2",
       )}
     >
@@ -424,7 +424,7 @@ function BugFlagButton({ nodeId }: { nodeId: string }) {
         }}
         className={cn(
           noDrag,
-          "absolute -right-3 top-[calc(50%-28px)] z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-[#242428] text-muted-foreground shadow-md transition-all hover:border-rose-400/50 hover:text-rose-300",
+          "absolute -right-3 top-[calc(50%-28px)] z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-md transition-all hover:border-rose-400/50 hover:text-rose-300",
           open ? "border-rose-400/50 text-rose-300 opacity-100" : "opacity-0 group-hover/nc:opacity-100",
         )}
       >
@@ -435,7 +435,7 @@ function BugFlagButton({ nodeId }: { nodeId: string }) {
           onClick={(e) => e.stopPropagation()}
           className={cn(
             noDrag,
-            "absolute -right-2 top-[calc(50%-28px)] z-20 w-60 translate-x-full rounded-xl border border-rose-400/25 bg-[#1c1c1f] p-2 shadow-xl",
+            "absolute -right-2 top-[calc(50%-28px)] z-20 w-60 translate-x-full rounded-xl border border-rose-400/25 bg-popover p-2 shadow-xl",
           )}
         >
           <div className="mb-1.5 flex items-center justify-between">
@@ -446,7 +446,7 @@ function BugFlagButton({ nodeId }: { nodeId: string }) {
               type="button"
               title="Cancel"
               onClick={close}
-              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-[var(--ink-active)] hover:text-foreground"
             >
               <span className="block px-1 text-[11px] leading-none">✕</span>
             </button>
@@ -465,7 +465,7 @@ function BugFlagButton({ nodeId }: { nodeId: string }) {
                 void submit();
               }
             }}
-            className="field-sizing-content max-h-40 min-h-12 w-full resize-none rounded-md bg-white/[0.04] px-1.5 py-1 text-xs outline-none placeholder:text-muted-foreground/50 focus:bg-white/[0.07]"
+            className="field-sizing-content max-h-40 min-h-12 w-full resize-none rounded-md bg-[var(--ink-hover)] px-1.5 py-1 text-xs outline-none placeholder:text-muted-foreground/50 focus:bg-[var(--ink-active)]"
           />
           <button
             type="button"
@@ -592,7 +592,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
             }}
             className={cn(
               noDrag,
-              "absolute -right-3 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-[#242428] text-muted-foreground opacity-0 shadow-md transition-all group-hover/nc:opacity-100 hover:border-[#ff7a45]/50 hover:text-[#ff7a45]",
+              "absolute -right-3 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card text-muted-foreground opacity-0 shadow-md transition-all group-hover/nc:opacity-100 hover:border-[#ff7a45]/50 hover:text-[#ff7a45]",
             )}
           >
             <MessageSquarePlus className="size-3" />
@@ -619,8 +619,8 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
         noDrag,
         "mt-0.5 flex shrink-0 items-center gap-0.5 rounded px-1 text-[10px] font-semibold transition-colors",
         data.collapsed
-          ? "bg-white/[0.06] text-foreground hover:bg-white/10"
-          : "text-muted-foreground hover:bg-white/5 hover:text-foreground",
+          ? "bg-[var(--ink-active)] text-foreground hover:brightness-110"
+          : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
       )}
     >
       {data.collapsed ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
@@ -707,7 +707,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
         className={cn(
           noDrag,
           "!h-5 shrink-0 !gap-0.5 rounded border !px-1.5 !py-0 text-[10px] font-medium [&_svg]:size-3",
-          STATUS_META[data.status]?.className ?? "border-white/10",
+          STATUS_META[data.status]?.className ?? "border-border",
         )}
       >
         <SelectValue>{(v: string) => STATUS_META[v]?.label ?? v}</SelectValue>
@@ -759,7 +759,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
   // The expand body — a rich Tiptap editor for the description plus priority/layer editing and
   // secondary actions. (Focus-write lives in the corner toolbar, not here.)
   const expandBody = expanded && (
-    <div className="mt-2 w-0 min-w-full space-y-2 border-t border-white/10 pt-2">
+    <div className="mt-2 w-0 min-w-full space-y-2 border-t border-border pt-2">
       <RichNodeEditor
         compact
         editable={!readOnly}
@@ -778,7 +778,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
               onValueChange={(v) => save({ priority: Number(v) })}
               disabled={readOnly}
             >
-              <SelectTrigger className={cn(noDrag, "!h-6 gap-1 rounded border-white/10 !px-1.5 !py-0 text-[10px] [&_svg]:size-3")}>
+              <SelectTrigger className={cn(noDrag, "!h-6 gap-1 rounded border-border !px-1.5 !py-0 text-[10px] [&_svg]:size-3")}>
                 <SelectValue>
                   {(v: string) => PRIORITIES.find((p) => String(p.v) === v)?.l ?? v}
                 </SelectValue>
@@ -807,7 +807,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
               className={cn(
                 noDrag,
                 "flex items-center gap-1 rounded px-1.5 py-1 text-[10px] transition-colors",
-                confirmDel ? "bg-red-500/20 text-red-300" : "text-muted-foreground hover:bg-white/5 hover:text-red-300",
+                confirmDel ? "bg-red-500/20 text-red-300" : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-red-300",
               )}
             >
               <Trash2 className="size-3" />
@@ -881,7 +881,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
         )}
 
         {/* Metric strip — full-width even grid: one calm, balanced band edge-to-edge. */}
-        <div className="mt-2.5 grid grid-cols-4 gap-1 border-t border-white/[0.07] pt-2">
+        <div className="mt-2.5 grid grid-cols-4 gap-1 border-t border-border pt-2">
           <Metric value={data.fileCount ?? 0} label="files" Icon={FileText} />
           <Metric value={data.importsIn ?? "—"} label="in" Icon={ArrowDownLeft} />
           <Metric value={data.importsOut ?? "—"} label="out" Icon={ArrowUpRight} />
@@ -939,14 +939,14 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
             alt={data.assigneeName ?? "assignee"}
             title={data.assigneeName ? `Owner: ${data.assigneeName}` : "Assignee"}
             draggable={false}
-            className={cn(noDrag, "absolute -left-2 -top-2 z-20 size-5 rounded-full object-cover shadow ring-2 ring-[#242428]")}
+            className={cn(noDrag, "absolute -left-2 -top-2 z-20 size-5 rounded-full object-cover shadow ring-2 ring-background")}
           />
         ) : data.assigneeName ? (
           <span
             title={`Owner: ${data.assigneeName}`}
             className={cn(
               noDrag,
-              "absolute -left-2 -top-2 z-20 flex size-5 items-center justify-center rounded-full bg-[#3a3a40] text-[8px] font-semibold uppercase text-foreground/90 shadow ring-2 ring-[#242428]",
+              "absolute -left-2 -top-2 z-20 flex size-5 items-center justify-center rounded-full bg-[#3a3a40] text-[8px] font-semibold uppercase text-white/90 shadow ring-2 ring-background",
             )}
           >
             {data.assigneeName.split(/\s+/).map((w) => w[0]).slice(0, 2).join("")}
@@ -1025,7 +1025,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
         {/* progress + counts (only when there are sub-tasks) */}
         {progressTotal > 0 && (
           <div className="mt-2 flex items-center gap-2">
-            <span className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/[0.08]" title={`${progressDone}/${progressTotal} sub-tasks done`}>
+            <span className="h-[3px] flex-1 overflow-hidden rounded-full bg-[var(--ink-active)]" title={`${progressDone}/${progressTotal} sub-tasks done`}>
               <span className="block h-full rounded-full bg-sky-400/75" style={{ width: `${progressTotal ? (progressDone / progressTotal) * 100 : 0}%` }} />
             </span>
             <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">

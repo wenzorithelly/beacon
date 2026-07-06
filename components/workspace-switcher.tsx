@@ -97,7 +97,7 @@ export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
     <Select value={active ?? ""} onValueChange={(v) => v && pick(v)}>
       <SelectTrigger
         title={activeWs?.name}
-        className="h-7 max-w-[180px] gap-1.5 rounded-lg border-white/12 bg-white/[0.04] px-2 text-xs font-medium transition-colors hover:bg-white/[0.07]"
+        className="h-7 max-w-[180px] gap-1.5 rounded-lg border-border bg-[var(--ink-hover)] px-2 text-xs font-medium transition-colors hover:bg-[var(--ink-active)]"
       >
         <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground" />
         <SelectValue>{() => activeWs?.name ?? "Project"}</SelectValue>
@@ -106,7 +106,7 @@ export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
         align="start"
         alignItemWithTrigger={false}
         sideOffset={6}
-        className="min-w-[250px] border border-white/10 bg-popover/95 p-1.5 backdrop-blur-xl"
+        className="min-w-[250px] border border-border bg-popover/95 p-1.5 backdrop-blur-xl"
       >
         <p className="px-2 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
           Workspace
@@ -119,7 +119,7 @@ export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
               value={w.id}
               className={cn(
                 "gap-2.5 rounded-lg py-1.5 pr-8 pl-1.5 transition-colors",
-                isActive && "bg-white/[0.05]",
+                isActive && "bg-[var(--ink-active)]",
               )}
             >
               <span className="flex items-center gap-2.5">
@@ -128,7 +128,7 @@ export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
                     "flex size-7 shrink-0 items-center justify-center rounded-md border",
                     isActive
                       ? "border-sky-400/30 bg-sky-400/10 text-sky-300"
-                      : "border-white/10 bg-white/[0.03] text-muted-foreground",
+                      : "border-border bg-[var(--ink-hover)] text-muted-foreground",
                   )}
                 >
                   <FolderGit2 className="size-3.5" />

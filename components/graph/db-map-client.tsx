@@ -61,6 +61,7 @@ import { DB_LOD, type Lod } from "@/lib/zoom-lod";
 import { canvasDragPersistTarget } from "@/lib/canvas-readonly";
 import { diffDraftTables, diffDraftEndpoints, type NodeDiff } from "@/lib/db-diff";
 import { cn } from "@/lib/utils";
+import { useColorMode } from "@/components/theme/use-color-mode";
 import type {
   DbRelationPayload,
   DbSelection,
@@ -263,6 +264,8 @@ export function DbMapClient({
   // Drop expensive per-frame paint (table-card shadows) while a pan/zoom gesture runs, restore on
   // settle — keeps finger-dragging the DB board smooth on a phone. See `.rf-panning` in globals.
   const [panning, setPanning] = useState(false);
+  // React Flow colorMode tracks the app theme (see useColorMode) so light theme isn't overridden.
+  const colorMode = useColorMode();
   const [panelTab, setPanelTab] = useState<"details" | "comments">("details");
   const [busy, setBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1363,7 +1366,7 @@ export function DbMapClient({
             }
           }}
           deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
-          colorMode="dark"
+          colorMode={colorMode}
           fitView
           // Open at readable tables (mid LOD), never on the far-zoom summary blocks — a huge
           // board gets cropped rather than reduced to specks; panning covers the rest.

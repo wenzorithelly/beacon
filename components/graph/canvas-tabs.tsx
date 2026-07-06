@@ -51,8 +51,8 @@ export function CanvasTabs({ tabs, active }: { tabs: CanvasTab[]; active: string
         const className = cn(
           "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium tracking-tight transition-colors",
           on
-            ? "border-white/10 bg-white/[0.07] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-            : "border-transparent text-muted-foreground/80 hover:bg-white/5 hover:text-foreground",
+            ? "border-border bg-[var(--ink-active)] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+            : "border-transparent text-muted-foreground/80 hover:bg-[var(--ink-hover)] hover:text-foreground",
         );
         const inner = (
           <>

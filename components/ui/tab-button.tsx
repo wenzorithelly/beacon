@@ -21,7 +21,7 @@ export function TabBtn({
       onClick={onClick}
       className={cn(
         "flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
-        active ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground",
+        active ? "bg-[var(--ink-active)] text-foreground" : "text-muted-foreground hover:text-foreground",
       )}
     >
       {icon}

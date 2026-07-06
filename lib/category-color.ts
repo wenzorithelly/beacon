@@ -36,9 +36,10 @@ const REGION_PALETTE = [
   "border-pink-500/20 bg-pink-500/[0.04]",
 ] as const;
 
-// Empty/unset category → neutral so the placeholder reads as "no category yet".
-const NEUTRAL = "bg-white/[0.06] text-muted-foreground";
-const NEUTRAL_REGION = "border-white/10 bg-white/[0.02]";
+// Empty/unset category → neutral so the placeholder reads as "no category yet". Theme-aware ink
+// tokens (black on light, white on dark) so the neutral chip + region stay visible in both.
+const NEUTRAL = "bg-[var(--ink-active)] text-muted-foreground";
+const NEUTRAL_REGION = "border-border bg-[var(--ink-hover)]";
 
 function paletteIndex(category: string | null | undefined): number | null {
   const key = (category ?? "").trim().toUpperCase();
