@@ -8,9 +8,16 @@
 import { execSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { auditRepo } from "@/lib/assets";
-import { CODEX_HOOKS, auditCodex, codexDetected, codexMcpProblem } from "@/lib/codex-install";
-import { GLOBAL_HOOKS, GLOBAL_SKILLS, auditGlobal, findBeaconPluginDir } from "@/lib/global-install";
+import { APP_EMBEDDED_CLI, beaconCliCommand } from "@/lib/agent-config";
+import { auditRepo, repoMcpCliTarget } from "@/lib/assets";
+import { CODEX_HOOKS, auditCodex, codexDetected, codexMcpCliTarget, codexMcpProblem } from "@/lib/codex-install";
+import {
+  GLOBAL_HOOKS,
+  GLOBAL_SKILLS,
+  auditGlobal,
+  findBeaconPluginDir,
+  globalHookCliTarget,
+} from "@/lib/global-install";
 import { beaconHome, listWorkspaces } from "@/lib/workspaces";
 
 const ok = (s: string) => `\x1b[32m✓\x1b[0m ${s}`;
@@ -145,6 +152,44 @@ if (!codex) {
     }`,
   );
 }
+
+// ── CLI binding: which `beacon` binary do the wired configs actually invoke? ──
+// The npm install points hooks + MCP at the bare `beacon` PATH shim; when Beacon.app is installed
+// the app ships its own embedded shim and fresh installs point there instead. A MISMATCH (configs
+// still on the npm shim after the app landed, or the reverse) means the agent integration may invoke
+// a binary that isn't there — flag it so the user re-points.
+console.log(head("CLI binding"));
+const expectedCli = beaconCliCommand();
+const appInstalled = existsSync(APP_EMBEDDED_CLI);
+console.log(
+  `  ${ok(`fresh installs resolve to: ${expectedCli}`)}   ${dim(
+    process.env.BEACON_CLI_PATH ? "(BEACON_CLI_PATH override)" : appInstalled ? "(Beacon.app installed)" : "(npm PATH shim)",
+  )}`,
+);
+const cliTargets: Array<[string, string | null]> = [
+  ["~/.claude/settings.json hooks", globalHookCliTarget()],
+];
+if (codexDetected()) cliTargets.push(["~/.codex/config.toml MCP", codexMcpCliTarget()]);
+if (repoAudit) cliTargets.push([`${repo}/.mcp.json`, repoMcpCliTarget(repo)]);
+let cliMismatch = false;
+for (const [label, actual] of cliTargets) {
+  if (!actual) {
+    console.log(`  ${dim(`${label}: not wired`)}`);
+    continue;
+  }
+  if (actual === expectedCli) {
+    console.log(`  ${ok(`${label} → ${actual}`)}`);
+  } else {
+    cliMismatch = true;
+    console.log(`  ${bad(`${label} → ${actual} — MISMATCH (fresh installs would use ${expectedCli})`)}`);
+  }
+}
+if (cliMismatch)
+  console.log(
+    `  ${dim("re-point the configs with")} \x1b[1mbeacon uninstall && beacon\x1b[0m ${dim(
+      "(uninstall clears the old entries regardless of binary; the next `beacon` rewrites them at the resolved path).",
+    )}`,
+  );
 
 console.log(head(`Current repo (${repo})`));
 if (!repoAudit) {

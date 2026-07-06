@@ -6,7 +6,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 // Path-parameterized install primitives shared by every agent-CLI surface Beacon
 // wires up: ~/.claude (lib/global-install.ts) and ~/.codex + ~/.agents
@@ -72,6 +72,60 @@ export function beaconPluginInstalled(home?: string): boolean {
 // whole self-heal (skills/hooks/MCP) was suppressed, so new skills never installed on update.
 export function isInstalledPluginPath(p: string): boolean {
   return /[\\/]\.claude[\\/]plugins[\\/]/.test(p);
+}
+
+// ── Which `beacon` binary the agent configs should invoke ───────────────────
+//
+// Every agent surface Beacon wires (settings.json hooks, ~/.codex/config.toml MCP entry, per-repo
+// .mcp.json) invokes a `beacon` command. By default that's the bare `beacon` on PATH — the shim the
+// npm install drops in ~/.bun/bin. But when Beacon.app is installed, the app ships its OWN embedded
+// CLI shim (runs on the app's Electron-as-Node — no system Bun/Node needed), and configs should
+// point straight at it so the agent integration works even with no npm CLI on PATH.
+
+/** Fixed path of the macOS app's embedded CLI shim (Beacon.app extraResources). */
+export const APP_EMBEDDED_CLI = "/Applications/Beacon.app/Contents/Resources/bin/beacon";
+
+/**
+ * The `beacon` command install writers should emit:
+ *   1. BEACON_CLI_PATH env, if set — explicit override (also what tests use).
+ *   2. else the app-embedded shim, if Beacon.app is installed.
+ *   3. else bare `beacon` — the npm PATH shim. BYTE-IDENTICAL to Beacon's historical default,
+ *      so npm-only users' configs never change.
+ */
+export function beaconCliCommand(): string {
+  const override = process.env.BEACON_CLI_PATH;
+  if (override) return override;
+  if (existsSync(APP_EMBEDDED_CLI)) return APP_EMBEDDED_CLI;
+  return "beacon";
+}
+
+/** The leading binary token of a hook/MCP command (`/Applications/…/beacon hook` → `/Applications/…/beacon`). */
+export function commandBinary(command: string): string {
+  const sp = command.indexOf(" ");
+  return sp === -1 ? command : command.slice(0, sp);
+}
+
+/**
+ * Re-point a canonical `beacon <sub>` command at the resolved CLI. When the resolver returns bare
+ * `beacon` (the default), this is a no-op so the emitted string is byte-identical to today. Only the
+ * leading `beacon` token is replaced — the subcommand + any args are preserved.
+ */
+export function repointBeaconCommand(command: string): string {
+  const cli = beaconCliCommand();
+  if (cli === "beacon") return command;
+  return command.replace(/^beacon(\s|$)/, `${cli}$1`);
+}
+
+// Two hook/MCP commands are "the same Beacon command" when they differ only in the PATH to the
+// beacon binary — `beacon hook`, `/Applications/Beacon.app/…/beacon hook`, and `~/.bun/bin/beacon
+// hook` all invoke the same subcommand. Matching normalizes the leading token to its basename so
+// audit / remove / idempotency find an entry regardless of which binary it points at — this is what
+// keeps self-heal from DOUBLE-registering a hook when Beacon.app is installed after an npm entry
+// already exists (and lets uninstall clean either variant). Non-beacon user commands normalize to
+// themselves, so they're never matched by our specs.
+function normalizeCommand(command: string): string {
+  const bin = commandBinary(command);
+  return basename(bin) + command.slice(bin.length);
 }
 
 // The installed Beacon Claude Code plugin as "name@marketplace" + its marketplace, or null — read
@@ -161,7 +215,9 @@ export function ensureHookEntry(file: string, spec: HookSpec): boolean {
   doc.hooks[spec.event] = doc.hooks[spec.event] ?? [];
   const arr = doc.hooks[spec.event]!;
   const already = arr.some(
-    (m) => m.matcher === spec.matcher && m.hooks?.some((h) => h.command === spec.command),
+    (m) =>
+      m.matcher === spec.matcher &&
+      m.hooks?.some((h) => normalizeCommand(h.command) === normalizeCommand(spec.command)),
   );
   if (already) return false;
   arr.push({ matcher: spec.matcher, hooks: [{ type: "command", command: spec.command }] });
@@ -172,7 +228,21 @@ export function ensureHookEntry(file: string, spec: HookSpec): boolean {
 export function hasHookEntry(file: string, spec: Pick<HookSpec, "event" | "command">): boolean {
   const doc = readHooksDoc(file);
   const arr = doc.hooks?.[spec.event] ?? [];
-  return arr.some((m) => m.hooks?.some((h) => h.command === spec.command));
+  return arr.some((m) => m.hooks?.some((h) => normalizeCommand(h.command) === normalizeCommand(spec.command)));
+}
+
+/**
+ * The exact command string (binary path included) of the hook entry matching this spec, or null.
+ * `beacon doctor` uses it to report WHICH beacon binary the wired configs actually invoke. Matches
+ * binary-agnostically (so it finds the entry however it was written) but returns the raw command.
+ */
+export function hookCommand(file: string, spec: Pick<HookSpec, "event" | "command">): string | null {
+  const doc = readHooksDoc(file);
+  const arr = doc.hooks?.[spec.event] ?? [];
+  for (const m of arr)
+    for (const h of m.hooks ?? [])
+      if (normalizeCommand(h.command) === normalizeCommand(spec.command)) return h.command;
+  return null;
 }
 
 /** Removes hook entries whose command matches. Returns true if anything was removed. */
@@ -187,7 +257,9 @@ export function removeHookEntry(
   const filtered = arr
     .map((m) => {
       const before = m.hooks?.length ?? 0;
-      const after = (m.hooks ?? []).filter((h) => h.command !== spec.command);
+      const after = (m.hooks ?? []).filter(
+        (h) => normalizeCommand(h.command) !== normalizeCommand(spec.command),
+      );
       if (after.length !== before) changed = true;
       return { ...m, hooks: after };
     })

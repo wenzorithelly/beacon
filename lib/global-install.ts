@@ -4,8 +4,11 @@ import { join } from "node:path";
 import {
   GLOBAL_SKILLS,
   GLOBAL_AGENT_BLOCK,
+  beaconCliCommand,
+  commandBinary,
   ensureHookEntry,
   hasHookEntry,
+  hookCommand,
   removeHookEntry,
   ensureMarkerBlock,
   hasMarkerBlock,
@@ -18,6 +21,7 @@ import {
   isPluginManaged,
   isSkillInstalled,
   removeSkillDir,
+  repointBeaconCommand,
   type GlobalSkillName,
   type HookSpec,
 } from "@/lib/agent-config";
@@ -49,6 +53,7 @@ const CLAUDE_MD_END = "<!-- beacon:global:end -->";
 // existing importers (doctor, uninstall, tests) keep one source.
 export {
   GLOBAL_SKILLS,
+  beaconCliCommand,
   beaconPluginInstalled,
   findBeaconPluginDir,
   isInstalledPluginPath,
@@ -176,6 +181,14 @@ export function auditGlobal(): GlobalAudit {
   };
 }
 
+/** The `beacon` binary the wired ~/.claude/settings.json hooks invoke (leading token of the
+ *  PostToolUse → `beacon hook` entry), or null if no Beacon hook is wired. Read binary-agnostically
+ *  so `beacon doctor` can report which shim the configs point at and flag an app/npm mismatch. */
+export function globalHookCliTarget(): string | null {
+  const cmd = hookCommand(SETTINGS_FILE(), { event: "PostToolUse", command: "beacon hook" });
+  return cmd ? commandBinary(cmd) : null;
+}
+
 // ── Bulk setup (used on every `beacon` run; idempotent) ─────────────────────
 
 export interface SetupResult {
@@ -205,7 +218,8 @@ export async function setupGlobalAssets(): Promise<SetupResult> {
   }
   let hooksAdded = 0;
   for (const h of GLOBAL_HOOKS)
-    if (ensureGlobalHook({ event: h.event, matcher: h.matcher, command: h.command })) hooksAdded++;
+    if (ensureGlobalHook({ event: h.event, matcher: h.matcher, command: repointBeaconCommand(h.command) }))
+      hooksAdded++;
   const blockPresent = hasGlobalClaudeMdBlock();
   ensureGlobalClaudeMdBlock(GLOBAL_CLAUDE_MD_BLOCK);
   return { skillsAdded, hooksAdded, claudeMdBlockTouched: !blockPresent };

@@ -1,9 +1,10 @@
-import { readFileSync } from "node:fs";
+import { accessSync, constants as fsConstants, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import {
   GLOBAL_SKILLS,
   GLOBAL_AGENT_BLOCK,
+  beaconCliCommand,
   ensureHookEntry,
   hasHookEntry,
   removeHookEntry,
@@ -13,6 +14,7 @@ import {
   installSkillFile,
   isSkillInstalled,
   removeSkillDir,
+  repointBeaconCommand,
   type GlobalSkillName,
 } from "@/lib/agent-config";
 import { writeFileAtomic } from "@/lib/atomic-write";
@@ -68,14 +70,50 @@ export const CODEX_HOOKS = [
 let whichCache: boolean | undefined;
 
 /**
+ * Node fallback for `Bun.which` — scan PATH for an executable named `name`. Pure + injectable so it
+ * unit-tests without Bun: pass an explicit PATH string and an executability predicate. Returns the
+ * resolved absolute path, or null. (The compiled CLI bundle runs under plain Node inside the desktop
+ * app, where `Bun` is undefined; an uncaught `Bun.which` there throws.)
+ */
+export function nodeWhich(
+  name: string,
+  pathValue: string = process.env.PATH || "",
+  isExecutable: (p: string) => boolean = defaultIsExecutable,
+): string | null {
+  if (!name) return null;
+  for (const dir of pathValue.split(delimiter)) {
+    if (!dir) continue;
+    const candidate = join(dir, name);
+    if (isExecutable(candidate)) return candidate;
+  }
+  return null;
+}
+
+function defaultIsExecutable(p: string): boolean {
+  try {
+    accessSync(p, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Is `name` an executable on PATH? Uses Bun.which when Bun is the runtime, else the Node fallback. */
+export function commandExists(name: string): boolean {
+  if (typeof Bun !== "undefined" && typeof Bun.which === "function") return Bun.which(name) !== null;
+  return nodeWhich(name) !== null;
+}
+
+/**
  * Is the Codex CLI on this machine? BEACON_CODEX=1/0 force-overrides (tests +
  * user opt-out); otherwise a memoized synchronous PATH scan — this runs inside
  * selfHealGlobal() on every hook fire, so it must stay microseconds (no spawn).
+ * Runtime-agnostic: Bun.which under Bun, a Node PATH scan under plain Node.
  */
 export function codexDetected(): boolean {
   if (process.env.BEACON_CODEX === "1") return true;
   if (process.env.BEACON_CODEX === "0") return false;
-  if (whichCache === undefined) whichCache = Bun.which("codex") !== null;
+  if (whichCache === undefined) whichCache = commandExists("codex");
   return whichCache;
 }
 
@@ -89,14 +127,50 @@ export function codexDetected(): boolean {
 
 const TOML_START = "# beacon:start (managed by Beacon — `beacon uninstall` removes this block)";
 const TOML_END = "# beacon:end";
-const TOML_BLOCK = `${TOML_START}\n[mcp_servers.beacon]\ncommand = "beacon"\nargs = ["mcp"]\n${TOML_END}\n`;
+// The command points at the resolved `beacon` CLI (bare `beacon` by default; the app-embedded shim
+// when Beacon.app is installed) — built at write time so a fresh install lands on the right binary.
+const tomlBlock = () =>
+  `${TOML_START}\n[mcp_servers.beacon]\ncommand = "${beaconCliCommand()}"\nargs = ["mcp"]\n${TOML_END}\n`;
 const MANUAL_FIX = "add it manually: codex mcp add beacon -- beacon mcp";
 
 type TomlConfig = { mcp_servers?: { beacon?: { command?: string } } };
 
+/**
+ * Minimal, targeted TOML reader for the Node runtime (no Bun.TOML). The Codex path only ever asks
+ * two things of a parse: is there an `[mcp_servers.beacon]` entry, and what is its `command`? This
+ * scans for exactly that — the canonical table shape Beacon writes and reads back. It intentionally
+ * does NOT validate arbitrary TOML (a full parser isn't warranted for two keys, and we add no TOML
+ * dependency): under Node the "does not parse" / inline-table guards that need a real parser degrade
+ * gracefully — the text-based `/^\s*mcp_servers\s*=/m` guard in ensureCodexMcp still fires, and we
+ * only ever APPEND our own always-valid marker block, never rewrite the user's bytes.
+ */
+export function parseTomlBeacon(content: string): TomlConfig {
+  const config: TomlConfig = {};
+  let inBeaconTable = false;
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const header = /^\[([^\]]+)\]/.exec(line);
+    if (header) {
+      inBeaconTable = header[1].trim() === "mcp_servers.beacon";
+      if (inBeaconTable) {
+        config.mcp_servers = config.mcp_servers ?? {};
+        config.mcp_servers.beacon = config.mcp_servers.beacon ?? {};
+      }
+      continue;
+    }
+    if (inBeaconTable) {
+      const cmd = /^command\s*=\s*["']([^"']*)["']/.exec(line);
+      if (cmd) config.mcp_servers!.beacon!.command = cmd[1];
+    }
+  }
+  return config;
+}
+
 function parseToml(content: string): TomlConfig | null {
   try {
-    return Bun.TOML.parse(content) as TomlConfig;
+    if (typeof Bun !== "undefined" && Bun.TOML?.parse) return Bun.TOML.parse(content) as TomlConfig;
+    return parseTomlBeacon(content);
   } catch {
     return null;
   }
@@ -155,12 +229,21 @@ export function ensureCodexMcp(): CodexMcpResult {
       return { added: false, error: `mcp_servers is an inline table — ${MANUAL_FIX}` };
   }
   const sep = !content ? "" : content.endsWith("\n") ? "\n" : "\n\n";
-  const candidate = content + sep + TOML_BLOCK;
+  const candidate = content + sep + tomlBlock();
   const check = parseToml(candidate);
-  if (check?.mcp_servers?.beacon?.command !== "beacon")
+  if (check?.mcp_servers?.beacon?.command !== beaconCliCommand())
     return { added: false, error: `could not safely append [mcp_servers.beacon] — ${MANUAL_FIX}` };
   writeFileAtomic(CODEX_CONFIG_TOML(), candidate);
   return { added: true };
+}
+
+/** The `beacon` binary the config.toml MCP entry points at (its `command`), or null. For `beacon doctor`. */
+export function codexMcpCliTarget(): string | null {
+  try {
+    return parseToml(readFileSync(CODEX_CONFIG_TOML(), "utf8"))?.mcp_servers?.beacon?.command ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export interface CodexMcpRemoveResult {
@@ -212,7 +295,13 @@ export async function setupCodexAssets(): Promise<CodexSetupResult> {
   }
   let hooksAdded = 0;
   for (const h of CODEX_HOOKS)
-    if (ensureHookEntry(CODEX_HOOKS_FILE(), { event: h.event, matcher: h.matcher, command: h.command }))
+    if (
+      ensureHookEntry(CODEX_HOOKS_FILE(), {
+        event: h.event,
+        matcher: h.matcher,
+        command: repointBeaconCommand(h.command),
+      })
+    )
       hooksAdded++;
   const blockPresent = hasMarkerBlock(CODEX_AGENTS_MD(), AGENTS_MD_START);
   ensureMarkerBlock(CODEX_AGENTS_MD(), AGENTS_MD_START, AGENTS_MD_END, GLOBAL_AGENT_BLOCK);

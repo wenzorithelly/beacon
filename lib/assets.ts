@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { beaconCliCommand } from "@/lib/agent-config";
 import { BEACON_MCP_TIMEOUT_MS } from "@/lib/constants";
 
 // Assets Beacon installs into a target repo so its agent sessions (Claude Code, Codex)
@@ -446,9 +447,24 @@ export function ensureMcp(repo: string): { path: string; added: boolean; updated
     }
     return { path, added: false, updated: false };
   }
-  cfg.mcpServers.beacon = { command: "beacon", args: ["mcp"], timeout: BEACON_MCP_TIMEOUT_MS };
+  // New entry → point at the resolved `beacon` CLI (bare `beacon` by default; the app-embedded shim
+  // when Beacon.app is installed). An EXISTING entry's command is left as-is — `beacon doctor` flags
+  // a stale binary rather than us silently rewriting the user's .mcp.json.
+  cfg.mcpServers.beacon = { command: beaconCliCommand(), args: ["mcp"], timeout: BEACON_MCP_TIMEOUT_MS };
   writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
   return { path, added: true, updated: false };
+}
+
+/** The `beacon` binary the repo's .mcp.json points at (its beacon entry `command`), or null. For `beacon doctor`. */
+export function repoMcpCliTarget(repo: string): string | null {
+  try {
+    const cfg = JSON.parse(readFileSync(join(repo, ".mcp.json"), "utf8")) as {
+      mcpServers?: { beacon?: { command?: string } };
+    };
+    return cfg.mcpServers?.beacon?.command ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Audit + remove (used by `beacon doctor` / `beacon uninstall`) ────────────
