@@ -1,8 +1,10 @@
 import { KeyRound, Link2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
-  ACCESS_COLOR,
   METHOD_COLOR,
-  domainColor,
+  accessTextClass,
+  domainTextClass,
+  methodTextClass,
   type DbRelationPayload,
   type DbSelection,
   type DbTablePayload,
@@ -77,7 +79,7 @@ export function DbDetailSidebar({
         breadcrumb={
           selectedTable ? (
             <>
-              <span style={{ color: domainColor(selectedTable.domain) }}>
+              <span className={domainTextClass(selectedTable.domain)}>
                 {selectedTable.domain ?? "table"}
               </span>
               <span> · table</span>
@@ -207,11 +209,11 @@ function TableDetail({
           <ul className="space-y-1 text-xs">
             {usedBy.map(({ e, u }) => (
               <li key={e.id} className="flex items-center gap-1.5">
-                <span style={{ color: METHOD_COLOR[e.method] }} className="font-bold">
+                <span className={cn("font-bold", methodTextClass(e.method))}>
                   {e.method}
                 </span>
                 <span className="truncate font-mono">{e.path}</span>
-                <span className="ml-auto" style={{ color: ACCESS_COLOR[u!.access] }}>
+                <span className={cn("ml-auto", accessTextClass(u!.access))}>
                   {u!.access}
                 </span>
               </li>
@@ -233,8 +235,8 @@ function EndpointDetail({
   return (
     <div>
       <span
-        className="rounded px-1.5 py-0.5 text-[11px] font-bold"
-        style={{ background: `${METHOD_COLOR[ep.method]}22`, color: METHOD_COLOR[ep.method] }}
+        className={cn("rounded px-1.5 py-0.5 text-[11px] font-bold", methodTextClass(ep.method))}
+        style={{ background: `${METHOD_COLOR[ep.method]}22` }}
       >
         {ep.method}
       </span>
@@ -247,7 +249,7 @@ function EndpointDetail({
           {ep.tables.map((u) => (
             <li key={u.tableId} className="flex items-center gap-1.5">
               <span className="font-mono">{nameById.get(u.tableId)}</span>
-              <span className="ml-auto" style={{ color: ACCESS_COLOR[u.access] }}>
+              <span className={cn("ml-auto", accessTextClass(u.access))}>
                 {u.access}
               </span>
             </li>

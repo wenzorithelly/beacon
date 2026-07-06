@@ -37,7 +37,7 @@ export function AnnotationCardNode({ data, selected }: NodeProps<AnnotationFlowN
     <div
       onClick={() => data.onClick?.(data.annotationId)}
       className={cn(
-        "group/anno relative w-[270px] rounded-xl border border-white/10 bg-[#1b1b1e]/95 px-4 py-3 shadow-[0_18px_50px_-20px_rgba(0,0,0,0.9)] backdrop-blur transition-colors hover:border-white/20",
+        "group/anno relative w-[270px] rounded-xl border border-border bg-card/95 px-4 py-3 shadow-[0_18px_50px_-20px_rgba(0,0,0,0.9)] backdrop-blur transition-colors hover:border-foreground/20 dark:bg-[#1b1b1e]/95 dark:hover:border-white/20",
         !data.editable && "cursor-pointer",
         selected && "border-[#ff7a45]/50",
       )}

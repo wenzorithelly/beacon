@@ -45,10 +45,10 @@ export const LessonTableNode = memo(function LessonTableNode({ data }: NodeProps
   const sample = data.sample ?? [];
 
   return (
-    <div className="w-[270px] rounded-xl border border-sky-400/25 bg-[#13161b]/95 text-card-foreground shadow-[0_18px_50px_-22px_rgba(0,0,0,0.9)] backdrop-blur">
+    <div className="w-[270px] rounded-xl border border-sky-400/25 bg-card/95 text-card-foreground shadow-[0_18px_50px_-22px_rgba(0,0,0,0.9)] backdrop-blur dark:bg-[#13161b]/95">
       <FourDotHandles />
       {/* Header: this is a TABLE, named, in its domain. */}
-      <div className="flex items-center gap-1.5 rounded-t-[11px] border-b border-white/[0.06] bg-sky-400/[0.07] px-3 py-2">
+      <div className="flex items-center gap-1.5 rounded-t-[11px] border-b border-border dark:border-white/[0.06] bg-sky-400/[0.07] px-3 py-2">
         <Database className="size-3.5 shrink-0 text-sky-400/80" />
         <span className="min-w-0 flex-1 truncate font-mono text-[13px] font-semibold tracking-tight" title={data.name}>
           {data.name}
@@ -57,9 +57,9 @@ export const LessonTableNode = memo(function LessonTableNode({ data }: NodeProps
           <span className="shrink-0 text-[9px] uppercase tracking-[0.14em] text-sky-300/70">{data.domain}</span>
         )}
       </div>
-      {data.note && <div className="border-b border-white/[0.05] px-3 py-1.5 text-[11px] leading-snug text-muted-foreground">{data.note}</div>}
+      {data.note && <div className="border-b border-border px-3 py-1.5 text-[11px] leading-snug text-muted-foreground dark:border-white/[0.05]">{data.note}</div>}
 
-      <div className="divide-y divide-white/[0.05]">
+      <div className="divide-y divide-border dark:divide-white/[0.05]">
         {shown.map((c) => (
           <div key={c.name} className="px-3 py-[6px]">
             <div className="flex items-center gap-2 text-[12px]">
@@ -90,7 +90,7 @@ export const LessonTableNode = memo(function LessonTableNode({ data }: NodeProps
             e.stopPropagation();
             setOpen((v) => !v);
           }}
-          className="nodrag nopan flex w-full items-center justify-center gap-1 rounded-b-[11px] border-t border-white/[0.06] px-3 py-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground"
+          className="nodrag nopan flex w-full items-center justify-center gap-1 rounded-b-[11px] border-t border-border dark:border-white/[0.06] px-3 py-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground dark:hover:bg-white/[0.04]"
         >
           {open ? "Show less" : hidden > 0 ? `+${hidden} more column${hidden === 1 ? "" : "s"}` : "Show example row"}
         </button>
@@ -98,7 +98,7 @@ export const LessonTableNode = memo(function LessonTableNode({ data }: NodeProps
 
       {/* Worked-example rows — the concrete instance that makes the schema click. */}
       {open && sample.length > 0 && (
-        <div className="nowheel overflow-x-auto border-t border-white/[0.06] px-3 py-2">
+        <div className="nowheel overflow-x-auto border-t border-border dark:border-white/[0.06] px-3 py-2">
           <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">example</div>
           <table className="border-collapse font-mono text-[10px]">
             <thead>

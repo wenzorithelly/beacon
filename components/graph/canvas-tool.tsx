@@ -61,7 +61,7 @@ export function CanvasToolToggle({
   onChange: (t: CanvasTool) => void;
 }) {
   return (
-    <div className="flex items-center gap-0.5 rounded-xl border border-white/15 bg-[#202024]/95 p-1 shadow-lg backdrop-blur">
+    <div className="flex items-center gap-0.5 rounded-xl border border-border bg-card/95 p-1 shadow-lg backdrop-blur dark:border-white/15 dark:bg-[#202024]/95">
       <ToolBtn
         active={tool === "select"}
         label="Select tool (V) — drag to box-select; move many nodes at once"
@@ -101,7 +101,7 @@ function ToolBtn({
         "flex size-7 items-center justify-center rounded-lg transition-colors",
         active
           ? "bg-[#ff7a45]/15 text-[#ff7a45]"
-          : "text-muted-foreground hover:bg-white/8 hover:text-foreground",
+          : "text-muted-foreground hover:bg-[var(--ink-active)] hover:text-foreground dark:hover:bg-white/8",
       )}
     >
       {children}

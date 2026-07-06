@@ -129,6 +129,47 @@ export const ACCESS_COLOR: Record<string, string> = {
   "read-write": "#c792ea",
 };
 
+// ── Text-color classes for method / access / domain LABELS ──────────────────────────────────
+// The bright hexes above are tuned for the dark canvas; consumed as TEXT via `style={{ color }}`
+// they compute to ~1.7–3.5:1 on the light /db panel — illegible. So text usages take a darker
+// light shade (all ≥ 4.5:1 on the white panel) while the DARK side keeps the EXACT shipped hex,
+// so the dark board is pixel-identical. Same split pattern as lib/category-color.ts; full literal
+// class strings so Tailwind's content scan emits them.
+const NEUTRAL_TEXT = "text-[#4b5563] dark:text-[#8a8a8a]"; // fallback (mirrors #8a8a8a)
+
+const METHOD_TEXT_CLASS: Record<string, string> = {
+  GET: "text-[#15803d] dark:text-[#7bd389]",
+  POST: "text-[#1d4ed8] dark:text-[#4ea1ff]",
+  PUT: "text-[#b45309] dark:text-[#ffb86b]",
+  PATCH: "text-[#b45309] dark:text-[#ffb86b]",
+  DELETE: "text-[#be123c] dark:text-[#ff3860]",
+};
+export function methodTextClass(method: string | null | undefined): string {
+  return (method && METHOD_TEXT_CLASS[method]) || NEUTRAL_TEXT;
+}
+
+const ACCESS_TEXT_CLASS: Record<string, string> = {
+  read: "text-[#1d4ed8] dark:text-[#4ea1ff]",
+  write: "text-[#b45309] dark:text-[#ffb86b]",
+  "read-write": "text-[#6d28d9] dark:text-[#c792ea]",
+};
+export function accessTextClass(access: string | null | undefined): string {
+  return (access && ACCESS_TEXT_CLASS[access]) || NEUTRAL_TEXT;
+}
+
+const DOMAIN_TEXT_CLASS: Record<string, string> = {
+  auth: "text-[#1d4ed8] dark:text-[#4ea1ff]",
+  firms: "text-[#6d28d9] dark:text-[#c792ea]",
+  search: "text-[#15803d] dark:text-[#7bd389]",
+  storage: "text-[#b45309] dark:text-[#ffb86b]",
+  petitions: "text-[#c2410c] dark:text-[#ff7a45]",
+  monitoring: "text-[#b45309] dark:text-[#f5b942]",
+  admin: "text-[#be185d] dark:text-[#ff6b9d]",
+};
+export function domainTextClass(domain: string | null | undefined): string {
+  return (domain && DOMAIN_TEXT_CLASS[domain]) || NEUTRAL_TEXT;
+}
+
 // Click-to-highlight on /map and /db: the selected node plus every node directly linked
 // to it (in either direction). Used to emphasize one node's edges and fade everything else.
 export function neighborIds(

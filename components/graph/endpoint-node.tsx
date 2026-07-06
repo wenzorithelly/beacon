@@ -4,7 +4,7 @@ import { memo, useEffect, useState } from "react";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { MessageSquarePlus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { METHOD_COLOR } from "@/components/graph/db-types";
+import { METHOD_COLOR, methodTextClass } from "@/components/graph/db-types";
 import { useDbEdit } from "@/components/graph/db-edit-context";
 import { FourDotHandles } from "@/components/graph/handles";
 import { useZoomLOD } from "@/components/graph/use-zoom-lod";
@@ -63,14 +63,14 @@ export const EndpointNode = memo(function EndpointNode({ id, data, selected }: N
     return (
       <div
         className={cn(
-          "relative flex w-[300px] items-center gap-2 rounded-lg border border-white/10 bg-[#161618]/95 px-2.5 py-2 text-card-foreground backdrop-blur",
+          "relative flex w-[300px] items-center gap-2 rounded-lg border border-border bg-card/95 px-2.5 py-2 text-card-foreground backdrop-blur dark:bg-[#161618]/95",
           selected && "ring-2 ring-[var(--accent,#f5b942)]",
           // Keep visible at far zoom on read-only boards (no region summaries to fall back on).
           lod === "far" && !edit.readOnly && "!opacity-0",
         )}
       >
         <FourDotHandles />
-        <span className="shrink-0 font-mono text-[12px] font-bold" style={{ color }}>
+        <span className={cn("shrink-0 font-mono text-[12px] font-bold", methodTextClass(data.method))}>
           {data.method}
         </span>
         <span title={data.path} className="truncate font-mono text-[13px]">{data.path}</span>
@@ -81,8 +81,8 @@ export const EndpointNode = memo(function EndpointNode({ id, data, selected }: N
   return (
     <div
       className={cn(
-        "group relative flex w-[300px] items-center gap-2 rounded-lg border bg-[#161618]/95 px-2.5 py-1.5 text-card-foreground shadow-[0_12px_36px_-18px_rgba(0,0,0,0.9)] backdrop-blur",
-        draft ? "border-dashed" : "border-white/10",
+        "group relative flex w-[300px] items-center gap-2 rounded-lg border bg-card/95 px-2.5 py-1.5 text-card-foreground shadow-[0_12px_36px_-18px_rgba(0,0,0,0.9)] backdrop-blur dark:bg-[#161618]/95",
+        draft ? "border-dashed" : "border-border",
         selected && "ring-2 ring-[var(--accent,#f5b942)]",
       )}
       style={draft ? { borderColor: `${accent}66`, background: `${accent}0f` } : undefined}
@@ -101,8 +101,7 @@ export const EndpointNode = memo(function EndpointNode({ id, data, selected }: N
             value={data.method}
             onChange={(e) => edit.patchEndpoint(id, { method: e.target.value })}
             onPointerDown={stop}
-            className={cn(noDrag, "shrink-0 rounded bg-transparent text-[10px] font-bold outline-none")}
-            style={{ color }}
+            className={cn(noDrag, "shrink-0 rounded bg-transparent text-[10px] font-bold outline-none", methodTextClass(data.method))}
             title="Method"
           >
             {METHODS.map((m) => (
@@ -154,8 +153,8 @@ export const EndpointNode = memo(function EndpointNode({ id, data, selected }: N
       ) : (
         <>
           <span
-            className="rounded px-1.5 py-0.5 text-[10px] font-bold"
-            style={{ background: `${color}22`, color }}
+            className={cn("rounded px-1.5 py-0.5 text-[10px] font-bold", methodTextClass(data.method))}
+            style={{ background: `${color}22` }}
           >
             {data.method}
           </span>
@@ -206,7 +205,7 @@ export const EndpointNode = memo(function EndpointNode({ id, data, selected }: N
             }}
             className={cn(
               noDrag,
-              "absolute -right-3 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-[#242428] text-muted-foreground opacity-0 shadow-md transition-all group-hover:opacity-100 hover:border-[#ff7a45]/50 hover:text-[#ff7a45]",
+              "absolute -right-3 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card text-muted-foreground opacity-0 shadow-md transition-all group-hover:opacity-100 hover:border-[#ff7a45]/50 hover:text-[#ff7a45] dark:border-white/15 dark:bg-[#242428]",
             )}
           >
             <MessageSquarePlus className="size-3" />

@@ -4,7 +4,7 @@ import { memo, useEffect, useState } from "react";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { KeyRound, Link2, MessageSquarePlus, Plus, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { domainColor, type DbColumnPayload } from "@/components/graph/db-types";
+import { domainColor, domainTextClass, type DbColumnPayload } from "@/components/graph/db-types";
 import { useDbEdit } from "@/components/graph/db-edit-context";
 import { useZoomLOD } from "@/components/graph/use-zoom-lod";
 import { DB_LOD } from "@/lib/zoom-lod";
@@ -55,7 +55,7 @@ function CommentDot({ onClick, title }: { onClick: () => void; title: string }) 
       }}
       className={cn(
         noDrag,
-        "absolute -right-3 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-[#242428] text-muted-foreground opacity-0 shadow-md transition-all group-hover/row:opacity-100 hover:border-[#ff7a45]/50 hover:text-[#ff7a45]",
+        "absolute -right-3 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card text-muted-foreground opacity-0 shadow-md transition-all group-hover/row:opacity-100 hover:border-[#ff7a45]/50 hover:text-[#ff7a45] dark:border-white/15 dark:bg-[#242428]",
       )}
     >
       <MessageSquarePlus className="size-3" />
@@ -151,7 +151,7 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
   // Shared shell: dark glass card, 12px radius, hairline rows. NO overflow-hidden — the
   // annotation pins ride half-outside the right edge — so the header tints its own top corners.
   const shell = cn(
-    "relative rounded-xl border bg-[#161618]/95 text-card-foreground shadow-[0_18px_50px_-22px_rgba(0,0,0,0.9)] backdrop-blur",
+    "relative rounded-xl border bg-card/95 text-card-foreground shadow-[0_18px_50px_-22px_rgba(0,0,0,0.9)] backdrop-blur dark:bg-[#161618]/95",
     selected && "ring-2 ring-[var(--accent,#f5b942)]",
   );
 
@@ -163,7 +163,7 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
       <div
         className={cn(
           shell,
-          "border-white/10 px-3 py-2.5",
+          "border-border px-3 py-2.5",
           // Keep visible at far zoom on read-only boards (no region summaries to fall back on).
           lod === "far" && !edit.readOnly && "!opacity-0",
         )}
@@ -205,7 +205,7 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
             )}
             <RiskBadgeRow badges={riskBadges} />
             {data.domain && (
-              <span className="text-[9px] uppercase tracking-[0.14em]" style={{ color }}>
+              <span className={cn("text-[9px] uppercase tracking-[0.14em]", domainTextClass(data.domain))}>
                 {data.domain}
               </span>
             )}
@@ -218,7 +218,7 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
             )
           )}
         </div>
-        <div className="divide-y divide-white/[0.05]">
+        <div className="divide-y divide-border dark:divide-white/[0.05]">
           {data.columns.map((c) => {
             const pins = pinsFor(c.name);
             return (
@@ -277,7 +277,7 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
           title={diffTitle}
           className={cn(
             "shrink-0 rounded-md border px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[0.14em]",
-            !isChange && "border-white/15 bg-white/5 text-muted-foreground",
+            !isChange && "border-border bg-[var(--ink-active)] text-muted-foreground dark:border-white/15 dark:bg-white/5",
           )}
           style={isChange ? { background: `${accent}1f`, borderColor: `${accent}55`, color: accent } : undefined}
         >
@@ -310,7 +310,7 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
           )
         )}
       </div>
-      <div className="divide-y divide-white/[0.05]">
+      <div className="divide-y divide-border dark:divide-white/[0.05]">
         {cols.map((c, i) => {
           const pins = pinsFor(c.name);
           // Row tint mirrors the card accents: green = column being added, amber = column
