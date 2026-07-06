@@ -29,9 +29,13 @@ export interface LocalNode {
 export type Decision =
   | { action: "create"; issue: LinearIssue }
   | { action: "pull"; node: LocalNode; issue: LinearIssue }
-  | { action: "push"; node: LocalNode; issue: LinearIssue | null }
-  | { action: "noop"; node: LocalNode };
+  | { action: "push"; node: LocalNode; issue: LinearIssue }
+  | { action: "noop"; node: LocalNode }
+  | { action: "remove"; node: LocalNode };
 
+// `issues` is the FULL current scoped set (open issues in the team/project, optionally assignee=me)
+// — NOT a delta. So a local LINEAR card absent from it has left the scope (unassigned, closed, or
+// moved out) and is removed; a card still present reconciles by last-writer-wins.
 export function planReconcile(locals: LocalNode[], issues: LinearIssue[]): Decision[] {
   const byExt = new Map(locals.map((n) => [n.externalId, n]));
   const seen = new Set<string>();
@@ -58,12 +62,9 @@ export function planReconcile(locals: LocalNode[], issues: LinearIssue[]): Decis
     }
   }
 
-  // A local edit whose issue did NOT change won't appear in the delta — sweep the rest.
+  // Any local LINEAR card not in the current set no longer belongs on the board → remove it.
   for (const node of locals) {
-    if (seen.has(node.id)) continue;
-    if (node.updatedAt > (node.externalSyncedAt ?? 0)) {
-      out.push({ action: "push", node, issue: null });
-    }
+    if (!seen.has(node.id)) out.push({ action: "remove", node });
   }
 
   return out;

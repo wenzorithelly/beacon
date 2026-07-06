@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ExternalLink, Link2, RefreshCw } from "lucide-react";
+import { Check, Link2, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,43 +12,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { LinearScope } from "@/lib/linear/types";
 
-// Settings panel for the Linear ↔ Beacon two-way sync. Connect flow is two steps so the team
-// picker can list against the saved key: POST { apiKey } → GET /api/linear/teams → POST { teamId }.
-// The key is stored in this workspace's local sqlite, never shown back or sent anywhere but Linear.
+// Settings panel for the Linear ↔ Beacon sync. A personal API key is bound to one Linear workspace,
+// so connecting it resolves who you are + which org (no workspace picker). You then scope the board
+// to a team OR a project, and optionally narrow it to issues assigned to you. The key is stored in
+// this workspace's local sqlite, never shown back or sent anywhere but Linear.
 interface Status {
   enabled: boolean;
   connected: boolean;
-  teamId: string | null;
-  teamKey: string | null;
-  lastCursor?: string | null;
-}
-interface Team {
-  id: string;
-  key: string;
-  name: string;
+  orgName: string | null;
+  viewerName: string | null;
+  scope: LinearScope | null;
+  onlyMine: boolean;
+  lastSyncedAt?: string | null;
 }
 
 export function LinearCard() {
   const [status, setStatus] = useState<Status | null>(null);
-  const [teams, setTeams] = useState<Team[]>([]);
+  const [scopes, setScopes] = useState<LinearScope[]>([]);
   const [keyInput, setKeyInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [reconnect, setReconnect] = useState(false);
+  const [picking, setPicking] = useState(false);
 
-  const loadStatus = useCallback(async () => {
-    const r = await fetch("/api/linear", { cache: "no-store" }).catch(() => null);
-    if (r?.ok) setStatus((await r.json()) as Status);
+  const loadScopes = useCallback(async () => {
+    const r = await fetch("/api/linear/scopes", { cache: "no-store" }).catch(() => null);
+    if (r?.ok) setScopes(((await r.json()) as { scopes: LinearScope[] }).scopes);
   }, []);
 
-  const loadTeams = useCallback(async () => {
-    const r = await fetch("/api/linear/teams", { cache: "no-store" }).catch(() => null);
-    if (r?.ok) setTeams(((await r.json()) as { teams: Team[] }).teams);
-  }, []);
-
-  // Initial status load. Inline .then (not the loadStatus helper) so setState runs in an async
-  // callback, not synchronously in the effect body (react-hooks/set-state-in-effect).
   useEffect(() => {
     let on = true;
     fetch("/api/linear", { cache: "no-store" })
@@ -62,22 +55,23 @@ export function LinearCard() {
     };
   }, []);
 
-  // Once connected without a team chosen, load the picker options.
+  // Load the team/project options whenever we're connected but still choosing a scope.
+  const needScope = status?.connected && (!status.scope || picking);
   useEffect(() => {
-    if (!(status?.connected && !status.teamId)) return;
+    if (!needScope) return;
     let on = true;
-    fetch("/api/linear/teams", { cache: "no-store" })
+    fetch("/api/linear/scopes", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { teams: Team[] } | null) => {
-        if (on && d) setTeams(d.teams);
+      .then((d: { scopes: LinearScope[] } | null) => {
+        if (on && d) setScopes(d.scopes);
       })
       .catch(() => {});
     return () => {
       on = false;
     };
-  }, [status?.connected, status?.teamId]);
+  }, [needScope]);
 
-  async function post(body: unknown): Promise<boolean> {
+  async function post(body: unknown): Promise<Status | null> {
     setBusy(true);
     setMsg(null);
     try {
@@ -88,10 +82,11 @@ export function LinearCard() {
       });
       if (!r.ok) {
         setMsg(((await r.json().catch(() => ({}))) as { error?: string }).error ?? "Something went wrong");
-        return false;
+        return null;
       }
-      setStatus((await r.json()) as Status);
-      return true;
+      const s = (await r.json()) as Status;
+      setStatus(s);
+      return s;
     } finally {
       setBusy(false);
     }
@@ -99,16 +94,19 @@ export function LinearCard() {
 
   async function connectKey() {
     if (!keyInput.trim()) return;
-    if (await post({ apiKey: keyInput.trim() })) {
+    const s = await post({ apiKey: keyInput.trim() });
+    if (s) {
       setKeyInput("");
       setReconnect(false);
-      await loadTeams();
+      await loadScopes();
     }
   }
 
-  async function pickTeam(id: string) {
-    const t = teams.find((x) => x.id === id);
-    await post({ teamId: id, teamKey: t?.key, enabled: true });
+  async function pickScope(value: string) {
+    const scope = scopes.find((s) => `${s.kind}:${s.id}` === value);
+    if (!scope) return;
+    const s = await post({ scope, enabled: true });
+    if (s) setPicking(false);
   }
 
   async function syncNow() {
@@ -124,20 +122,23 @@ export function LinearCard() {
         created?: number;
         pulled?: number;
         pushed?: number;
+        removed?: number;
         skipped?: string;
       };
       setMsg(
         s.skipped
           ? s.skipped
-          : `Synced — ${s.created ?? 0} added, ${s.pulled ?? 0} updated, ${s.pushed ?? 0} pushed`,
+          : `Synced — ${s.created ?? 0} added, ${s.pulled ?? 0} updated, ${s.pushed ?? 0} pushed, ${s.removed ?? 0} removed`,
       );
-      await loadStatus();
+      // refresh status (lastSyncedAt)
+      const st = await fetch("/api/linear", { cache: "no-store" }).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+      if (st) setStatus(st as Status);
     } finally {
       setBusy(false);
     }
   }
 
-  const connectedToTeam = status?.connected && status.teamId;
+  const scoped = status?.connected && status.scope && !picking;
 
   return (
     <Card>
@@ -147,9 +148,9 @@ export function LinearCard() {
           Linear sync
         </CardTitle>
         <CardDescription>
-          Mirror one Linear team onto this board and back — create or edit in either place, no double
-          entry. Changes flow both ways within ~a minute (last edit wins). The key stays on this
-          machine.
+          Mirror a Linear team or project onto this board and back — create or edit in either place,
+          no double entry. Changes flow both ways within ~a minute (last edit wins). The key stays on
+          this machine.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -170,51 +171,72 @@ export function LinearCard() {
               Connect
             </Button>
           </div>
-        ) : !connectedToTeam ? (
-          <div className="flex items-center gap-2">
-            <Select onValueChange={(v) => v && void pickTeam(v as string)}>
-              <SelectTrigger className="h-9 w-64">
-                <SelectValue placeholder={teams.length ? "Pick a team…" : "Loading teams…"} />
+        ) : !scoped ? (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Connected to <span className="font-medium text-foreground">{status.orgName}</span>
+              {status.viewerName && <> as {status.viewerName}</>}. Which team or project does this repo track?
+            </p>
+            <Select onValueChange={(v) => v && void pickScope(v as string)}>
+              <SelectTrigger className="h-9 w-72">
+                <SelectValue placeholder={scopes.length ? "Pick a team or project…" : "Loading…"} />
               </SelectTrigger>
               <SelectContent>
-                {teams.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name} ({t.key})
+                {scopes.map((s) => (
+                  <SelectItem key={`${s.kind}:${s.id}`} value={`${s.kind}:${s.id}`}>
+                    {s.name} · <span className="text-muted-foreground">{s.kind}</span>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <span className="text-xs text-muted-foreground">Which team does this repo track?</span>
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm">
-              Synced with team <span className="font-mono font-medium">{status.teamKey}</span>
-            </span>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => void syncNow()}>
-              <RefreshCw className={`size-3.5 ${busy ? "animate-spin" : ""}`} />
-              Sync now
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
+          <div className="space-y-2.5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+              <span>
+                Mirroring <span className="font-medium">{status.scope!.name}</span>{" "}
+                <span className="text-muted-foreground">({status.scope!.kind})</span> in{" "}
+                <span className="font-medium">{status.orgName}</span>
+              </span>
+              {!status.enabled && <span className="text-xs text-amber-400">Paused</span>}
+            </div>
+
+            <button
+              type="button"
               disabled={busy}
-              onClick={() => void post({ enabled: !status.enabled })}
+              onClick={() => void post({ onlyMine: !status.onlyMine })}
+              className="flex items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground"
             >
-              {status.enabled ? "Pause sync" : "Resume sync"}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setReconnect(true)}>
-              Change key
-            </Button>
-            {!status.enabled && <span className="text-xs text-amber-400">Paused</span>}
+              <span
+                className={`flex size-4 items-center justify-center rounded border ${status.onlyMine ? "border-[var(--accent-2,#ff7a45)] bg-[var(--accent-2,#ff7a45)]/20 text-[var(--accent-2,#ff7a45)]" : "border-white/20"}`}
+              >
+                {status.onlyMine && <Check className="size-3" />}
+              </span>
+              Only issues assigned to me
+            </button>
+
+            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => void syncNow()}>
+                <RefreshCw className={`size-3.5 ${busy ? "animate-spin" : ""}`} />
+                Sync now
+              </Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void post({ enabled: !status.enabled })}>
+                {status.enabled ? "Pause sync" : "Resume sync"}
+              </Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPicking(true)}>
+                Change scope
+              </Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setReconnect(true)}>
+                Change key
+              </Button>
+            </div>
           </div>
         )}
 
         {msg && <p className="text-xs text-muted-foreground">{msg}</p>}
-        {connectedToTeam && status.lastCursor && (
-          <p className="flex items-center gap-1 text-xs text-muted-foreground">
-            <ExternalLink className="size-3" />
-            Last change synced {new Date(status.lastCursor).toLocaleString()}
+        {scoped && status.lastSyncedAt && (
+          <p className="text-xs text-muted-foreground">
+            Last synced {new Date(status.lastSyncedAt).toLocaleString()}
           </p>
         )}
       </CardContent>

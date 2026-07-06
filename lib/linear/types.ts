@@ -1,6 +1,6 @@
-// Shared shapes for the Linear ↔ Beacon sync. The GraphQL client flattens Linear's
-// nested issue response into this flat LinearIssue (updatedAt as epoch-ms, not ISO) so the
-// pure mapping + reconcile layers never touch the wire format.
+// Shared shapes for the Linear ↔ Beacon sync. The GraphQL client flattens Linear's nested issue
+// response into this flat LinearIssue (updatedAt as epoch-ms, not ISO) so the pure mapping +
+// reconcile layers never touch the wire format.
 
 export type NodeStatus = "PENDING" | "IN_PROGRESS" | "DONE" | "BLOCKED" | "CANCELLED";
 
@@ -15,17 +15,30 @@ export interface LinearIssue {
   stateType: string; // triage|backlog|unstarted|started|completed|canceled
   labels: string[];
   parentId?: string | null;
+  teamId: string; // used to resolve that team's workflow states for write-back
   teamKey: string;
   projectName?: string | null;
+  assigneeName?: string | null; // owner-avatar chip
+  assigneeAvatarUrl?: string | null;
 }
 
-/** Per-workspace connection, stored in WorkspaceFlag(key="linear").config as JSON. */
+/** A team or project the workspace is scoped to (before the optional assignee filter). */
+export interface LinearScope {
+  kind: "team" | "project";
+  id: string;
+  name: string;
+}
+
+/** Per-workspace Linear connection, stored in WorkspaceFlag(key="linear").config as JSON. */
 export interface LinearConfig {
   apiKey: string;
-  teamId: string;
-  teamKey?: string;
+  orgName?: string;
   orgUrlKey?: string;
-  lastCursor?: string; // ISO of the newest issue.updatedAt reconciled
-  /** Beacon status → Linear workflow-state UUID, resolved once from the team's states. */
-  stateMap?: Partial<Record<NodeStatus, string>>;
+  viewerId?: string;
+  viewerName?: string;
+  scope?: LinearScope;
+  onlyMine?: boolean; // narrow the scope to issues assigned to the viewer
+  lastSyncedAt?: string; // ISO of the last successful reconcile (UI only)
+  /** Beacon status → Linear state UUID, per team (states are per-team; scope can span teams). */
+  stateMapByTeam?: Record<string, Partial<Record<NodeStatus, string>>>;
 }

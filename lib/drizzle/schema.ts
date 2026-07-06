@@ -60,6 +60,14 @@ export const node = sqliteTable(
     // write-back pushes ONLY the fields changed in Beacon — never clobbering priority/description
     // (or firing at all) on an unrelated edit like a canvas drag. See lib/linear/sync.ts.
     externalSnapshot: text(),
+    // Linear issue owner (assignee) for the owner-avatar chip on the card — shown when a workspace
+    // mirrors more than its own tickets. Name is the hover label; avatarUrl the chip image.
+    assigneeName: text(),
+    assigneeAvatarUrl: text(),
+    // Soft-hide for synced cards that left the scope (unassigned/closed, or filtered out by a scope /
+    // "only mine" change). Set instead of deleting so positions, edges and annotations survive — the
+    // card is filtered off the board and un-hidden if its issue returns. See lib/linear/sync.ts.
+    hiddenAt: integer({ mode: "timestamp_ms" }),
   },
   (t) => [
     index("Node_cluster_idx").on(t.cluster),

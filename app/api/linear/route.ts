@@ -1,6 +1,7 @@
 import { pinned } from "@/lib/api-workspace";
-import { resolveStateMap } from "@/lib/linear/client";
+import { resolveViewerAndOrg } from "@/lib/linear/client";
 import { getLinearFlag, setLinearFlag } from "@/lib/linear/config";
+import type { LinearScope } from "@/lib/linear/types";
 
 export const dynamic = "force-dynamic";
 
@@ -10,50 +11,60 @@ export const GET = pinned(async () => {
   return Response.json({
     enabled,
     connected: Boolean(config?.apiKey),
-    teamId: config?.teamId ?? null,
-    teamKey: config?.teamKey ?? null,
-    lastCursor: config?.lastCursor ?? null,
+    orgName: config?.orgName ?? null,
+    viewerName: config?.viewerName ?? null,
+    scope: config?.scope ?? null,
+    onlyMine: config?.onlyMine ?? false,
+    lastSyncedAt: config?.lastSyncedAt ?? null,
   });
 });
 
-// Two-step connect: POST { apiKey } saves the key (so /teams can list); POST { teamId } picks the
-// team + resolves its workflow states (which also validates the key). POST { enabled } toggles sync.
+// POST { apiKey } connects (resolves the viewer + workspace, resets scope). POST { scope } picks the
+// team/project. POST { onlyMine } / { enabled } toggle.
 export const POST = pinned(async (req: Request) => {
   const b = (await req.json().catch(() => ({}))) as {
     apiKey?: string;
-    teamId?: string;
-    teamKey?: string;
+    scope?: LinearScope | null;
+    onlyMine?: boolean;
     enabled?: boolean;
   };
 
-  // A new/changed key may be for a different Linear org — clear the team, state map, and cursor so
-  // the user re-picks, and pause until they do (otherwise we'd sync org A's team with org B's key).
   if (b.apiKey !== undefined) {
-    await setLinearFlag({
-      enabled: false,
-      config: { apiKey: b.apiKey, teamId: undefined, teamKey: undefined, stateMap: undefined, lastCursor: undefined },
-    });
-  }
-
-  if (b.teamId) {
-    const { config } = await getLinearFlag();
-    if (!config?.apiKey) return Response.json({ error: "Paste an API key first" }, { status: 400 });
+    // A new key may be a different workspace — resolve who/where it is (also validates the key) and
+    // reset everything scope-related so the user re-picks.
     try {
-      const stateMap = await resolveStateMap(config.apiKey, b.teamId);
-      await setLinearFlag({ config: { teamId: b.teamId, teamKey: b.teamKey, stateMap } });
+      const vo = await resolveViewerAndOrg(b.apiKey);
+      await setLinearFlag({
+        enabled: false,
+        config: {
+          apiKey: b.apiKey,
+          viewerId: vo.viewerId,
+          viewerName: vo.viewerName,
+          orgName: vo.orgName,
+          orgUrlKey: vo.orgUrlKey,
+          scope: undefined,
+          onlyMine: undefined,
+          stateMapByTeam: undefined,
+          lastSyncedAt: undefined,
+        },
+      });
     } catch {
-      return Response.json({ error: "Linear rejected the key or team" }, { status: 400 });
+      return Response.json({ error: "Linear rejected the key" }, { status: 400 });
     }
   }
 
+  if (b.scope !== undefined) await setLinearFlag({ config: { scope: b.scope ?? undefined } });
+  if (b.onlyMine !== undefined) await setLinearFlag({ config: { onlyMine: b.onlyMine } });
   if (b.enabled !== undefined) await setLinearFlag({ enabled: b.enabled });
 
   const { enabled, config } = await getLinearFlag();
   return Response.json({
     enabled,
     connected: Boolean(config?.apiKey),
-    teamId: config?.teamId ?? null,
-    teamKey: config?.teamKey ?? null,
-    lastCursor: config?.lastCursor ?? null,
+    orgName: config?.orgName ?? null,
+    viewerName: config?.viewerName ?? null,
+    scope: config?.scope ?? null,
+    onlyMine: config?.onlyMine ?? false,
+    lastSyncedAt: config?.lastSyncedAt ?? null,
   });
 });

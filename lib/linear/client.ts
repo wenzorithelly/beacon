@@ -1,8 +1,8 @@
-// Thin Linear GraphQL client. Personal-API-key auth (Authorization: <key> → api.linear.app),
-// the only auth a localhost daemon can do (no OAuth callback). ponytail: the raw fetch wrapper is
-// not unit-tested (testing it would test the mock); the one non-trivial pure bit — flattenIssue —
-// is (tests/linear-client.test.ts).
-import type { LinearIssue, NodeStatus } from "@/lib/linear/types";
+// Thin Linear GraphQL client. Personal-API-key auth (Authorization: <key> → api.linear.app), the
+// only auth a localhost daemon can do (no OAuth callback). ponytail: the raw fetch wrapper is not
+// unit-tested (testing it would test the mock); the one non-trivial pure bit — flattenIssue — is
+// (tests/linear-client.test.ts).
+import type { LinearIssue, LinearScope, NodeStatus } from "@/lib/linear/types";
 
 const ENDPOINT = "https://api.linear.app/graphql";
 
@@ -17,8 +17,9 @@ interface RawIssue {
   state: { type: string };
   labels: { nodes: { name: string }[] };
   parent: { id: string } | null;
-  team: { key: string };
+  team: { id: string; key: string };
   project: { name: string } | null;
+  assignee: { id: string; name: string; avatarUrl: string | null } | null;
 }
 
 const ISSUE_FIELDS = `
@@ -26,8 +27,9 @@ const ISSUE_FIELDS = `
   state { type }
   labels { nodes { name } }
   parent { id }
-  team { key }
+  team { id key }
   project { name }
+  assignee { id name avatarUrl }
 `;
 
 export function flattenIssue(raw: RawIssue): LinearIssue {
@@ -42,8 +44,11 @@ export function flattenIssue(raw: RawIssue): LinearIssue {
     stateType: raw.state.type,
     labels: raw.labels.nodes.map((l) => l.name),
     parentId: raw.parent?.id ?? null,
+    teamId: raw.team.id,
     teamKey: raw.team.key,
     projectName: raw.project?.name ?? null,
+    assigneeName: raw.assignee?.name ?? null,
+    assigneeAvatarUrl: raw.assignee?.avatarUrl ?? null,
   };
 }
 
@@ -61,18 +66,54 @@ async function gql<T>(apiKey: string, query: string, variables: Record<string, u
   return json.data;
 }
 
-export interface LinearTeam {
-  id: string;
-  key: string;
-  name: string;
+export interface ViewerOrg {
+  viewerId: string;
+  viewerName: string;
+  orgName: string;
+  orgUrlKey: string;
 }
 
-export async function listTeams(apiKey: string): Promise<LinearTeam[]> {
-  const d = await gql<{ teams: { nodes: LinearTeam[] } }>(apiKey, `query { teams { nodes { id key name } } }`);
-  return d.teams.nodes;
+/** Resolve who the key authenticates as + which workspace it's bound to (validates the key). */
+export async function resolveViewerAndOrg(apiKey: string): Promise<ViewerOrg> {
+  const d = await gql<{
+    viewer: { id: string; name: string };
+    organization: { name: string; urlKey: string };
+  }>(apiKey, `query { viewer { id name } organization { name urlKey } }`);
+  return {
+    viewerId: d.viewer.id,
+    viewerName: d.viewer.name,
+    orgName: d.organization.name,
+    orgUrlKey: d.organization.urlKey,
+  };
 }
 
-/** Map each Beacon status to a concrete Linear workflow-state UUID for this team (write-back needs it). */
+/** Page a top-level `teams`/`projects` connection to completion (default page size is only ~50). */
+async function pageAllNamed(apiKey: string, field: "teams" | "projects"): Promise<{ id: string; name: string }[]> {
+  const out: { id: string; name: string }[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 50; page++) {
+    const d = await gql<Record<string, { nodes: { id: string; name: string }[]; pageInfo: { hasNextPage: boolean; endCursor: string } }>>(
+      apiKey,
+      `query($after: String) { ${field}(first: 250, after: $after) { nodes { id name } pageInfo { hasNextPage endCursor } } }`,
+      { after },
+    );
+    out.push(...d[field].nodes);
+    if (!d[field].pageInfo.hasNextPage) break;
+    after = d[field].pageInfo.endCursor;
+  }
+  return out;
+}
+
+/** Teams + projects in the workspace, for the base-scope picker (paginated). */
+export async function listScopes(apiKey: string): Promise<LinearScope[]> {
+  const [teams, projects] = await Promise.all([pageAllNamed(apiKey, "teams"), pageAllNamed(apiKey, "projects")]);
+  return [
+    ...teams.map((t) => ({ kind: "team" as const, id: t.id, name: t.name })),
+    ...projects.map((p) => ({ kind: "project" as const, id: p.id, name: p.name })),
+  ];
+}
+
+/** Map each Beacon status to a concrete Linear workflow-state UUID for a team (write-back needs it). */
 export async function resolveStateMap(
   apiKey: string,
   teamId: string,
@@ -92,40 +133,56 @@ export async function resolveStateMap(
   if (cancelled) map.CANCELLED = cancelled;
   if (started) map.IN_PROGRESS = started;
   if (pending) map.PENDING = pending;
+  // Linear has no "blocked" workflow-state type; a blocked task is in-progress-but-stuck, so BLOCKED
+  // writes back as the team's started state. (Round-tripping through Linear reads it back IN_PROGRESS.)
+  if (started) map.BLOCKED = started;
   return map;
 }
 
-/** Delta pull: issues in the team changed since `sinceISO` (all of them on first sync). */
-export async function fetchIssuesSince(
+/**
+ * The FULL current scoped set: open issues (not completed/canceled) in the team/project, optionally
+ * narrowed to assignee=viewer. Pages to completion — the scoped/assigned set is small, and this is
+ * what lets the reconcile detect issues that LEFT the scope.
+ */
+export interface ScopedFetch {
+  issues: LinearIssue[];
+  /** false when the page cap truncated the set — the caller must NOT treat "absent" as "removed". */
+  complete: boolean;
+}
+
+export async function fetchScopedOpenIssues(
   apiKey: string,
-  teamId: string,
-  sinceISO?: string,
-): Promise<LinearIssue[]> {
-  const filter: Record<string, unknown> = { team: { id: { eq: teamId } } };
-  if (sinceISO) filter.updatedAt = { gt: sinceISO };
+  scope: LinearScope,
+  opts: { onlyMineViewerId?: string } = {},
+): Promise<ScopedFetch> {
+  const filter: Record<string, unknown> = {
+    state: { type: { nin: ["completed", "canceled"] } },
+  };
+  if (scope.kind === "team") filter.team = { id: { eq: scope.id } };
+  else filter.project = { id: { eq: scope.id } };
+  if (opts.onlyMineViewerId) filter.assignee = { id: { eq: opts.onlyMineViewerId } };
+
   const query = `
     query($filter: IssueFilter, $after: String) {
-      issues(filter: $filter, orderBy: updatedAt, first: 100, after: $after) {
+      issues(filter: $filter, first: 100, after: $after) {
         nodes { ${ISSUE_FIELDS} }
         pageInfo { hasNextPage endCursor }
       }
     }`;
   const out: LinearIssue[] = [];
   let after: string | undefined;
-  // Page through the ENTIRE filtered set (updatedAt > cursor). Stopping early would strand every
-  // issue past the cap forever — the cursor advances to the newest fetched, so `gt cursor` never
-  // returns the older ones again. The 500-page backstop only guards a pathological/mis-cursored
-  // pull; hitting it is logged, never a silent drop.
+  // Page to completion. The 500-page backstop only guards a pathological pull; on hitting it we
+  // report complete:false so the reconcile skips removals (a truncated set is not authoritative).
   for (let page = 0; page < 500; page++) {
     const d = await gql<{
       issues: { nodes: RawIssue[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
     }>(apiKey, query, { filter, after });
     out.push(...d.issues.nodes.map(flattenIssue));
-    if (!d.issues.pageInfo.hasNextPage) return out;
+    if (!d.issues.pageInfo.hasNextPage) return { issues: out, complete: true };
     after = d.issues.pageInfo.endCursor;
   }
-  console.warn("[beacon-linear] issue delta exceeded 500 pages (~50k issues); truncated this pass");
-  return out;
+  console.warn("[beacon-linear] scoped issue set exceeded 500 pages; skipping removals this pass");
+  return { issues: out, complete: false };
 }
 
 export interface IssuePatch {

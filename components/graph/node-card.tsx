@@ -78,6 +78,9 @@ export type MapNodeData = {
   kind?: string;
   source: string;
   sourceRef: string | null;
+  /** Linear issue owner (assignee) — top-left avatar chip on synced cards; name on hover. */
+  assigneeName?: string | null;
+  assigneeAvatarUrl?: string | null;
   isCriterion: boolean;
   isChild: boolean;
   parentId: string | null;
@@ -931,6 +934,28 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
         {/* identity row — title left; status pulled to the top-right as the focal counterweight */}
         <div className="flex w-0 min-w-full items-start gap-1.5">
           <div className="flex min-w-0 flex-1 items-start gap-1">
+            {data.source === "LINEAR" &&
+              (data.assigneeAvatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- external Linear avatar, no loader
+                <img
+                  src={data.assigneeAvatarUrl}
+                  alt={data.assigneeName ?? "assignee"}
+                  title={data.assigneeName ? `Owner: ${data.assigneeName}` : "Assignee"}
+                  draggable={false}
+                  className={cn(noDrag, "mt-0.5 size-4 shrink-0 rounded-full object-cover ring-1 ring-white/20")}
+                />
+              ) : data.assigneeName ? (
+                // Owner with no Linear photo → initials chip so the owner is still visible.
+                <span
+                  title={`Owner: ${data.assigneeName}`}
+                  className={cn(
+                    noDrag,
+                    "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-white/10 text-[7px] font-semibold uppercase text-muted-foreground ring-1 ring-white/20",
+                  )}
+                >
+                  {data.assigneeName.split(/\s+/).map((w) => w[0]).slice(0, 2).join("")}
+                </span>
+              ) : null)}
             {working && (
               <span title="in progress" className="mt-1.5 inline-block size-2 shrink-0 animate-pulse rounded-full bg-sky-400" />
             )}

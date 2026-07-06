@@ -25,6 +25,9 @@ export interface MapNodePayload {
   y: number;
   source: string;
   sourceRef: string | null;
+  // Linear issue owner (assignee) for the owner-avatar chip — set on source="LINEAR" cards.
+  assigneeName?: string | null;
+  assigneeAvatarUrl?: string | null;
   parentId: string | null;
   isCriterion: boolean;
   files: string[];

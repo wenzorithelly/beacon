@@ -25,7 +25,9 @@ export async function readRoadmapBoard(
     // cards — merely PRESENTING a plan must never surface its proposals here, only an
     // approval (which promotes DRAFT→MANUAL) does. Mirrors ensureBoardArranged + the
     // /api/plan dedup, which already exclude DRAFT.
-    where: (n, { and, eq, ne }) => and(eq(n.view, view), ne(n.source, "DRAFT")),
+    // isNull(hiddenAt): soft-hidden Linear cards (issue left the scope) stay in the DB — with their
+    // position/edges/annotations — but drop off the visible board until their issue returns.
+    where: (n, { and, eq, ne, isNull }) => and(eq(n.view, view), ne(n.source, "DRAFT"), isNull(n.hiddenAt)),
     // createdAt order is the deterministic tie-break for "work on next".
     orderBy: (n, { asc }) => asc(n.createdAt),
     with: {
@@ -37,7 +39,7 @@ export async function readRoadmapBoard(
 
   // Filter edges to those whose BOTH endpoints are nodes of this view. The relational query API
   // can't filter by a related field, so resolve the view's node ids first and intersect.
-  const viewNodeIds = sql`(select "id" from "Node" where "view" = ${view} and "source" <> 'DRAFT')`;
+  const viewNodeIds = sql`(select "id" from "Node" where "view" = ${view} and "source" <> 'DRAFT' and "hiddenAt" is null)`;
   const dbEdges = await db.query.edge.findMany({
     where: (e, { and: a, inArray: inArr }) =>
       a(inArr(e.fromId, viewNodeIds), inArr(e.toId, viewNodeIds)),
@@ -68,6 +70,8 @@ export async function readRoadmapBoard(
     y: n.y,
     source: n.source,
     sourceRef: n.sourceRef,
+    assigneeName: n.assigneeName,
+    assigneeAvatarUrl: n.assigneeAvatarUrl,
     parentId: n.parentId,
     isCriterion: n.nodeTags.some((nt) => nt.tag.label === "criterion"),
     files: n.files.map((f) => f.path),

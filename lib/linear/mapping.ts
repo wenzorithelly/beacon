@@ -39,6 +39,8 @@ export interface NodeFields {
   source: "LINEAR";
   externalId: string;
   sourceRef: string;
+  assigneeName: string | null;
+  assigneeAvatarUrl: string | null;
 }
 
 // No `layer` here — Linear has no layer, and a pure-backend workspace must never carry one
@@ -54,5 +56,7 @@ export function issueToNodeFields(issue: LinearIssue): NodeFields {
     source: "LINEAR",
     externalId: issue.id,
     sourceRef: issue.url,
+    assigneeName: issue.assigneeName ?? null,
+    assigneeAvatarUrl: issue.assigneeAvatarUrl ?? null,
   };
 }

@@ -18,8 +18,11 @@ const issue = (over: Partial<LinearIssue> = {}): LinearIssue => ({
   stateType: "started",
   labels: [],
   parentId: null,
+  teamId: "team-1",
   teamKey: "V3",
   projectName: null,
+  assigneeName: "Leticia",
+  assigneeAvatarUrl: "https://avatars.linear.app/leticia.png",
   ...over,
 });
 
@@ -65,8 +68,16 @@ describe("issueToNodeFields", () => {
       source: "LINEAR",
       externalId: "uuid-1",
       sourceRef: "https://linear.app/acme/issue/V3-339/pwa-edit",
+      assigneeName: "Leticia",
+      assigneeAvatarUrl: "https://avatars.linear.app/leticia.png",
     });
     expect(f).not.toHaveProperty("layer"); // layer is decided by the executor, not the mapper
+  });
+
+  it("tolerates an unassigned issue (no owner)", () => {
+    const f = issueToNodeFields(issue({ assigneeName: null, assigneeAvatarUrl: null }));
+    expect(f.assigneeName).toBeNull();
+    expect(f.assigneeAvatarUrl).toBeNull();
   });
 
   it("uses the project name as category, else the team key", () => {

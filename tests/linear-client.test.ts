@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { flattenIssue } from "@/lib/linear/client";
 
 describe("flattenIssue", () => {
-  it("flattens Linear's nested issue into a LinearIssue (ISO → ms)", () => {
+  it("flattens Linear's nested issue into a LinearIssue (ISO → ms, team id, assignee)", () => {
     const raw = {
       id: "uuid-1",
       identifier: "V3-339",
@@ -14,8 +14,9 @@ describe("flattenIssue", () => {
       state: { type: "started" },
       labels: { nodes: [{ name: "frontend" }, { name: "bug" }] },
       parent: { id: "parent-uuid" },
-      team: { key: "V3" },
+      team: { id: "team-uuid", key: "V3" },
       project: { name: "Shimizu PWA" },
+      assignee: { id: "u1", name: "Leticia", avatarUrl: "https://a/leticia.png" },
     };
     expect(flattenIssue(raw)).toEqual({
       id: "uuid-1",
@@ -28,12 +29,15 @@ describe("flattenIssue", () => {
       stateType: "started",
       labels: ["frontend", "bug"],
       parentId: "parent-uuid",
+      teamId: "team-uuid",
       teamKey: "V3",
       projectName: "Shimizu PWA",
+      assigneeName: "Leticia",
+      assigneeAvatarUrl: "https://a/leticia.png",
     });
   });
 
-  it("tolerates absent parent / project / labels", () => {
+  it("tolerates absent parent / project / labels / assignee", () => {
     const f = flattenIssue({
       id: "u",
       identifier: "V3-1",
@@ -45,11 +49,14 @@ describe("flattenIssue", () => {
       state: { type: "backlog" },
       labels: { nodes: [] },
       parent: null,
-      team: { key: "V3" },
+      team: { id: "team-uuid", key: "V3" },
       project: null,
+      assignee: null,
     });
     expect(f.parentId).toBeNull();
     expect(f.projectName).toBeNull();
     expect(f.labels).toEqual([]);
+    expect(f.assigneeName).toBeNull();
+    expect(f.assigneeAvatarUrl).toBeNull();
   });
 });

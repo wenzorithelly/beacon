@@ -132,6 +132,8 @@ function buildNodes(payload: MapNodePayload[]): Node<MapNodeData>[] {
       kind: n.kind,
       source: n.source,
       sourceRef: n.sourceRef,
+      assigneeName: n.assigneeName,
+      assigneeAvatarUrl: n.assigneeAvatarUrl,
       isCriterion: n.isCriterion,
       isChild: n.parentId != null,
       parentId: n.parentId,
