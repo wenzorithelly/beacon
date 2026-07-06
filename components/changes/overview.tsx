@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Activity, ListOrdered, GitCompare, ChevronRight, ScanSearch, Loader2, Flag, X, HelpCircle, ExternalLink } from "lucide-react";
 import { FileCard, type FileQuality } from "@/components/changes/file-card";
 import { FileDiffView, openInEditor, AgentAnswer, AwaitingAnswer } from "@/components/changes/file-diff";
@@ -88,6 +88,16 @@ export function ChangesOverview({
   // Clock for the "· 12s ago" label + episode boundaries — state (not Date.now() in render) so
   // rendering stays pure, ticking every 30s so the label doesn't go stale between refreshes.
   const [now, setNow] = useState(() => Date.now());
+  // Relative "Xs ago" text is client-only: the useState initializer runs on BOTH the server and the
+  // client at different instants, so rendering the age during SSR hydration-mismatches (39s vs 40s).
+  // useSyncExternalStore gives false on the server + first client render (they agree — no age) then
+  // true after hydration, so the labels fill in without a mismatch. (Minute-scale grouping is safe,
+  // so only the second-granularity labels are gated.)
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(t);
@@ -99,7 +109,7 @@ export function ChangesOverview({
   const totalLines = totals.add + totals.del;
   const budgetPct = Math.min(100, (totalLines / REVIEW_BUDGET_LINES) * 100);
   const latest = useMemo(() => latestEditedFile(files, touched), [files, touched]);
-  const live = !!latest && now - latest.lastAt < 60_000;
+  const live = mounted && !!latest && now - latest.lastAt < 60_000;
   const viewedCount = files.filter((f) => views[f.path] === "viewed").length;
 
   const byPath = useMemo(() => new Map(files.map((f) => [f.path, f])), [files]);
@@ -215,6 +225,7 @@ export function ChangesOverview({
   };
 
   const agoFor = (f: ChangedFile) => {
+    if (!mounted) return undefined;
     const at = touched[f.path]?.lastAt ?? (f.oldPath ? touched[f.oldPath]?.lastAt : undefined);
     return at ? ago(now - at) : undefined;
   };
@@ -240,8 +251,8 @@ export function ChangesOverview({
               <span className="text-muted-foreground">{live ? "Editing" : "Last edited"}</span>{" "}
               <span className="font-mono text-[12px] text-foreground/90 underline-offset-2 group-hover/foc:underline">
                 {latest.path}
-              </span>{" "}
-              <span className="text-muted-foreground">· {ago(now - latest.lastAt)}</span>
+              </span>
+              {mounted && <span className="text-muted-foreground"> · {ago(now - latest.lastAt)}</span>}
             </button>
           ) : (
             <span className="text-muted-foreground">No agent edits this session</span>
