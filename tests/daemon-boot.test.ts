@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { decideDaemonBoot, desktopAppInstalled } from "@/lib/daemon-boot";
+import { decideDaemonBoot, decideDaemonRecheck, desktopAppInstalled } from "@/lib/daemon-boot";
 
 // Deliverable C — the headless app-boot decision, unit-tested pure (app-installed × daemon-healthy
 // matrix) so the branch's logic is proven without launching the real app or stopping the real daemon.
@@ -21,6 +21,22 @@ describe("decideDaemonBoot", () => {
 
   it("no daemon + no app → spawn the bundled server with bun", () => {
     expect(decideDaemonBoot({ healthy: false, appInstalled: false })).toBe("bun");
+  });
+});
+
+describe("decideDaemonRecheck", () => {
+  // The last-moment recheck run right before the bun daemon would spawn, after bootViaApp timed out.
+  // Guards the double-boot race: a slow app that goes healthy just after the ~30s poll must be reused,
+  // not clobbered by a second daemon writing server.json against the same BEACON_HOME.
+  it("recheck finds a live, healthy backend → reuse (don't spawn a second daemon)", () => {
+    expect(decideDaemonRecheck({ present: true, alive: true, healthy: true })).toBe("reuse");
+  });
+
+  it("recheck finds nothing / a dead / an unhealthy pid → spawn", () => {
+    expect(decideDaemonRecheck({ present: false, alive: false, healthy: false })).toBe("spawn"); // no server.json
+    expect(decideDaemonRecheck({ present: true, alive: false, healthy: false })).toBe("spawn"); // stale pid, dead
+    expect(decideDaemonRecheck({ present: true, alive: false, healthy: true })).toBe("spawn"); // healthy port, dead pid (someone else)
+    expect(decideDaemonRecheck({ present: true, alive: true, healthy: false })).toBe("spawn"); // alive but not answering
   });
 });
 

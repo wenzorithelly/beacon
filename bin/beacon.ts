@@ -336,11 +336,29 @@ async function ensureDaemon(): Promise<string> {
   // backend and publishes ~/.beacon/server.json, so `beacon mcp`/`plan` from a terminal agent reach
   // it even when only the app (no system Bun/Node) is present. Falls back to the bun path below when
   // the app isn't installed — or doesn't become healthy in time.
-  const { desktopAppInstalled, decideDaemonBoot } = await import(mod("lib/daemon-boot.ts"));
-  if (decideDaemonBoot({ healthy: false, appInstalled: desktopAppInstalled() }) === "app") {
+  const { desktopAppInstalled, decideDaemonBoot, decideDaemonRecheck } = await import(mod("lib/daemon-boot.ts"));
+  const appAttempted = decideDaemonBoot({ healthy: false, appInstalled: desktopAppInstalled() }) === "app";
+  if (appAttempted) {
     const viaApp = await bootViaApp();
     if (viaApp) return viaApp;
     console.log("[beacon] the Beacon app didn't come up in time — starting the bundled server…");
+  }
+  // ponytail: last-moment recheck, not a lock; cross-process lock file is the upgrade if this ever bites.
+  // bootViaApp above polls ~30s; a slow app (Gatekeeper cold start, first-boot migrations across many
+  // workspace dbs) can go healthy just AFTER that timeout and re-publish server.json. Re-read it right
+  // before we spawn: if it now names a live, healthy backend, reuse THAT instead of starting a SECOND
+  // daemon against the same BEACON_HOME. Shrinks the double-boot window from bootViaApp's ~30s to the
+  // gap before startDaemon below.
+  const recheck = readJson<{ pid: number; port: string }>(SERVER_FILE);
+  if (
+    recheck &&
+    decideDaemonRecheck({
+      present: true,
+      alive: isAlive(recheck.pid),
+      healthy: await urlOk(`http://localhost:${recheck.port}/api/workspace`),
+    }) === "reuse"
+  ) {
+    return recheck.port;
   }
   // Pick a free port: if the preferred one (PORT / 4319) is taken by a stray process or another
   // app, scan upward so launch never wedges on "address in use". The chosen port is recorded in
@@ -352,10 +370,24 @@ async function ensureDaemon(): Promise<string> {
       ? "[beacon] starting the Beacon server…"
       : `[beacon] port ${PORT} is busy — starting the Beacon server on port ${port}…`,
   );
-  const { port: started } = startDaemon(port);
-  const ready = await waitForUrl(`http://localhost:${started}/api/workspace`);
+  const started = startDaemon(port);
+  const ready = await waitForUrl(`http://localhost:${started.port}/api/workspace`);
   if (!ready) console.log("[beacon] (server is taking a while — it may still be compiling)");
-  return started;
+  // Post-spawn guard, only when the app path was tried: a late app backend can STILL overwrite
+  // server.json after our spawn (it wins the race by seconds), leaving two backends on one
+  // BEACON_HOME. One cheap check — not a lock: 5s on, if server.json no longer names our pid, tell
+  // the user how to consolidate. (The recheck above closes the common window; this catches the tail.)
+  if (appAttempted) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const owner = readJson<{ pid: number }>(SERVER_FILE);
+    if (owner && owner.pid !== started.pid) {
+      console.log(
+        "[beacon] the Beacon app came up after the bundled server started — two backends may be running.\n" +
+          "         Run `beacon stop`, then relaunch, to leave just one.",
+      );
+    }
+  }
+  return started.port;
 }
 
 // Launch the installed Beacon.app in the background (`open -ga` — no focus steal) and wait for its

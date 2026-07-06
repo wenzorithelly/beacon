@@ -32,3 +32,27 @@ export function decideDaemonBoot({
   if (appInstalled) return "app";
   return "bun";
 }
+
+export type DaemonRecheck = "reuse" | "spawn";
+
+/**
+ * Run at the LAST moment before the bun daemon would spawn, in the fallback path after bootViaApp
+ * timed out. bootViaApp polls ~30s; a slow-to-launch app (Gatekeeper cold start, first-boot migrations
+ * across many workspace dbs) can go healthy just AFTER that timeout and publish ~/.beacon/server.json.
+ * Without this recheck, startDaemon would spawn a SECOND backend against the same BEACON_HOME — two
+ * daemons, split SQLite locks, and the loser unreachable by `beacon stop`. If server.json now names a
+ * live, healthy pid, reuse it instead of spawning.
+ *
+ * ponytail: last-moment recheck, not a lock; a cross-process lock file is the upgrade if this ever bites.
+ */
+export function decideDaemonRecheck({
+  present,
+  alive,
+  healthy,
+}: {
+  present: boolean; // server.json currently names a pid+port
+  alive: boolean; // that pid answers `kill(pid, 0)`
+  healthy: boolean; // its /api/workspace responds ok
+}): DaemonRecheck {
+  return present && alive && healthy ? "reuse" : "spawn";
+}
