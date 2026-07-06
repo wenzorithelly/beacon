@@ -331,6 +331,17 @@ async function ensureDaemon(): Promise<string> {
   if (existing && isAlive(existing.pid) && (await urlOk(`http://localhost:${existing.port}/api/workspace`))) {
     return existing.port;
   }
+  // No healthy daemon. When the desktop app is installed, boot the backend by launching the APP
+  // (headless, no focus steal) instead of spawning our own bun server: the app owns a UI-capable
+  // backend and publishes ~/.beacon/server.json, so `beacon mcp`/`plan` from a terminal agent reach
+  // it even when only the app (no system Bun/Node) is present. Falls back to the bun path below when
+  // the app isn't installed — or doesn't become healthy in time.
+  const { desktopAppInstalled, decideDaemonBoot } = await import(mod("lib/daemon-boot.ts"));
+  if (decideDaemonBoot({ healthy: false, appInstalled: desktopAppInstalled() }) === "app") {
+    const viaApp = await bootViaApp();
+    if (viaApp) return viaApp;
+    console.log("[beacon] the Beacon app didn't come up in time — starting the bundled server…");
+  }
   // Pick a free port: if the preferred one (PORT / 4319) is taken by a stray process or another
   // app, scan upward so launch never wedges on "address in use". The chosen port is recorded in
   // server.json, which every other client (the MCP server, hooks, `beacon plan`) reads back.
@@ -345,6 +356,26 @@ async function ensureDaemon(): Promise<string> {
   const ready = await waitForUrl(`http://localhost:${started}/api/workspace`);
   if (!ready) console.log("[beacon] (server is taking a while — it may still be compiling)");
   return started;
+}
+
+// Launch the installed Beacon.app in the background (`open -ga` — no focus steal) and wait for its
+// owned backend to publish ~/.beacon/server.json + go healthy. Returns the port, or null if `open`
+// fails / the app doesn't become healthy in time (caller then falls back to the bun path).
+async function bootViaApp(): Promise<string | null> {
+  if (platform() !== "darwin") return null;
+  console.log("[beacon] launching the Beacon app to serve the backend…");
+  try {
+    // -g: keep it in the background (don't steal focus from the terminal). -a Beacon: launch by name.
+    execSync("open -ga Beacon", { stdio: "ignore" });
+  } catch {
+    return null; // app not launchable via `open`
+  }
+  for (let i = 0; i < 60; i++) {
+    const info = readJson<{ pid: number; port: string }>(SERVER_FILE);
+    if (info?.port && (await urlOk(`http://localhost:${info.port}/api/workspace`))) return info.port;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return null;
 }
 
 function openBrowser(url: string) {

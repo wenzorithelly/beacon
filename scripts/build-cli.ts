@@ -36,6 +36,7 @@ const ENTRYPOINTS = [
   "lib/semver.ts", // `beacon update` compares the installed vs latest version
   "lib/telemetry.ts", // `beacon telemetry` + the first-run disclosure notice
   "lib/daemon-port.ts", // ensureDaemon() scans for a free port when the preferred one is busy
+  "lib/daemon-boot.ts", // ensureDaemon() decides app-boot vs bun-boot when no daemon is healthy
 ];
 
 // Externalize the real node_modules deps (resolved by the user's `bun add -g`), but NOT our own
