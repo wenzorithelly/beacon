@@ -40,6 +40,9 @@ export function TopNav({ repo }: { repo?: string }) {
   const [isShell, setIsShell] = useState(false);
   const [surface, setSurface] = useState<"web" | "terminal">("web");
   useEffect(() => {
+    // Deliberate: shell detection is client-only (reads the preload-set html attribute) — same
+    // mount-time pattern as the ws read above.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsShell(isDesktopShell());
     const read = () =>
       setSurface(document.documentElement.dataset.shellSurface === "terminal" ? "terminal" : "web");
@@ -50,8 +53,24 @@ export function TopNav({ repo }: { repo?: string }) {
   }, []);
   const onTerminal = surface === "terminal";
   return (
-    <header className="pointer-events-none fixed left-3 top-3 z-30">
-      <div className="glass pointer-events-auto flex h-10 items-center gap-1 rounded-full pl-3 pr-1.5">
+    <header
+      className={cn(
+        isShell
+          ? // Desktop shell: ONE full-width title bar — traffic lights inline at macOS's native
+            // inset (pl clears them), nav + actions in the same chrome row, hairline bottom edge.
+            // The bar itself is the window drag region; interactive groups opt out below.
+            "fixed inset-x-0 top-0 z-30 h-12 border-b border-border bg-background/75 backdrop-blur-xl [-webkit-app-region:drag]"
+          : "pointer-events-none fixed left-3 top-3 z-30",
+      )}
+    >
+      <div
+        className={cn(
+          isShell
+            ? "pointer-events-auto flex h-full items-center gap-1 pl-[88px] pr-3"
+            : "glass pointer-events-auto flex h-10 items-center gap-1 rounded-full pl-3 pr-1.5",
+        )}
+      >
+        <div className={cn("flex items-center gap-1", isShell && "[-webkit-app-region:no-drag]")}>
         <Link
           href="/"
           className="mr-1 flex items-center gap-2 text-sm font-semibold tracking-tight"
@@ -129,37 +148,39 @@ export function TopNav({ repo }: { repo?: string }) {
         >
           <StickyNote className="size-4" />
         </button>
-      </div>
-      {isShell && onTerminal && (
-        <div className="glass pointer-events-auto fixed right-3 top-3 z-30 flex h-10 items-center gap-1 rounded-full px-1.5">
-          <button
-            type="button"
-            aria-label="New terminal"
-            title="New terminal (⌘T)"
-            onClick={() =>
-              window.dispatchEvent(
-                new CustomEvent("beacon:shell-terminal-action", { detail: { action: "new" } }),
-              )
-            }
-            className="flex items-center justify-center rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
-          >
-            <Plus className="size-4" />
-          </button>
-          <button
-            type="button"
-            aria-label="Terminal settings"
-            title="Terminal settings"
-            onClick={() =>
-              window.dispatchEvent(
-                new CustomEvent("beacon:shell-terminal-action", { detail: { action: "settings" } }),
-              )
-            }
-            className="flex items-center justify-center rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
-          >
-            <SlidersHorizontal className="size-4" />
-          </button>
         </div>
-      )}
+        {isShell && <div className="h-full flex-1" />}
+        {isShell && onTerminal && (
+          <div className="flex items-center gap-1 [-webkit-app-region:no-drag]">
+            <button
+              type="button"
+              aria-label="New terminal"
+              title="New terminal (⌘T)"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("beacon:shell-terminal-action", { detail: { action: "new" } }),
+                )
+              }
+              className="flex items-center justify-center rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
+            >
+              <Plus className="size-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="Terminal settings"
+              title="Terminal settings"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("beacon:shell-terminal-action", { detail: { action: "settings" } }),
+                )
+              }
+              className="flex items-center justify-center rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
+            >
+              <SlidersHorizontal className="size-4" />
+            </button>
+          </div>
+        )}
+      </div>
     </header>
   );
 }
