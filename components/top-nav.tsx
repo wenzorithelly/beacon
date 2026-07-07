@@ -59,7 +59,7 @@ export function TopNav({ repo }: { repo?: string }) {
           ? // Desktop shell: ONE full-width title bar — traffic lights inline at macOS's native
             // inset (pl clears them), nav + actions in the same chrome row, hairline bottom edge.
             // The bar itself is the window drag region; interactive groups opt out below.
-            "fixed inset-x-0 top-0 z-30 h-12 border-b border-border bg-background/75 backdrop-blur-xl [-webkit-app-region:drag]"
+            "fixed inset-x-0 top-0 z-30 h-9 border-b border-border bg-background/75 backdrop-blur-xl [-webkit-app-region:drag]"
           : "pointer-events-none fixed left-3 top-3 z-30",
       )}
     >
@@ -71,16 +71,22 @@ export function TopNav({ repo }: { repo?: string }) {
         )}
       >
         <div className={cn("flex items-center gap-1", isShell && "[-webkit-app-region:no-drag]")}>
-        <Link
-          href="/"
-          className="mr-1 flex items-center gap-2 text-sm font-semibold tracking-tight"
-        >
-          <BeaconMark size={18} className="text-foreground" />
-          {/* Wordmark drops below `lg` (the mark still identifies us) so the left pill stays
-              narrow and clears the right-anchored view tabs on small screens. */}
-          <span className="hidden lg:inline">Beacon</span>
-        </Link>
-        <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+        {/* The desktop shell's title bar carries no brand — the app IS the brand (the mark lives on
+            the Settings page instead); browsers keep the logo as the home link. */}
+        {!isShell && (
+          <>
+            <Link
+              href="/"
+              className="mr-1 flex items-center gap-2 text-sm font-semibold tracking-tight"
+            >
+              <BeaconMark size={18} className="text-foreground" />
+              {/* Wordmark drops below `lg` (the mark still identifies us) so the left pill stays
+                  narrow and clears the right-anchored view tabs on small screens. */}
+              <span className="hidden lg:inline">Beacon</span>
+            </Link>
+            <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+          </>
+        )}
         <WorkspaceSwitcher fallback={repo} />
         <span aria-hidden className="mx-1 h-5 w-px bg-border" />
         <nav className="flex items-center gap-0.5 text-sm">
@@ -100,7 +106,8 @@ export function TopNav({ repo }: { repo?: string }) {
                     );
                 }}
                 className={cn(
-                  "rounded-full px-3 py-1 text-[13px] tracking-tight transition-colors",
+                  "rounded-full tracking-tight transition-colors",
+                  isShell ? "px-2.5 py-[3px] text-[12.5px]" : "px-3 py-1 text-[13px]",
                   active
                     ? "bg-[var(--ink-active)] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                     : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
@@ -120,7 +127,8 @@ export function TopNav({ repo }: { repo?: string }) {
                 )
               }
               className={cn(
-                "rounded-full px-3 py-1 text-[13px] tracking-tight transition-colors",
+                "rounded-full tracking-tight transition-colors",
+                isShell ? "px-2.5 py-[3px] text-[12.5px]" : "px-3 py-1 text-[13px]",
                 onTerminal
                   ? "bg-[var(--ink-active)] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                   : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",

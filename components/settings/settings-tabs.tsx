@@ -1,5 +1,6 @@
 "use client";
 
+import { BeaconMark } from "@/components/beacon-mark";
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -21,7 +22,12 @@ export function SettingsTabs({ tabs }: { tabs: SettingsTab[] }) {
   return (
     <div className="flex flex-col gap-6 sm:flex-row sm:gap-8">
       <aside className="shrink-0 sm:w-52">
-        <h1 className="mb-4 px-3 text-lg font-semibold tracking-tight">Settings</h1>
+        {/* Brand recedes (muted, small), the page title leads — clear rhythm between the two. */}
+        <div className="mb-6 flex items-center gap-2 px-3">
+          <BeaconMark size={16} className="text-muted-foreground" />
+          <span className="text-[13px] font-medium tracking-tight text-muted-foreground">Beacon</span>
+        </div>
+        <h1 className="mb-5 px-3 text-lg font-semibold tracking-tight">Settings</h1>
         <nav
           role="tablist"
           aria-label="Settings sections"
