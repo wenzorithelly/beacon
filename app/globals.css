@@ -625,3 +625,17 @@ html[data-shell-surface="terminal"] body > *:not(header) {
   opacity: 0;
   pointer-events: none;
 }
+
+/* Desktop shell: the workspace switcher compacts to sit inside the 36px title bar (its default
+   h-7 pill crowds the bar's edges). Keyed on the preload-set attribute — applies pre-hydration. */
+html[data-shell="desktop"] [data-ws-switcher] {
+  height: 1.5rem !important;
+  font-size: 12.5px;
+  border-radius: 0.5rem;
+  padding-inline: 0.5rem;
+  gap: 0.3rem;
+}
+html[data-shell="desktop"] [data-ws-switcher] svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}

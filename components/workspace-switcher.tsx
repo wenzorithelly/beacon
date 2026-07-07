@@ -96,6 +96,7 @@ export function WorkspaceSwitcher({ fallback }: { fallback?: string }) {
   return (
     <Select value={active ?? ""} onValueChange={(v) => v && pick(v)}>
       <SelectTrigger
+        data-ws-switcher=""
         title={activeWs?.name}
         className="h-7 max-w-[180px] gap-1.5 rounded-lg border-border bg-[var(--ink-hover)] px-2 text-xs font-medium transition-colors hover:bg-[var(--ink-active)]"
       >
