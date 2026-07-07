@@ -610,3 +610,18 @@
     background-color: transparent;
   }
 }
+
+/* Desktop shell: while the terminal surface (a docked native view) covers the page below the nav,
+   blank EVERYTHING except the fixed app nav in the strip that stays visible — main AND portaled
+   elements (tooltips, pins, toasts land as body children), so Terminal reads as one more app view
+   with a clean canvas, not terminals floating over a live board. The page keeps running underneath
+   (SSE, canvas state); this is visibility, not unmount. Ceiling: overlays that should arguably
+   surface OVER the terminal (agent-ask modal) are hidden too — a data-shell-keep opt-out is the
+   upgrade if that ever matters. */
+html[data-shell-surface="terminal"] body > *:not(header) {
+  /* opacity, NOT visibility: React Flow sets inline `visibility: visible` on its nodes (its own
+     culling machinery), and a descendant's explicit visibility punches through an ancestor's
+     hidden — nodes kept floating in the nav strip. Opacity can't be overridden by children. */
+  opacity: 0;
+  pointer-events: none;
+}
