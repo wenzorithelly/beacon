@@ -19,7 +19,19 @@ import {
   type Surface,
   type Theme,
 } from "@/lib/appearance";
+import { isDesktopShell } from "@/lib/shell";
 import { cn } from "@/lib/utils";
+
+// Nav mode is a DESKTOP-SHELL setting (the shell draws the Dia top bar / sidebar rail in its own
+// chrome view and persists the choice in Electron userData). This control lives here per the user's
+// call — not in the always-visible chrome. It talks to the shell over generic DOM-event seams the
+// preload bridges: request the current mode on mount, apply pushes, and set on change. Invisible in a
+// plain browser (which keeps the floating pill and never dispatches these events).
+type NavMode = "top" | "sidebar";
+const NAV_OPTIONS: { value: NavMode; label: string; hint: string }[] = [
+  { value: "top", label: "Top bar", hint: "Grouped pills" },
+  { value: "sidebar", label: "Sidebar", hint: "Labeled rail" },
+];
 
 const ACCENT = "#ff7a45";
 
@@ -105,6 +117,43 @@ function SurfaceSwatch({ surface }: { surface: Surface }) {
   );
 }
 
+// A mini window mock showing where navigation lives: a top strip (bar) or a left strip (rail), with
+// one accent tick standing in for the active item.
+function NavSwatch({ mode }: { mode: NavMode }) {
+  const p = PREVIEW.dark;
+  if (mode === "top") {
+    return (
+      <span
+        className="block h-10 w-full overflow-hidden rounded-md border"
+        style={{ background: p.bg, borderColor: p.border }}
+      >
+        <span
+          className="flex h-3 w-full items-center gap-1 px-1.5"
+          style={{ background: p.card, borderBottom: `1px solid ${p.border}` }}
+        >
+          <span className="h-1 w-4 rounded-full" style={{ background: p.ink, opacity: 0.5 }} />
+          <span className="h-1 w-3 rounded-full" style={{ background: ACCENT }} />
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span
+      className="flex h-10 w-full overflow-hidden rounded-md border"
+      style={{ background: p.bg, borderColor: p.border }}
+    >
+      <span
+        className="flex h-full w-[30%] flex-col gap-1 p-1.5"
+        style={{ background: p.card, borderRight: `1px solid ${p.border}` }}
+      >
+        <span className="h-1 w-full rounded-full" style={{ background: ACCENT }} />
+        <span className="h-1 w-3/4 rounded-full" style={{ background: p.ink, opacity: 0.4 }} />
+        <span className="h-1 w-3/4 rounded-full" style={{ background: p.ink, opacity: 0.4 }} />
+      </span>
+    </span>
+  );
+}
+
 function OptionButton({
   selected,
   label,
@@ -149,11 +198,23 @@ export function AppearanceCard() {
   // adopt the real stored values after mount — same pattern the workspace switcher uses.
   const [theme, setTheme] = useState<Theme>(DEFAULT_THEME);
   const [surface, setSurface] = useState<Surface>(DEFAULT_SURFACE);
+  // Desktop-shell nav mode (undefined until the shell answers → the section stays hidden in a browser).
+  const [navMode, setNavMode] = useState<NavMode | null>(null);
+  const [isShell, setIsShell] = useState(false);
   useEffect(() => {
     // Adopt the stored values after mount (client-only localStorage) — SSR seeded the defaults.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(getTheme());
     setSurface(getSurface());
+    setIsShell(isDesktopShell());
+    const onMode = (e: Event) => {
+      const m = (e as CustomEvent<{ mode?: string }>).detail?.mode;
+      if (m === "top" || m === "sidebar") setNavMode(m);
+    };
+    window.addEventListener("beacon:shell-nav-mode", onMode as EventListener);
+    // Ask the shell for the current mode (it owns the store); the reply arrives as beacon:shell-nav-mode.
+    window.dispatchEvent(new CustomEvent("beacon:shell-nav-mode-request"));
+    return () => window.removeEventListener("beacon:shell-nav-mode", onMode as EventListener);
   }, []);
 
   const pickTheme = (t: Theme) => {
@@ -163,6 +224,10 @@ export function AppearanceCard() {
   const pickSurface = (s: Surface) => {
     setSurface(s);
     persistSurface(s);
+  };
+  const pickNavMode = (m: NavMode) => {
+    setNavMode(m); // optimistic; the shell echoes it back to confirm
+    window.dispatchEvent(new CustomEvent("beacon:shell-set-nav-mode", { detail: { mode: m } }));
   };
 
   return (
@@ -176,39 +241,63 @@ export function AppearanceCard() {
           Theme and surface for this browser. Changes apply instantly and are remembered here.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-6 lg:grid-cols-2">
-        <div>
-          <p className="mb-2 text-xs font-medium text-muted-foreground">Theme</p>
-          <div className="flex gap-2">
-            {THEME_OPTIONS.map((o) => (
-              <OptionButton
-                key={o.value}
-                selected={theme === o.value}
-                label={o.label}
-                hint={o.value === "auto" ? "Follows your system" : undefined}
-                onClick={() => pickTheme(o.value)}
-              >
-                <ThemeSwatch theme={o.value} />
-              </OptionButton>
-            ))}
+      <CardContent className="space-y-6">
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">Theme</p>
+            <div className="flex gap-2">
+              {THEME_OPTIONS.map((o) => (
+                <OptionButton
+                  key={o.value}
+                  selected={theme === o.value}
+                  label={o.label}
+                  hint={o.value === "auto" ? "Follows your system" : undefined}
+                  onClick={() => pickTheme(o.value)}
+                >
+                  <ThemeSwatch theme={o.value} />
+                </OptionButton>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">Surface</p>
+            <div className="flex gap-2">
+              {SURFACE_OPTIONS.map((o) => (
+                <OptionButton
+                  key={o.value}
+                  selected={surface === o.value}
+                  label={o.label}
+                  hint={o.hint}
+                  onClick={() => pickSurface(o.value)}
+                >
+                  <SurfaceSwatch surface={o.value} />
+                </OptionButton>
+              ))}
+            </div>
           </div>
         </div>
-        <div>
-          <p className="mb-2 text-xs font-medium text-muted-foreground">Surface</p>
-          <div className="flex gap-2">
-            {SURFACE_OPTIONS.map((o) => (
-              <OptionButton
-                key={o.value}
-                selected={surface === o.value}
-                label={o.label}
-                hint={o.hint}
-                onClick={() => pickSurface(o.value)}
-              >
-                <SurfaceSwatch surface={o.value} />
-              </OptionButton>
-            ))}
+        {/* Desktop app only — a browser keeps the floating pill and has no shell to switch. */}
+        {isShell && (
+          <div className="border-t border-border pt-5">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Navigation</p>
+            <p className="mb-3 text-[11px] leading-tight text-muted-foreground/80">
+              Where the desktop app shows navigation.
+            </p>
+            <div className="flex max-w-md gap-2">
+              {NAV_OPTIONS.map((o) => (
+                <OptionButton
+                  key={o.value}
+                  selected={navMode === o.value}
+                  label={o.label}
+                  hint={o.hint}
+                  onClick={() => pickNavMode(o.value)}
+                >
+                  <NavSwatch mode={o.value} />
+                </OptionButton>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </CardContent>
     </Card>
   );
