@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { StickyNote } from "lucide-react";
+import { StickyNote, Plus, SlidersHorizontal } from "lucide-react";
 import { BeaconMark } from "@/components/beacon-mark";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { useNotes } from "@/components/notes/notes-context";
@@ -130,6 +130,36 @@ export function TopNav({ repo }: { repo?: string }) {
           <StickyNote className="size-4" />
         </button>
       </div>
+      {isShell && onTerminal && (
+        <div className="glass pointer-events-auto fixed right-3 top-3 z-30 flex h-10 items-center gap-1 rounded-full px-1.5">
+          <button
+            type="button"
+            aria-label="New terminal"
+            title="New terminal (⌘T)"
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent("beacon:shell-terminal-action", { detail: { action: "new" } }),
+              )
+            }
+            className="flex items-center justify-center rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
+          >
+            <Plus className="size-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Terminal settings"
+            title="Terminal settings"
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent("beacon:shell-terminal-action", { detail: { action: "settings" } }),
+              )
+            }
+            className="flex items-center justify-center rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
+          >
+            <SlidersHorizontal className="size-4" />
+          </button>
+        </div>
+      )}
     </header>
   );
 }
