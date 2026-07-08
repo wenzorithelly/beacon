@@ -34,8 +34,12 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
+  modal,
 }: Readonly<{
   children: React.ReactNode;
+  // Parallel `@modal` slot — renders the intercepted /settings modal OVER the current board on soft
+  // nav, and app/@modal/default.tsx (null) everywhere else. See app/@modal/(.)settings/page.tsx.
+  modal: React.ReactNode;
 }>) {
   return (
     <html
@@ -67,6 +71,7 @@ export default function RootLayout({
                 <TopNav repo={repoName()} />
                 <ShellNavBridge />
                 <MainRegion>{children}</MainRegion>
+                {modal}
                 <PlanBar />
               </PlanProvider>
               <NotesDrawer />
