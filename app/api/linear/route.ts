@@ -1,7 +1,7 @@
 import { pinned } from "@/lib/api-workspace";
 import { resolveViewerAndOrg } from "@/lib/linear/client";
 import { getLinearFlag, setLinearFlag } from "@/lib/linear/config";
-import type { LinearScope } from "@/lib/linear/types";
+import { effectiveScopes, type LinearScope } from "@/lib/linear/types";
 
 export const dynamic = "force-dynamic";
 
@@ -14,17 +14,20 @@ export const GET = pinned(async () => {
     orgName: config?.orgName ?? null,
     viewerName: config?.viewerName ?? null,
     scope: config?.scope ?? null,
+    scopes: effectiveScopes(config),
     onlyMine: config?.onlyMine ?? false,
     lastSyncedAt: config?.lastSyncedAt ?? null,
   });
 });
 
-// POST { apiKey } connects (resolves the viewer + workspace, resets scope). POST { scope } picks the
-// team/project. POST { onlyMine } / { enabled } toggle.
+// POST { apiKey } connects (resolves the viewer + workspace, resets scopes). POST { scopes } sets the
+// full mix of teams/projects/milestones/workspace (POST { scope } — a single legacy scope — is still
+// accepted and normalized into a one-element `scopes` array). POST { onlyMine } / { enabled } toggle.
 export const POST = pinned(async (req: Request) => {
   const b = (await req.json().catch(() => ({}))) as {
     apiKey?: string;
     scope?: LinearScope | null;
+    scopes?: LinearScope[] | null;
     onlyMine?: boolean;
     enabled?: boolean;
   };
@@ -43,6 +46,7 @@ export const POST = pinned(async (req: Request) => {
           orgName: vo.orgName,
           orgUrlKey: vo.orgUrlKey,
           scope: undefined,
+          scopes: undefined,
           onlyMine: undefined,
           stateMapByTeam: undefined,
           lastSyncedAt: undefined,
@@ -53,7 +57,11 @@ export const POST = pinned(async (req: Request) => {
     }
   }
 
-  if (b.scope !== undefined) await setLinearFlag({ config: { scope: b.scope ?? undefined } });
+  if (b.scopes !== undefined) {
+    await setLinearFlag({ config: { scopes: b.scopes ?? undefined } });
+  } else if (b.scope !== undefined) {
+    await setLinearFlag({ config: { scopes: b.scope ? [b.scope] : undefined } });
+  }
   if (b.onlyMine !== undefined) await setLinearFlag({ config: { onlyMine: b.onlyMine } });
   if (b.enabled !== undefined) await setLinearFlag({ enabled: b.enabled });
 
@@ -64,6 +72,7 @@ export const POST = pinned(async (req: Request) => {
     orgName: config?.orgName ?? null,
     viewerName: config?.viewerName ?? null,
     scope: config?.scope ?? null,
+    scopes: effectiveScopes(config),
     onlyMine: config?.onlyMine ?? false,
     lastSyncedAt: config?.lastSyncedAt ?? null,
   });

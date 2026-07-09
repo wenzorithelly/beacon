@@ -19,11 +19,17 @@ const issueA: LinearIssue = {
   updatedAt: 500,
   priority: 1,
   stateType: "started",
+  stateName: "In Progress",
+  stateColor: "#0f783c",
   labels: [],
   parentId: null,
   teamId: "team-1",
   teamKey: "V3",
+  teamName: "Terra Nova",
+  projectId: null,
   projectName: null,
+  milestoneId: null,
+  milestoneName: null,
   assigneeName: "Leticia",
   assigneeAvatarUrl: "https://a/leticia.png",
 };
@@ -33,20 +39,20 @@ const scoped = (issues: LinearIssue[], complete = true): ScopedFetch => ({ issue
 interface Fake extends SyncClient {
   updates: { id: string; patch: IssuePatch }[];
   stateMapCalls: string[];
-  fetchArgs: { scope: LinearScope; opts: { onlyMineViewerId?: string } }[];
+  fetchArgs: { scopes: LinearScope[]; opts: { onlyMineViewerId?: string } }[];
 }
 
 function fakeClient(over: Partial<SyncClient> = {}): Fake {
   const updates: { id: string; patch: IssuePatch }[] = [];
   const stateMapCalls: string[] = [];
-  const fetchArgs: { scope: LinearScope; opts: { onlyMineViewerId?: string } }[] = [];
+  const fetchArgs: { scopes: LinearScope[]; opts: { onlyMineViewerId?: string } }[] = [];
   return {
     updates,
     stateMapCalls,
     fetchArgs,
     resolveViewerAndOrg: async () => ({ viewerId: "me", viewerName: "Me", orgName: "Acme", orgUrlKey: "acme" }),
-    fetchScopedOpenIssues: async (_k, scope, opts) => {
-      fetchArgs.push({ scope, opts });
+    fetchScopedOpenIssues: async (_k, scopes, opts) => {
+      fetchArgs.push({ scopes, opts });
       return scoped([]);
     },
     resolveStateMap: async (_k, teamId) => {
@@ -94,10 +100,44 @@ describe("runSync (v2 — scoped, full-set, soft-hide)", () => {
   it("skips when no scope is chosen", async () => {
     await setLinearFlag({ enabled: true, config: { apiKey: "lin_k", viewerId: "me" } });
     const s = await runSync({ client: fakeClient(), now: 1_000 });
-    expect(s.skipped).toBe("Pick a team or project first");
+    expect(s.skipped).toBe("Pick at least one team, project, or milestone first");
   });
 
-  it("creates a card for a scoped issue and captures the owner", async () => {
+  it("legacy `scope`-only config still syncs (via effectiveScopes)", async () => {
+    // `connect()` below stores the legacy single `scope` field (no `scopes` array) — this is the
+    // shape a pre-migration workspace has on disk, and effectiveScopes() must still resolve it.
+    await connect();
+    const fetched: LinearScope[][] = [];
+    const client = fakeClient({
+      fetchScopedOpenIssues: async (_k, scopes) => {
+        fetched.push(scopes);
+        return scoped([issueA]);
+      },
+    });
+    const s = await runSync({ client, now: 1_000 });
+    expect(s.created).toBe(1);
+    expect(fetched[0]).toEqual([{ kind: "team", id: "team-1", name: "Terra Nova" }]);
+  });
+
+  it("syncs against a multi-scope `scopes` array (teams/projects/milestones mixed)", async () => {
+    const multi: LinearScope[] = [
+      { kind: "team", id: "team-1", name: "Terra Nova" },
+      { kind: "project", id: "proj-1", name: "Shimizu PWA" },
+    ];
+    await connect({ scope: undefined, scopes: multi });
+    const fetched: LinearScope[][] = [];
+    const client = fakeClient({
+      fetchScopedOpenIssues: async (_k, scopes) => {
+        fetched.push(scopes);
+        return scoped([issueA]);
+      },
+    });
+    const s = await runSync({ client, now: 1_000 });
+    expect(s.created).toBe(1);
+    expect(fetched[0]).toEqual(multi);
+  });
+
+  it("creates a card for a scoped issue and captures the owner + real workflow state", async () => {
     await connect();
     const s = await runSync({ client: fakeClient({ fetchScopedOpenIssues: async () => scoped([issueA]) }), now: 1_000 });
     expect(s.created).toBe(1);
@@ -105,6 +145,28 @@ describe("runSync (v2 — scoped, full-set, soft-hide)", () => {
     expect(n.status).toBe("IN_PROGRESS");
     expect(n.assigneeName).toBe("Leticia");
     expect(n.hiddenAt).toBeNull();
+    expect(JSON.parse(n.externalMeta!)).toEqual({
+      state: { name: "In Progress", color: "#0f783c", type: "started" },
+      team: { id: "team-1", key: "V3", name: "Terra Nova" },
+    });
+  });
+
+  it("writes the updated externalMeta on pull (Linear-side change wins)", async () => {
+    await connect();
+    await insertLinear({
+      externalId: "ext-A",
+      updatedAt: new Date(100),
+      externalUpdatedAt: new Date(100),
+      externalSyncedAt: new Date(100),
+    });
+    const changed = { ...issueA, updatedAt: 9_000, stateName: "Done", stateColor: "#5e6ad2", stateType: "completed" };
+    await runSync({ client: fakeClient({ fetchScopedOpenIssues: async () => scoped([changed]) }), now: 10_000, force: true });
+    const [n] = await db.select().from(node).where(eq(node.externalId, "ext-A"));
+    expect(n.status).toBe("DONE");
+    expect(JSON.parse(n.externalMeta!)).toEqual({
+      state: { name: "Done", color: "#5e6ad2", type: "completed" },
+      team: { id: "team-1", key: "V3", name: "Terra Nova" },
+    });
   });
 
   it("SOFT-hides (not deletes) a card whose issue left the set — row + position survive", async () => {

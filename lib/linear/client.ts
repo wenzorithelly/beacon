@@ -14,21 +14,23 @@ interface RawIssue {
   description: string | null;
   updatedAt: string; // ISO
   priority: number;
-  state: { type: string };
+  state: { name: string; color: string; type: string };
   labels: { nodes: { name: string }[] };
   parent: { id: string } | null;
-  team: { id: string; key: string };
-  project: { name: string } | null;
+  team: { id: string; key: string; name: string };
+  project: { id: string; name: string } | null;
+  projectMilestone: { id: string; name: string } | null;
   assignee: { id: string; name: string; avatarUrl: string | null } | null;
 }
 
-const ISSUE_FIELDS = `
+export const ISSUE_FIELDS = `
   id identifier url title description updatedAt priority
-  state { type }
+  state { name color type }
   labels { nodes { name } }
   parent { id }
-  team { id key }
-  project { name }
+  team { id key name }
+  project { id name }
+  projectMilestone { id name }
   assignee { id name avatarUrl }
 `;
 
@@ -42,11 +44,17 @@ export function flattenIssue(raw: RawIssue): LinearIssue {
     updatedAt: Date.parse(raw.updatedAt),
     priority: raw.priority,
     stateType: raw.state.type,
+    stateName: raw.state.name,
+    stateColor: raw.state.color,
     labels: raw.labels.nodes.map((l) => l.name),
     parentId: raw.parent?.id ?? null,
     teamId: raw.team.id,
     teamKey: raw.team.key,
+    teamName: raw.team.name,
+    projectId: raw.project?.id ?? null,
     projectName: raw.project?.name ?? null,
+    milestoneId: raw.projectMilestone?.id ?? null,
+    milestoneName: raw.projectMilestone?.name ?? null,
     assigneeName: raw.assignee?.name ?? null,
     assigneeAvatarUrl: raw.assignee?.avatarUrl ?? null,
   };
@@ -104,12 +112,39 @@ async function pageAllNamed(apiKey: string, field: "teams" | "projects"): Promis
   return out;
 }
 
-/** Teams + projects in the workspace, for the base-scope picker (paginated). */
+/** Page `projectMilestones` to completion — same shape as `pageAllNamed` but needs `project { name }`. */
+async function pageAllMilestones(apiKey: string): Promise<{ id: string; name: string; projectName: string }[]> {
+  const out: { id: string; name: string; projectName: string }[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 50; page++) {
+    const d = await gql<{
+      projectMilestones: {
+        nodes: { id: string; name: string; project: { name: string } }[];
+        pageInfo: { hasNextPage: boolean; endCursor: string };
+      };
+    }>(
+      apiKey,
+      `query($after: String) { projectMilestones(first: 250, after: $after) { nodes { id name project { name } } pageInfo { hasNextPage endCursor } } }`,
+      { after },
+    );
+    out.push(...d.projectMilestones.nodes.map((n) => ({ id: n.id, name: n.name, projectName: n.project.name })));
+    if (!d.projectMilestones.pageInfo.hasNextPage) break;
+    after = d.projectMilestones.pageInfo.endCursor;
+  }
+  return out;
+}
+
+/** Teams + projects + milestones in the workspace, for the multi-scope picker (paginated). */
 export async function listScopes(apiKey: string): Promise<LinearScope[]> {
-  const [teams, projects] = await Promise.all([pageAllNamed(apiKey, "teams"), pageAllNamed(apiKey, "projects")]);
+  const [teams, projects, milestones] = await Promise.all([
+    pageAllNamed(apiKey, "teams"),
+    pageAllNamed(apiKey, "projects"),
+    pageAllMilestones(apiKey),
+  ]);
   return [
     ...teams.map((t) => ({ kind: "team" as const, id: t.id, name: t.name })),
     ...projects.map((p) => ({ kind: "project" as const, id: p.id, name: p.name })),
+    ...milestones.map((m) => ({ kind: "milestone" as const, id: m.id, name: m.name, projectName: m.projectName })),
   ];
 }
 
@@ -140,9 +175,10 @@ export async function resolveStateMap(
 }
 
 /**
- * The FULL current scoped set: open issues (not completed/canceled) in the team/project, optionally
- * narrowed to assignee=viewer. Pages to completion — the scoped/assigned set is small, and this is
- * what lets the reconcile detect issues that LEFT the scope.
+ * The FULL current scoped set: open issues (not completed/canceled) in ANY of the given
+ * teams/projects/milestones (or the whole workspace), optionally narrowed to assignee=viewer.
+ * Pages to completion — the scoped/assigned set is small, and this is what lets the reconcile
+ * detect issues that LEFT the scope.
  */
 export interface ScopedFetch {
   issues: LinearIssue[];
@@ -150,17 +186,39 @@ export interface ScopedFetch {
   complete: boolean;
 }
 
-export async function fetchScopedOpenIssues(
-  apiKey: string,
-  scope: LinearScope,
-  opts: { onlyMineViewerId?: string } = {},
-): Promise<ScopedFetch> {
+/**
+ * PURE — builds the IssueFilter for any mix of team/project/milestone scopes (or the whole
+ * workspace). Extracted so it unit-tests without the network (tests/linear-client.test.ts).
+ * A `workspace` scope short-circuits to no container constraint at all. Otherwise each present
+ * kind becomes one `in`-comparator branch of an `or`, so the fetch is a single paged query with
+ * no client-side merge/dedup needed.
+ */
+export function buildIssueFilter(scopes: LinearScope[], onlyMineViewerId?: string): Record<string, unknown> {
   const filter: Record<string, unknown> = {
     state: { type: { nin: ["completed", "canceled"] } },
   };
-  if (scope.kind === "team") filter.team = { id: { eq: scope.id } };
-  else filter.project = { id: { eq: scope.id } };
-  if (opts.onlyMineViewerId) filter.assignee = { id: { eq: opts.onlyMineViewerId } };
+  if (onlyMineViewerId) filter.assignee = { id: { eq: onlyMineViewerId } };
+
+  if (!scopes.some((s) => s.kind === "workspace")) {
+    const idsOf = (kind: LinearScope["kind"]) => scopes.filter((s) => s.kind === kind).map((s) => s.id);
+    const teamIds = idsOf("team");
+    const projectIds = idsOf("project");
+    const milestoneIds = idsOf("milestone");
+    const or: Record<string, unknown>[] = [];
+    if (teamIds.length) or.push({ team: { id: { in: teamIds } } });
+    if (projectIds.length) or.push({ project: { id: { in: projectIds } } });
+    if (milestoneIds.length) or.push({ projectMilestone: { id: { in: milestoneIds } } });
+    if (or.length) filter.or = or;
+  }
+  return filter;
+}
+
+export async function fetchScopedOpenIssues(
+  apiKey: string,
+  scopes: LinearScope[],
+  opts: { onlyMineViewerId?: string } = {},
+): Promise<ScopedFetch> {
+  const filter = buildIssueFilter(scopes, opts.onlyMineViewerId);
 
   const query = `
     query($filter: IssueFilter, $after: String) {

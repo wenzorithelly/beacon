@@ -11,13 +11,13 @@ import * as realClient from "@/lib/linear/client";
 import type { IssuePatch, ScopedFetch, ViewerOrg } from "@/lib/linear/client";
 import { beaconPriorityToLinear, issueToNodeFields } from "@/lib/linear/mapping";
 import { planReconcile, type LocalNode } from "@/lib/linear/reconcile";
-import type { LinearIssue, LinearScope, NodeStatus } from "@/lib/linear/types";
+import { effectiveScopes, type LinearIssue, type LinearScope, type NodeStatus } from "@/lib/linear/types";
 
 export interface SyncClient {
   resolveViewerAndOrg: (apiKey: string) => Promise<ViewerOrg>;
   fetchScopedOpenIssues: (
     apiKey: string,
-    scope: LinearScope,
+    scopes: LinearScope[],
     opts: { onlyMineViewerId?: string },
   ) => Promise<ScopedFetch>;
   resolveStateMap: (apiKey: string, teamId: string) => Promise<Partial<Record<NodeStatus, string>>>;
@@ -63,7 +63,8 @@ async function runSyncInner(opts: { client?: SyncClient; now?: number; force?: b
 
   const { enabled, config } = await getLinearFlag();
   if (!config?.apiKey) return { ...summary, skipped: "Connect Linear first" };
-  if (!config.scope) return { ...summary, skipped: "Pick a team or project first" };
+  const scopes = effectiveScopes(config);
+  if (scopes.length === 0) return { ...summary, skipped: "Pick at least one team, project, or milestone first" };
   if (!enabled && !opts.force) return { ...summary, skipped: "Sync is paused" };
 
   // Resolve who the key is + its workspace once (needed for the assignee filter + display).
@@ -78,7 +79,7 @@ async function runSyncInner(opts: { client?: SyncClient; now?: number; force?: b
 
   const { issues, complete } = await client.fetchScopedOpenIssues(
     config.apiKey,
-    config.scope,
+    scopes,
     config.onlyMine ? { onlyMineViewerId: viewerId } : {},
   );
 
@@ -145,6 +146,7 @@ async function runSyncInner(opts: { client?: SyncClient; now?: number; force?: b
             sourceRef: f.sourceRef,
             assigneeName: f.assigneeName,
             assigneeAvatarUrl: f.assigneeAvatarUrl,
+            externalMeta: f.externalMeta,
             updatedAt: new Date(now),
             externalUpdatedAt: new Date(d.issue.updatedAt),
             externalSyncedAt: new Date(now),

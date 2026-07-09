@@ -4,7 +4,8 @@ import { getLinearFlag } from "@/lib/linear/config";
 
 export const dynamic = "force-dynamic";
 
-// Teams + projects in the connected workspace, for the base-scope picker (uses the saved key).
+// Teams + projects + milestones (each carrying `projectName`) in the connected workspace, for the
+// multi-scope picker (uses the saved key).
 export const GET = pinned(async () => {
   const { config } = await getLinearFlag();
   if (!config?.apiKey) return Response.json({ scopes: [] });
