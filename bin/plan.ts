@@ -23,6 +23,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { recordAgentStatus } from "@/lib/agent-status";
 import { selfHealGlobal } from "@/lib/global-install";
 import { PLAN_HOOK_REARM_MS, PLAN_POLL_INTERVAL_MS } from "@/lib/constants";
 import { readPreferences } from "@/lib/preferences";
@@ -137,6 +138,7 @@ type HookEvent = {
   permission_mode?: string;
   session_id?: string;
   transcript_path?: string;
+  cwd?: string;
 };
 // Allow the plan. On an explicit user approval we optionally switch the session's permission
 // mode to the user's saved preference (e.g. bypassPermissions) so they don't drop back to
@@ -168,6 +170,8 @@ function emit(out: unknown): never {
   // the install heals if something wiped ~/.claude/ between sessions.
   await selfHealGlobal();
   const event = await readStdinJson<HookEvent>();
+  const cwd = event?.cwd || process.cwd();
+  const sessionId = event?.session_id || "";
   const plan = event?.tool_input?.plan;
   if (!plan || !plan.trim()) {
     // No plan content in the hook event — pass through so we don't block the user.
@@ -215,6 +219,9 @@ function emit(out: unknown): never {
   // MCP present/propose paths so plan-mode and mode-independent presents behave identically.
   await openPlanTabIfNone(base, wsId);
 
+  // The wait actually begins now — this hook process blocks on the poll loop below.
+  recordAgentStatus(cwd, sessionId, "waiting");
+
   // Long-poll the single verdict source — pinned to this repo so reads stay correct even if
   // the user switches the dropdown mid-review. One resolver = no approve/discard ambiguity and
   // no stale-feedback replay on a re-presented plan. We poll only until PLAN_HOOK_REARM_MS (well
@@ -235,6 +242,8 @@ function emit(out: unknown): never {
       | { kind: "discarded"; summary?: string }
       | null;
     if (!v) continue;
+
+    recordAgentStatus(cwd, sessionId, "working"); // verdict resolved — the wait is over
 
     // Approved → allow, and restore the user's preferred permission mode (asked once on
     // /plan, saved globally in ~/.beacon/preferences.json, changeable in Settings). Hand the
@@ -272,6 +281,7 @@ function emit(out: unknown): never {
   // silently (which drops the user to a terminal permission prompt — the staling bug). Re-presenting
   // the SAME plan resumes the SAME review: the /api/plan resume guard preserves any in-flight
   // annotations and the on-disk verdict, so the user's approval is picked up whenever it lands.
+  recordAgentStatus(cwd, sessionId, "working"); // this hook's wait is over; the agent re-presents
   emit(
     permissionDeny(
       "⏳ Still awaiting your review in Beacon — the plan is open on /plan and nothing was lost. " +

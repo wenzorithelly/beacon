@@ -19,6 +19,7 @@
  * Hook input (stdin): { stop_hook_active: boolean, transcript_path: string, cwd?, session_id?, ... }
  * Hook output (stdout, only when blocking): { "decision": "block", "reason": "…" }
  */
+import { recordAgentStatus } from "@/lib/agent-status";
 import { readFileTail } from "@/lib/read-tail";
 import { shouldNudgeToPresentPlan } from "@/lib/stop-hook-detect";
 import { agentWorkspaceHeaders } from "@/lib/workspaces";
@@ -88,6 +89,14 @@ try {
   if (reasons.length) {
     process.stdout.write(JSON.stringify({ decision: "block", reason: reasons.join("\n\n---\n\n") }));
   }
+
+  // Agent-status bridge: a block means the turn continues (still "working"); no block means the
+  // agent actually stopped ("done"). Best-effort, never throws — see lib/agent-status.
+  recordAgentStatus(
+    typeof ev.cwd === "string" ? ev.cwd : process.cwd(),
+    typeof ev.session_id === "string" ? ev.session_id : "",
+    reasons.length ? "working" : "done",
+  );
 } catch {
   /* never trap the session on a hook error */
 }

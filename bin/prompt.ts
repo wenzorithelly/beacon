@@ -17,6 +17,7 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { recordAgentStatus } from "@/lib/agent-status";
 import { daemonBaseUrl } from "@/lib/daemon-server";
 import { agentWorkspaceHeaders } from "@/lib/workspaces";
 
@@ -73,8 +74,14 @@ try {
   silent();
 }
 
-// Nothing Beacon does here applies outside a Beacon-wired repo — bail before the network call so
-// ordinary repos stay untouched and pay nothing.
+// Every prompt starts a fresh turn: the agent-status bridge (~/.beacon/<id>/agent-status.json —
+// see lib/agent-status) records "working" for EVERY prompt, in every repo — not just Beacon-wired
+// ones — so it must run before any of the early exits below. Best-effort + synchronous; adds no
+// network round-trip and never throws.
+recordAgentStatus(cwd, session, "working");
+
+// Nothing else Beacon does here applies outside a Beacon-wired repo — bail before the network call
+// so ordinary repos stay untouched and pay nothing.
 if (!beaconWired(cwd)) silent();
 
 const parts: string[] = [];

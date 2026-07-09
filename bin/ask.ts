@@ -21,10 +21,16 @@
  */
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { recordAgentStatus } from "@/lib/agent-status";
 import { buildAskFromEvent, type HookEvent, questionMirrorPushBody } from "@/lib/ask-store";
 import { PLAN_HOOK_REARM_MS, PLAN_POLL_INTERVAL_MS } from "@/lib/constants";
 import { daemonBaseUrl } from "@/lib/daemon-server";
 import { planAllowOutput } from "@/lib/permission-modes";
+
+// The hook event carries session_id too (verified per-file per the agent-status spec), though
+// lib/ask-store's HookEvent doesn't declare it (that module is shared by non-hook callers). Extend
+// locally so we can key the agent-status write by session without widening the shared type.
+type StatusEvent = HookEvent & { session_id?: string };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -73,7 +79,7 @@ function gitToplevel(cwd?: string): string {
 const workspaceIdForPath = (p: string) =>
   createHash("sha256").update(p).digest("hex").slice(0, 12);
 (async () => {
-  const event = await readStdinJson<HookEvent>();
+  const event = await readStdinJson<StatusEvent>();
   if (!event) failOpen();
   const ask = buildAskFromEvent(event);
   if (!ask) failOpen(); // not one of ours (or a malformed AUQ) → let it run
@@ -81,8 +87,14 @@ const workspaceIdForPath = (p: string) =>
   const base = daemonBaseUrl();
   const wsId = workspaceIdForPath(gitToplevel(event.cwd));
   const headers = { "content-type": "application/json", "x-beacon-workspace": wsId };
+  const cwd = event.cwd || process.cwd();
+  const sessionId = event.session_id || "";
 
   if (ask.kind === "question") {
+    // The question is shown right now — natively in the terminal, and mirrored to Beacon — so the
+    // session is "waiting" for the user regardless of whether this hook itself blocks on it (it
+    // never does for a question: see the header comment). Best-effort, never throws.
+    recordAgentStatus(cwd, sessionId, "waiting");
     // Two-way street: the native picker ALWAYS renders in the terminal now — never held, never
     // hijacked. Mirror the same question to Beacon (best-effort, timeout-bounded so a slow/hung
     // daemon can never delay the terminal picker the user might already be looking at) and fall
@@ -126,6 +138,9 @@ const workspaceIdForPath = (p: string) =>
   if (!pushed || pushed.loop || !pushed.id) failOpen();
   const id = pushed.id;
 
+  // The wait actually begins now — this hook process blocks on the poll loop below.
+  recordAgentStatus(cwd, sessionId, "waiting");
+
   // No tab-opening here: we already confirmed a tab is live above, so the global modal renders in
   // it. Long-poll for the user's verdict, re-arming before Claude Code's ~10-min hook wall.
   const deadline = Date.now() + PLAN_HOOK_REARM_MS;
@@ -139,11 +154,16 @@ const workspaceIdForPath = (p: string) =>
       | null;
     if (!v || v.status !== "resolved") continue;
 
+    recordAgentStatus(cwd, sessionId, "working"); // verdict resolved — the wait is over
     if (v.resolution.decision === "deny") {
       emit(permissionDeny("The user denied this action in Beacon."));
     }
     emit(planAllowOutput()); // approved in Beacon
   }
+
+  // Timed out waiting without a verdict — the wait (from this hook's point of view) is over; the
+  // agent resumes and falls through to Claude Code's normal permission prompt.
+  recordAgentStatus(cwd, sessionId, "working");
 
   // Timed out waiting. Don't leave the agent hung: fall through to Claude Code's normal permission
   // prompt. The loop-guard prevents a re-ask storm.
