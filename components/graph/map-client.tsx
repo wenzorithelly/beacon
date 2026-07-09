@@ -39,6 +39,10 @@ import {
   type AnnotationNodeData,
   type BoardAnnotationPayload,
 } from "@/components/graph/annotation-node";
+import {
+  useShellNodeDrag,
+  type ShellNodeDragInfo,
+} from "@/components/graph/use-shell-node-drag";
 import { anchorAnnotations } from "@/lib/annotation-anchors";
 import type { TextAnnotation } from "@/lib/annotations";
 import { DeletableEdge } from "@/components/graph/deletable-edge";
@@ -105,6 +109,18 @@ const nodeTypes = {
   lessonTable: LessonTableNode,
 };
 const edgeTypes = { deletable: DeletableEdge, annotation: AnnotationEdge };
+
+// Desktop-shell "sticky terminal" seam: only real roadmap/architecture cards participate in the
+// drag-to-terminal handoff — annotation pins and lesson tables aren't board entities the agent can
+// be asked about, so they're left out entirely (null → the drag hook is never invoked for them).
+function shellDragInfoForNode(node: Node<MapNodeData>): ShellNodeDragInfo | null {
+  if (node.type !== "roadmapNode" && node.type !== "archNode") return null;
+  return {
+    kind: node.type === "archNode" ? "architecture" : "feature",
+    id: node.id,
+    title: node.data.title,
+  };
+}
 
 const EDGE_STYLE: Record<string, { stroke: string; dash?: string }> = {
   // CONTAINS (parent → subtask) is the most common edge; it was nearly the background
@@ -296,6 +312,8 @@ export function MapClient({
     () => buildEdges(nodePayload, edgePayload, new Set((tableNodes ?? []).map((t) => t.id))),
     [nodePayload, edgePayload, tableNodes],
   );
+
+  const shellDrag = useShellNodeDrag();
 
   const [nodes, setNodes] = useState<Node<MapNodeData>[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
@@ -1546,6 +1564,13 @@ export function MapClient({
         onConnectEnd={onConnectEnd}
         onNodeMouseEnter={(_, node) => setHoveredId(node.id)}
         onNodeMouseLeave={() => setHoveredId(null)}
+        onNodeDragStart={(_, node) => {
+          if (shellDragInfoForNode(node as Node<MapNodeData>)) shellDrag.handleDragStart(node);
+        }}
+        onNodeDrag={(e, node) => {
+          const info = shellDragInfoForNode(node as Node<MapNodeData>);
+          if (info) shellDrag.handleDrag(e, info);
+        }}
         onEdgesDelete={(removed) => {
           // Persist each user-drawn edge removal (Backspace/Delete on a selected edge).
           // Containment edges (id prefix `c-`) are derived from parentId — skip them.
@@ -1621,7 +1646,16 @@ export function MapClient({
             setSelectedEdgeId(null);
           }
         }}
-        onNodeDragStop={(_, node) => {
+        onNodeDragStop={(e, node) => {
+          // Desktop-shell "sticky terminal" handoff: dragged past the bottom edge, the shell
+          // claims the drop. Snap the card back to where it started and skip persisting the
+          // drag entirely — the position never really moved from the board's point of view.
+          const dragInfo = shellDragInfoForNode(node as Node<MapNodeData>);
+          const reverted = dragInfo ? shellDrag.handleDragStop(e, dragInfo) : null;
+          if (reverted) {
+            setNodes((nds) => nds.map((n) => (n.id === node.id ? { ...n, position: reverted } : n)));
+            return;
+          }
           if (node.id.startsWith("anno-")) {
             // Board annotations remember where you parked the card; plan cards don't move.
             if (boardMode)

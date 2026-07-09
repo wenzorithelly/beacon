@@ -59,6 +59,10 @@ import { GroupRegions } from "@/components/graph/group-regions";
 import { LodReporter } from "@/components/graph/use-zoom-lod";
 import { DB_LOD, type Lod } from "@/lib/zoom-lod";
 import { canvasDragPersistTarget } from "@/lib/canvas-readonly";
+import {
+  useShellNodeDrag,
+  type ShellNodeDragInfo,
+} from "@/components/graph/use-shell-node-drag";
 import { diffDraftTables, diffDraftEndpoints, type NodeDiff } from "@/lib/db-diff";
 import { cn } from "@/lib/utils";
 import { useColorMode } from "@/components/theme/use-color-mode";
@@ -89,6 +93,20 @@ import { AnnotationEdge } from "@/components/graph/annotation-edge";
 
 const nodeTypes = { dbTable: DbTableNode, endpoint: EndpointNode, annotation: AnnotationCardNode };
 const edgeTypes = { deletable: DeletableEdge, annotation: AnnotationEdge };
+
+// Desktop-shell "sticky terminal" seam: only real table/endpoint cards participate in the
+// drag-to-terminal handoff — annotation pins aren't board entities the agent can be asked about.
+function shellDragInfoForNode(node: DbNode): ShellNodeDragInfo | null {
+  if (node.type === "dbTable") {
+    const data = node.data as DbTableNodeData;
+    return { kind: "table", id: node.id, title: data.name };
+  }
+  if (node.type === "endpoint") {
+    const data = node.data as EndpointNodeData;
+    return { kind: "endpoint", id: node.id, title: `${data.method} ${data.path}` };
+  }
+  return null;
+}
 const STORAGE_KEY = "beacon:db-draft";
 const EMPTY_DOC: DraftDoc = {
   proposedAt: 0,
@@ -780,8 +798,19 @@ export function DbMapClient({
     });
   }, []);
 
+  const shellDrag = useShellNodeDrag();
+
   const onNodeDragStop = useCallback(
-    (_e: unknown, node: Node) => {
+    (e: MouseEvent | TouchEvent, node: Node) => {
+      // Desktop-shell "sticky terminal" handoff: dragged past the bottom edge, the shell claims
+      // the drop. Snap the card back to where it started and skip the persist/draft-edit logic
+      // below entirely — the position never really moved from the board's point of view.
+      const dragInfo = shellDragInfoForNode(node as DbNode);
+      const reverted = dragInfo ? shellDrag.handleDragStop(e, dragInfo) : null;
+      if (reverted) {
+        setNodes((nds) => nds.map((n) => (n.id === node.id ? { ...n, position: reverted } : n)));
+        return;
+      }
       const { x, y } = node.position;
       // Read-only (shared view / archived plan) → "none": never persist. The decision (incl. the
       // readOnly guard) lives in canvasDragPersistTarget so the write site can't drift from it.
@@ -810,7 +839,7 @@ export function DbMapClient({
         persistReal(node.type === "endpoint" ? "endpoint" : "table", node.id, x, y);
       }
     },
-    [readOnly, draftIds, silent, persistReal, boardMode, patchBoardAnno],
+    [readOnly, draftIds, silent, persistReal, boardMode, patchBoardAnno, shellDrag, setNodes],
   );
 
   // ── Edges (real + draft FKs and endpoint→table links) ──
@@ -1338,6 +1367,13 @@ export function DbMapClient({
             setSelected(null);
             setSelectedEdgeId(null);
             setPanelOpen(false); // click the empty canvas to dismiss the detail panel
+          }}
+          onNodeDragStart={(_, node) => {
+            if (shellDragInfoForNode(node as DbNode)) shellDrag.handleDragStart(node);
+          }}
+          onNodeDrag={(e, node) => {
+            const info = shellDragInfoForNode(node as DbNode);
+            if (info) shellDrag.handleDrag(e, info);
           }}
           onNodeDragStop={onNodeDragStop}
           onEdgesDelete={(removed) => {
