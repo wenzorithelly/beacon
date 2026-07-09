@@ -16,8 +16,9 @@ const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 describe("desktop-shell seam contract", () => {
   it("shell marker: html[data-shell='desktop'] via lib/shell.ts", () => {
     const src = read("lib/shell.ts");
-    expect(src).toContain('"data-shell"');
-    expect(src).toContain('"desktop"');
+    // read via dataset.shell (the attribute name appears in prose + the exported constant)
+    expect(src).toContain("dataset.shell");
+    expect(src).toContain('DESKTOP_SHELL = "desktop"');
   });
 
   it("nav bridge listens for beacon:shell-navigate", () => {
