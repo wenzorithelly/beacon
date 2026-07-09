@@ -16,6 +16,10 @@ import { currentTabId } from "@/lib/tab-id";
 export function LiveRefresh() {
   const router = useRouter();
   useEffect(() => {
+    // Establish this tab's own self-identity as soon as it's listening — not lazily, only inside
+    // the park-exclusion check below — so anything that wants to learn "which tab is this" (e.g.
+    // reading sessionStorage directly, same-origin) can do so from the moment the tab is live.
+    currentTabId();
     const ws = currentTabWs();
     const es = new EventSource(ws ? `/api/stream?ws=${encodeURIComponent(ws)}` : "/api/stream");
     let state: NavStreamState = INITIAL_NAV_STATE;
