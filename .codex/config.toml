@@ -1,0 +1,9 @@
+[mcp_servers.beacon]
+command = "beacon"
+args = ["mcp"]
+
+[mcp_servers.beacon.tools.beacon_map]
+approval_mode = "approve"
+
+[mcp_servers.beacon.tools.beacon_context_for_feature]
+approval_mode = "approve"

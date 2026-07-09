@@ -113,15 +113,25 @@ export function createWatcherManager(deps: WatcherManagerDeps) {
 }
 
 // ── Process-wide singleton, wired to the real registry + watcher factory ──────────
+//
+// Pinned to globalThis (same pattern as lib/db-drizzle.ts's `dzByUrl`): Next.js dev mode
+// re-evaluates this module as a fresh instance across HMR / per-route compilation units.
+// A plain module-scope const loses track of every watcher the PREVIOUS instance started,
+// so each reload silently opened a duplicate fs.watch() + in-memory code graph per
+// workspace, leaked forever (confirmed via dev.log: the same workspace's "watching X —
+// initial extract" logged 4x with no matching stop).
 
-const manager = createWatcherManager({
+const globalForWatcher = globalThis as unknown as {
+  __beaconWatcherManager?: ReturnType<typeof createWatcherManager>;
+  __beaconWatcherTimer?: ReturnType<typeof setInterval> | null;
+};
+
+const manager = (globalForWatcher.__beaconWatcherManager ??= createWatcherManager({
   list: listWorkspaces,
   get: getWorkspace,
   exists: existsSync,
   start: (ws) => startWatcherForWorkspace(ws),
-});
-
-let timer: ReturnType<typeof setInterval> | null = null;
+}));
 
 // The inline watcher's warm-up scans the repo, but the extract is now time-sliced
 // (intel/extractors/code-graph.ts yields the event loop every ~5ms), so a cold scan no
@@ -136,9 +146,10 @@ function inlineWatchDisabled(): boolean {
 export function startWorkspaceWatchers(): void {
   if (inlineWatchDisabled()) return;
   manager.reconcile();
-  if (!timer) {
-    timer = setInterval(() => manager.reconcile(), 30_000);
-    timer.unref?.();
+  if (!globalForWatcher.__beaconWatcherTimer) {
+    const t = setInterval(() => manager.reconcile(), 30_000);
+    t.unref?.();
+    globalForWatcher.__beaconWatcherTimer = t;
   }
 }
 
@@ -160,9 +171,9 @@ export async function stopWatcherFor(id: string): Promise<void> {
 }
 
 export async function stopWorkspaceWatchers(): Promise<void> {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
+  if (globalForWatcher.__beaconWatcherTimer) {
+    clearInterval(globalForWatcher.__beaconWatcherTimer);
+    globalForWatcher.__beaconWatcherTimer = null;
   }
   await manager.stopAll();
 }
