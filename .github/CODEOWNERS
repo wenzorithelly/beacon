@@ -1,0 +1,12 @@
+# Desktop-shell seam — the ONLY open-repo code the private Beacon Desktop shell builds against.
+# Changes here can break the desktop app's terminal-band handoff, nav bridge, or notes mirror, so
+# every PR touching these paths requires the maintainer's review. (Enforced once branch protection
+# marks "Require review from Code Owners" on main.) The contract itself is pinned by
+# tests/shell-seam-contract.test.ts — editing an event name/shape without updating BOTH sides
+# fails CI loudly.
+lib/shell.ts @wenzorithelly
+lib/shell-node-drag.ts @wenzorithelly
+components/shell-nav-bridge.tsx @wenzorithelly
+components/graph/use-shell-node-drag.ts @wenzorithelly
+components/notes/notes-context.tsx @wenzorithelly
+tests/shell-seam-contract.test.ts @wenzorithelly
