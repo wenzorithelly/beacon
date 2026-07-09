@@ -17,10 +17,8 @@ const LINKS = [
   { href: "/settings", label: "Settings" },
 ];
 
-// Floats over the canvas top-left so the header doesn't reserve a full-width row. In the desktop
-// shell (data-shell="desktop") the shell draws ALL navigation in its own chrome view, so this whole
-// header is hidden by a CSS rule keyed on `data-app-nav` (see app/globals.css) — no shell branches
-// here. The `/map` canvas's top-right view-tab strip lives in the same horizontal band visually.
+// Floats over the canvas top-left so the header doesn't reserve a full-width row. The `/map`
+// canvas's top-right view-tab strip lives in the same horizontal band visually.
 export function TopNav({ repo }: { repo?: string }) {
   const pathname = usePathname();
   const { toggle, open } = useNotes();

@@ -9,7 +9,6 @@ import { PlanProvider } from "@/components/plan/plan-context";
 import { PlanBar } from "@/components/plan/plan-bar";
 import { NotesProvider } from "@/components/notes/notes-context";
 import { NotesDrawer } from "@/components/notes/notes-drawer";
-import { ShellNavBridge } from "@/components/shell-nav-bridge";
 import { AskModal } from "@/components/ask/ask-modal";
 import { UpdateBanner } from "@/components/update-banner";
 import { repoName } from "@/lib/project";
@@ -69,7 +68,6 @@ export default function RootLayout({
             <NotesProvider>
               <PlanProvider>
                 <TopNav repo={repoName()} />
-                <ShellNavBridge />
                 <MainRegion>{children}</MainRegion>
                 {modal}
                 <PlanBar />

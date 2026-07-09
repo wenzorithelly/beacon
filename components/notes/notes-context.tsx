@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
 // Centralized open/close state for the global Notes drawer, so the top-nav button (in the
 // layout) and the drawer (also in the layout) share one source of truth without prop
@@ -20,13 +20,6 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const openDrawer = useCallback(() => setOpen(true), []);
   const close = useCallback(() => setOpen(false), []);
   const toggle = useCallback(() => setOpen((o) => !o), []);
-  // Desktop-shell seam: the shell chrome's Notes control toggles the drawer over a generic DOM event
-  // (preload re-dispatches its IPC as beacon:shell-notes-toggle). A no-op in a plain browser.
-  useEffect(() => {
-    const onToggle = () => toggle();
-    window.addEventListener("beacon:shell-notes-toggle", onToggle);
-    return () => window.removeEventListener("beacon:shell-notes-toggle", onToggle);
-  }, [toggle]);
   const value = useMemo(() => ({ open, openDrawer, close, toggle }), [open, openDrawer, close, toggle]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

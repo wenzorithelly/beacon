@@ -611,23 +611,4 @@
   }
 }
 
-/* Desktop shell: the shell draws ALL navigation in its own chrome view (a separate WebContentsView —
-   the Dia top bar / sidebar rail), so the web app's own floating nav must not render here; it would
-   otherwise float over the canvas inside the docked web viewport. Keyed on the preload-set attribute
-   so it applies pre-hydration (no flash). */
-html[data-shell="desktop"] header[data-app-nav] {
-  display: none;
-}
 
-/* Desktop shell: while the terminal surface (a docked native view) covers the content region, blank
-   EVERYTHING the web view would otherwise paint — main AND portaled elements (tooltips, pins, toasts
-   land as body children) — so nothing of the live board shows through the terminal view's transparent
-   gaps. The nav is gone (the shell chrome owns it as a separate view), so this is every body child.
-   The page keeps running underneath (SSE, canvas state); this is visibility, not unmount. */
-html[data-shell-surface="terminal"] body > * {
-  /* opacity, NOT visibility: React Flow sets inline `visibility: visible` on its nodes (its own
-     culling machinery), and a descendant's explicit visibility punches through an ancestor's
-     hidden. Opacity can't be overridden by children. */
-  opacity: 0;
-  pointer-events: none;
-}
