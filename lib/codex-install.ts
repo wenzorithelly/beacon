@@ -6,6 +6,7 @@ import {
   GLOBAL_AGENT_BLOCK,
   beaconCliCommand,
   ensureHookEntry,
+  dedupeHookEntry,
   hasHookEntry,
   removeHookEntry,
   ensureMarkerBlock,
@@ -208,6 +209,25 @@ export function codexMcpProblem(): string | null {
   return null;
 }
 
+function repointManagedCodexMcp(content: string): string | null {
+  const lines = content.split("\n");
+  const startIdx = lines.indexOf(TOML_START);
+  const endIdx = lines.indexOf(TOML_END, startIdx);
+  if (startIdx === -1 || endIdx === -1) return null;
+  const beaconIdx = lines.findIndex(
+    (line, index) => index > startIdx && index < endIdx && line.trim() === "[mcp_servers.beacon]",
+  );
+  if (beaconIdx === -1) return null;
+  let tableEnd = beaconIdx + 1;
+  while (tableEnd < endIdx && !/^\s*\[/.test(lines[tableEnd]!)) tableEnd++;
+  const commandIdx = lines.findIndex(
+    (line, index) => index > beaconIdx && index < tableEnd && /^\s*command\s*=/.test(line),
+  );
+  if (commandIdx === -1) return null;
+  lines[commandIdx] = `command = ${JSON.stringify(beaconCliCommand())}`;
+  return lines.join("\n");
+}
+
 export function ensureCodexMcp(): CodexMcpResult {
   let content = "";
   let exists = false;
@@ -221,7 +241,11 @@ export function ensureCodexMcp(): CodexMcpResult {
     const parsed = parseToml(content);
     if (!parsed)
       return { added: false, error: `~/.codex/config.toml does not parse — ${MANUAL_FIX}` };
-    if (parsed.mcp_servers?.beacon) return { added: false };
+    if (parsed.mcp_servers?.beacon) {
+      const repointed = repointManagedCodexMcp(content);
+      if (repointed && repointed !== content) writeFileAtomic(CODEX_CONFIG_TOML(), repointed);
+      return { added: false };
+    }
     // An inline `mcp_servers = {...}` assignment makes a later [mcp_servers.beacon]
     // header a TOML redefinition error in Codex's strict parser. Bun.TOML merges it
     // silently, so the candidate-validation below can't catch this — guard on the text.
@@ -264,7 +288,18 @@ export function removeCodexMcp(): CodexMcpRemoveResult {
   if (startIdx === -1) return { removed: false, skipped: hasCodexMcp() };
   const endIdx = lines.indexOf(TOML_END, startIdx);
   if (endIdx === -1) return { removed: false, skipped: true };
-  lines.splice(startIdx, endIdx - startIdx + 1);
+  const beaconIdx = lines.findIndex(
+    (line, index) => index > startIdx && index < endIdx && line.trim() === "[mcp_servers.beacon]",
+  );
+  if (beaconIdx === -1) return { removed: false, skipped: true };
+
+  // Codex Desktop may append another MCP table before our closing marker. Remove
+  // only Beacon's table and the marker comments; every foreign line survives.
+  let beaconEnd = beaconIdx + 1;
+  while (beaconEnd < endIdx && !/^\s*\[/.test(lines[beaconEnd]!)) beaconEnd++;
+  lines.splice(beaconIdx, beaconEnd - beaconIdx);
+  lines.splice(lines.indexOf(TOML_END), 1);
+  lines.splice(lines.indexOf(TOML_START), 1);
   const remainder = lines.join("\n").replace(/\n{3,}/g, "\n\n").replace(/^\n+/, "");
   if (parseToml(remainder) === null) return { removed: false, skipped: true };
   writeFileAtomic(CODEX_CONFIG_TOML(), remainder);
@@ -294,15 +329,23 @@ export async function setupCodexAssets(): Promise<CodexSetupResult> {
     installSkillFile(AGENTS_SKILLS_DIR(), name, skillBodies[name]);
   }
   let hooksAdded = 0;
-  for (const h of CODEX_HOOKS)
+  for (const h of CODEX_HOOKS) {
+    const matcherIsIgnored = h.event === "UserPromptSubmit" || h.event === "Stop";
+    if (matcherIsIgnored)
+      dedupeHookEntry(CODEX_HOOKS_FILE(), {
+        event: h.event,
+        matcher: h.matcher,
+        command: repointBeaconCommand(h.command),
+      });
     if (
       ensureHookEntry(CODEX_HOOKS_FILE(), {
         event: h.event,
         matcher: h.matcher,
         command: repointBeaconCommand(h.command),
-      })
+      }, { matchAnyMatcher: matcherIsIgnored })
     )
       hooksAdded++;
+  }
   const blockPresent = hasMarkerBlock(CODEX_AGENTS_MD(), AGENTS_MD_START);
   ensureMarkerBlock(CODEX_AGENTS_MD(), AGENTS_MD_START, AGENTS_MD_END, GLOBAL_AGENT_BLOCK);
   const mcp = ensureCodexMcp();

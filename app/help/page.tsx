@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
-// The "How to use Beacon" guide — a plain-English reference for what Beacon adds to a Claude
-// Code session: the slash commands you type, the MCP tools the agent picks up on its own, and
+// The "How to use Beacon" guide — a plain-English reference for what Beacon adds to an agent
+// session: the slash commands you type, the MCP tools the agent picks up on its own, and
 // the hooks that run automatically. Lives on its own page (reached from Settings) instead of
 // crowding the settings cards. Server component — no client JS.
 
@@ -52,8 +52,8 @@ const MCP_TOOLS: { name: string; what: string }[] = [
 
 const HOOKS: { trigger: string; what: string }[] = [
   {
-    trigger: "Plan mode (ExitPlanMode)",
-    what: "When the agent shows you a plan, Beacon intercepts it and renders the markdown on /plan with a native annotation panel. Select text and type → it becomes a comment. Approve / Discard / Submit feedback flows back to the session as the agent's next instruction. No prompt walls of text in the terminal.",
+    trigger: "Plan review",
+    what: "The agent sends plans to Beacon's /plan canvas for annotation and review. In Codex, it uses beacon_present_plan or beacon_propose_plan; the result returns to the session after you Approve, Discard, or Submit feedback.",
   },
   {
     trigger: "File edits (PostToolUse)",
@@ -122,7 +122,7 @@ export default function HelpPage() {
       <section>
         <h2 className={sectionTitle}>Automatic hooks — these run without you</h2>
         <p className={sectionIntro}>
-          Wired into Claude Code globally. You don&apos;t trigger them; they react to what the
+          Wired into supported terminal sessions globally. You don&apos;t trigger them; they react to what the
           session is already doing.
         </p>
         <ul className="mt-4 space-y-4">

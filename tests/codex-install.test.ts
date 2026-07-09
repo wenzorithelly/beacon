@@ -92,6 +92,18 @@ describe("ensureCodexMcp", () => {
     expect(readFileSync(configToml(), "utf8")).toBe(before);
   });
 
+  it("repoints the Beacon-owned MCP command when the preferred CLI changes", () => {
+    ensureCodexMcp();
+    process.env.BEACON_CLI_PATH = "/Applications/Beacon.app/Contents/Resources/bin/beacon";
+
+    expect(ensureCodexMcp().added).toBe(false);
+    expect(readFileSync(configToml(), "utf8")).toContain(
+      'command = "/Applications/Beacon.app/Contents/Resources/bin/beacon"',
+    );
+
+    process.env.BEACON_CLI_PATH = "beacon";
+  });
+
   it("is a no-op when the user added the entry themselves (codex mcp add)", () => {
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(configToml(), `[mcp_servers.beacon]\ncommand = "beacon"\nargs = ["mcp"]\n`);
@@ -148,6 +160,22 @@ describe("removeCodexMcp", () => {
     expect(content).toContain(`model = "gpt-5"`);
     expect(content).not.toContain("beacon");
     expect((Bun.TOML.parse(content) as { mcp_servers?: unknown }).mcp_servers).toBeUndefined();
+  });
+
+  it("removes only Beacon's table when a foreign MCP table appears inside its markers", () => {
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    ensureCodexMcp();
+    const foreign = `[mcp_servers.computer-use]\ncommand = "computer-use"\nargs = ["mcp"]\nenabled = false\n`;
+    writeFileSync(configToml(), readFileSync(configToml(), "utf8").replace("# beacon:end", `${foreign}# beacon:end`));
+
+    expect(removeCodexMcp().removed).toBe(true);
+
+    const content = readFileSync(configToml(), "utf8");
+    expect(content).toContain(foreign);
+    expect(content).not.toContain("[mcp_servers.beacon]");
+    expect(Bun.TOML.parse(content)).toMatchObject({
+      mcp_servers: { "computer-use": { command: "computer-use", enabled: false } },
+    });
   });
 
   it("leaves a user-owned (unmarked) beacon entry in place and reports skipped", () => {
@@ -209,6 +237,44 @@ describe("setupCodexAssets / auditCodex / removeCodexArtifacts", () => {
     expect(hooks.hooks.Stop.some((m: { hooks: { command: string }[] }) =>
       m.hooks.some((h) => h.command === "my-notify"),
     )).toBe(true);
+  });
+
+  it("collapses duplicate matcherless Codex lifecycle hooks without touching user hooks", async () => {
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(
+      hooksJson(),
+      JSON.stringify({
+        hooks: {
+          UserPromptSubmit: [
+            { hooks: [{ type: "command", command: "beacon prompt" }] },
+            { matcher: "*", hooks: [{ type: "command", command: "beacon prompt" }] },
+          ],
+          Stop: [
+            { hooks: [{ type: "command", command: "beacon stop-hook" }] },
+            { matcher: "*", hooks: [{ type: "command", command: "beacon stop-hook" }] },
+            { hooks: [{ type: "command", command: "my-notify" }] },
+          ],
+        },
+      }),
+    );
+
+    await setupCodexAssets();
+
+    const hooks = JSON.parse(readFileSync(hooksJson(), "utf8")).hooks;
+    for (const [event, command] of [
+      ["UserPromptSubmit", "beacon prompt"],
+      ["Stop", "beacon stop-hook"],
+    ]) {
+      expect(
+        hooks[event]
+          .flatMap((matcher: { hooks: { command: string }[] }) => matcher.hooks)
+          .filter((hook: { command: string }) => hook.command === command),
+      ).toHaveLength(1);
+    }
+    expect(hooks.Stop.flatMap((matcher: { hooks: { command: string }[] }) => matcher.hooks)).toContainEqual({
+      type: "command",
+      command: "my-notify",
+    });
   });
 
   it("selfHealGlobal wires ~/.codex when detected, skips it when not, and survives a broken ~/.codex", async () => {

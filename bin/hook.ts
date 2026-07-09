@@ -38,6 +38,7 @@ try {
         "content-type": "application/json",
         ...agentWorkspaceHeaders(typeof ev.cwd === "string" ? ev.cwd : undefined),
       },
+      signal: AbortSignal.timeout(2_500),
       // session: which agent session made this edit — lets diff-comments route to the session
       // that owns a file when several sessions share the repo.
       body: JSON.stringify({ files, session: typeof ev.session_id === "string" ? ev.session_id : undefined }),

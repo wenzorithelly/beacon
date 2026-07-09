@@ -141,4 +141,33 @@ describe("bin/hook.ts end-to-end (subprocess)", () => {
       rmSync(repo, { recursive: true, force: true });
     }
   });
+
+  it("times out delivery when the Beacon daemon does not respond", async () => {
+    const PKG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const home = mkdtempSync(join(tmpdir(), "beacon-hook-timeout-"));
+    const repo = mkdtempSync(join(tmpdir(), "beacon-hook-timeout-repo-"));
+    const server = Bun.serve({ port: 0, fetch: () => new Promise<Response>(() => {}) });
+    const proc = Bun.spawn(["bun", "bin/hook.ts"], {
+      cwd: PKG_DIR,
+      env: {
+        ...process.env,
+        HOME: home,
+        BEACON_CODEX: "0",
+        BEACON_URL: `http://127.0.0.1:${server.port}`,
+      },
+      stdin: new TextEncoder().encode(JSON.stringify({ tool_name: "apply_patch", tool_input: { input: PATCH }, cwd: repo })),
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    try {
+      const finished = await Promise.race([proc.exited.then(() => true), Bun.sleep(4_000).then(() => false)]);
+      expect(finished).toBe(true);
+      expect(await proc.exited).toBe(0);
+    } finally {
+      proc.kill();
+      server.stop(true);
+      rmSync(home, { recursive: true, force: true });
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 });

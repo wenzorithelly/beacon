@@ -209,18 +209,53 @@ function writeHooksDoc(file: string, doc: HooksDoc): void {
 // ── Hook entries (settings.json / hooks.json) ───────────────────────────────
 
 /** Returns true if the hook was added; false if it was already present (no-op). */
-export function ensureHookEntry(file: string, spec: HookSpec): boolean {
+export function ensureHookEntry(
+  file: string,
+  spec: HookSpec,
+  options: { matchAnyMatcher?: boolean } = {},
+): boolean {
   const doc = readHooksDoc(file);
   doc.hooks = doc.hooks ?? {};
   doc.hooks[spec.event] = doc.hooks[spec.event] ?? [];
   const arr = doc.hooks[spec.event]!;
-  const already = arr.some(
-    (m) =>
-      m.matcher === spec.matcher &&
-      m.hooks?.some((h) => normalizeCommand(h.command) === normalizeCommand(spec.command)),
+  const already = arr.some((m) =>
+    m.hooks?.some(
+      (h) =>
+        normalizeCommand(h.command) === normalizeCommand(spec.command) &&
+        (options.matchAnyMatcher || m.matcher === spec.matcher),
+    ),
   );
   if (already) return false;
   arr.push({ matcher: spec.matcher, hooks: [{ type: "command", command: spec.command }] });
+  writeHooksDoc(file, doc);
+  return true;
+}
+
+/** Retains one matching command in an event while preserving unrelated hook handlers. */
+export function dedupeHookEntry(file: string, spec: HookSpec): boolean {
+  const doc = readHooksDoc(file);
+  const arr = doc.hooks?.[spec.event];
+  if (!arr) return false;
+  const matches = arr.flatMap((matcher, matcherIndex) =>
+    (matcher.hooks ?? []).flatMap((hook, hookIndex) =>
+      normalizeCommand(hook.command) === normalizeCommand(spec.command)
+        ? [{ matcherIndex, hookIndex, preferred: matcher.matcher === spec.matcher }]
+        : [],
+    ),
+  );
+  if (matches.length < 2) return false;
+  const keep = matches.find((match) => match.preferred) ?? matches[0]!;
+  const duplicateKeys = new Set(
+    matches
+      .filter((match) => match !== keep)
+      .map((match) => `${match.matcherIndex}:${match.hookIndex}`),
+  );
+  doc.hooks![spec.event] = arr
+    .map((matcher, matcherIndex) => ({
+      ...matcher,
+      hooks: (matcher.hooks ?? []).filter((_, hookIndex) => !duplicateKeys.has(`${matcherIndex}:${hookIndex}`)),
+    }))
+    .filter((matcher) => (matcher.hooks ?? []).length > 0);
   writeHooksDoc(file, doc);
   return true;
 }

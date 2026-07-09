@@ -17,7 +17,7 @@ const SECTIONS = [
   { id: "loop", title: "The planning loop" },
   { id: "canvases", title: "The canvases" },
   { id: "cli", title: "CLI reference" },
-  { id: "integration", title: "Claude Code integration" },
+  { id: "integration", title: "Agent integration" },
   { id: "config", title: "Configuration" },
   { id: "telemetry", title: "Telemetry" },
   { id: "troubleshooting", title: "Troubleshooting" },
@@ -25,11 +25,11 @@ const SECTIONS = [
 
 const CLI: { cmd: string; what: string }[] = [
   { cmd: "beacon", what: "Register the current repo, ensure the shared server is running, and open the panel on this repo. The everyday command." },
-  { cmd: "beacon doctor", what: "Audit what's wired — the global Claude Code hooks + skills, this repo's .mcp.json, and the running daemon." },
+  { cmd: "beacon doctor", what: "Audit what's wired — global agent hooks + skills, this repo's .mcp.json, and the running daemon." },
   { cmd: "beacon stop", what: "Stop the shared background server. It restarts the next time you run beacon." },
   { cmd: "beacon setup", what: "(Re)install Beacon's per-repo helpers — the skills and .mcp.json — in the current repo without opening the panel." },
-  { cmd: "beacon uninstall", what: "Reverse every Beacon artifact: the global ~/.claude wiring and the per-repo files." },
-  { cmd: "beacon mcp", what: "The stdio MCP server Claude Code spawns automatically. You never run this by hand." },
+  { cmd: "beacon uninstall", what: "Reverse every Beacon artifact: global agent wiring and per-repo files." },
+  { cmd: "beacon mcp", what: "The stdio MCP server an agent session starts automatically. You never run this by hand." },
 ];
 
 const SKILLS: { name: string; when: string; what: string }[] = [
@@ -48,7 +48,7 @@ const MCP_TOOLS: { name: string; what: string }[] = [
 ];
 
 const HOOKS: { trigger: string; what: string }[] = [
-  { trigger: "Plan mode (ExitPlanMode)", what: "When the agent shows you a plan, Beacon intercepts it and renders the markdown on /plan with a native annotation panel. Select text and type → it becomes a comment. Approve / Discard / Submit feedback flows back to the session as the next instruction." },
+  { trigger: "Plan review", what: "The agent sends plans to Beacon's /plan canvas for annotation and review. Codex uses beacon_present_plan or beacon_propose_plan; the result returns after you Approve, Discard, or Submit feedback." },
   { trigger: "File edits (PostToolUse)", what: "Every Edit/Write the agent runs is reported to Beacon and the file is attached to whichever feature the session is working on. The /map view fills in with the real files behind each feature, without you tagging anything." },
   { trigger: "Code-graph watcher", what: "While the panel is open, a background watcher rebuilds the Files view as you save code — the maps stay current with the repo on their own." },
 ];
@@ -207,7 +207,7 @@ export function Docs() {
               <ol className="space-y-5">
                 {[
                   <>Install with the command above, then run <span className="w-mono text-foreground">beacon</span> inside a repo. It registers the repo, starts the shared server, and opens the panel in your browser.</>,
-                  <>In your Claude Code session, run <span className="w-mono text-foreground">/beacon-init</span>. The agent reads the repo and draws its architecture, schema, and roadmap onto the canvas.</>,
+                  <>In your terminal session, run <span className="w-mono text-foreground">/beacon-init</span>. The agent reads the repo and draws its architecture, schema, and roadmap onto the canvas.</>,
                   <>Ask the agent to plan a feature. It calls <span className="w-mono text-foreground">beacon_propose_plan</span> and the plan renders live on <span className="text-foreground">/plan</span>.</>,
                   <>Review it — annotate inline, edit the boards — then <span className="text-foreground">Approve</span>, <span className="text-foreground">Submit feedback</span>, or <span className="text-foreground">Discard</span>. Your verdict returns to the session.</>,
                 ].map((body, i) => (
@@ -272,7 +272,7 @@ export function Docs() {
 
             {/* integration */}
             <section className="mt-16">
-              <Heading id="integration" eyebrow="Reference">Claude Code integration</Heading>
+              <Heading id="integration" eyebrow="Reference">Agent integration</Heading>
 
               <h3 className="mb-1 mt-2 font-semibold text-foreground">Skills — you type these</h3>
               <p className="w-muted mb-4 text-[0.92rem]">Slash commands that tell the agent to do something Beacon-shaped.</p>
@@ -297,7 +297,7 @@ export function Docs() {
               </div>
 
               <h3 className="mb-1 mt-8 font-semibold text-foreground">Hooks — these run on their own</h3>
-              <p className="w-muted mb-4 text-[0.92rem]">Wired into Claude Code globally; they react to what the session is already doing.</p>
+              <p className="w-muted mb-4 text-[0.92rem]">Wired into supported terminal sessions globally; they react to what the session is already doing.</p>
               <div className="space-y-3">
                 {HOOKS.map((h) => (
                   <div key={h.trigger} className="glass rounded-lg p-4">
@@ -369,7 +369,7 @@ export function Docs() {
               <div className="space-y-3">
                 {[
                   { q: "The panel won't open", a: <>Make sure the server is up — run <span className="w-mono text-foreground">beacon</span> again, or <span className="w-mono text-foreground">beacon stop</span> then <span className="w-mono text-foreground">beacon</span> to restart it.</> },
-                  { q: "The @beacon tools or skills are missing in Claude Code", a: <>Run <span className="w-mono text-foreground">beacon setup</span> in the repo, then restart your Claude Code session so it re-reads the MCP registration.</> },
+                  { q: "The @beacon tools or skills are missing", a: <>Run <span className="w-mono text-foreground">beacon setup</span> in the repo, then restart your terminal session so it re-reads the MCP registration.</> },
                   { q: "How do I update?", a: <>Re-run the install command — it fetches the latest and relinks. Nothing else to do.</> },
                 ].map((t) => (
                   <div key={t.q} className="glass rounded-lg p-4">
