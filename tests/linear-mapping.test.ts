@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   beaconPriorityToLinear,
+  buildExternalMeta,
   issueToNodeFields,
   linearPriorityToBeacon,
   linearStateToStatus,
@@ -16,11 +17,17 @@ const issue = (over: Partial<LinearIssue> = {}): LinearIssue => ({
   updatedAt: 1_000,
   priority: 2,
   stateType: "started",
+  stateName: "In Review",
+  stateColor: "#0f783c",
   labels: [],
   parentId: null,
   teamId: "team-1",
   teamKey: "V3",
+  teamName: "Terra Nova",
+  projectId: null,
   projectName: null,
+  milestoneId: null,
+  milestoneName: null,
   assigneeName: "Leticia",
   assigneeAvatarUrl: "https://avatars.linear.app/leticia.png",
   ...over,
@@ -93,5 +100,57 @@ describe("issueToNodeFields", () => {
 
   it("tolerates a missing description", () => {
     expect(issueToNodeFields(issue({ description: null })).plain).toBeNull();
+  });
+});
+
+describe("buildExternalMeta", () => {
+  it("carries the real workflow-state name/color + team, omitting absent project/milestone", () => {
+    const meta = buildExternalMeta(issue());
+    expect(meta).toEqual({
+      state: { name: "In Review", color: "#0f783c", type: "started" },
+      team: { id: "team-1", key: "V3", name: "Terra Nova" },
+    });
+    expect(meta).not.toHaveProperty("project");
+    expect(meta).not.toHaveProperty("milestone");
+  });
+
+  it("includes project when the issue belongs to one", () => {
+    const meta = buildExternalMeta(issue({ projectId: "proj-1", projectName: "Shimizu PWA" }));
+    expect(meta.project).toEqual({ id: "proj-1", name: "Shimizu PWA" });
+    expect(meta).not.toHaveProperty("milestone");
+  });
+
+  it("includes milestone when the issue belongs to one", () => {
+    const meta = buildExternalMeta(
+      issue({
+        projectId: "proj-1",
+        projectName: "Shimizu PWA",
+        milestoneId: "ms-1",
+        milestoneName: "Beta launch",
+      }),
+    );
+    expect(meta.milestone).toEqual({ id: "ms-1", name: "Beta launch" });
+  });
+});
+
+describe("issueToNodeFields externalMeta", () => {
+  it("serializes buildExternalMeta as JSON onto NodeFields.externalMeta", () => {
+    const f = issueToNodeFields(
+      issue({ projectId: "proj-1", projectName: "Shimizu PWA", milestoneId: "ms-1", milestoneName: "Beta launch" }),
+    );
+    expect(JSON.parse(f.externalMeta)).toEqual({
+      state: { name: "In Review", color: "#0f783c", type: "started" },
+      team: { id: "team-1", key: "V3", name: "Terra Nova" },
+      project: { id: "proj-1", name: "Shimizu PWA" },
+      milestone: { id: "ms-1", name: "Beta launch" },
+    });
+  });
+
+  it("omits project/milestone from the serialized JSON when absent", () => {
+    const f = issueToNodeFields(issue());
+    expect(JSON.parse(f.externalMeta)).toEqual({
+      state: { name: "In Review", color: "#0f783c", type: "started" },
+      team: { id: "team-1", key: "V3", name: "Terra Nova" },
+    });
   });
 });

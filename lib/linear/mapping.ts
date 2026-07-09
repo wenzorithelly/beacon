@@ -41,6 +41,27 @@ export interface NodeFields {
   sourceRef: string;
   assigneeName: string | null;
   assigneeAvatarUrl: string | null;
+  externalMeta: string;
+}
+
+/** JSON shape of `NodeFields.externalMeta` — the real workflow state + container identity, for a
+ * later UI layer to render/filter by. Null-able members are OMITTED rather than stored as null so
+ * the shape stays stable (no `project: null` noise on a teamless-project issue). */
+export interface ExternalMeta {
+  state: { name: string; color: string; type: string };
+  team: { id: string; key: string; name: string };
+  project?: { id: string; name: string };
+  milestone?: { id: string; name: string };
+}
+
+export function buildExternalMeta(issue: LinearIssue): ExternalMeta {
+  const meta: ExternalMeta = {
+    state: { name: issue.stateName, color: issue.stateColor, type: issue.stateType },
+    team: { id: issue.teamId, key: issue.teamKey, name: issue.teamName },
+  };
+  if (issue.projectId && issue.projectName) meta.project = { id: issue.projectId, name: issue.projectName };
+  if (issue.milestoneId && issue.milestoneName) meta.milestone = { id: issue.milestoneId, name: issue.milestoneName };
+  return meta;
 }
 
 // No `layer` here — Linear has no layer, and a pure-backend workspace must never carry one
@@ -58,5 +79,6 @@ export function issueToNodeFields(issue: LinearIssue): NodeFields {
     sourceRef: issue.url,
     assigneeName: issue.assigneeName ?? null,
     assigneeAvatarUrl: issue.assigneeAvatarUrl ?? null,
+    externalMeta: JSON.stringify(buildExternalMeta(issue)),
   };
 }

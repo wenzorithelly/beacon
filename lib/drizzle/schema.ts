@@ -64,6 +64,10 @@ export const node = sqliteTable(
     // mirrors more than its own tickets. Name is the hover label; avatarUrl the chip image.
     assigneeName: text(),
     assigneeAvatarUrl: text(),
+    // JSON of { state:{name,color,type}, team:{id,key,name}, project?:{id,name}, milestone?:{id,name} }
+    // — the real workflow-state name/color + container identity (source="LINEAR" nodes only), so a
+    // separate UI layer can render/filter by them instead of the collapsed status. See lib/linear/mapping.ts.
+    externalMeta: text(),
     // Soft-hide for synced cards that left the scope (unassigned/closed, or filtered out by a scope /
     // "only mine" change). Set instead of deleting so positions, edges and annotations survive — the
     // card is filtered off the board and un-hidden if its issue returns. See lib/linear/sync.ts.
