@@ -14,12 +14,15 @@ export interface NavStreamMessage {
   v: number;
   navSeq: number;
   navPath: string;
+  navPark: boolean;
+  navExcludeTab: string;
 }
 
 export type NavAction =
   | { kind: "none" }
   | { kind: "refresh" }
-  | { kind: "push"; path: string };
+  | { kind: "push"; path: string }
+  | { kind: "park"; excludeTab: string };
 
 export interface NavDecision {
   state: NavStreamState;
@@ -39,11 +42,15 @@ export function decideNav(state: NavStreamState, msg: NavStreamMessage): NavDeci
     };
   }
   // A new nav-intent wins over a plain version bump (navigate, don't merely refresh). Advance
-  // BOTH trackers so the next tick doesn't then fire a stale refresh for the same version.
+  // BOTH trackers so the next tick doesn't then fire a stale refresh for the same version. A
+  // park intent takes the same precedence as a nav intent — they share one seq/channel — but
+  // yields a distinct action so the caller can apply its own self-exclusion check.
   if (msg.navSeq !== state.lastNavSeq) {
     return {
       state: { primed: true, lastV: msg.v, lastNavSeq: msg.navSeq },
-      action: { kind: "push", path: msg.navPath },
+      action: msg.navPark
+        ? { kind: "park", excludeTab: msg.navExcludeTab }
+        : { kind: "push", path: msg.navPath },
     };
   }
   if (msg.v !== state.lastV) {

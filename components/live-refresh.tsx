@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { decideNav, INITIAL_NAV_STATE, type NavStreamState } from "@/lib/nav-decide";
 import { currentTabWs } from "@/lib/tab-ws";
+import { currentTabId } from "@/lib/tab-id";
 
 // Subscribes to the per-workspace sync SSE stream and reacts to each `{ v, nav }` message: a new
 // nav-intent (written by the `beacon` CLI when it reuses this tab instead of opening a new one)
@@ -24,7 +25,10 @@ export function LiveRefresh() {
       state = INITIAL_NAV_STATE;
     };
     es.onmessage = (e) => {
-      let msg: { v?: number; nav?: { seq?: number; path?: string } };
+      let msg: {
+        v?: number;
+        nav?: { seq?: number; path?: string; park?: boolean; excludeTab?: string };
+      };
       try {
         msg = JSON.parse(e.data);
       } catch {
@@ -36,6 +40,8 @@ export function LiveRefresh() {
         v: typeof msg.v === "number" ? msg.v : 0,
         navSeq: msg.nav?.seq ?? 0,
         navPath: msg.nav?.path ?? "",
+        navPark: msg.nav?.park ?? false,
+        navExcludeTab: msg.nav?.excludeTab ?? "",
       });
       state = next;
       if (action.kind === "refresh") {
@@ -49,6 +55,15 @@ export function LiveRefresh() {
         } catch {
           /* ignore */
         }
+      } else if (action.kind === "park") {
+        // This tab was named as the one exception in the broadcast — stay put.
+        if (action.excludeTab && action.excludeTab === currentTabId()) return;
+        // A FULL navigation, on purpose: the entire point is unmounting the whole app tree
+        // (canvases, this very SSE connection, all hydrated React) instead of soft-navigating,
+        // which would keep it all alive. /parked never re-subscribes to this stream, so a parked
+        // tab ignores every intent that follows.
+        const from = `${window.location.pathname}${window.location.search}`;
+        window.location.assign(`/parked?from=${encodeURIComponent(from)}`);
       }
     };
     return () => es.close();

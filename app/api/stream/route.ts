@@ -8,9 +8,12 @@ export const dynamic = "force-dynamic";
 
 // Server-Sent Events: pushes a JSON `{ v, nav }` payload whenever the sync version OR a
 // nav-intent changes. `v` (the SyncState version) drives live-refresh's router.refresh() on
-// every ingest; `nav` carries a "navigate this tab" intent the `beacon` CLI writes when it
-// reuses an already-open tab instead of opening a new one. Each tick ALSO records tab-presence
-// — an open stream IS a live tab — which is exactly what the CLI checks before opening.
+// every ingest; `nav` carries either a "navigate this tab" intent (the `beacon` CLI writes one
+// when it reuses an already-open tab instead of opening a new one) or a "park this tab" intent
+// (written via /api/tab/park to ask a forgotten tab to unmount and free memory — optionally
+// excluding one self-identified tab via `excludeTab`, see lib/tab-id.ts). Each tick ALSO records
+// tab-presence — an open stream IS a live tab — which is exactly what the CLI checks before
+// opening.
 export async function GET(req: Request) {
   const encoder = new TextEncoder();
   let closed = false;
@@ -29,17 +32,29 @@ export async function GET(req: Request) {
       const tick = async () => {
         if (closed) return;
         try {
-          const { v, navSeq, navPath } = await runWithWorkspace(wsId, async () => {
-            recordTabPresence(Date.now());
-            const nav = readNavIntent();
-            return { v: await getVersion(), navSeq: nav?.seq ?? 0, navPath: nav?.path ?? "" };
-          });
+          const { v, navSeq, navPath, navPark, navExcludeTab } = await runWithWorkspace(
+            wsId,
+            async () => {
+              recordTabPresence(Date.now());
+              const nav = readNavIntent();
+              return {
+                v: await getVersion(),
+                navSeq: nav?.seq ?? 0,
+                navPath: nav?.path ?? "",
+                navPark: nav?.park ?? false,
+                navExcludeTab: nav?.excludeTab ?? "",
+              };
+            },
+          );
           if (v !== lastV || navSeq !== lastNavSeq) {
             lastV = v;
             lastNavSeq = navSeq;
             controller.enqueue(
               encoder.encode(
-                `data: ${JSON.stringify({ v, nav: { seq: navSeq, path: navPath } })}\n\n`,
+                `data: ${JSON.stringify({
+                  v,
+                  nav: { seq: navSeq, path: navPath, park: navPark, excludeTab: navExcludeTab },
+                })}\n\n`,
               ),
             );
           }

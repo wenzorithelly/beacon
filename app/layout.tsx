@@ -1,20 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { TopNav } from "@/components/top-nav";
-import { LiveRefresh } from "@/components/live-refresh";
-import { TabWorkspace } from "@/components/tab-workspace";
-import { MainRegion } from "@/components/ai/main-region";
-import { PlanProvider } from "@/components/plan/plan-context";
-import { PlanBar } from "@/components/plan/plan-bar";
-import { NotesProvider } from "@/components/notes/notes-context";
-import { NotesDrawer } from "@/components/notes/notes-drawer";
-import { AskModal } from "@/components/ask/ask-modal";
-import { UpdateBanner } from "@/components/update-banner";
+import { AppShell } from "@/components/app-shell";
 import { repoName } from "@/lib/project";
 import { appVersion } from "@/lib/app-version";
 import { THEME_SCRIPT } from "@/lib/appearance";
-import { AppearanceSync } from "@/components/theme/appearance-sync";
 
 const geistSans = Geist({
   variable: "--font-sans",
@@ -61,22 +51,11 @@ export default function RootLayout({
           // only — no tool chrome, providers, or polling. Local `beacon` never sets VERCEL.
           children
         ) : (
-          <>
-            <AppearanceSync />
-            <LiveRefresh />
-            <TabWorkspace />
-            <NotesProvider>
-              <PlanProvider>
-                <TopNav repo={repoName()} />
-                <MainRegion>{children}</MainRegion>
-                {modal}
-                <PlanBar />
-              </PlanProvider>
-              <NotesDrawer />
-            </NotesProvider>
-            <AskModal />
-            <UpdateBanner currentVersion={appVersion()} />
-          </>
+          // AppShell itself bares out for a handful of routes (e.g. /parked) that must never
+          // mount the chrome below — see its BARE_ROUTES.
+          <AppShell modal={modal} repo={repoName()} appVersion={appVersion()}>
+            {children}
+          </AppShell>
         )}
       </body>
     </html>
