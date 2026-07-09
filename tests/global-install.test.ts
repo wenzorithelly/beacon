@@ -32,6 +32,10 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  // These asserts predate the installed /Applications/Beacon.app: beaconCliCommand() prefers the
+  // app-embedded shim when the app exists, which is correct in prod but breaks the literal
+  // "beacon" expectations here. Pin the resolver to its npm-default answer for the test run.
+  process.env.BEACON_CLI_PATH = "beacon";
   rmSync(join(TMP_HOME, ".claude"), { recursive: true, force: true });
 });
 
