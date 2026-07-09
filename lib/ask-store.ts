@@ -5,12 +5,20 @@ import { writeJsonAtomic } from "@/lib/atomic-write";
 import { ASK_LOOP_GUARD_MS } from "@/lib/constants";
 import { dataDir } from "@/lib/project";
 
-// Transient per-workspace state for the "agent asks → Beacon modal → answer flows back" bridge.
-// Two disk files next to the plan-loop's state (dataDir), mirroring lib/plan-verdict:
-//   ask-pending.json    — the question/approval currently awaiting the user (the modal reads this)
-//   ask-resolution.json — the user's answer/decision (the `beacon ask` hook polls this)
-// The bridge intercepts the agent's NATIVE prompts via hooks (PreToolUse:AskUserQuestion and
-// PermissionRequest), so the agent never learns a special tool — see bin/ask.ts.
+// Transient per-workspace state for the TWO-WAY "agent asks → both the terminal AND Beacon show it
+// → either can answer" bridge. Disk files next to the plan-loop's state (dataDir), mirroring
+// lib/plan-verdict:
+//   ask-pending.json    — the question/approval currently shown (the modal reads this)
+//   ask-resolution.json — the user's approval verdict, OR a question answered in the terminal (the
+//                         `beacon ask` hook still polls this for APPROVALS only — see bin/ask.ts)
+//   ask-delivery.json   — (lib/ask-delivery) a Beacon-side answer handed to a live deliverer to type
+//                         into the terminal — see lib/deliverer-registry
+// A QUESTION (PreToolUse:AskUserQuestion) is NEVER held or hijacked: the native terminal prompt
+// always renders immediately, and the SAME question is always mirrored to Beacon too (mode
+// "mirror" — see questionMirrorPushBody). Whether the Beacon card's options are clickable depends
+// on whether a live deliverer is registered for the workspace (lib/deliverer-registry) — otherwise
+// it's a read-only display. Only PermissionRequest APPROVALS still use the older hold/poll flow
+// (unchanged scope — see bin/ask.ts).
 
 export type AskKind = "question" | "approval";
 
@@ -49,6 +57,10 @@ export interface PendingAsk {
   transcriptOffset?: number;
   question?: AskQuestion;
   approval?: AskApproval;
+  /** Set once Beacon has handed this ask's answer to a live deliverer (lib/ask-delivery) — the
+   *  modal shows a transient "sent to your terminal" state instead of clickable options once this
+   *  is set. Cleared along with everything else the next time a new ask is pushed. */
+  deliveredAt?: number;
 }
 export interface AskResolution {
   id: string;
@@ -102,6 +114,19 @@ export function transcriptShowsAnswered(transcript: string, question: string): b
     if (line.includes("Your questions have been answered") && line.includes(needle)) return true;
   }
   return false;
+}
+
+/** The POST body the `beacon ask` hook sends for a QUESTION — ALWAYS a mirror push now: the native
+ *  terminal prompt is never held or hijacked (see bin/ask.ts's header comment), so every question
+ *  is pushed as a mirror unconditionally, regardless of tab focus. Whether it renders as clickable
+ *  in Beacon depends on a live deliverer (lib/deliverer-registry), decided client-side by the modal
+ *  — not by this push. Pure so the hook's "always mirror, never block a question" contract is
+ *  unit-tested without spawning the script. */
+export function questionMirrorPushBody(
+  question: AskQuestion,
+  transcriptPath: string | undefined,
+): { kind: "question"; question: AskQuestion; mode: "mirror"; transcriptPath?: string } {
+  return { kind: "question", question, mode: "mirror", transcriptPath };
 }
 
 /** Loop-guard: a question re-asked with the same hash within the guard window of being answered
@@ -247,6 +272,17 @@ export function pushAsk(
     approval: args.approval,
   });
   return { loop: false, id };
+}
+
+/** Mark the CURRENTLY pending ask as handed to a live deliverer (lib/ask-delivery writes the actual
+ *  delivery payload; this just flags the pending ask so the modal can show a "sent" state instead
+ *  of clickable options while the transcript-watch auto-clear catches up). No-op (returns false) if
+ *  `id` no longer matches the pending ask — it moved on or was already answered elsewhere. */
+export function markAskDelivered(id: string, now: number): boolean {
+  const pending = readPendingAsk();
+  if (!pending || pending.id !== id) return false;
+  writePendingAsk({ ...pending, deliveredAt: now });
+  return true;
 }
 
 /** Record the user's answer to the currently-pending ask and clear it so the modal closes. */

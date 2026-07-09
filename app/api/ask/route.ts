@@ -3,6 +3,7 @@ import { z } from "zod";
 import { askHash, clearPendingAsk, pushAsk, readPendingAsk, transcriptShowsAnswered } from "@/lib/ask-store";
 import { MIRROR_TTL_MS } from "@/lib/constants";
 import { runWithWorkspace } from "@/lib/db-drizzle";
+import { isDelivererLive } from "@/lib/deliverer-registry";
 import { readFileRange } from "@/lib/read-tail";
 import { workspaceIdFromRequest } from "@/lib/workspaces";
 
@@ -10,7 +11,9 @@ export const dynamic = "force-dynamic";
 
 // The agent-ask bridge push + read. POST (the `beacon ask` hook) registers a pending question or
 // approval, pinned to the agent's repo workspace; GET (the global modal, browser-pinned) reads
-// whatever is currently awaiting the user. Mirrors the plan-loop's /api/plan push/read.
+// whatever is currently awaiting the user ALONGSIDE whether a live deliverer means its options can
+// actually be clicked (lib/deliverer-registry) — one round-trip instead of two. Mirrors the
+// plan-loop's /api/plan push/read.
 
 const optionSchema = z.object({ label: z.string(), description: z.string().optional() });
 const questionSchema = z.object({
@@ -55,11 +58,12 @@ function mirrorResolved(ask: NonNullable<ReturnType<typeof readPendingAsk>>, now
 export async function GET(req: Request) {
   return runWithWorkspace(workspaceIdFromRequest(req), async () => {
     const ask = readPendingAsk();
+    const delivererLive = isDelivererLive(Date.now());
     if (ask?.mode === "mirror" && mirrorResolved(ask, Date.now())) {
       clearPendingAsk(); // sync since the read above — no ask can interleave
-      return Response.json({ ask: null });
+      return Response.json({ ask: null, delivererLive });
     }
-    return Response.json({ ask });
+    return Response.json({ ask, delivererLive });
   });
 }
 

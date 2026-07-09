@@ -2,31 +2,26 @@
 /**
  * `beacon ask` — the agent-ask bridge hook. ONE binary for two Claude Code hook events:
  *
- *   • PreToolUse (matcher AskUserQuestion) — the agent asks a structured question. We push it to
- *     Beacon's global modal, wait for the user's pick, then DENY the tool with the pick encoded as
- *     the reason. A denied AskUserQuestion delivers that reason back as the tool result, and the
- *     model reads it as the answer (proven) — the only interactive way to answer AUQ elsewhere.
- *   • PermissionRequest (matcher Edit|Write|MultiEdit|Bash|NotebookEdit; NOT ExitPlanMode — the
- *     plan hook owns that) — the agent asks to edit/create/run. We push it, wait, then emit the
- *     user's allow/deny decision.
- *
- * Only redirects into Beacon when a Beacon tab is OPEN **AND FOCUSED** for the repo (the user is
- * actually looking at it — visible + document.hasFocus()) — it never SPAWNS a tab, so an agent
- * question can't yank focus off the terminal, and a tab merely open BEHIND the terminal doesn't
- * hijack the question. If Beacon isn't the focused window / is unreachable / times out / the
- * loop-guard trips, we FAIL OPEN to the
- * terminal: a question falls through (its normal terminal UI shows); an approval emits no decision
- * (Claude Code's own permission prompt shows). Never auto-approves anything the user didn't see.
+ *   • PreToolUse (matcher AskUserQuestion) — the agent asks a structured question. The native
+ *     terminal picker is NEVER held or hijacked: this ALWAYS falls through immediately so the
+ *     question renders its own UI right away — the user answers there, in Beacon, or both (a
+ *     two-way street: whichever comes first wins, see the answered-in-terminal auto-clear in
+ *     lib/ask-store's `transcriptShowsAnswered` / mirrorResolved in app/api/ask). We still push the
+ *     SAME question to Beacon as a mirror (best-effort, timeout-bounded) so it's ALWAYS visible
+ *     there too — whether its options are clickable there depends on a live "input deliverer" being
+ *     registered for the workspace (lib/deliverer-registry), decided client-side by the modal, not
+ *     by this hook.
+ *   • PermissionRequest (matcher Edit|Write|MultiEdit|Bash|NotebookEdit; NOT ExitPlanMode — the plan
+ *     hook owns that) — the agent asks to edit/create/run. Unchanged scope: still redirects into
+ *     Beacon's blocking modal ONLY when a Beacon tab is OPEN AND FOCUSED for the repo, and still
+ *     fails open (no decision emitted → Claude Code's own permission prompt shows) when it isn't,
+ *     the daemon is unreachable, it times out, or the loop-guard trips.
  *
  * Hook input (stdin): the event JSON. Output (stdout): the hook decision, or nothing (fall through).
  */
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  buildAskFromEvent,
-  type HookEvent,
-  questionAnswerReason,
-} from "@/lib/ask-store";
+import { buildAskFromEvent, type HookEvent, questionMirrorPushBody } from "@/lib/ask-store";
 import { PLAN_HOOK_REARM_MS, PLAN_POLL_INTERVAL_MS } from "@/lib/constants";
 import { daemonBaseUrl } from "@/lib/daemon-server";
 import { planAllowOutput } from "@/lib/permission-modes";
@@ -41,15 +36,6 @@ function emit(out: unknown): never {
 // approval emits nothing so Claude Code's normal permission prompt shows. Never auto-allow blindly.
 function failOpen(): never {
   emit(undefined);
-}
-function preToolDeny(reason: string) {
-  return {
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: reason,
-    },
-  };
 }
 function permissionDeny(message: string) {
   return {
@@ -96,35 +82,34 @@ const workspaceIdForPath = (p: string) =>
   const wsId = workspaceIdForPath(gitToplevel(event.cwd));
   const headers = { "content-type": "application/json", "x-beacon-workspace": wsId };
 
-  // Only intercept into Beacon if the user is ACTIVELY LOOKING at a Beacon tab for this repo — the
-  // global modal renders in that focused tab. We gate on FOCUSED-view presence (lib/view-presence:
-  // the client beats it only while visible + document.hasFocus()), NOT the SSE-connection
-  // tab-presence — the latter stays live for a tab sitting open BEHIND the terminal, which is
-  // exactly what used to strand a question on Beacon while the user waited in the terminal. When
-  // Beacon isn't the focused window, fall through so the question/approval shows its native
-  // terminal UI.
-  const tabLive = await fetch(`${base}/api/tab/view`, { headers })
-    .then((r) => (r.ok ? (r.json() as Promise<{ live?: boolean }>) : null))
-    .then((p) => !!p?.live)
-    .catch(() => false);
-  if (!tabLive) {
-    // The terminal owns the answer (you're not looking at Beacon). Still MIRROR a QUESTION to
-    // Beacon as a read-only visual aid — GET /api/ask auto-clears it when the transcript shows the
-    // native picker was answered (or when it goes stale). Best-effort; then fall through to the
-    // picker. Only questions: approvals have no transcript "answered" marker to auto-clear them, so
-    // we don't mirror those. No workspace-activate here — a display-only mirror mustn't yank the view.
-    if (ask.kind === "question" && event.transcript_path) {
-      // Timeout-bounded so a slow/hung daemon can never delay the native terminal picker the user
-      // is actually waiting on — the mirror is a best-effort aid, the terminal owns the answer.
+  if (ask.kind === "question") {
+    // Two-way street: the native picker ALWAYS renders in the terminal now — never held, never
+    // hijacked. Mirror the same question to Beacon (best-effort, timeout-bounded so a slow/hung
+    // daemon can never delay the terminal picker the user might already be looking at) and fall
+    // through unconditionally. GET /api/ask auto-clears the mirror once the transcript shows the
+    // native picker was answered (transcriptShowsAnswered) — that still works unchanged.
+    if (event.transcript_path) {
       await fetch(`${base}/api/ask`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ ...ask, mode: "mirror", transcriptPath: event.transcript_path }),
+        body: JSON.stringify(questionMirrorPushBody(ask.question, event.transcript_path)),
         signal: AbortSignal.timeout(1500),
       }).catch(() => {});
     }
     failOpen();
   }
+
+  // Approval (PermissionRequest). Unchanged scope: only redirect into Beacon's blocking modal when
+  // a Beacon tab is OPEN AND FOCUSED for the repo — the user is actually looking at it. We gate on
+  // FOCUSED-view presence (lib/view-presence: the client beats it only while visible +
+  // document.hasFocus()), NOT the SSE-connection tab-presence — the latter stays live for a tab
+  // sitting open BEHIND the terminal. When Beacon isn't the focused window, fall through so the
+  // approval shows its native terminal prompt.
+  const tabLive = await fetch(`${base}/api/tab/view`, { headers })
+    .then((r) => (r.ok ? (r.json() as Promise<{ live?: boolean }>) : null))
+    .then((p) => !!p?.live)
+    .catch(() => false);
+  if (!tabLive) failOpen();
 
   // Activate the repo's workspace so the modal (and its verdict) bind to THIS repo.
   await fetch(`${base}/api/workspace/activate?id=${wsId}`).catch(() => {});
@@ -136,13 +121,13 @@ const workspaceIdForPath = (p: string) =>
   })
     .then((r) => (r.ok ? (r.json() as Promise<{ loop: boolean; id?: string }>) : null))
     .catch(() => null);
-  // Push failed, or the loop-guard tripped (same question re-asked right after answering) → fall
+  // Push failed, or the loop-guard tripped (same approval re-asked right after answering) → fall
   // through so a confused agent can never spin on the modal.
   if (!pushed || pushed.loop || !pushed.id) failOpen();
   const id = pushed.id;
 
   // No tab-opening here: we already confirmed a tab is live above, so the global modal renders in
-  // it. Long-poll for the user's answer, re-arming before Claude Code's ~10-min hook wall.
+  // it. Long-poll for the user's verdict, re-arming before Claude Code's ~10-min hook wall.
   const deadline = Date.now() + PLAN_HOOK_REARM_MS;
   while (Date.now() < deadline) {
     await sleep(PLAN_POLL_INTERVAL_MS);
@@ -150,24 +135,17 @@ const workspaceIdForPath = (p: string) =>
       .then((r) => r.json())
       .catch(() => null)) as
       | { status: "pending" }
-      | {
-          status: "resolved";
-          resolution: { selected?: string[]; decision?: "allow" | "deny" };
-        }
+      | { status: "resolved"; resolution: { decision?: "allow" | "deny" } }
       | null;
     if (!v || v.status !== "resolved") continue;
 
-    if (ask.kind === "question") {
-      emit(preToolDeny(questionAnswerReason(ask.question, v.resolution.selected ?? [])));
-    }
-    // approval
     if (v.resolution.decision === "deny") {
       emit(permissionDeny("The user denied this action in Beacon."));
     }
     emit(planAllowOutput()); // approved in Beacon
   }
 
-  // Timed out waiting. Don't leave the agent hung: fall through to the terminal (question shows its
-  // own UI; approval gets Claude Code's normal prompt). The loop-guard prevents a re-ask storm.
+  // Timed out waiting. Don't leave the agent hung: fall through to Claude Code's normal permission
+  // prompt. The loop-guard prevents a re-ask storm.
   failOpen();
 })();

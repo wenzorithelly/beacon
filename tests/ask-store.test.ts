@@ -12,8 +12,10 @@ import {
   clearAskResolution,
   clearPendingAsk,
   isLoopRepush,
+  markAskDelivered,
   pushAsk,
   questionAnswerReason,
+  questionMirrorPushBody,
   readAskResolution,
   readPendingAsk,
   resolveAsk,
@@ -59,6 +61,20 @@ describe("pure helpers", () => {
     expect(summarizeApproval("Edit", { file_path: "a.ts", old_string: "a", new_string: "b" }).preview).toBe(
       "- a\n+ b",
     );
+  });
+
+  it("questionMirrorPushBody always mirrors a question, regardless of anything else", () => {
+    const body = questionMirrorPushBody(q(), "/path/to/transcript.jsonl");
+    expect(body).toEqual({
+      kind: "question",
+      question: q(),
+      mode: "mirror",
+      transcriptPath: "/path/to/transcript.jsonl",
+    });
+  });
+
+  it("questionMirrorPushBody tolerates a missing transcript path (still mirrors)", () => {
+    expect(questionMirrorPushBody(q(), undefined).mode).toBe("mirror");
   });
 
   it("isLoopRepush: only questions, same hash, within window", () => {
@@ -125,5 +141,28 @@ describe("bridge lifecycle", () => {
     const r = pushAsk({ kind: "approval", hash, approval: appr }, 1000) as { id: string };
     resolveAsk({ id: r.id, decision: "deny" }, 1200);
     expect(readAskResolution()?.decision).toBe("deny");
+  });
+});
+
+describe("markAskDelivered", () => {
+  it("flags the pending ask so the modal can show a 'sent' state", () => {
+    const hash = askHash("question", q());
+    const pushed = pushAsk({ kind: "question", hash, question: q(), mode: "mirror" }, 1000) as {
+      id: string;
+    };
+    expect(markAskDelivered(pushed.id, 1500)).toBe(true);
+    expect(readPendingAsk()?.deliveredAt).toBe(1500);
+  });
+
+  it("is a no-op when the id no longer names the pending ask", () => {
+    const hash = askHash("question", q());
+    pushAsk({ kind: "question", hash, question: q(), mode: "mirror" }, 1000);
+    expect(markAskDelivered("some-stale-id", 1500)).toBe(false);
+    expect(readPendingAsk()?.deliveredAt).toBeUndefined();
+  });
+
+  it("is a no-op when there is no pending ask at all", () => {
+    clearPendingAsk();
+    expect(markAskDelivered("anything", 1500)).toBe(false);
   });
 });
