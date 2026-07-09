@@ -68,9 +68,7 @@ export interface UseShellNodeDragResult {
   handleDragStop: (
     event: MouseEvent | TouchEvent,
     info: ShellNodeDragInfo,
-  ) => { x: number; y: number   /** True under the desktop shell — canvases use it to disable edge autopan during node drags. */
-  enabled: boolean;
-} | null;
+  ) => { x: number; y: number } | null;
   /** True under the desktop shell — canvases use it to disable edge autopan during node drags. */
   enabled: boolean;
 }
