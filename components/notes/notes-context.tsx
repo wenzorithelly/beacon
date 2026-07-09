@@ -27,6 +27,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     window.addEventListener("beacon:shell-notes-toggle", onToggle);
     return () => window.removeEventListener("beacon:shell-notes-toggle", onToggle);
   }, [toggle]);
+  // …and reports the drawer's state back the same generic way, so the shell's Notes control can
+  // light up while the drawer is open (any trigger that opens a panel shows its open state).
+  // Harmless in a plain browser: nothing listens.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("beacon:shell-notes-state", { detail: { open } }));
+  }, [open]);
   const value = useMemo(() => ({ open, openDrawer, close, toggle }), [open, openDrawer, close, toggle]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -1533,6 +1533,10 @@ export function MapClient({
       }}
     >
       <ReactFlow
+        // Desktop shell: React Flow's edge autopan turns a drag toward the docked terminal band
+        // into an infinite viewport scroll (the pan outruns the pointer, the drop never lands).
+        // The shell handoff needs the pointer to LEAVE the canvas — edge autopan is off there.
+        autoPanOnNodeDrag={!shellDrag.enabled}
         {...canvasToolProps}
         className={cn(paneClass, (placing || pickingParent) && "rf-placing")}
         nodes={finalNodes}

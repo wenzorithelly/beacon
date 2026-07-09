@@ -68,10 +68,17 @@ export interface UseShellNodeDragResult {
   handleDragStop: (
     event: MouseEvent | TouchEvent,
     info: ShellNodeDragInfo,
-  ) => { x: number; y: number } | null;
+  ) => { x: number; y: number   /** True under the desktop shell — canvases use it to disable edge autopan during node drags. */
+  enabled: boolean;
+} | null;
+  /** True under the desktop shell — canvases use it to disable edge autopan during node drags. */
+  enabled: boolean;
 }
 
 export function useShellNodeDrag(): UseShellNodeDragResult {
+  // Client-only component tree (React Flow) — safe to read the shell marker during render; it is
+  // stamped by the preload before hydration and never changes for the life of the page.
+  const enabled = isDesktopShell();
   const startRef = useRef<{ id: string; x: number; y: number } | null>(null);
   const lastEmitRef = useRef(0);
 
@@ -137,5 +144,5 @@ export function useShellNodeDrag(): UseShellNodeDragResult {
     [dispatch],
   );
 
-  return { handleDragStart, handleDrag, handleDragStop };
+  return { enabled, handleDragStart, handleDrag, handleDragStop };
 }
