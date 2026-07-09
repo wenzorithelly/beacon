@@ -63,6 +63,7 @@ import { useZoomLOD } from "@/components/graph/use-zoom-lod";
 import { RichNodeEditor } from "@/components/graph/rich-node-editor";
 import { cn } from "@/lib/utils";
 import type { FeatureSignals } from "@/lib/feature-signals";
+import type { ExternalMeta } from "@/lib/linear/mapping";
 
 export type MapNodeData = {
   title: string;
@@ -81,6 +82,10 @@ export type MapNodeData = {
   /** Linear issue owner (assignee) — top-left avatar chip on synced cards; name on hover. */
   assigneeName?: string | null;
   assigneeAvatarUrl?: string | null;
+  /** Real Linear workflow state + container identity — set on source="LINEAR" cards. Drives the
+   *  status chip's state-fidelity override (name + color dot) in place of the collapsed Beacon
+   *  status label. */
+  externalMeta?: ExternalMeta | null;
   isCriterion: boolean;
   isChild: boolean;
   parentId: string | null;
@@ -703,16 +708,39 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
     </>
   );
 
+  // A Linear-synced card's real workflow state (e.g. "In Review") is DISPLAY FIDELITY layered on
+  // top of Beacon's 5-value status underneath — the Select still edits/write-backs the Beacon
+  // status (lanes, write-back unchanged); only the trigger's label + a state-color dot swap in
+  // when a Linear state is present. Absent meta (non-Linear card, or pre-sync row) falls back to
+  // the plain Beacon status rendering.
+  const linearState = data.source === "LINEAR" ? data.externalMeta?.state : undefined;
+
   const statusSelect = (
     <Select value={data.status} onValueChange={(v) => save({ status: v })} disabled={readOnly}>
       <SelectTrigger
+        title={linearState ? `Linear state: ${linearState.name}` : undefined}
         className={cn(
           noDrag,
           "!h-5 shrink-0 !gap-0.5 rounded border !px-1.5 !py-0 text-[10px] font-medium [&_svg]:size-3",
           STATUS_META[data.status]?.className ?? "border-border",
         )}
       >
-        <SelectValue>{(v: string) => STATUS_META[v]?.label ?? v}</SelectValue>
+        <SelectValue>
+          {(v: string) =>
+            linearState ? (
+              <span className="flex items-center gap-1">
+                <span
+                  aria-hidden
+                  className="size-1.5 shrink-0 rounded-full"
+                  style={{ background: linearState.color }}
+                />
+                {linearState.name}
+              </span>
+            ) : (
+              (STATUS_META[v]?.label ?? v)
+            )
+          }
+        </SelectValue>
       </SelectTrigger>
       <SelectContent alignItemWithTrigger={false}>
         {statuses.map((s) => (

@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Boxes,
   Bug,
   CircleDashed,
   CornerDownRight,
@@ -10,11 +11,13 @@ import {
   Flag,
   Layers,
   Maximize2,
+  Milestone,
   MoreHorizontal,
   Pencil,
   Plus,
   Sparkles,
   Tag,
+  Users,
   X,
 } from "lucide-react";
 import {
@@ -364,6 +367,36 @@ function NodeDetail({
         {parentTitle && (
           <PropRow icon={CornerDownRight} label="Parent">
             <span className="truncate">{parentTitle}</span>
+          </PropRow>
+        )}
+
+        {/* Real Linear workflow state + container identity — display fidelity on top of the
+            editable Beacon Status row above (only rows that actually exist on the issue). */}
+        {node.source === "LINEAR" && node.externalMeta?.state && (
+          <PropRow icon={CircleDashed} label="State">
+            <span className="flex items-center gap-1.5">
+              <span
+                aria-hidden
+                className="size-2 rounded-full"
+                style={{ background: node.externalMeta.state.color }}
+              />
+              {node.externalMeta.state.name}
+            </span>
+          </PropRow>
+        )}
+        {node.source === "LINEAR" && node.externalMeta?.team && (
+          <PropRow icon={Users} label="Team">
+            <span className="truncate">{node.externalMeta.team.name}</span>
+          </PropRow>
+        )}
+        {node.source === "LINEAR" && node.externalMeta?.project && (
+          <PropRow icon={Boxes} label="Project">
+            <span className="truncate">{node.externalMeta.project.name}</span>
+          </PropRow>
+        )}
+        {node.source === "LINEAR" && node.externalMeta?.milestone && (
+          <PropRow icon={Milestone} label="Milestone">
+            <span className="truncate">{node.externalMeta.milestone.name}</span>
           </PropRow>
         )}
 

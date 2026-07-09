@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
 import { untestedFiles } from "@/lib/test-coverage";
 import { featureSignals } from "@/lib/feature-signals";
+import { parseExternalMeta } from "@/lib/linear/mapping";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
 import type {
   DbRelationPayload,
@@ -72,6 +73,7 @@ export async function readRoadmapBoard(
     sourceRef: n.sourceRef,
     assigneeName: n.assigneeName,
     assigneeAvatarUrl: n.assigneeAvatarUrl,
+    externalMeta: parseExternalMeta(n.externalMeta),
     parentId: n.parentId,
     isCriterion: n.nodeTags.some((nt) => nt.tag.label === "criterion"),
     files: n.files.map((f) => f.path),

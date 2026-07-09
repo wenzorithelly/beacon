@@ -5,6 +5,7 @@ import {
   issueToNodeFields,
   linearPriorityToBeacon,
   linearStateToStatus,
+  parseExternalMeta,
 } from "@/lib/linear/mapping";
 import type { LinearIssue } from "@/lib/linear/types";
 
@@ -152,5 +153,23 @@ describe("issueToNodeFields externalMeta", () => {
       state: { name: "In Review", color: "#0f783c", type: "started" },
       team: { id: "team-1", key: "V3", name: "Terra Nova" },
     });
+  });
+});
+
+describe("parseExternalMeta", () => {
+  it("parses the JSON round-trip of buildExternalMeta", () => {
+    const raw = issueToNodeFields(issue()).externalMeta;
+    expect(parseExternalMeta(raw)).toEqual({
+      state: { name: "In Review", color: "#0f783c", type: "started" },
+      team: { id: "team-1", key: "V3", name: "Terra Nova" },
+    });
+  });
+  it("returns null for null/undefined/empty input (non-Linear cards, pre-sync rows)", () => {
+    expect(parseExternalMeta(null)).toBeNull();
+    expect(parseExternalMeta(undefined)).toBeNull();
+    expect(parseExternalMeta("")).toBeNull();
+  });
+  it("returns null for malformed JSON rather than throwing", () => {
+    expect(parseExternalMeta("{not json")).toBeNull();
   });
 });

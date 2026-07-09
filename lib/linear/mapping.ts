@@ -64,6 +64,18 @@ export function buildExternalMeta(issue: LinearIssue): ExternalMeta {
   return meta;
 }
 
+/** Inverse of `JSON.stringify(buildExternalMeta(...))` — the read side the roadmap payload (and
+ *  its client canvas) parses once, defensively: absent or malformed JSON (a non-Linear card, or a
+ *  row written before this column existed) becomes `null` rather than throwing. */
+export function parseExternalMeta(raw: string | null | undefined): ExternalMeta | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as ExternalMeta;
+  } catch {
+    return null;
+  }
+}
+
 // No `layer` here — Linear has no layer, and a pure-backend workspace must never carry one
 // (AGENTS.md). The executor sets layer only when the workspace has a frontend.
 export function issueToNodeFields(issue: LinearIssue): NodeFields {

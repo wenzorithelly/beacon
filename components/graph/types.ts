@@ -1,6 +1,7 @@
 // Serializable payload passed from the server map page to the client canvas.
 
 import type { FeatureSignals } from "@/lib/feature-signals";
+import type { ExternalMeta } from "@/lib/linear/mapping";
 
 export interface BugFlagPayload {
   id: string;
@@ -28,6 +29,10 @@ export interface MapNodePayload {
   // Linear issue owner (assignee) for the owner-avatar chip — set on source="LINEAR" cards.
   assigneeName?: string | null;
   assigneeAvatarUrl?: string | null;
+  // Real Linear workflow state + container identity (state/team/project/milestone), parsed once
+  // server-side from Node.externalMeta — set on source="LINEAR" cards. Null when absent or the
+  // stored JSON was malformed. Drives the state-fidelity chip + the board's Linear filters.
+  externalMeta?: ExternalMeta | null;
   parentId: string | null;
   isCriterion: boolean;
   files: string[];
