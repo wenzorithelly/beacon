@@ -76,6 +76,7 @@ import { layeredLayout } from "@/lib/layered-layout";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
 import { placeInGroup } from "@/lib/node-placement";
 import { collapsedDescendants, childCounts } from "@/lib/node-collapse";
+import { nodePassesFilters, type RoadmapFilters } from "@/lib/map-filters";
 import { GroupRegions } from "@/components/graph/group-regions";
 import { LodReporter } from "@/components/graph/use-zoom-lod";
 import type { Lod } from "@/lib/zoom-lod";
@@ -135,6 +136,7 @@ function buildNodes(payload: MapNodePayload[]): Node<MapNodeData>[] {
       sourceRef: n.sourceRef,
       assigneeName: n.assigneeName,
       assigneeAvatarUrl: n.assigneeAvatarUrl,
+      externalMeta: n.externalMeta,
       isCriterion: n.isCriterion,
       isChild: n.parentId != null,
       parentId: n.parentId,
@@ -608,6 +610,13 @@ export function MapClient({
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
   const [clusterFilter, setClusterFilter] = useState<Set<string>>(new Set());
   const [priorityFilter, setPriorityFilter] = useState<Set<number>>(new Set());
+  // Linear dimensions (Team/Project/Milestone/State) — same multi-select-Set pattern as the three
+  // above, populated from each node's `externalMeta` (see lib/map-filters.ts for the shared
+  // matching semantics: a non-Linear card drops out once any of these is active).
+  const [teamFilter, setTeamFilter] = useState<Set<string>>(new Set());
+  const [projectFilter, setProjectFilter] = useState<Set<string>>(new Set());
+  const [milestoneFilter, setMilestoneFilter] = useState<Set<string>>(new Set());
+  const [stateFilter, setStateFilter] = useState<Set<string>>(new Set());
   // Layer emphasis (FE/BE/FS pills, shown inside the Filters popover): DIMS non-matching cards
   // instead of hiding them, so the board keeps its shape. Never combined into `passes` — it's a
   // lens, not a filter — but it DOES count toward the filter badge + clears with the others, so
@@ -629,23 +638,76 @@ export function MapClient({
     () => Array.from(new Set(nodePayload.map((n) => n.priority))).sort((a, b) => a - b),
     [nodePayload],
   );
+  // The Linear filter section only renders when at least one card on the board actually carries
+  // externalMeta — a pure-Beacon board (or one not yet Linear-synced) never shows empty controls.
+  const hasLinearMeta = useMemo(() => nodePayload.some((n) => n.externalMeta), [nodePayload]);
+  const teamsPresent = useMemo(
+    () =>
+      Array.from(
+        new Set(nodePayload.map((n) => n.externalMeta?.team.name).filter((v): v is string => !!v)),
+      ).sort(),
+    [nodePayload],
+  );
+  const projectsPresent = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          nodePayload.map((n) => n.externalMeta?.project?.name).filter((v): v is string => !!v),
+        ),
+      ).sort(),
+    [nodePayload],
+  );
+  const milestonesPresent = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          nodePayload.map((n) => n.externalMeta?.milestone?.name).filter((v): v is string => !!v),
+        ),
+      ).sort(),
+    [nodePayload],
+  );
+  const statesPresent = useMemo(
+    () =>
+      Array.from(
+        new Set(nodePayload.map((n) => n.externalMeta?.state.name).filter((v): v is string => !!v)),
+      ).sort(),
+    [nodePayload],
+  );
 
+  const roadmapFilters: RoadmapFilters = useMemo(
+    () => ({
+      status: statusFilter,
+      cluster: clusterFilter,
+      priority: priorityFilter,
+      team: teamFilter,
+      project: projectFilter,
+      milestone: milestoneFilter,
+      state: stateFilter,
+    }),
+    [statusFilter, clusterFilter, priorityFilter, teamFilter, projectFilter, milestoneFilter, stateFilter],
+  );
   const passes = useCallback(
-    (d: MapNodeData) => {
-      if (statusFilter.size && !statusFilter.has(d.status)) return false;
-      if (clusterFilter.size && (!d.cluster || !clusterFilter.has(d.cluster))) return false;
-      if (priorityFilter.size && !priorityFilter.has(d.priority)) return false;
-      return true;
-    },
-    [statusFilter, clusterFilter, priorityFilter],
+    (d: MapNodeData) => nodePassesFilters(d, roadmapFilters),
+    [roadmapFilters],
   );
 
   const activeFilterCount =
-    statusFilter.size + clusterFilter.size + priorityFilter.size + (layerEmphasis ? 1 : 0);
+    statusFilter.size +
+    clusterFilter.size +
+    priorityFilter.size +
+    teamFilter.size +
+    projectFilter.size +
+    milestoneFilter.size +
+    stateFilter.size +
+    (layerEmphasis ? 1 : 0);
   const clearFilters = useCallback(() => {
     setStatusFilter(new Set());
     setClusterFilter(new Set());
     setPriorityFilter(new Set());
+    setTeamFilter(new Set());
+    setProjectFilter(new Set());
+    setMilestoneFilter(new Set());
+    setStateFilter(new Set());
     setLayerEmphasis(null);
   }, []);
 
@@ -2003,6 +2065,50 @@ export function MapClient({
                     onClick={() => toggleIn(p, setPriorityFilter)}
                   >
                     P{p}
+                  </Chip>
+                ))}
+              </PopoverSection>
+            )}
+            {hasLinearMeta && teamsPresent.length > 0 && (
+              <PopoverSection title="Team">
+                {teamsPresent.map((t) => (
+                  <Chip key={t} on={teamFilter.has(t)} onClick={() => toggleIn(t, setTeamFilter)}>
+                    {t}
+                  </Chip>
+                ))}
+              </PopoverSection>
+            )}
+            {hasLinearMeta && projectsPresent.length > 0 && (
+              <PopoverSection title="Project">
+                {projectsPresent.map((p) => (
+                  <Chip
+                    key={p}
+                    on={projectFilter.has(p)}
+                    onClick={() => toggleIn(p, setProjectFilter)}
+                  >
+                    {p}
+                  </Chip>
+                ))}
+              </PopoverSection>
+            )}
+            {hasLinearMeta && milestonesPresent.length > 0 && (
+              <PopoverSection title="Milestone">
+                {milestonesPresent.map((m) => (
+                  <Chip
+                    key={m}
+                    on={milestoneFilter.has(m)}
+                    onClick={() => toggleIn(m, setMilestoneFilter)}
+                  >
+                    {m}
+                  </Chip>
+                ))}
+              </PopoverSection>
+            )}
+            {hasLinearMeta && statesPresent.length > 0 && (
+              <PopoverSection title="State">
+                {statesPresent.map((s) => (
+                  <Chip key={s} on={stateFilter.has(s)} onClick={() => toggleIn(s, setStateFilter)}>
+                    {s}
                   </Chip>
                 ))}
               </PopoverSection>
