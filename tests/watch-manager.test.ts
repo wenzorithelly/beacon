@@ -5,7 +5,16 @@ function ws(id: string, path = `/repo/${id}`): WatchableWorkspace {
   return { id, path, name: id };
 }
 
-function harness(workspaces: WatchableWorkspace[], opts: { limit?: number; hardCap?: number; missing?: string[] } = {}) {
+// reconcile() staggers boot-time starts after the first — tests run with staggerMs: 0
+// and flush() a couple of real event-loop ticks to let the deferred ones fire.
+function flush(ms = 5): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function harness(
+  workspaces: WatchableWorkspace[],
+  opts: { limit?: number; hardCap?: number; missing?: string[]; staggerMs?: number } = {},
+) {
   const started: string[] = [];
   const stopped: string[] = [];
   const deps = {
@@ -18,36 +27,52 @@ function harness(workspaces: WatchableWorkspace[], opts: { limit?: number; hardC
     },
     limit: opts.limit,
     hardCap: opts.hardCap,
+    staggerMs: opts.staggerMs ?? 0,
   };
   return { deps, started, stopped, manager: createWatcherManager(deps) };
 }
 
 describe("watcher manager", () => {
-  it("reconcile starts only the top-N most-recent workspaces", () => {
+  it("reconcile starts only the top-N most-recent workspaces", async () => {
     const { manager, started } = harness([ws("a"), ws("b"), ws("c")], { limit: 2 });
     manager.reconcile();
+    await flush();
     expect(started).toEqual(["a", "b"]);
     expect(manager.isWatching("a")).toBe(true);
     expect(manager.isWatching("c")).toBe(false);
   });
 
-  it("reconcile skips workspaces whose path no longer exists", () => {
+  it("reconcile skips workspaces whose path no longer exists", async () => {
     const { manager, started } = harness([ws("a"), ws("b", "/gone/b"), ws("c")], {
       limit: 2,
       missing: ["/gone/b"],
     });
     manager.reconcile();
+    await flush();
     expect(started).toEqual(["a", "c"]); // b filtered out, c promoted into the top-2
   });
 
-  it("reconcile stops a watcher whose workspace was removed from the registry", () => {
+  it("reconcile stops a watcher whose workspace was removed from the registry", async () => {
     const list = [ws("a"), ws("b")];
     const { deps, stopped } = harness(list, { limit: 5 });
     const manager = createWatcherManager(deps);
     manager.reconcile();
+    await flush(); // let b's staggered start actually happen before it's removed
     list.splice(1, 1); // drop "b"
     manager.reconcile();
     expect(stopped).toEqual(["b"]);
+    expect(manager.isWatching("b")).toBe(false);
+  });
+
+  it("reconcile cancels a still-pending staggered start if the workspace drops out of the top-N first", async () => {
+    const list = [ws("a"), ws("b"), ws("c")];
+    const { deps, started } = harness(list, { limit: 2, staggerMs: 20 });
+    const manager = createWatcherManager(deps);
+    manager.reconcile(); // a starts now, b is scheduled 20ms out
+    list.splice(1, 1); // drop "b" before its timer fires
+    manager.reconcile(); // top-2 is now [a, c] — c takes b's old slot
+    await flush(50);
+    expect(started).toEqual(["a", "c"]); // b's stale timer never fired
     expect(manager.isWatching("b")).toBe(false);
   });
 
@@ -71,6 +96,7 @@ describe("watcher manager", () => {
   it("stopWatcher stops one running watcher immediately", async () => {
     const { manager, stopped } = harness([ws("a"), ws("b")], { limit: 5 });
     manager.reconcile();
+    await flush();
     await manager.stopWatcher("a");
     expect(stopped).toEqual(["a"]);
     expect(manager.isWatching("a")).toBe(false);

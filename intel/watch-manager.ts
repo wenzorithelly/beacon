@@ -27,11 +27,17 @@ export interface WatcherManagerDeps {
   limit?: number;
   /** Absolute cap on concurrent watchers (auto + lazy) before LRU eviction kicks in. */
   hardCap?: number;
+  /** Delay between staggered boot-time starts (ms). Test-only override — the process
+   *  default lives at the call site below. */
+  staggerMs?: number;
 }
+
+const STAGGER_MS = 1500;
 
 export function createWatcherManager(deps: WatcherManagerDeps) {
   const limit = deps.limit ?? 6;
   const hardCap = deps.hardCap ?? 12;
+  const staggerMs = deps.staggerMs ?? STAGGER_MS;
   const active = new Map<string, { handle: WatcherHandle; seq: number }>();
   let seq = 0;
   let topIds = new Set<string>();
@@ -64,11 +70,22 @@ export function createWatcherManager(deps: WatcherManagerDeps) {
     }
   }
 
-  /** Start watchers for the top-N existing workspaces; stop any whose repo vanished. */
+  /** Start watchers for the top-N existing workspaces; stop any whose repo vanished.
+   *  Fresh starts are staggered (not fired in the same tick) — each start's initial
+   *  full-repo extract is otherwise-concurrent with the others, spiking memory with
+   *  every watched repo's parse held resident at once (measured: a 6-repo boot spiked
+   *  RSS to ~1.6GB before settling under 500MB). One at a time keeps the peak down to
+   *  roughly one repo's extract without reducing how many end up watched. */
   function reconcile(): void {
     const top = deps.list().filter((w) => deps.exists(w.path)).slice(0, limit);
     topIds = new Set(top.map((w) => w.id));
-    for (const ws of top) startFor(ws);
+    const fresh = top.filter((ws) => !active.has(ws.id));
+    fresh.forEach((ws, i) => {
+      if (i === 0) startFor(ws);
+      // A workspace can drop out of the top-N (registry change, deletion) before its
+      // turn comes up — re-check membership at fire time instead of starting it blind.
+      else setTimeout(() => topIds.has(ws.id) && startFor(ws), i * staggerMs);
+    });
     for (const [id, e] of [...active]) {
       const ws = deps.get(id);
       if (!ws || !deps.exists(ws.path)) {
