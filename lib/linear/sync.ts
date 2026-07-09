@@ -9,7 +9,7 @@ import { resolveHasFrontend } from "@/lib/project-meta";
 import { getLinearFlag, setLinearFlag } from "@/lib/linear/config";
 import * as realClient from "@/lib/linear/client";
 import type { IssuePatch, ScopedFetch, ViewerOrg } from "@/lib/linear/client";
-import { beaconPriorityToLinear, issueToNodeFields } from "@/lib/linear/mapping";
+import { beaconPriorityToLinear, buildExternalMeta, issueToNodeFields } from "@/lib/linear/mapping";
 import { planReconcile, type LocalNode } from "@/lib/linear/reconcile";
 import { effectiveScopes, type LinearIssue, type LinearScope, type NodeStatus } from "@/lib/linear/types";
 
@@ -95,6 +95,7 @@ async function runSyncInner(opts: { client?: SyncClient; now?: number; force?: b
     status: r.status as NodeStatus,
     priority: r.priority,
     snapshot: r.externalSnapshot ? (JSON.parse(r.externalSnapshot) as Snapshot) : null,
+    externalMeta: r.externalMeta,
   }));
   // externalIds currently soft-hidden — any that turn up in the fetched set get un-hidden, even if
   // the issue is otherwise unchanged (a plain `noop`).
@@ -177,9 +178,20 @@ async function runSyncInner(opts: { client?: SyncClient; now?: number; force?: b
         }
         await db.update(node).set(set).where(eq(node.id, d.node.id));
       } else if (d.action === "noop") {
-        // Unchanged, but if it was hidden and is back in the set, bring it back onto the board.
-        if (hiddenIds.has(d.node.externalId)) {
-          await db.update(node).set({ hiddenAt: null }).where(eq(node.id, d.node.id));
+        // Unchanged, but two repairs may still apply: un-hide a card that returned to the set, and
+        // backfill externalMeta on rows synced before that column existed (a noop never refreshes
+        // an existing meta — pulls do that when the issue actually changes).
+        const set: Record<string, unknown> = {};
+        if (hiddenIds.has(d.node.externalId)) set.hiddenAt = null;
+        if (!d.node.externalMeta) {
+          set.externalMeta = JSON.stringify(buildExternalMeta(d.issue));
+          // Stamp BOTH markers together so the LWW planner doesn't read this mirror write as a
+          // user edit next pass (beaconChanged = updatedAt > externalSyncedAt).
+          set.updatedAt = new Date(now);
+          set.externalSyncedAt = new Date(now);
+        }
+        if (Object.keys(set).length > 0) {
+          await db.update(node).set(set).where(eq(node.id, d.node.id));
         }
       } else if (d.action === "remove") {
         // Left the scope (unassigned / closed / moved out, or filtered by a scope/only-mine change).

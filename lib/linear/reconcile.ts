@@ -24,13 +24,17 @@ export interface LocalNode {
   // last-known Linear-side values (from Node.externalSnapshot); the executor pushes only the
   // fields that differ from this. Undefined for a node never synced back. The planner ignores it.
   snapshot?: { title: string; plain: string | null; status: NodeStatus; priority: number } | null;
+  // Node.externalMeta JSON, carried so the executor can backfill it on a noop for rows synced
+  // before the column existed (see lib/linear/sync.ts). The planner ignores it.
+  externalMeta?: string | null;
 }
 
 export type Decision =
   | { action: "create"; issue: LinearIssue }
   | { action: "pull"; node: LocalNode; issue: LinearIssue }
   | { action: "push"; node: LocalNode; issue: LinearIssue }
-  | { action: "noop"; node: LocalNode }
+  // noop carries the issue too — the executor may still backfill fields (externalMeta) from it.
+  | { action: "noop"; node: LocalNode; issue: LinearIssue }
   | { action: "remove"; node: LocalNode };
 
 // `issues` is the FULL current scoped set (open issues in the team/project, optionally assignee=me)
@@ -58,7 +62,7 @@ export function planReconcile(locals: LocalNode[], issues: LinearIssue[]): Decis
     } else if (beaconChanged) {
       out.push({ action: "push", node, issue });
     } else {
-      out.push({ action: "noop", node });
+      out.push({ action: "noop", node, issue });
     }
   }
 

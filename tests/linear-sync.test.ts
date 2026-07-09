@@ -151,6 +151,50 @@ describe("runSync (v2 — scoped, full-set, soft-hide)", () => {
     });
   });
 
+  it("backfills externalMeta on a noop for a pre-existing row — without triggering a push next pass", async () => {
+    await connect();
+    // Synced before the externalMeta column existed: unchanged on both sides (noop), no meta.
+    await insertLinear({
+      externalId: "ext-A",
+      updatedAt: new Date(1_000),
+      externalUpdatedAt: new Date(1_000),
+      externalSyncedAt: new Date(1_000),
+    });
+    const client = fakeClient({ fetchScopedOpenIssues: async () => scoped([issueA]) }); // updatedAt 500 → noop
+    await runSync({ client, now: 2_000, force: true });
+    const [n] = await db.select().from(node).where(eq(node.externalId, "ext-A"));
+    expect(JSON.parse(n.externalMeta!)).toEqual({
+      state: { name: "In Progress", color: "#0f783c", type: "started" },
+      team: { id: "team-1", key: "V3", name: "Terra Nova" },
+    });
+    // Both LWW stamps advanced together, so the mirror write is not read as a user edit…
+    expect(n.updatedAt.getTime()).toBe(2_000);
+    expect(n.externalSyncedAt?.getTime()).toBe(2_000);
+    // …and the next pass is a clean noop: nothing pushed, nothing sent to Linear.
+    const s2 = await runSync({ client, now: 3_000, force: true });
+    expect(s2.pushed).toBe(0);
+    expect(client.updates).toEqual([]);
+  });
+
+  it("leaves a noop row untouched when externalMeta is already present", async () => {
+    await connect();
+    const meta = JSON.stringify({
+      state: { name: "Old", color: "#111111", type: "started" },
+      team: { id: "team-1", key: "V3", name: "Terra Nova" },
+    });
+    await insertLinear({
+      externalId: "ext-A",
+      externalMeta: meta,
+      updatedAt: new Date(1_000),
+      externalUpdatedAt: new Date(1_000),
+      externalSyncedAt: new Date(1_000),
+    });
+    await runSync({ client: fakeClient({ fetchScopedOpenIssues: async () => scoped([issueA]) }), now: 2_000, force: true });
+    const [n] = await db.select().from(node).where(eq(node.externalId, "ext-A"));
+    expect(n.externalMeta).toBe(meta); // NOT refreshed on a noop — only backfilled when absent
+    expect(n.updatedAt.getTime()).toBe(1_000); // row not written at all
+  });
+
   it("writes the updated externalMeta on pull (Linear-side change wins)", async () => {
     await connect();
     await insertLinear({

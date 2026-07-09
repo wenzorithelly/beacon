@@ -11,11 +11,17 @@ const issue = (over: Partial<LinearIssue> = {}): LinearIssue => ({
   updatedAt: 1_000,
   priority: 0,
   stateType: "started",
+  stateName: "In Progress",
+  stateColor: "#0f783c",
   labels: [],
   parentId: null,
   teamId: "team-1",
   teamKey: "V3",
+  teamName: "Terra Nova",
+  projectId: null,
   projectName: null,
+  milestoneId: null,
+  milestoneName: null,
   ...over,
 });
 
@@ -67,10 +73,10 @@ describe("planReconcile (full current set)", () => {
     expect(planReconcile([n], [i])).toEqual([{ action: "push", node: n, issue: i }]);
   });
 
-  it("noop (echo suppression): issue in the set but nothing changed since last sync", () => {
+  it("noop (echo suppression): issue in the set but nothing changed since last sync — carries the issue for backfills", () => {
     const n = local({ externalUpdatedAt: 300, externalSyncedAt: 300, updatedAt: 300 });
     const i = issue({ updatedAt: 300 });
-    expect(planReconcile([n], [i])).toEqual([{ action: "noop", node: n }]);
+    expect(planReconcile([n], [i])).toEqual([{ action: "noop", node: n, issue: i }]);
   });
 
   it("handles a mix in one pass", () => {
