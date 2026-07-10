@@ -79,10 +79,10 @@ export function SharedPlanView({ snapshot }: { snapshot: PlanShareSnapshot }) {
             {mapHasContent && dbHasContent && (
               <div className="pointer-events-none absolute left-3 top-3 z-20">
                 <div className="glass pointer-events-auto flex items-center gap-1 rounded-full p-0.5">
-                  <TabBtn active={activeTab === "map"} onClick={() => setTab("map")} icon={<MapPinned className="size-3" />}>
+                  <TabBtn pill active={activeTab === "map"} onClick={() => setTab("map")} icon={<MapPinned className="size-3" />}>
                     Features
                   </TabBtn>
-                  <TabBtn active={activeTab === "db"} onClick={() => setTab("db")} icon={<Database className="size-3" />}>
+                  <TabBtn pill active={activeTab === "db"} onClick={() => setTab("db")} icon={<Database className="size-3" />}>
                     Schema
                   </TabBtn>
                 </div>

@@ -324,6 +324,7 @@ export function PlanHistoryView({
                 <div className="pointer-events-none absolute left-3 top-3 z-20">
                   <div className="glass pointer-events-auto flex items-center gap-1 rounded-full p-0.5">
                     <TabBtn
+                      pill
                       active={activeBoardTab === "map"}
                       onClick={() => setBoardTab("map")}
                       icon={<MapPinned className="size-3" />}
@@ -331,6 +332,7 @@ export function PlanHistoryView({
                       Features
                     </TabBtn>
                     <TabBtn
+                      pill
                       active={activeBoardTab === "db"}
                       onClick={() => setBoardTab("db")}
                       icon={<Database className="size-3" />}

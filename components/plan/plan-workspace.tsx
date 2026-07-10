@@ -399,6 +399,7 @@ export function PlanWorkspace({
         <div className="pointer-events-none fixed left-1/2 top-3 z-30 -translate-x-1/2">
           <div className="glass pointer-events-auto flex items-center gap-0.5 rounded-full p-0.5">
             <TabBtn
+              pill
               active={!changesView}
               onClick={() => router.push(planHref({ view: "history" }))}
               icon={<Archive className="size-3" />}
@@ -406,6 +407,7 @@ export function PlanWorkspace({
               Plan history
             </TabBtn>
             <TabBtn
+              pill
               active={changesView}
               onClick={() => router.push(planHref({ view: "changes" }))}
               icon={<GitCompare className="size-3" />}
@@ -836,6 +838,7 @@ export function PlanWorkspace({
               <div className="pointer-events-none absolute left-3 top-3 z-20">
                 <div className="glass pointer-events-auto flex items-center gap-1 rounded-full p-0.5">
                   <TabBtn
+                    pill
                     active={activeTab === "map"}
                     onClick={() => setTab("map")}
                     icon={<MapPinned className="size-3" />}
@@ -843,6 +846,7 @@ export function PlanWorkspace({
                     Map
                   </TabBtn>
                   <TabBtn
+                    pill
                     active={activeTab === "db"}
                     onClick={() => setTab("db")}
                     icon={<Database className="size-3" />}
