@@ -8,7 +8,7 @@
 // Pure (no DB, no React) so it can be unit-tested and reused by the client. Returns a Map
 // keyed by node id — the caller applies the positions to React Flow state + persists them.
 
-import { STATUS_LANE_ORDER } from "@/lib/constants";
+import { STATUS_LANE_ORDER, STATUS_META } from "@/lib/constants";
 import { flowBlocksIntoBands } from "@/lib/band-flow";
 
 export type RoadmapGroupBy = "cluster" | "status" | "priority";
@@ -31,7 +31,33 @@ export interface RoadmapLayoutNode {
   title?: string | null;
   /** The role/plain sub-line — adds one line to the height estimate when present. */
   role?: string | null;
+  /** Real Linear workflow-state name/type (from externalMeta) — group-by-status lanes split by
+   *  the actual state ("In Review") instead of collapsing everything started into IN_PROGRESS. */
+  stateName?: string | null;
+  stateType?: string | null;
 }
+
+// Lane key for group-by-status: the REAL workflow-state name when the card carries one, EXCEPT a
+// name that is just a case-variant of the Beacon status label ("In Progress" ≈ "In progress") —
+// that merges into the native lane so manual and synced cards group together.
+export function statusLaneKey(n: Pick<RoadmapLayoutNode, "status" | "stateName">): string {
+  const name = (n.stateName ?? "").trim();
+  if (!name) return n.status;
+  const label = STATUS_META[n.status]?.label ?? n.status;
+  return name.toLowerCase() === label.toLowerCase() ? n.status : name;
+}
+
+// Where a NAMED state lane slots into the Now → Next → Later reading order: right after the
+// Beacon lane its Linear state *type* corresponds to (started → IN_PROGRESS, unstarted/backlog/
+// triage → PENDING, completed → DONE, canceled → CANCELLED).
+const STATE_TYPE_ANCHOR: Record<string, (typeof STATUS_LANE_ORDER)[number]> = {
+  started: "IN_PROGRESS",
+  triage: "PENDING",
+  backlog: "PENDING",
+  unstarted: "PENDING",
+  completed: "DONE",
+  canceled: "CANCELLED",
+};
 
 // Estimated FULL-LOD height (px) of a roadmap card. The board lays cards out at fixed positions,
 // but semantic zoom renders a TALLER, detailed card when zoomed in (title + tags + role +
@@ -85,19 +111,39 @@ export interface RoadmapLayoutOptions {
 }
 
 function keyFor(groupBy: RoadmapGroupBy): (n: RoadmapLayoutNode) => string {
-  if (groupBy === "status") return (n) => n.status;
+  if (groupBy === "status") return statusLaneKey;
   if (groupBy === "priority") return (n) => String(n.priority);
   return (n) => (n.cluster ?? "").trim() || "—"; // cluster
 }
 
-// Lane ordering per dimension: status follows Now→Next→Later, priority 0→3 (critical first),
-// cluster is alphabetical with "—" last.
+// Lane ordering per dimension: status follows Now→Next→Later (named workflow-state lanes slot in
+// right after their type's Beacon anchor, alphabetical within an anchor), priority 0→3 (critical
+// first), cluster is alphabetical with "—" last.
 function laneOrderFor(
   groupBy: RoadmapGroupBy,
   parents: RoadmapLayoutNode[],
   key: (n: RoadmapLayoutNode) => string,
 ): string[] {
-  if (groupBy === "status") return [...STATUS_LANE_ORDER];
+  if (groupBy === "status") {
+    const beacon = new Set<string>(STATUS_LANE_ORDER);
+    const namedAnchor = new Map<string, string>(); // lane key → Beacon anchor lane
+    for (const p of parents) {
+      const k = key(p);
+      if (beacon.has(k) || namedAnchor.has(k)) continue;
+      namedAnchor.set(k, STATE_TYPE_ANCHOR[p.stateType ?? ""] ?? "PENDING");
+    }
+    const out: string[] = [];
+    for (const anchor of STATUS_LANE_ORDER) {
+      out.push(anchor);
+      out.push(
+        ...Array.from(namedAnchor)
+          .filter(([, a]) => a === anchor)
+          .map(([k]) => k)
+          .sort(),
+      );
+    }
+    return out;
+  }
   if (groupBy === "priority") return ["0", "1", "2", "3"];
   const keys = Array.from(new Set(parents.map(key)));
   const named = keys.filter((k) => k !== "—").sort();

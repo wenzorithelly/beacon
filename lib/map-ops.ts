@@ -10,6 +10,7 @@ import { normalizeLayer } from "@/lib/layer";
 import { resolveHasFrontend } from "@/lib/project-meta";
 import { placeInGroup, placeWithoutOverlap } from "@/lib/node-placement";
 import { layoutRoadmap, type RoadmapGroupBy } from "@/lib/roadmap-layout";
+import { parseExternalMeta } from "@/lib/linear/mapping";
 import { layeredLayout } from "@/lib/layered-layout";
 import {
   BOARD_ALGO_VERSIONS,
@@ -219,7 +220,7 @@ export async function ensureBoardArranged(view: "ROADMAP" | "ARCHITECTURE"): Pro
   const all = await db.query.node.findMany({
     where: (t, { eq }) => eq(t.view, view),
     orderBy: (t, { asc }) => asc(t.createdAt),
-    columns: { id: true, parentId: true, source: true, cluster: true, status: true, priority: true, title: true, role: true, x: true, y: true },
+    columns: { id: true, parentId: true, source: true, cluster: true, status: true, priority: true, title: true, role: true, x: true, y: true, externalMeta: true },
   });
   const nodes = all.filter((n) => n.source !== "DRAFT");
   // Nothing worth arranging yet — don't burn the one-shot, so the board still tidies itself
@@ -235,17 +236,23 @@ export async function ensureBoardArranged(view: "ROADMAP" | "ARCHITECTURE"): Pro
         : "cluster"; // includes a stale "layer" — that dimension is gone (stripes carry layer now)
     arrangedBy = by;
     pos = layoutRoadmap(
-      nodes.map((n) => ({
-        id: n.id,
-        parentId: n.parentId,
-        cluster: n.cluster,
-        status: n.status,
-        priority: n.priority,
-        // Feed the title + role so the layout reserves enough vertical room for the full-LOD
-        // (zoomed-in) card — a long, multi-line title no longer overlaps the slot below it.
-        title: n.title,
-        role: n.role,
-      })),
+      nodes.map((n) => {
+        // Real workflow state (Linear cards) — status lanes split by it ("In Review" ≠ started).
+        const state = parseExternalMeta(n.externalMeta)?.state;
+        return {
+          id: n.id,
+          parentId: n.parentId,
+          cluster: n.cluster,
+          status: n.status,
+          priority: n.priority,
+          stateName: state?.name ?? null,
+          stateType: state?.type ?? null,
+          // Feed the title + role so the layout reserves enough vertical room for the full-LOD
+          // (zoomed-in) card — a long, multi-line title no longer overlaps the slot below it.
+          title: n.title,
+          role: n.role,
+        };
+      }),
       by,
     );
   } else {

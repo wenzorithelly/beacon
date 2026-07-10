@@ -71,7 +71,7 @@ import {
 import { ARCH_STATUSES, ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
 import { layerStripeCss, normalizeLayer, type Layer } from "@/lib/layer";
 import { LayerToggle, layerEmphasisMatch } from "@/components/graph/layer-toggle";
-import { layoutRoadmap, type RoadmapGroupBy } from "@/lib/roadmap-layout";
+import { layoutRoadmap, statusLaneKey, type RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { layeredLayout } from "@/lib/layered-layout";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
 import { placeInGroup } from "@/lib/node-placement";
@@ -91,8 +91,13 @@ const GROUP_BY_OPTIONS: { value: RoadmapGroupBy; label: string }[] = [
 ];
 
 // Human label for a lane, by the grouping dimension — used on the lane background headers.
+// Status lanes key on the REAL workflow state when the card carries one (statusLaneKey), so a
+// Linear "In Review" card heads its own lane instead of reading "In progress".
 function laneLabel(groupBy: RoadmapGroupBy, d: MapNodeData): string {
-  if (groupBy === "status") return STATUS_META[d.status]?.label ?? d.status;
+  if (groupBy === "status") {
+    const k = statusLaneKey({ status: d.status, stateName: d.externalMeta?.state?.name });
+    return STATUS_META[k]?.label ?? k;
+  }
   if (groupBy === "priority") return `P${d.priority}`;
   return d.cluster?.trim() || "—";
 }
@@ -1429,6 +1434,9 @@ export function MapClient({
         cluster: n.data.cluster,
         status: n.data.status,
         priority: n.data.priority,
+        // Real workflow state (Linear cards) — status lanes split by it ("In Review" ≠ started).
+        stateName: n.data.externalMeta?.state?.name ?? null,
+        stateType: n.data.externalMeta?.state?.type ?? null,
         // Title + role drive the height estimate so a long-title card reserves room and doesn't
         // overlap its neighbour/sub-task at full zoom.
         title: n.data.title,

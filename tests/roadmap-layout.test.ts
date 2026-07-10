@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   estimateRoadmapCardHeight,
   layoutRoadmap,
+  statusLaneKey,
   type RoadmapLayoutNode,
 } from "@/lib/roadmap-layout";
 
@@ -163,5 +164,54 @@ describe("estimateRoadmapCardHeight", () => {
     const base = estimateRoadmapCardHeight({ title: "feature", role: null }, 0);
     expect(estimateRoadmapCardHeight({ title: "feature", role: "does a thing" }, 0)).toBeGreaterThan(base);
     expect(estimateRoadmapCardHeight({ title: "feature", role: null }, 3)).toBeGreaterThan(base);
+  });
+});
+
+describe("statusLaneKey (Linear workflow-state lanes)", () => {
+  it("falls back to the Beacon status without a state name", () => {
+    expect(statusLaneKey({ status: "IN_PROGRESS" })).toBe("IN_PROGRESS");
+    expect(statusLaneKey({ status: "PENDING", stateName: null })).toBe("PENDING");
+    expect(statusLaneKey({ status: "PENDING", stateName: "  " })).toBe("PENDING");
+  });
+
+  it("splits a real workflow state into its own lane", () => {
+    expect(statusLaneKey({ status: "IN_PROGRESS", stateName: "In Review" })).toBe("In Review");
+    expect(statusLaneKey({ status: "PENDING", stateName: "Backlog" })).toBe("Backlog");
+  });
+
+  it("merges a case-variant of the Beacon label into the native lane", () => {
+    // Linear "In Progress" ≈ Beacon "In progress" → manual + synced cards group together.
+    expect(statusLaneKey({ status: "IN_PROGRESS", stateName: "In Progress" })).toBe("IN_PROGRESS");
+    expect(statusLaneKey({ status: "DONE", stateName: "done" })).toBe("DONE");
+    expect(statusLaneKey({ status: "PENDING", stateName: " pending " })).toBe("PENDING");
+  });
+});
+
+describe("layoutRoadmap status lanes with Linear states", () => {
+  it("gives 'In Review' its own lane, anchored after IN_PROGRESS and before PENDING", () => {
+    const nodes = [
+      f("pend", { status: "PENDING" }),
+      f("rev", { status: "IN_PROGRESS", stateName: "In Review", stateType: "started" }),
+      f("wip", { status: "IN_PROGRESS" }),
+    ];
+    const pos = layoutRoadmap(nodes, "status", OPTS);
+    expect(pos.get("wip")!.x).toBe(0); // IN_PROGRESS lane first
+    expect(pos.get("rev")!.x).toBe(350); // In Review — its own lane, still in the "now" zone
+    expect(pos.get("pend")!.x).toBe(700); // PENDING after the started-type lanes
+  });
+
+  it("anchors unstarted-type states in the PENDING zone and merges case-variants", () => {
+    const nodes = [
+      f("todo", { status: "PENDING", stateName: "Todo", stateType: "unstarted" }),
+      f("wipL", { status: "IN_PROGRESS", stateName: "In Progress", stateType: "started" }),
+      f("wip", { status: "IN_PROGRESS" }),
+      f("pend", { status: "PENDING" }),
+    ];
+    const pos = layoutRoadmap(nodes, "status", OPTS);
+    // "In Progress" merged into the native lane → same lane block as the manual card.
+    expect(pos.get("wipL")!.x).toBe(pos.get("wip")!.x);
+    // PENDING lane, then its named unstarted state after it.
+    expect(pos.get("pend")!.x).toBeLessThan(pos.get("todo")!.x);
+    expect(pos.get("wip")!.x).toBeLessThan(pos.get("pend")!.x);
   });
 });
