@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 // actually be clicked (lib/deliverer-registry) — one round-trip instead of two. Mirrors the
 // plan-loop's /api/plan push/read.
 
-const optionSchema = z.object({ label: z.string(), description: z.string().optional() });
+const optionSchema = z.object({ label: z.string(), description: z.string().optional(), preview: z.string().optional() });
 const questionSchema = z.object({
   header: z.string().default(""),
   question: z.string(),

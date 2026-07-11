@@ -25,6 +25,9 @@ export type AskKind = "question" | "approval";
 export interface AskQuestionOption {
   label: string;
   description?: string;
+  /** AskUserQuestion's optional per-option `preview` — a monospace visual aid (diff/mockup/snippet)
+   *  the terminal picker renders beside the focused option. Mirrored so Beacon's card shows it too. */
+  preview?: string;
 }
 export interface AskQuestion {
   header: string;
@@ -239,10 +242,11 @@ export function buildAskFromEvent(
       multiSelect: !!qi.multiSelect,
       options: Array.isArray(qi.options)
         ? qi.options.map((o) => {
-            const opt = o as { label?: unknown; description?: unknown };
+            const opt = o as { label?: unknown; description?: unknown; preview?: unknown };
             return {
               label: String(opt.label ?? ""),
               description: opt.description ? String(opt.description) : undefined,
+              preview: opt.preview ? String(opt.preview) : undefined,
             };
           })
         : [],

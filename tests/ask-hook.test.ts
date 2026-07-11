@@ -31,6 +31,29 @@ describe("buildAskFromEvent", () => {
     ]);
   });
 
+  it("captures a per-option `preview` visual aid (dropping it left Beacon's card blank)", () => {
+    const ask = buildAskFromEvent({
+      hook_event_name: "PreToolUse",
+      tool_name: "AskUserQuestion",
+      tool_input: {
+        questions: [
+          {
+            header: "Grid snap",
+            question: "What should snapping do?",
+            multiSelect: false,
+            options: [
+              { label: "Both", description: "wrap + drag", preview: "grid-wrap + draggable\n  ✂ 2 lines hidden" },
+              { label: "Neither" },
+            ],
+          },
+        ],
+      },
+    });
+    if (ask?.kind !== "question") throw new Error("expected a question ask");
+    expect(ask.question.options[0].preview).toBe("grid-wrap + draggable\n  ✂ 2 lines hidden");
+    expect(ask.question.options[1].preview).toBeUndefined(); // no preview ⇒ omitted, not ""
+  });
+
   it("maps a PreToolUse AskUserQuestion with multiple questions to questions[] + questionIndex: 0", () => {
     const ask = buildAskFromEvent({
       hook_event_name: "PreToolUse",

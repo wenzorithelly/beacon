@@ -192,38 +192,46 @@ export function AskModal() {
             </p>
           ) : (
             <div className="flex flex-col gap-1.5">
-              {ask.question.options.map((o) =>
-                deliverable ? (
-                  <button
-                    key={o.label}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => deliver(o.label)}
-                    className={cn(
-                      "rounded-lg border border-border bg-background/40 px-3 py-1.5 text-left transition-colors hover:bg-muted disabled:opacity-50",
-                    )}
-                  >
+              {ask.question.options.map((o) => {
+                const inner = (
+                  <>
                     <span className="text-sm text-foreground">{o.label}</span>
                     {o.description && (
                       <span className="mt-0.5 block text-xs text-muted-foreground">
                         {o.description}
                       </span>
                     )}
-                  </button>
-                ) : (
-                  <div
-                    key={o.label}
-                    className="rounded-lg border border-border bg-background/40 px-3 py-1.5"
-                  >
-                    <span className="text-sm text-foreground">{o.label}</span>
-                    {o.description && (
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {o.description}
-                      </span>
+                  </>
+                );
+                return (
+                  <div key={o.label} className="flex flex-col gap-1.5">
+                    {deliverable ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => deliver(o.label)}
+                        className={cn(
+                          "rounded-lg border border-border bg-background/40 px-3 py-1.5 text-left transition-colors hover:bg-muted disabled:opacity-50",
+                        )}
+                      >
+                        {inner}
+                      </button>
+                    ) : (
+                      <div className="rounded-lg border border-border bg-background/40 px-3 py-1.5">
+                        {inner}
+                      </div>
+                    )}
+                    {/* Per-option visual aid (AskUserQuestion `preview`) — a monospace box mirroring
+                        what the terminal picker shows beside the focused option. Outside the button
+                        (a <pre> is invalid flow content inside <button>). */}
+                    {o.preview && (
+                      <pre className="max-h-40 overflow-auto rounded-lg border border-border bg-background/40 p-2 text-[0.7rem] whitespace-pre-wrap text-muted-foreground">
+                        {o.preview}
+                      </pre>
                     )}
                   </div>
-                ),
-              )}
+                );
+              })}
             </div>
           )}
           <p className="mt-3 text-[0.7rem] text-muted-foreground">{hint}</p>
