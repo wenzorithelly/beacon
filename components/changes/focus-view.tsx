@@ -55,9 +55,9 @@ export function FocusView({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-background p-3">
+    <div className="flex min-h-0 flex-1 flex-col bg-background p-1.5">
       {/* Control strip — exit, follow/paused status, catch-up */}
-      <div className="mb-2 flex shrink-0 items-center gap-2.5">
+      <div className="mb-1.5 flex shrink-0 items-center gap-2.5">
         <button
           type="button"
           onClick={onExit}

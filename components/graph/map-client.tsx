@@ -74,7 +74,6 @@ import { LayerToggle, layerEmphasisMatch } from "@/components/graph/layer-toggle
 import { layoutRoadmap, statusLaneKey, type RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { layeredLayout } from "@/lib/layered-layout";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
-import { placeInGroup } from "@/lib/node-placement";
 import { collapsedDescendants, childCounts } from "@/lib/node-collapse";
 import { nodePassesFilters, type RoadmapFilters } from "@/lib/map-filters";
 import { GroupRegions } from "@/components/graph/group-regions";
@@ -329,6 +328,14 @@ export function MapClient({
   // canvas to the dark palette in light theme (see useColorMode).
   const colorMode = useColorMode();
 
+  // Mirror the nodes in a ref so the STABLE mutation callbacks (saveFields / removeNode)
+  // can snapshot pre-update values for rollback without taking `nodes` as a dep — that
+  // would recreate editApi every drag frame (see the categoriesKey comment below).
+  const nodesRef = useRef(nodes);
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
   // Mirror panel state in refs so the imperative controlRef can inspect it without
   // capturing stale closure values.
   const panelOpenRef = useRef(false);
@@ -458,11 +465,61 @@ export function MapClient({
     setPanelTab("details"); // node-click always lands on Details, never lingers on Comments
   }, []);
 
-  const removeNode = useCallback((id: string) => {
+  const removeNode = useCallback(async (id: string) => {
+    // Optimistic removal + awaited tab-pinned DELETE; if the write fails, the card comes
+    // back. (Cascaded children are reconciled by the caller's refresh / the next re-sync.)
+    const snapshot = nodesRef.current.find((n) => n.id === id) ?? null;
     setNodes((nds) => nds.filter((n) => n.id !== id));
     setSelectedId((s) => (s === id ? null : s));
-    void fetch(`/api/nodes/${id}`, { method: "DELETE" });
+    try {
+      const res = await fetch(`/api/nodes/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`delete failed (${res.status})`);
+    } catch {
+      if (snapshot)
+        setNodes((nds) => (nds.some((n) => n.id === id) ? nds : [...nds, snapshot]));
+    }
   }, []);
+
+  // Persist node fields through the SAME tab-pinned /api/nodes PATCH every inline card
+  // edit uses: optimistic local update, awaited write, rollback to the pre-edit values if
+  // it fails. This (not a server action) is THE path for canvas mutations — server actions
+  // pin by the browser-wide beacon_ws COOKIE and never see this tab's ?ws /
+  // x-beacon-workspace pin, so in a tab viewing a different workspace they silently write
+  // to the wrong db (the accept-suggestion bug). The Details panel routes status /
+  // priority / layer / description edits, cancel and deprioritize through here.
+  const saveFields = useCallback(
+    async (id: string, fields: Record<string, unknown>) => {
+      const before = nodesRef.current.find((n) => n.id === id);
+      const prev = before
+        ? Object.fromEntries(
+            Object.keys(fields).map((k) => [
+              k,
+              (before.data as Record<string, unknown>)[k],
+            ]),
+          )
+        : null;
+      patch(id, fields, false);
+      try {
+        const res = await fetch(`/api/nodes/${id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(fields),
+        });
+        if (!res.ok) throw new Error(`save failed (${res.status})`);
+      } catch {
+        if (prev) patch(id, prev, false); // the write never landed — restore the card
+      }
+    },
+    [patch],
+  );
+
+  // Accept an init/AI suggestion: flip source INIT→MANUAL so a future /beacon-init (which
+  // wipes source="INIT" roadmap rows) keeps the card. The suggestion chip disappears
+  // instantly and returns if the write fails — saveFields' optimistic+rollback contract.
+  const acceptSuggestion = useCallback(
+    (id: string) => saveFields(id, { source: "MANUAL" }),
+    [saveFields],
+  );
 
   // Drop a fresh node at (x, y) you immediately type into, then drag to place. The card
   // appears INSTANTLY with its final client-generated id — we never await the POST before
@@ -555,16 +612,6 @@ export function MapClient({
     };
   }, [placing, pickingParent]);
 
-  // "+ Feature/Component/Bug" buttons: a fresh card has no category yet, so it lands in the
-  // uncategorized ("—") group's region — stacked with its peers instead of piling at top-left.
-  const placeNewCard = useCallback(() => {
-    const real = nodes.filter((n) => n.type !== "annotation");
-    const members = real
-      .filter((n) => !n.data.parentId && !(n.data.cluster ?? "").trim())
-      .map((n) => n.position);
-    return placeInGroup(members, real.map((n) => n.position));
-  }, [nodes]);
-
   // The "+ Feature"/"+ Component" and "+ Bug" buttons arm click-to-place (drop on the next click);
   // arming one clears the sub-task parent-pick so the two modes never overlap.
   const addNode = useCallback(() => {
@@ -588,16 +635,18 @@ export function MapClient({
       categories,
       statuses: view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES,
       patch,
+      saveFields,
       isExpanded: (id: string) => expandedIds.has(id),
       toggleExpand,
       openDetailed,
       openFocus,
       removeNode,
+      acceptSuggestion,
       editingTitleId,
       onAskAgent,
       hasFrontend,
     }),
-    [view, readOnly, categories, patch, expandedIds, toggleExpand, openDetailed, openFocus, removeNode, editingTitleId, onAskAgent, hasFrontend],
+    [view, readOnly, categories, patch, saveFields, expandedIds, toggleExpand, openDetailed, openFocus, removeNode, acceptSuggestion, editingTitleId, onAskAgent, hasFrontend],
   );
 
   // Group-by lanes + the search box. `arrangedBy` is the dimension the board is currently laid

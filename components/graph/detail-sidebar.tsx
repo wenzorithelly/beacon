@@ -60,14 +60,6 @@ import {
 import { NodeFormDialog } from "@/components/graph/node-form-dialog";
 import { useNodeEdit } from "@/components/graph/node-edit-context";
 import { LAYER_META, normalizeLayer } from "@/lib/layer";
-import {
-  acceptSuggestionAction,
-  cancelAction,
-  deleteNodeAction,
-  deprioritizeAction,
-  setStatusAction,
-  updateNodeAction,
-} from "@/app/actions/nodes";
 import { cn } from "@/lib/utils";
 import type { MapNodePayload } from "@/components/graph/types";
 import type { ReactNode } from "react";
@@ -200,7 +192,10 @@ function NodeDetail({
   const [plain, setPlain] = useState(node.plain ?? "");
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setPlain(node.plain ?? ""), [node.id, node.plain]);
-  const { hasFrontend, openFocus } = useNodeEdit();
+  // All mutations go through the NodeEditContext (tab-pinned /api/nodes routes with
+  // optimistic update + rollback) — NEVER server actions, which pin by the browser-wide
+  // beacon_ws cookie and write to the wrong workspace in a tab pinned via ?ws.
+  const { hasFrontend, openFocus, acceptSuggestion, saveFields, removeNode } = useNodeEdit();
 
   const statuses = view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES;
   const linearIssue =
@@ -217,7 +212,7 @@ function NodeDetail({
   const commitDesc = () => {
     setEditingDesc(false);
     const v = plain.trim() || null;
-    if (v !== (node.plain ?? null)) run(() => updateNodeAction(node.id, { plain: v }));
+    if (v !== (node.plain ?? null)) run(() => saveFields(node.id, { plain: v }));
   };
 
   return (
@@ -243,7 +238,7 @@ function NodeDetail({
               size="sm"
               className="h-7 px-2.5 text-xs"
               disabled={pending}
-              onClick={() => run(() => acceptSuggestionAction(node.id))}
+              onClick={() => run(() => acceptSuggestion(node.id))}
             >
               Accept
             </Button>
@@ -252,7 +247,7 @@ function NodeDetail({
               variant="ghost"
               className="h-7 px-2.5 text-xs text-muted-foreground"
               disabled={pending}
-              onClick={() => run(() => deleteNodeAction(node.id))}
+              onClick={() => run(() => removeNode(node.id))}
             >
               Dismiss
             </Button>
@@ -265,7 +260,7 @@ function NodeDetail({
         <PropRow icon={CircleDashed} label="Status">
           <Select
             value={node.status}
-            onValueChange={(v) => v != null && run(() => setStatusAction(node.id, v))}
+            onValueChange={(v) => v != null && run(() => saveFields(node.id, { status: v }))}
           >
             <SelectTrigger className={QUIET_TRIGGER} disabled={pending}>
               <SelectValue>
@@ -296,7 +291,7 @@ function NodeDetail({
             <Select
               value={String(node.priority)}
               onValueChange={(v) =>
-                v != null && run(() => updateNodeAction(node.id, { priority: Number(v) }))
+                v != null && run(() => saveFields(node.id, { priority: Number(v) }))
               }
             >
               <SelectTrigger className={QUIET_TRIGGER} disabled={pending}>
@@ -322,7 +317,7 @@ function NodeDetail({
               onValueChange={(v) =>
                 v != null &&
                 run(() =>
-                  updateNodeAction(node.id, {
+                  saveFields(node.id, {
                     layer: v === "none" ? null : (v as "frontend" | "backend" | "fullstack"),
                   }),
                 )
@@ -439,7 +434,7 @@ function NodeDetail({
                     setPlain(v);
                     const next = v.trim() || null;
                     if (next !== (node.plain ?? null))
-                      run(() => updateNodeAction(node.id, { plain: next }));
+                      run(() => saveFields(node.id, { plain: next }));
                   },
                 })
               }
@@ -532,7 +527,7 @@ function NodeDetail({
                   disabled={pending}
                   onClick={() => {
                     setMenuOpen(false);
-                    run(() => deprioritizeAction(node.id));
+                    run(() => saveFields(node.id, { status: "DEPRIORITIZED", priority: 3 }));
                   }}
                 >
                   Deprioritize
@@ -541,7 +536,7 @@ function NodeDetail({
                   disabled={pending}
                   onClick={() => {
                     setMenuOpen(false);
-                    run(() => cancelAction(node.id));
+                    run(() => saveFields(node.id, { status: "CANCELLED" }));
                   }}
                 >
                   Cancel node
@@ -572,7 +567,7 @@ function NodeDetail({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => run(() => deleteNodeAction(node.id))}>
+            <AlertDialogAction onClick={() => run(() => removeNode(node.id))}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

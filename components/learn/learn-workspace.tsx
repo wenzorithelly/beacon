@@ -336,7 +336,7 @@ function AskBox({
   const v = onChange ? value : local;
   const set = (s: string) => (onChange ? onChange(s) : setLocal(s));
   return (
-    <div className="fixed right-3 top-16 z-30 w-80 rounded-xl border border-border bg-card p-3 shadow-xl">
+    <div className="fixed right-3 top-16 z-30 w-80 rounded-xl border border-border bg-card p-3">
       <div className="mb-1 flex items-center justify-between">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground [overflow-wrap:anywhere]">{label}</span>
         <button onClick={onClose} title="Close" className="rounded p-0.5 text-muted-foreground hover:text-foreground">

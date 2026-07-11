@@ -232,9 +232,9 @@ export function ChangesOverview({
 
   return (
     // One stable, edge-to-edge layout — every horizontal ch is code that doesn't wrap.
-    <div className="mx-auto flex h-full w-full min-h-0 flex-col px-4">
+    <div className="mx-auto flex h-full w-full min-h-0 flex-col px-1.5">
       {/* ── Instrument strip ── */}
-      <div className="glass mt-3 shrink-0 space-y-2 rounded-2xl px-4 py-3">
+      <div className="glass mt-1.5 shrink-0 space-y-2 rounded-2xl px-4 py-3">
         <div className="flex items-center gap-2 text-[13px]">
           <span className={cn("relative flex size-2 shrink-0", !live && "opacity-30")}>
             {live && <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#ff7a45] opacity-75" />}
@@ -389,7 +389,7 @@ export function ChangesOverview({
       )}
 
       {/* ── Panels ── */}
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto py-3">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto py-1.5">
         {lens === "questions" ? (
           <QuestionsPanel questions={questions} />
         ) : files.length === 0 ? (

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { PendingAsk } from "@/lib/ask-store";
+import { ASK_DELIVERED_CLEAR_MS, ASK_QUESTION_ADVANCE_GUARD_MS } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { GlassPanel } from "@/components/ui/glass-panel";
 import { cn } from "@/lib/utils";
@@ -57,13 +58,41 @@ export function AskModal() {
     };
   }, []);
 
-  // Reset per-ask state when a new ask opens.
-  const askId = ask?.id ?? null;
+  // Reset per-ask state when a new ask opens, OR when a multi-question ask advances to its next
+  // question (same `id`, new `questionIndex` — see app/api/ask/deliver's advance step). Keying on
+  // id alone would leave a stale `sentLabel` from question i showing over question i+1.
+  const questionIndex = ask?.questionIndex ?? 0;
+  const askKey = ask ? `${ask.id}:${questionIndex}` : null;
   const seeded = useRef<string | null>(null);
-  if (askId !== seeded.current) {
-    seeded.current = askId;
+  if (askKey !== seeded.current) {
+    seeded.current = askKey;
     if (sentLabel) setSentLabel(null);
   }
+
+  // Is `ask.question` the LAST question in this ask (or a single-question ask)? Only the final
+  // question's delivery should trigger the whole-card auto-dismiss below — an intermediate
+  // question's "sent" state clears on its own once the poll picks up the advanced pending ask
+  // (via the askKey reset above), and `ask.id` stays constant across the whole sequence, so
+  // dismissing it early would suppress every later question's poll too (dismissed.current match).
+  const totalQuestions = ask?.questions?.length ?? 1;
+  const isFinalQuestion = questionIndex + 1 >= totalQuestions;
+
+  // A sent pick lands in the terminal within milliseconds — dismiss the transient "sent … waiting
+  // to land" card after a couple of seconds instead of holding it open. The server clears the
+  // pending ask on the same delivery-ack clock (GET /api/ask's mirrorResolution), so this is just
+  // the snappy local half; `dismissed` keeps the poll from flickering it back in the gap.
+  const sentAskId =
+    ask?.kind === "question" && isFinalQuestion && (sentLabel != null || ask.deliveredAt != null)
+      ? ask.id
+      : null;
+  useEffect(() => {
+    if (!sentAskId) return;
+    const t = setTimeout(() => {
+      dismissed.current = sentAskId;
+      setAsk((cur) => (cur?.id === sentAskId ? null : cur));
+    }, ASK_DELIVERED_CLEAR_MS);
+    return () => clearTimeout(t);
+  }, [sentAskId]);
 
   const submit = useCallback(
     async (body: { decision?: "allow" | "deny" }) => {
@@ -90,20 +119,31 @@ export function AskModal() {
     async (label: string) => {
       if (!ask || busy) return;
       setBusy(true);
+      let ok = false;
       try {
         const r = await fetch("/api/ask/deliver", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id: ask.id, selected: [label] }),
+          body: JSON.stringify({ id: ask.id, selected: [label], questionIndex }),
         });
-        if (r.ok) setSentLabel(label);
+        ok = r.ok;
       } catch {
         /* best-effort — the option stays clickable; the user can retry or answer in the terminal */
-      } finally {
+      }
+      if (ok) setSentLabel(label);
+      if (ok && !isFinalQuestion) {
+        // ponytail: single-slot ask-delivery.json — queue it if users outrace 1.8s. The server has
+        // already advanced the pending ask to the next question (app/api/ask/deliver), but keep
+        // answering disabled a beat longer so a consumer's ~1.5s delivery poll has a chance to pick
+        // up THIS question's pick before the next one overwrites the file. The next question's
+        // options render as soon as the poll returns it (askKey reset above); they just stay
+        // disabled until this timer clears.
+        setTimeout(() => setBusy(false), ASK_QUESTION_ADVANCE_GUARD_MS);
+      } else {
         setBusy(false);
       }
     },
-    [ask, busy],
+    [ask, busy, questionIndex, isFinalQuestion],
   );
 
   if (!ask) return null;
@@ -120,28 +160,35 @@ export function AskModal() {
           : "Answer in your terminal — this is a mirror.";
     return (
       <div className="fixed right-4 bottom-4 z-[70] w-full max-w-sm">
-        <GlassPanel className="rounded-2xl border border-border/60 p-4 shadow-2xl">
+        <GlassPanel className="rounded-2xl border border-border/60 p-4">
           <div className="mb-1 flex items-center justify-between gap-2">
             <span className="rounded-full bg-muted px-2 py-0.5 text-[0.7rem] font-medium text-muted-foreground">
               {ask.question.header || "The agent is asking"}
             </span>
-            <button
-              type="button"
-              onClick={() => {
-                dismissed.current = ask.id;
-                setAsk(null);
-              }}
-              className="text-muted-foreground transition-colors hover:text-foreground"
-              aria-label="Dismiss"
-            >
-              <X className="size-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              {totalQuestions > 1 && (
+                <span className="text-[0.7rem] tabular-nums text-muted-foreground">
+                  Question {questionIndex + 1} of {totalQuestions}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  dismissed.current = ask.id;
+                  setAsk(null);
+                }}
+                className="text-muted-foreground transition-colors hover:text-foreground"
+                aria-label="Dismiss"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
           </div>
           <p className="mb-3 text-sm font-medium text-foreground">{ask.question.question}</p>
           {sent ? (
             <p className="rounded-lg border border-border bg-background/40 px-3 py-2 text-sm text-muted-foreground">
-              Sent{sentLabel ? ` "${sentLabel}"` : ""} to your terminal — waiting for it to land
-              there…
+              Sent{sentLabel ? ` "${sentLabel}"` : ""} to your terminal —{" "}
+              {isFinalQuestion ? "waiting for it to land there…" : "moving to the next question…"}
             </p>
           ) : (
             <div className="flex flex-col gap-1.5">
@@ -188,7 +235,7 @@ export function AskModal() {
   if (ask.kind === "approval" && ask.approval) {
     return (
       <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-        <GlassPanel className="w-full max-w-lg rounded-2xl border border-border/60 p-5 shadow-2xl">
+        <GlassPanel className="w-full max-w-lg rounded-2xl border border-border/60 p-5">
           <div className="mb-1 flex items-center gap-2">
             <span className="rounded-full bg-muted px-2 py-0.5 text-[0.7rem] font-medium text-muted-foreground">
               Approve {ask.approval.tool}

@@ -158,7 +158,7 @@ export function PlanHistoryView({
 
   if (items.length === 0) {
     return (
-      <div className="flex h-screen min-h-0 flex-col pt-14">
+      <div className="flex h-screen min-h-0 flex-col pt-14 shell:pt-0">
         {backToCurrent}
         <div className="flex flex-1 items-center justify-center px-6 text-center">
           <div className="max-w-md text-sm text-muted-foreground">
@@ -175,40 +175,16 @@ export function PlanHistoryView({
 
   return (
     // Full-bleed like /map and the pending-plan board: the floating top nav (fixed top-3) overlays
-    // the page (pt-14 clears it); the back-link sits in-flow below it, then the columns fill.
-    <div className="flex h-screen min-h-0 flex-col pt-14">
+    // the page (pt-14 clears it — dropped under the desktop shell, whose chrome bar is a separate
+    // view above this page); the back-link sits in-flow below it, then the columns fill.
+    <div className="flex h-screen min-h-0 flex-col pt-14 shell:pt-0">
       {backToCurrent}
-
-      {/* Verdict + date, top-right (kept from the original history view). */}
-      {selected && (
-        <div className="glass pointer-events-auto fixed right-3 top-3 z-30 flex h-9 items-center gap-2 rounded-full px-3">
-          <span
-            className={cn(
-              "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-              selected.verdict === "approved"
-                ? "bg-emerald-500/15 text-emerald-300"
-                : "bg-red-500/15 text-red-300",
-            )}
-          >
-            {selected.verdict}
-          </span>
-          <span className="text-[10px] text-muted-foreground">
-            {new Date(selected.archivedAt).toLocaleString()}
-          </span>
-          <span aria-hidden className="h-4 w-px bg-border" />
-          {/* Share THIS past plan as a read-only link. */}
-          <SharePlanButton
-            planId={selected.id}
-            className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
-          />
-        </div>
-      )}
 
       {/* The two columns (history list + selected plan) fill the space below the back-link row. */}
       <div className="flex min-h-0 flex-1">
       {sidebarOpen ? (
         <aside className="flex w-64 min-w-0 shrink-0 flex-col border-r border-border bg-card/30">
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+          <div className="flex h-9 items-center justify-between border-b border-border px-3">
             <span className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
               Plan history · {items.length}
             </span>
@@ -294,6 +270,31 @@ export function PlanHistoryView({
             className={cn("relative flex min-h-0 min-w-0 flex-col", !hasBoard && "flex-1")}
             style={hasBoard ? { width: "44%" } : undefined}
           >
+            {/* Selection-scoped document header: verdict + date + share for THE plan being read.
+                In-flow with the content it describes (was a floating fixed pill top-right, which
+                fought the nav in the browser and needed shell-side mirroring in the desktop app —
+                deliberately neither anymore). */}
+            <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-5">
+              <span
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                  selected.verdict === "approved"
+                    ? "bg-emerald-500/15 text-emerald-300"
+                    : "bg-red-500/15 text-red-300",
+                )}
+              >
+                {selected.verdict}
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                {new Date(selected.archivedAt).toLocaleString()}
+              </span>
+              <span className="flex-1" />
+              {/* Share THIS past plan as a read-only link. */}
+              <SharePlanButton
+                planId={selected.id}
+                className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
+              />
+            </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               <MarkdownView markdown={selected.markdown} />
               {bodyEmpty && (
@@ -321,7 +322,7 @@ export function PlanHistoryView({
           {hasBoard && (
             <div className="relative flex min-h-0 min-w-0 flex-1 flex-col border-l border-border">
               {mapHasContent && dbHasContent && (
-                <div className="pointer-events-none absolute left-3 top-3 z-20">
+                <div className="pointer-events-none absolute left-3 top-3 z-20 shell:top-1.5">
                   <div className="glass pointer-events-auto flex items-center gap-1 rounded-full p-0.5">
                     <TabBtn
                       pill

@@ -242,7 +242,7 @@ export function DiffDetail({
               scopePill
             ) : null}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5">
             {!repo ? (
               <p className="px-2 py-4 text-[11px] text-muted-foreground">Not a git repository.</p>
             ) : files.length === 0 ? (
@@ -298,7 +298,7 @@ export function DiffDetail({
       )}
 
       {/* RIGHT — the selected file's diff in the same glass-panel system as the overview. */}
-      <main className="flex min-w-0 flex-1 flex-col bg-background p-3">
+      <main className="flex min-w-0 flex-1 flex-col bg-background p-1.5">
         {active ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-white/[0.015]">
             <div className="flex items-center gap-2.5 border-b border-border px-4 py-2.5">

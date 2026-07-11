@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { decideNav, INITIAL_NAV_STATE, type NavStreamState } from "@/lib/nav-decide";
 import { currentTabWs } from "@/lib/tab-ws";
 import { currentTabId } from "@/lib/tab-id";
+import { isDesktopShell } from "@/lib/desktop-shell";
 
 // Subscribes to the per-workspace sync SSE stream and reacts to each `{ v, nav }` message: a new
 // nav-intent (written by the `beacon` CLI when it reuses this tab instead of opening a new one)
@@ -21,7 +22,14 @@ export function LiveRefresh() {
     // reading sessionStorage directly, same-origin) can do so from the moment the tab is live.
     currentTabId();
     const ws = currentTabWs();
-    const es = new EventSource(ws ? `/api/stream?ws=${encodeURIComponent(ws)}` : "/api/stream");
+    const params = new URLSearchParams();
+    if (ws) params.set("ws", ws);
+    // Self-identify as the desktop shell's web view (preload-stamped DOM, lib/desktop-shell.ts).
+    // The stream tick then beats the GLOBAL desktop-tab presence, which is what lets a plan
+    // proposed in ANY workspace route into the open app instead of popping a browser tab.
+    if (isDesktopShell()) params.set("client", "desktop");
+    const qs = params.toString();
+    const es = new EventSource(qs ? `/api/stream?${qs}` : "/api/stream");
     let state: NavStreamState = INITIAL_NAV_STATE;
     // Each (re)connection re-primes: the first post-connect message only seeds the trackers, so
     // an EventSource auto-reconnect can't double-fire a router.push for the last nav-intent.

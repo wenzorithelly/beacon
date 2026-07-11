@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeJsonAtomic } from "@/lib/atomic-write";
+import { dataDir } from "@/lib/project";
 import { dataDirFor, idForPath, repoRootFrom } from "@/lib/workspaces";
 
 // Per-workspace "what is this agent session doing right now" bridge — the disk contract other
@@ -56,6 +57,27 @@ export function mergeAgentStatus(
   return { sessions };
 }
 
+/**
+ * Pure core: every "waiting" session flipped back to "working" (an answer just landed in this
+ * workspace's terminal — the wait is over). Returns null when nothing was waiting, so the IO
+ * wrapper can skip the write. Deliberately flips ALL waiting sessions in the workspace: the store
+ * doesn't record WHICH session asked, and in practice one session waits at a time — a concurrent
+ * plan-review session in the same workspace would be flipped a little early (cosmetic; its pill
+ * re-corrects on that session's next status write).
+ */
+export function resumeWaitingSessions(
+  prev: AgentStatusFile | null,
+  now: number,
+): AgentStatusFile | null {
+  const entries = Object.entries(prev?.sessions ?? {});
+  if (!entries.some(([, s]) => s.state === "waiting")) return null;
+  const sessions: Record<string, AgentSessionStatus> = {};
+  for (const [id, s] of entries) {
+    sessions[id] = s.state === "waiting" ? { ...s, state: "working", ts: now } : s;
+  }
+  return { sessions };
+}
+
 function statusPath(workspaceId: string): string {
   return join(dataDirFor(workspaceId), "agent-status.json");
 }
@@ -90,5 +112,24 @@ export function recordAgentStatus(cwd: string, sessionId: string, state: AgentSt
     writeJsonAtomic(statusPath(workspaceId), next);
   } catch {
     /* best-effort — a status write must never trap an agent session */
+  }
+}
+
+/**
+ * IO wrapper for {@link resumeWaitingSessions}, scoped to the CURRENT workspace context (dataDir()
+ * — request-pinned/active, the same resolution the ask store uses, so it edits the same
+ * agent-status.json the workspace's hooks write). Called when an ask settles as ANSWERED (a
+ * delivered Beacon pick, or the transcript showing the picker answered): no hook fires at that
+ * moment to say "the wait is over", so without this the desktop attention pill stayed on "Needs
+ * input" until the turn ended. Best-effort and NEVER throws, same contract as recordAgentStatus.
+ */
+export function recordWorkspaceResumed(): void {
+  try {
+    const path = join(dataDir(), "agent-status.json");
+    const prev = JSON.parse(readFileSync(path, "utf8")) as AgentStatusFile;
+    const next = resumeWaitingSessions(prev, Date.now());
+    if (next) writeJsonAtomic(path, next);
+  } catch {
+    /* best-effort — no status file, or unreadable: nothing to resume */
   }
 }

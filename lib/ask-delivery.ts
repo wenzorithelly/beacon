@@ -18,6 +18,9 @@ export interface AskDelivery {
    *  components/ask/ask-modal.tsx and the digit-key mapping consumers use to inject it). */
   selected: string[];
   ts: number;
+  /** v2 multi-question: which question (0-based, within PendingAsk.questions) these `selected`
+   *  labels answer. Absent ⇒ 0 (back-compat, single-question ask). */
+  questionIndex?: number;
 }
 
 function deliveryPath(): string {
@@ -28,7 +31,13 @@ function readRecord(): AskDelivery | null {
   try {
     const r = JSON.parse(readFileSync(deliveryPath(), "utf8")) as Partial<AskDelivery>;
     return typeof r?.seq === "number" && typeof r?.askId === "string" && Array.isArray(r?.selected)
-      ? { seq: r.seq, askId: r.askId, selected: r.selected as string[], ts: typeof r.ts === "number" ? r.ts : 0 }
+      ? {
+          seq: r.seq,
+          askId: r.askId,
+          selected: r.selected as string[],
+          ts: typeof r.ts === "number" ? r.ts : 0,
+          ...(typeof r.questionIndex === "number" ? { questionIndex: r.questionIndex } : {}),
+        }
       : null;
   } catch {
     return null;
@@ -42,8 +51,15 @@ export function nextAskDelivery(
   askId: string,
   selected: string[],
   now: number,
+  questionIndex?: number,
 ): AskDelivery {
-  return { seq: (prev?.seq ?? 0) + 1, askId, selected, ts: now };
+  return {
+    seq: (prev?.seq ?? 0) + 1,
+    askId,
+    selected,
+    ts: now,
+    ...(questionIndex !== undefined ? { questionIndex } : {}),
+  };
 }
 
 export const readAskDelivery = (): AskDelivery | null => readRecord();
@@ -52,8 +68,9 @@ export function writeAskDelivery(
   askId: string,
   selected: string[],
   now: number = Date.now(),
+  questionIndex?: number,
 ): AskDelivery {
-  const next = nextAskDelivery(readRecord(), askId, selected, now);
+  const next = nextAskDelivery(readRecord(), askId, selected, now, questionIndex);
   writeJsonAtomic(deliveryPath(), next);
   return next;
 }

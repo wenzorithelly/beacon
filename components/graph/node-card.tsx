@@ -1,11 +1,10 @@
 "use client";
 
-import { createElement, memo, useEffect, useState, useTransition } from "react";
+import { createElement, memo, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { FourDotHandles } from "@/components/graph/handles";
 import { PinRail } from "@/components/graph/annotation-node";
-import { acceptSuggestionAction } from "@/app/actions/nodes";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -508,6 +507,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
     openDetailed,
     openFocus,
     removeNode,
+    acceptSuggestion,
     editingTitleId,
     onAskAgent,
     hasFrontend,
@@ -553,8 +553,18 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
       onCommit: (v) => save({ plain: v.trim() || null }),
     });
 
-  const [accepting, startAccept] = useTransition();
-  const acceptSuggestion = () => startAccept(async () => acceptSuggestionAction(id));
+  // Accept a suggestion (chip ✓): the context implementation flips source INIT→MANUAL
+  // optimistically and persists via the tab-pinned /api/nodes PATCH (see map-client).
+  const [accepting, setAccepting] = useState(false);
+  const accept = async () => {
+    if (readOnly || accepting) return;
+    setAccepting(true);
+    try {
+      await acceptSuggestion(id);
+    } finally {
+      setAccepting(false);
+    }
+  };
 
   // Semantic zoom: below the mid threshold render the title alone; below the far threshold cards
   // vanish (group summaries take over) — except on read-only boards.
@@ -1023,7 +1033,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
                 disabled={accepting}
                 onClick={(e) => {
                   stop(e);
-                  acceptSuggestion();
+                  void accept();
                 }}
                 className={cn(noDrag, "-my-0.5 rounded p-0.5 hover:bg-emerald-500/20 hover:text-emerald-600 dark:hover:text-emerald-300")}
               >

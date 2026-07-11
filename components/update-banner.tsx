@@ -61,7 +61,7 @@ export function UpdateBanner({ currentVersion }: { currentVersion: string }) {
 
   return (
     <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex justify-end">
-      <div className="glass pointer-events-auto w-[320px] rounded-xl p-3.5 shadow-xl">
+      <div className="glass pointer-events-auto w-[320px] rounded-xl p-3.5">
         <div className="flex items-start gap-2.5">
           <ArrowUpCircle className="mt-0.5 size-4 shrink-0 text-[#ff7a45]" />
           <div className="min-w-0 flex-1">

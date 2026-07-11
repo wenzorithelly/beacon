@@ -104,6 +104,7 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
   - Agent-ask bridge — Intercepts the agent's AskUserQuestion/permission prompts; routes to Beacon only when the user is FOCUSED there, mirrors questions read-only otherwise, and auto-clears via transcript watch. (app/api/ask/answered/route.ts, app/api/ask/route.ts, app/api/tab/view/route.ts, bin/ask.ts, components/ask/ask-modal.tsx, lib/ask-store.ts)
 - **INFRA**
   - Live refresh (SSE) — Per-workspace SSE stream that pushes a {v, nav} payload: version bumps refresh the open canvas, nav-intents navigate it; each tick also records per-workspace tab presence. (app/api/stream/route.ts, components/live-refresh.tsx, lib/nav-decide.ts, lib/nav-intent.ts, lib/tab-presence.ts)
+  - Desktop shell UI seam — Generic keyed surface-state/surface-action bridge + shell: Tailwind variant — the open app's minimal, explicitly-gated awareness of the Beacon Desktop shell (app/globals.css, components/plan/plan-workspace.tsx, lib/desktop-shell.ts)
 - **INIT**
   - Repo mapping (init) — Persists a /beacon-init analysis (architecture nodes+edges, roadmap fronts, ProjectMeta incl. hasFrontend + classificationRoots) and regenerates AGENTS.md; same DB shape as propose_plan but commits directly. (app/api/architecture/sync/route.ts, app/api/init/route.ts, lib/architecture-sync.ts, lib/init.ts, lib/project-meta.ts)
 - **INSTALL**
@@ -288,3 +289,23 @@ If the feature added or materially changed a REAL architectural component (a sub
 
 Pull raw planning data anytime with `beacon_entities` (features / architecture / tables / endpoints).
 <!-- beacon:workflow:end -->
+
+## Desktop-shell awareness (owner ruling, 2026-07-09)
+
+This repo carries MINIMAL, explicitly-gated awareness of the Beacon Desktop shell (the private
+beacon-desktop repo) — the old "zero desktop awareness" ruling was retired after the shell's
+DOM-scraping integration kept breaking. The seams, and their budgets:
+
+- `lib/desktop-shell.ts` — `isDesktopShell()`, `reportShellState(key, state)`, `onShellAction(key,
+  handler)` (postMessage `__beaconShell` envelope, relayed by the shell's preload), plus the typed
+  `window.beaconDesktop` invoke bridge. New chrome-mirrored surfaces add a KEY, never a channel.
+- `shell:` Tailwind variant (`@custom-variant shell` in `app/globals.css`) — for rare structural
+  deltas under the shell only (`shell:hidden`, `shell:pt-0`, …). Budget: single digits repo-wide;
+  if one surface needs more, branch the component on `isDesktopShell()` instead.
+- Look & feel divergence happens via CSS custom properties: the tokens in `app/globals.css` are the
+  desktop skin's stable contract — keep everything styled through them, never hardcode.
+- In a plain browser all of this is inert (no preload → no `data-shell`, no `window.beaconDesktop`).
+
+Design rhythm (applies everywhere): outer page/pane insets = 6px (`p-1.5`); prose panes keep a
+`px-5` reading gutter; boxes are FLAT (no outer drop shadows — hairline border + inset sheen only);
+pills nested in `rounded-full` containers use concentric full radii (`TabBtn pill`).

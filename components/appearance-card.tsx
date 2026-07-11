@@ -19,6 +19,7 @@ import {
   type Surface,
   type Theme,
 } from "@/lib/appearance";
+import type { DesktopAppIcon } from "@/lib/desktop-shell";
 import { cn } from "@/lib/utils";
 
 // Nav mode is a DESKTOP-SHELL setting (the shell draws the Dia top bar / sidebar rail in its own
@@ -112,6 +113,17 @@ function SurfaceSwatch({ surface }: { surface: Surface }) {
 }
 
 
+// The shell hands each selectable Dock icon as a ready-made ~48px data-URL preview (the page can't
+// read the icon files itself — the shell's preload is sandboxed) — render it as the swatch.
+function AppIconSwatch({ src, label }: { src: string; label: string }) {
+  return (
+    <span className="flex h-10 w-full items-center justify-center overflow-hidden rounded-md border border-black/10 bg-[var(--ink-hover)]">
+      {/* eslint-disable-next-line @next/next/no-img-element -- data: URL from the desktop shell, nothing for next/image to optimize */}
+      <img src={src} alt={label} draggable={false} className="size-8 rounded-[22%]" />
+    </span>
+  );
+}
+
 function OptionButton({
   selected,
   label,
@@ -156,11 +168,30 @@ export function AppearanceCard() {
   // adopt the real stored values after mount — same pattern the workspace switcher uses.
   const [theme, setTheme] = useState<Theme>(DEFAULT_THEME);
   const [surface, setSurface] = useState<Surface>(DEFAULT_SURFACE);
+  // App (Dock) icon is a DESKTOP-SHELL setting: the shell's preload exposes the picker on
+  // `window.beaconDesktop` (typed in lib/desktop-shell.ts) and the choice persists in Electron
+  // userData, applying to the Dock immediately. Empty in a plain browser (no preload → the bridge
+  // method never exists), so the section below simply never renders there.
+  const [appIcons, setAppIcons] = useState<DesktopAppIcon[]>([]);
+  const [appIcon, setAppIcon] = useState<string | null>(null);
   useEffect(() => {
     // Adopt the stored values after mount (client-only localStorage) — SSR seeded the defaults.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(getTheme());
     setSurface(getSurface());
+    const bridge = window.beaconDesktop;
+    if (!bridge?.listAppIcons || !bridge.getAppIcon) return;
+    let cancelled = false;
+    Promise.all([bridge.listAppIcons(), bridge.getAppIcon()])
+      .then(([icons, current]) => {
+        if (cancelled) return;
+        setAppIcons(icons);
+        setAppIcon(current);
+      })
+      .catch(() => {}); // a torn-down shell bridge mid-navigation — leave the section hidden
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const pickTheme = (t: Theme) => {
@@ -170,6 +201,13 @@ export function AppearanceCard() {
   const pickSurface = (s: Surface) => {
     setSurface(s);
     persistSurface(s);
+  };
+  const pickAppIcon = (id: string) => {
+    setAppIcon(id); // optimistic — the shell echoes the id actually in effect
+    void window.beaconDesktop
+      ?.setAppIcon?.(id)
+      .then((applied) => setAppIcon(applied))
+      .catch(() => {});
   };
 
   return (
@@ -217,6 +255,26 @@ export function AppearanceCard() {
               ))}
             </div>
           </div>
+          {appIcons.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">App icon</p>
+              <div className="flex gap-2">
+                {appIcons.map((o) => (
+                  <OptionButton
+                    key={o.id}
+                    selected={appIcon === o.id}
+                    label={o.label}
+                    onClick={() => pickAppIcon(o.id)}
+                  >
+                    <AppIconSwatch src={o.dataUrl} label={o.label} />
+                  </OptionButton>
+                ))}
+              </div>
+              <p className="mt-2 px-0.5 text-[10px] leading-tight text-muted-foreground">
+                Dock icon for the desktop app. Applies immediately.
+              </p>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

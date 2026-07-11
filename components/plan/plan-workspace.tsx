@@ -32,6 +32,7 @@ import type { ChangedFile } from "@/lib/changes";
 import type { TouchedMap } from "@/lib/touched-files";
 import type { ViewedMap } from "@/lib/viewed-files";
 import { FileMentionProvider } from "@/components/plan/markdown-view";
+import { onShellAction, reportShellState, SHELL_SURFACE, type PlanHeaderState } from "@/lib/desktop-shell";
 import { SharePlanButton } from "@/components/share/share-plan-button";
 import { TabBtn } from "@/components/ui/tab-button";
 import { PlanToc } from "@/components/plan/plan-toc";
@@ -147,6 +148,27 @@ export function PlanWorkspace({
   // Set when an approve did NOT confirm — so we never show the "Plan approved" card while the
   // terminal was actually left waiting (the exact failure the user hit).
   const [approveError, setApproveError] = useState<string | null>(null);
+  // ── Beacon Desktop shell bridge (lib/desktop-shell.ts — no-ops in a plain browser) ────────────
+  // Under the shell, the History/Changes toggle renders in the shell's chrome bar instead of a
+  // floating row here (shell:hidden hides the in-page copy). Deliberately the ONLY /plan state the
+  // shell mirrors: it's page-level (which view), can't be derived from the URL alone (a pending
+  // plan hides the toggle at the same /plan URL), and is one tiny object. Selection-level info
+  // (the verdict badge) stays in-flow with the plan it describes — see plan-history-view.tsx.
+  const showHistorySurface = (!status.pending || forceHistory || changesView) && !approvedSummary;
+  useEffect(() => {
+    reportShellState(SHELL_SURFACE.planHeader, {
+      toggle: showHistorySurface ? { active: changesView ? "changes" : "history" } : null,
+    } satisfies PlanHeaderState);
+    return () => reportShellState(SHELL_SURFACE.planHeader, null);
+  }, [showHistorySurface, changesView]);
+  useEffect(
+    () =>
+      onShellAction(SHELL_SURFACE.planHeader, (action) => {
+        if (action === "history") router.push(planHref({ view: "history" }));
+        else if (action === "changes") router.push(planHref({ view: "changes" }));
+      }),
+    [router],
+  );
   const doApprove = useCallback(async () => {
     setApproveError(null);
     const ws = currentPlanWs();
@@ -389,14 +411,17 @@ export function PlanWorkspace({
 
   // Stay mounted while the post-approval "where to find it" card is up (it navigates on click).
   // The no-pending-plan surface toggles between plan history and the live execution Changes view
-  // (also reachable while a plan is pending via ?view=changes).
-  if ((!status.pending || forceHistory || changesView) && !approvedSummary) {
+  // (also reachable while a plan is pending via ?view=changes). Same expression the shell-bridge
+  // effect above reports from (showHistorySurface) so the chrome bar and this branch never drift.
+  if (showHistorySurface) {
     return (
       <FileMentionProvider files={repoFiles}>
         {/* History ↔ Changes toggle. Watching the agent execute what you approved is part of the
             plan lifecycle, so it lives here — flip to Changes to see the diffs land, back to
-            History to browse past plans. */}
-        <div className="pointer-events-none fixed left-1/2 top-3 z-30 -translate-x-1/2">
+            History to browse past plans. Under the desktop shell this row renders in the shell's
+            chrome bar instead (see the shell-bridge effect above) — shell:hidden hides this copy,
+            and the content wrappers drop the pt-14 the floating browser nav needed (shell:pt-0). */}
+        <div className="pointer-events-none fixed left-1/2 top-3 z-30 -translate-x-1/2 shell:hidden">
           <div className="glass pointer-events-auto flex items-center gap-0.5 rounded-full p-0.5">
             <TabBtn
               pill
@@ -418,11 +443,11 @@ export function PlanWorkspace({
         </div>
         {changesView && planFiles ? (
           // A non-executing plan was selected — show its saved file list, not a live diff.
-          <div className="flex h-screen min-h-0 flex-col pt-14">
+          <div className="flex h-screen min-h-0 flex-col pt-14 shell:pt-0">
             <PlanFilesList files={planFiles} />
           </div>
         ) : changesView && changes ? (
-          <div className="flex h-screen min-h-0 flex-col pt-14">
+          <div className="flex h-screen min-h-0 flex-col pt-14 shell:pt-0">
             <ChangesClient
               repo={changes.repo}
               files={changes.files}
@@ -726,7 +751,7 @@ export function PlanWorkspace({
 
       {/* "Explain This Node" composer — questions ride back with Submit (plan-loop piggyback). */}
       {askOpen && (
-        <div className="fixed right-3 top-16 z-30 w-80 rounded-xl border border-border bg-card p-3 shadow-xl">
+        <div className="fixed right-3 top-16 z-30 w-80 rounded-xl border border-border bg-card p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Ask the agent
@@ -835,7 +860,7 @@ export function PlanWorkspace({
                 that proposes only schema (or only features) opens straight on that board
                 with no empty sibling tab to wander into. */}
             {mapHasContent && dbHasContent && (
-              <div className="pointer-events-none absolute left-3 top-3 z-20">
+              <div className="pointer-events-none absolute left-3 top-3 z-20 shell:top-1.5">
                 <div className="glass pointer-events-auto flex items-center gap-1 rounded-full p-0.5">
                   <TabBtn
                     pill

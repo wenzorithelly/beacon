@@ -2,6 +2,7 @@ import { getVersion } from "@/lib/ingest";
 import { runWithWorkspace } from "@/lib/db-drizzle";
 import { getWorkspace, workspaceIdFromRequest } from "@/lib/workspaces";
 import { recordTabPresence } from "@/lib/tab-presence";
+import { recordDesktopTabPresence } from "@/lib/desktop-tab";
 import { readNavIntent } from "@/lib/nav-intent";
 
 export const dynamic = "force-dynamic";
@@ -21,8 +22,14 @@ export async function GET(req: Request) {
   // workspace A keeps streaming A even after the browser-wide beacon_ws cookie drifts to B when
   // another repo is opened); otherwise fall back to the cookie / agent-header resolution.
   // Captured here and re-applied per tick — the setTimeout loop outlives the request's context.
-  const wsParam = new URL(req.url).searchParams.get("ws");
+  const url = new URL(req.url);
+  const wsParam = url.searchParams.get("ws");
   const wsId = wsParam && getWorkspace(wsParam) ? wsParam : workspaceIdFromRequest(req);
+  // `?client=desktop` — the EventSource self-identifies as the desktop shell's web view (set by
+  // components/live-refresh.tsx only when isDesktopShell()). Each tick then ALSO beats the GLOBAL
+  // desktop-tab record (lib/desktop-tab.ts) with the workspace this stream is pinned to, so the
+  // plan-open routing knows the app is open — and WHERE to write a cross-workspace nav-intent.
+  const isDesktopClient = url.searchParams.get("client") === "desktop";
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -35,7 +42,11 @@ export async function GET(req: Request) {
           const { v, navSeq, navPath, navPark, navExcludeTab } = await runWithWorkspace(
             wsId,
             async () => {
-              recordTabPresence(Date.now());
+              const now = Date.now();
+              recordTabPresence(now);
+              // wsId can be null (no ?ws, no cookie): record a blank ws — the routing then
+              // falls back to targeting the plan's own workspace (chooseReviewRoute).
+              if (isDesktopClient) recordDesktopTabPresence(now, wsId ?? "");
               const nav = readNavIntent();
               return {
                 v: await getVersion(),

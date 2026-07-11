@@ -5,8 +5,8 @@
  *   • PreToolUse (matcher AskUserQuestion) — the agent asks a structured question. The native
  *     terminal picker is NEVER held or hijacked: this ALWAYS falls through immediately so the
  *     question renders its own UI right away — the user answers there, in Beacon, or both (a
- *     two-way street: whichever comes first wins, see the answered-in-terminal auto-clear in
- *     lib/ask-store's `transcriptShowsAnswered` / mirrorResolved in app/api/ask). We still push the
+ *     two-way street: whichever comes first wins, see the answered/delivered auto-clear in
+ *     app/api/ask's mirrorResolution). We still push the
  *     SAME question to Beacon as a mirror (best-effort, timeout-bounded) so it's ALWAYS visible
  *     there too — whether its options are clickable there depends on a live "input deliverer" being
  *     registered for the workspace (lib/deliverer-registry), decided client-side by the modal, not
@@ -98,13 +98,16 @@ const workspaceIdForPath = (p: string) =>
     // Two-way street: the native picker ALWAYS renders in the terminal now — never held, never
     // hijacked. Mirror the same question to Beacon (best-effort, timeout-bounded so a slow/hung
     // daemon can never delay the terminal picker the user might already be looking at) and fall
-    // through unconditionally. GET /api/ask auto-clears the mirror once the transcript shows the
-    // native picker was answered (transcriptShowsAnswered) — that still works unchanged.
+    // through unconditionally. GET /api/ask auto-clears the mirror once it's settled: a couple of
+    // seconds after a Beacon pick was delivered, or once the transcript shows the native picker
+    // was answered (mirrorResolution) — plus a TTL backstop.
     if (event.transcript_path) {
       await fetch(`${base}/api/ask`, {
         method: "POST",
         headers,
-        body: JSON.stringify(questionMirrorPushBody(ask.question, event.transcript_path)),
+        body: JSON.stringify(
+          questionMirrorPushBody(ask.question, event.transcript_path, ask.questions, ask.questionIndex),
+        ),
         signal: AbortSignal.timeout(1500),
       }).catch(() => {});
     }

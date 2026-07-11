@@ -22,6 +22,7 @@ const ENTRYPOINTS = [
   "bin/guard.ts",
   "bin/plan.ts",
   "bin/ask.ts",
+  "bin/artifact.ts",
   "bin/answer.ts",
   "bin/prompt.ts",
   "bin/stop-hook.ts",
@@ -37,6 +38,7 @@ const ENTRYPOINTS = [
   "lib/telemetry.ts", // `beacon telemetry` + the first-run disclosure notice
   "lib/daemon-port.ts", // ensureDaemon() scans for a free port when the preferred one is busy
   "lib/daemon-boot.ts", // ensureDaemon() decides app-boot vs bun-boot when no daemon is healthy
+  "lib/plan-open.ts", // launchPanel() opens the UI via the shared desktop-first openSurface seam
 ];
 
 // Externalize the real node_modules deps (resolved by the user's `bun add -g`), but NOT our own

@@ -14,5 +14,9 @@ import { makePresence } from "@/lib/make-presence";
 const p = makePresence("deliverer-presence.json", 15_000);
 export const DELIVERER_PRESENCE_TTL_MS = p.ttlMs;
 export const isDelivererLive = p.isLive;
+// Explicit-timestamp freshness check (vs. isDelivererLive's implicit readTs()) — lets a caller that
+// already fetched the raw ts over HTTP (see lib/open-review.ts's desktop-vs-browser routing) redo
+// the SAME freshness math locally instead of a second round trip.
+export const isDelivererLiveAt = p.isLiveAt;
 export const recordDelivererPresence = p.record;
 export const readDelivererPresenceTs = p.readTs;

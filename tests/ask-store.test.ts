@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 process.env.BEACON_DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-ask-"));
 
 import {
+  advancePendingAsk,
   type AskQuestion,
   askHash,
   clearAskResolution,
@@ -63,6 +64,21 @@ describe("pure helpers", () => {
     );
   });
 
+  it("askHash on a single question is byte-identical to hashing that question alone (back-compat)", () => {
+    const single = askHash("question", q());
+    // A 1-element questions[] is NOT the same shape as a bare question — callers must pass the bare
+    // question for a single-question ask to get the pre-v2 hash (see app/api/ask/route.ts's hashBasis).
+    expect(askHash("question", [q()])).not.toBe(single);
+  });
+
+  it("askHash on a questions[] set changes when ANY question in the set changes", () => {
+    const set = [q(), q({ header: "Cache", question: "Which cache?" })];
+    const same = [q(), q({ header: "Cache", question: "Which cache?" })];
+    const changed = [q(), q({ header: "Cache", question: "Which OTHER cache?" })];
+    expect(askHash("question", set)).toBe(askHash("question", same));
+    expect(askHash("question", set)).not.toBe(askHash("question", changed));
+  });
+
   it("questionMirrorPushBody always mirrors a question, regardless of anything else", () => {
     const body = questionMirrorPushBody(q(), "/path/to/transcript.jsonl");
     expect(body).toEqual({
@@ -75,6 +91,13 @@ describe("pure helpers", () => {
 
   it("questionMirrorPushBody tolerates a missing transcript path (still mirrors)", () => {
     expect(questionMirrorPushBody(q(), undefined).mode).toBe("mirror");
+  });
+
+  it("questionMirrorPushBody carries questions[]/questionIndex through when given (v2 multi-question)", () => {
+    const qs = [q(), q({ header: "Cache", question: "Which cache?" })];
+    const body = questionMirrorPushBody(q(), "/t.jsonl", qs, 0);
+    expect(body.questions).toEqual(qs);
+    expect(body.questionIndex).toBe(0);
   });
 
   it("isLoopRepush: only questions, same hash, within window", () => {
@@ -164,5 +187,55 @@ describe("markAskDelivered", () => {
   it("is a no-op when there is no pending ask at all", () => {
     clearPendingAsk();
     expect(markAskDelivered("anything", 1500)).toBe(false);
+  });
+});
+
+describe("advancePendingAsk", () => {
+  const questions = [q(), q({ header: "Cache", question: "Which cache?" }), q({ header: "Deploy", question: "Where?" })];
+
+  it("moves question/questionIndex forward, keeping id/createdAt/hash, clearing deliveredAt", () => {
+    const hash = askHash("question", questions);
+    const pushed = pushAsk(
+      { kind: "question", hash, question: questions[0], questions, questionIndex: 0, mode: "mirror" },
+      1000,
+    ) as { id: string };
+    markAskDelivered(pushed.id, 1200);
+    expect(readPendingAsk()?.deliveredAt).toBe(1200);
+
+    const advanced = advancePendingAsk(pushed.id);
+    expect(advanced?.id).toBe(pushed.id);
+    expect(advanced?.questionIndex).toBe(1);
+    expect(advanced?.question).toEqual(questions[1]);
+    expect(advanced?.deliveredAt).toBeUndefined();
+    expect(advanced?.createdAt).toBe(1000);
+    expect(advanced?.hash).toBe(hash);
+    expect(readPendingAsk()).toEqual(advanced); // written to disk
+  });
+
+  it("returns null (no-op) once there is no next question (the last one)", () => {
+    const hash = askHash("question", questions);
+    const pushed = pushAsk(
+      { kind: "question", hash, question: questions[2], questions, questionIndex: 2, mode: "mirror" },
+      1000,
+    ) as { id: string };
+    expect(advancePendingAsk(pushed.id)).toBeNull();
+    expect(readPendingAsk()?.questionIndex).toBe(2); // untouched
+  });
+
+  it("returns null for a single-question ask (no questions[] to advance through)", () => {
+    const hash = askHash("question", q());
+    const pushed = pushAsk({ kind: "question", hash, question: q(), mode: "mirror" }, 1000) as {
+      id: string;
+    };
+    expect(advancePendingAsk(pushed.id)).toBeNull();
+  });
+
+  it("returns null when id no longer matches the pending ask", () => {
+    const hash = askHash("question", questions);
+    pushAsk(
+      { kind: "question", hash, question: questions[0], questions, questionIndex: 0, mode: "mirror" },
+      1000,
+    );
+    expect(advancePendingAsk("stale-id")).toBeNull();
   });
 });

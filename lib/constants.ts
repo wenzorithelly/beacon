@@ -72,6 +72,18 @@ export const ASK_LOOP_GUARD_MS = 60 * 1000; // 60s
 // (never answered, or the transcript is gone): a mirror older than this is treated as stale and
 // dropped, so it can't linger as a phantom card. Generous — a real pending question can sit a while.
 export const MIRROR_TTL_MS = 30 * 60 * 1000; // 30 min
+// A Beacon pick handed to a live deliverer (PendingAsk.deliveredAt) is typed into the terminal
+// within milliseconds — the delivery-ack IS the landing signal. The mirror (and its transient
+// "sent … waiting to land" card) clears this soon after it, deterministically. The transcript
+// watch can't be the release here: some Claude Code sessions never flush a transcript file to disk
+// at all (observed on desktop-spawned v2.1.206 sessions — the .jsonl at transcript_path never
+// exists), which left the card stuck open and the attention pill on "waiting" until the 30-min TTL.
+export const ASK_DELIVERED_CLEAR_MS = 2500;
+// v2 multi-question: ask-delivery.json is a single slot (lib/ask-delivery), so answering question
+// i+1 before a consumer's poll has picked up question i's delivery would clobber it unseen. The ask
+// modal disables answering for this long after each non-final question's delivery — comfortably
+// above a 1.5s delivery poll (the desktop's) so one full poll cycle always lands in between.
+export const ASK_QUESTION_ADVANCE_GUARD_MS = 1800;
 export const PLAN_TOOL_TIMEOUT_MS = 30 * 60 * 1000; // 30 min — MCP tool call internal loop (resumable)
 // Per-tool wall-clock timeout written into each repo's .mcp.json for the Beacon MCP server. MUST
 // exceed PLAN_TOOL_TIMEOUT_MS so the blocking plan tools finish their loop and return a resumable

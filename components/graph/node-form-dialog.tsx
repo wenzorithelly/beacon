@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createNodeAction, updateNodeAction } from "@/app/actions/nodes";
+import { useNodeEdit } from "@/components/graph/node-edit-context";
 import { ARCH_STATUSES, ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
 import { LAYER_META, normalizeLayer, type Layer } from "@/lib/layer";
 
@@ -62,6 +62,10 @@ export function NodeFormDialog({
   hasFrontend = false,
 }: NodeFormDialogProps) {
   const router = useRouter();
+  // Mutations ride the tab-pinned /api/nodes routes (the TabWorkspace fetch interceptor
+  // attaches x-beacon-workspace) — never server actions, which pin by the browser-wide
+  // beacon_ws cookie and write to the wrong workspace in a tab pinned via ?ws.
+  const { saveFields } = useNodeEdit();
   const [title, setTitle] = useState(defaults?.title ?? "");
   const [role, setRole] = useState(defaults?.role ?? "");
   const [plain, setPlain] = useState(defaults?.plain ?? "");
@@ -83,21 +87,26 @@ export function NodeFormDialog({
     try {
       const layerValue = layer === "none" ? null : layer;
       if (mode === "create") {
-        await createNodeAction({
-          view,
-          ...(view === "ROADMAP" ? { kind } : {}),
-          title: title.trim(),
-          role: role.trim() || null,
-          plain: plain.trim() || null,
-          cluster: cluster.trim() || null,
-          ...(hasFrontend ? { layer: layerValue } : {}),
-          parentId: parentId ?? null,
-          status,
-          x: position?.x ?? 60,
-          y: position?.y ?? 60,
+        const res = await fetch("/api/nodes", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            view,
+            ...(view === "ROADMAP" ? { kind } : {}),
+            title: title.trim(),
+            role: role.trim() || null,
+            plain: plain.trim() || null,
+            cluster: cluster.trim() || null,
+            ...(hasFrontend ? { layer: layerValue } : {}),
+            parentId: parentId ?? null,
+            status,
+            x: position?.x ?? 60,
+            y: position?.y ?? 60,
+          }),
         });
+        if (!res.ok) return; // keep the dialog open so nothing typed is lost
       } else if (nodeId) {
-        await updateNodeAction(nodeId, {
+        await saveFields(nodeId, {
           ...(view === "ROADMAP" ? { kind } : {}),
           title: title.trim(),
           role: role.trim() || null,

@@ -62,6 +62,7 @@ function mod(rel: string): string {
 //   beacon mcp        — MCP stdio server (Claude Code spawns it via .mcp.json, Codex via ~/.codex/config.toml)
 //   beacon hook       — PostToolUse hook handler (reports edits to the active feature)
 //   beacon plan       — PermissionRequest hook handler (pipes ExitPlanMode → /plan)
+//   beacon artifact   — PostToolUse hook handler (matcher Artifact; records published artifact URLs)
 //   beacon prompt     — UserPromptSubmit hook handler (nudges the feature loop)
 //   beacon stop-hook  — Stop hook handler (nudges prose plan-approval → present on /plan)
 //   beacon stop       — stop the shared daemon
@@ -86,6 +87,8 @@ if (sub === "mcp") {
   await import(mod("bin/plan.ts"));
 } else if (sub === "ask") {
   await import(mod("bin/ask.ts"));
+} else if (sub === "artifact") {
+  await import(mod("bin/artifact.ts"));
 } else if (sub === "answer") {
   await import(mod("bin/answer.ts"));
 } else if (sub === "prompt") {
@@ -410,16 +413,6 @@ async function bootViaApp(): Promise<string | null> {
   return null;
 }
 
-function openBrowser(url: string) {
-  if (process.env.BEACON_NO_OPEN) return;
-  const opener = platform() === "darwin" ? "open" : platform() === "win32" ? "start" : "xdg-open";
-  try {
-    execSync(`${opener} "${url}"`, { stdio: "ignore" });
-  } catch {
-    /* no browser opener available */
-  }
-}
-
 // `beacon ensure` — the plugin launcher's quiet bring-up. The plugin's SessionStart hook routes
 // here (via bin/boot) so the shared daemon is running before the agent uses the MCP tools / hooks,
 // WITHOUT opening a browser or printing the full launch banner (the plugin already wired the agent
@@ -519,7 +512,6 @@ async function launchPanel() {
   // keeps showing this repo even after another `beacon` run opens a different one. The redirect
   // still goes through activate (sets the cookie + provisions the db) for a freshly-opened tab.
   const mapPath = `/map?ws=${id}`;
-  const activate = `${base}/api/workspace/activate?id=${id}&redirect=${encodeURIComponent(mapPath)}`;
 
   console.log(`\n  ◉ Beacon\n  repo:  ${repo}\n  data:  ${data}\n  url:   ${base}\n`);
   console.log("  (the server keeps running in the background — `beacon stop` to stop it)\n");
@@ -528,7 +520,8 @@ async function launchPanel() {
   // hand it a nav-intent (it picks it up over its SSE stream and navigates to /map) instead of
   // piling up duplicate tabs on every action. Presence is recorded server-side by the open
   // tab's stream; pinned to this repo via the x-beacon-workspace header. Unreachable or
-  // never-opened → open a fresh tab as before.
+  // never-opened → the shared openSurface seam (lib/plan-open.ts): route to an attached
+  // beacon-desktop first, open a fresh browser tab only when no desktop is open anywhere.
   const tabLive = await fetch(`${base}/api/tab/presence`, {
     headers: { "x-beacon-workspace": id },
   })
@@ -543,7 +536,9 @@ async function launchPanel() {
     }).catch(() => {});
     console.log("  ↻ reusing your open Beacon tab — switch to your browser.\n");
   } else {
-    openBrowser(activate);
+    const { openSurface } = await import(mod("lib/plan-open.ts"));
+    const surface = await openSurface(base, id, mapPath);
+    if (surface === "desktop") console.log("  ↻ routed to your open Beacon desktop app.\n");
   }
 }
 

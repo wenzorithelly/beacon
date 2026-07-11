@@ -1,8 +1,6 @@
 import {
-  BEACON_WS_COOKIE,
   ensureWorkspaceDb,
   getActiveId,
-  getWorkspace,
   resolveRequestWorkspaceId,
   runWithWorkspace,
 } from "@/lib/workspaces";
@@ -45,22 +43,12 @@ export function pinned<A extends unknown[]>(
   };
 }
 
-// The server-action twin of pinned(): actions get no Request, so read the `beacon_ws`
-// cookie via next/headers. Without this, a server action's bare `db` falls back to the
-// GLOBAL active workspace — and a Details-panel/card action lands in whatever repo a
-// background `beacon` run last activated instead of the one the browser is viewing
-// (an accept-suggestion click silently updating zero rows in the wrong db).
-// next/headers is imported lazily so this module stays loadable under `bun test`.
-export async function pinnedAction<T>(fn: () => Promise<T>): Promise<T> {
-  let id: string | null = null;
-  try {
-    const { cookies } = await import("next/headers");
-    const jar = await cookies();
-    const v = jar.get(BEACON_WS_COOKIE)?.value ?? null;
-    id = v && getWorkspace(v) ? v : null;
-  } catch {
-    /* outside a request scope (CLI/test) — fall through to the active workspace */
-  }
-  await ensureRequestDb(id);
-  return runWithWorkspace(id, fn);
-}
+// There is deliberately NO server-action twin of pinned() anymore. A server action gets
+// no Request, so the best it could pin by was the browser-wide `beacon_ws` cookie
+// (`pinnedAction`, now removed) — but each TAB pins its own workspace via ?ws + the
+// x-beacon-workspace header (lib/tab-ws.ts), which the components/tab-workspace fetch
+// interceptor attaches to /api/* requests ONLY, never to server-action POSTs. In a tab
+// whose ?ws differed from the cookie, a cookie-pinned action silently mutated ANOTHER
+// workspace's db (zero-row updates reported as success — the accept-suggestion bug).
+// Canvas/browser mutations must go through pinned() API routes; don't add server actions
+// that write workspace data.

@@ -39,8 +39,10 @@ export interface AskApproval {
 }
 
 /** interactive = blocking modal, Beacon owns the answer (user is focused here). mirror = read-only
- *  display while the terminal owns the answer (user isn't on Beacon); it auto-clears when the
- *  transcript shows the native picker was answered. Absent ⇒ interactive (back-compat). */
+ *  display while the terminal owns the answer (user isn't on Beacon); it auto-clears once settled —
+ *  a couple of seconds after a Beacon pick was handed to a deliverer (deliveredAt), or when the
+ *  transcript shows the native picker was answered — see mirrorResolution in app/api/ask.
+ *  Absent ⇒ interactive (back-compat). */
 export type AskMode = "interactive" | "mirror";
 
 export interface PendingAsk {
@@ -56,10 +58,21 @@ export interface PendingAsk {
    *  re-ask (which mirror mode allows — it skips the loop-guard). */
   transcriptOffset?: number;
   question?: AskQuestion;
+  /** v2 multi-question: ALL questions from the tool call, present only when there's more than one.
+   *  `id`/`createdAt`/`hash` stay CONSTANT across the whole sequence — only `question`/`questionIndex`
+   *  change as the deliver route advances them (see app/api/ask/deliver). Absent ⇒ single-question
+   *  (back-compat). KNOWN LIMITATION: if the user answers a later question in the TERMINAL (not
+   *  Beacon), there's no per-question signal to advance the mirror — it keeps showing the question
+   *  Beacon last knew about until the transcript's all-answered line clears the whole ask. */
+  questions?: AskQuestion[];
+  /** 0-based index of `question` within `questions`. Absent ⇒ 0 (back-compat). */
+  questionIndex?: number;
   approval?: AskApproval;
   /** Set once Beacon has handed this ask's answer to a live deliverer (lib/ask-delivery) — the
    *  modal shows a transient "sent to your terminal" state instead of clickable options once this
-   *  is set. Cleared along with everything else the next time a new ask is pushed. */
+   *  is set, and the delivery itself IS the landing signal: GET /api/ask clears the whole ask a
+   *  couple of seconds later (ASK_DELIVERED_CLEAR_MS) without waiting for the transcript watch —
+   *  which can never fire for sessions whose transcript file Claude Code doesn't flush to disk. */
   deliveredAt?: number;
 }
 export interface AskResolution {
@@ -75,11 +88,14 @@ export interface AskResolution {
 
 // ── pure helpers (unit-tested, no fs) ───────────────────────────────────────
 
-/** Stable content hash — the loop-guard key + id seed. Same prompt → same hash. */
-export function askHash(kind: AskKind, q?: AskQuestion, a?: AskApproval): string {
+/** Stable content hash — the loop-guard key + id seed. Same prompt → same hash. A single AskQuestion
+ *  hashes exactly as before (back-compat); pass the WHOLE `questions[]` for a multi-question ask so
+ *  a repush of the same multi-ask set dedups as one unit instead of keying off question[0] alone. */
+export function askHash(kind: AskKind, q?: AskQuestion | AskQuestion[], a?: AskApproval): string {
+  const one = (qi?: AskQuestion) => ({ h: qi?.header, q: qi?.question, o: qi?.options?.map((o) => o.label) });
   const basis =
     kind === "question"
-      ? JSON.stringify({ h: q?.header, q: q?.question, o: q?.options?.map((o) => o.label) })
+      ? JSON.stringify(Array.isArray(q) ? q.map(one) : one(q))
       : JSON.stringify({ t: a?.tool, ti: a?.title, p: a?.preview });
   return createHash("sha256").update(basis).digest("hex").slice(0, 16);
 }
@@ -106,7 +122,12 @@ export function questionAnswerReason(q: AskQuestion, selected: string[]): string
  *  so a mirror clears once the user answers in the terminal. Match the marker AND the question on
  *  the SAME JSONL line (one message per line) — the question ALSO appears in the un-answered
  *  tool_use line, and an older answer elsewhere carries the marker, so matching them separately
- *  false-positives. The question is JSON-escaped to match how it reads inside the JSONL string. */
+ *  false-positives. The question is JSON-escaped to match how it reads inside the JSONL string.
+ *
+ *  NOT the only clear signal: some Claude Code sessions never flush the transcript file while
+ *  running (observed on desktop-spawned v2.1.206 sessions — the .jsonl at transcript_path simply
+ *  doesn't exist), so a Beacon-delivered answer clears on the delivery-ack instead (deliveredAt +
+ *  ASK_DELIVERED_CLEAR_MS in app/api/ask's mirrorResolution), with the TTL as the final backstop. */
 export function transcriptShowsAnswered(transcript: string, question: string): boolean {
   if (!question || !transcript) return false;
   const needle = JSON.stringify(question).slice(1, -1); // question with JSON-string escaping
@@ -125,8 +146,23 @@ export function transcriptShowsAnswered(transcript: string, question: string): b
 export function questionMirrorPushBody(
   question: AskQuestion,
   transcriptPath: string | undefined,
-): { kind: "question"; question: AskQuestion; mode: "mirror"; transcriptPath?: string } {
-  return { kind: "question", question, mode: "mirror", transcriptPath };
+  questions?: AskQuestion[],
+  questionIndex?: number,
+): {
+  kind: "question";
+  question: AskQuestion;
+  mode: "mirror";
+  transcriptPath?: string;
+  questions?: AskQuestion[];
+  questionIndex?: number;
+} {
+  return {
+    kind: "question",
+    question,
+    mode: "mirror",
+    transcriptPath,
+    ...(questions ? { questions, questionIndex } : {}),
+  };
 }
 
 /** Loop-guard: a question re-asked with the same hash within the guard window of being answered
@@ -179,38 +215,41 @@ export interface HookEvent {
 }
 
 /** Turn a Claude Code hook event into an ask payload, or null when it's not ours (→ fall through).
- *  PreToolUse:AskUserQuestion → a question (first question only in v1); PermissionRequest on any
- *  tool except ExitPlanMode (which the plan hook owns) → an approval. Pure, so bin/ask.ts is thin. */
+ *  PreToolUse:AskUserQuestion → a question (v2: ALL questions[] are captured — the tool call fires
+ *  ONCE with up to 4 questions and there's no per-question signal from Claude Code as the terminal
+ *  picker advances between them, so `question` is the CURRENT one and `questions`/`questionIndex`
+ *  (present only when there's more than one) let Beacon sequence them itself — see PendingAsk and
+ *  app/api/ask/deliver's advance step); PermissionRequest on any tool except ExitPlanMode (which the
+ *  plan hook owns) → an approval. Pure, so bin/ask.ts is thin. */
 export function buildAskFromEvent(
   ev: HookEvent,
 ):
-  | { kind: "question"; question: AskQuestion }
+  | { kind: "question"; question: AskQuestion; questions?: AskQuestion[]; questionIndex?: number }
   | { kind: "approval"; approval: AskApproval }
   | null {
   const tool = ev.tool_name ?? "";
   if (ev.hook_event_name === "PreToolUse" && tool === "AskUserQuestion") {
-    const qs = ev.tool_input?.questions as
+    const raw = ev.tool_input?.questions as
       | { header?: unknown; question?: unknown; multiSelect?: unknown; options?: unknown[] }[]
       | undefined;
-    const q0 = qs?.[0];
-    if (!q0) return null;
-    return {
-      kind: "question",
-      question: {
-        header: String(q0.header ?? ""),
-        question: String(q0.question ?? ""),
-        multiSelect: !!q0.multiSelect,
-        options: Array.isArray(q0.options)
-          ? q0.options.map((o) => {
-              const opt = o as { label?: unknown; description?: unknown };
-              return {
-                label: String(opt.label ?? ""),
-                description: opt.description ? String(opt.description) : undefined,
-              };
-            })
-          : [],
-      },
-    };
+    if (!raw?.length) return null;
+    const questions = raw.map((qi) => ({
+      header: String(qi.header ?? ""),
+      question: String(qi.question ?? ""),
+      multiSelect: !!qi.multiSelect,
+      options: Array.isArray(qi.options)
+        ? qi.options.map((o) => {
+            const opt = o as { label?: unknown; description?: unknown };
+            return {
+              label: String(opt.label ?? ""),
+              description: opt.description ? String(opt.description) : undefined,
+            };
+          })
+        : [],
+    }));
+    return questions.length > 1
+      ? { kind: "question", question: questions[0], questions, questionIndex: 0 }
+      : { kind: "question", question: questions[0] };
   }
   if (ev.hook_event_name === "PermissionRequest" && tool && tool !== "ExitPlanMode") {
     return { kind: "approval", approval: summarizeApproval(tool, ev.tool_input ?? {}) };
@@ -247,6 +286,8 @@ export function pushAsk(
     kind: AskKind;
     hash: string;
     question?: AskQuestion;
+    questions?: AskQuestion[];
+    questionIndex?: number;
     approval?: AskApproval;
     mode?: AskMode;
     transcriptPath?: string;
@@ -269,9 +310,33 @@ export function pushAsk(
     transcriptPath: args.transcriptPath,
     transcriptOffset: args.transcriptOffset,
     question: args.question,
+    questions: args.questions,
+    questionIndex: args.questionIndex,
     approval: args.approval,
   });
   return { loop: false, id };
+}
+
+/** Advance a multi-question pending ask to its next question, IN PLACE: same `id`/`createdAt`/`hash`
+ *  (the terminal-side tool call is still the same one), only `question`/`questionIndex` move. Clears
+ *  `deliveredAt` so the just-advanced question isn't immediately swept by GET /api/ask's
+ *  delivered-clear check (which keys off `deliveredAt` and would otherwise drop the whole ask a
+ *  couple of seconds after question i's delivery, before question i+1 was ever shown). No-op (returns
+ *  null) if `id` doesn't match the pending ask, there's no `questions[]`, or there's no next question
+ *  — callers use that to distinguish "advanced" from "this was the last question, resolve as usual". */
+export function advancePendingAsk(id: string): PendingAsk | null {
+  const pending = readPendingAsk();
+  if (!pending || pending.id !== id || !pending.questions) return null;
+  const nextIndex = (pending.questionIndex ?? 0) + 1;
+  if (nextIndex >= pending.questions.length) return null;
+  const next: PendingAsk = {
+    ...pending,
+    question: pending.questions[nextIndex],
+    questionIndex: nextIndex,
+    deliveredAt: undefined,
+  };
+  writePendingAsk(next);
+  return next;
 }
 
 /** Mark the CURRENTLY pending ask as handed to a live deliverer (lib/ask-delivery writes the actual

@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { ArrowRight, BookOpen, Cable, FolderGit2, Palette, ShieldCheck, TriangleAlert } from "lucide-react";
+import { ArrowRight, BookOpen, Cable, FolderGit2, Lock, Palette, ShieldCheck, TriangleAlert } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { ContextCard } from "@/components/context-card";
 import { DangerCard } from "@/components/danger-card";
 import { DeleteWorkspaceCard } from "@/components/delete-workspace-card";
 import { PermissionModeCard } from "@/components/permission-mode-card";
+import { PermissionsCard } from "@/components/settings/permissions-card";
 import { LinearCard } from "@/components/linear-card";
 import { AppearanceCard } from "@/components/appearance-card";
 import type { SettingsSection } from "@/components/settings/settings-modal";
@@ -30,6 +31,17 @@ export async function buildSettingsSections(wsParam?: string): Promise<SettingsS
       group: "General",
       icon: <Palette className={tabIcon} />,
       content: <AppearanceCard />,
+    },
+    {
+      id: "permissions",
+      label: "Permissions",
+      group: "General",
+      icon: <Lock className={tabIcon} />,
+      // Desktop-shell only, same gating the card itself uses (window.beaconDesktop): the modal
+      // hides this rail row in a plain browser; the card additionally renders nothing under an
+      // older shell without the listPermissions bridge method.
+      desktopOnly: true,
+      content: <PermissionsCard />,
     },
     {
       id: "agent",

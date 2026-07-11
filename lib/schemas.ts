@@ -60,6 +60,10 @@ export const updateNodeSchema = z.object({
   status: NODE_STATUS.optional(),
   priority: z.number().int().min(0).max(3).optional(),
   sourceRef: z.string().trim().max(300).nullish(),
+  // Accepting an init/AI suggestion promotes the card to user-owned so a future
+  // /beacon-init (which wipes source="INIT" rows) keeps it. MANUAL is the ONLY source
+  // the client may set — INIT/DRAFT/LINEAR lineage stays server-assigned.
+  source: z.literal("MANUAL").optional(),
 });
 export type UpdateNodeInput = z.input<typeof updateNodeSchema>;
 

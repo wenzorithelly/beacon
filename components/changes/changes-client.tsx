@@ -218,7 +218,7 @@ export function PlanFilesList({ files }: { files: string[] }) {
           Files this plan declared · live diffs show only for the plan that&apos;s executing
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {files.length === 0 ? (
           <p className="px-2 py-4 text-[11px] leading-relaxed text-muted-foreground">
             No files were saved for this plan.

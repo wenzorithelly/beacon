@@ -6,6 +6,7 @@ import {
   type AgentStatusFile,
   mergeAgentStatus,
   recordAgentStatus,
+  resumeWaitingSessions,
 } from "@/lib/agent-status";
 import { dataDirFor, idForPath } from "@/lib/workspaces";
 
@@ -186,6 +187,36 @@ describe("mergeAgentStatus — pure core", () => {
     // ~501ms old — well within the window — while an un-refreshed session from ts=0 would be pruned.
     expect(next.sessions.s1).toBeDefined();
     expect(next.sessions.s2).toBeDefined();
+  });
+});
+
+// The answer-landed flip: when an ask settles as answered (delivered Beacon pick, or the transcript
+// showing the picker answered), no hook fires to say "the wait is over" — this is what releases the
+// desktop attention pill's "Needs input" instead of it sticking until turn end.
+describe("resumeWaitingSessions — pure core", () => {
+  it("flips every waiting session to working with a fresh ts, leaving others verbatim", () => {
+    const prev: AgentStatusFile = {
+      sessions: {
+        asking: { state: "waiting", terminalId: "t1", ts: 1000, cwd: "/repo" },
+        busy: { state: "working", terminalId: null, ts: 900, cwd: "/repo" },
+        finished: { state: "done", terminalId: null, ts: 800, cwd: "/repo" },
+      },
+    };
+    const next = resumeWaitingSessions(prev, 5000)!;
+    expect(next.sessions.asking).toEqual({ state: "working", terminalId: "t1", ts: 5000, cwd: "/repo" });
+    expect(next.sessions.busy).toEqual(prev.sessions.busy);
+    expect(next.sessions.finished).toEqual(prev.sessions.finished);
+  });
+
+  it("returns null when nothing is waiting (no write needed) or the file is empty/missing", () => {
+    expect(resumeWaitingSessions(null, 5000)).toBeNull();
+    expect(resumeWaitingSessions({ sessions: {} }, 5000)).toBeNull();
+    expect(
+      resumeWaitingSessions(
+        { sessions: { s1: { state: "working", terminalId: null, ts: 1, cwd: "/r" } } },
+        5000,
+      ),
+    ).toBeNull();
   });
 });
 

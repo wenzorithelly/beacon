@@ -31,6 +31,49 @@ describe("buildAskFromEvent", () => {
     ]);
   });
 
+  it("maps a PreToolUse AskUserQuestion with multiple questions to questions[] + questionIndex: 0", () => {
+    const ask = buildAskFromEvent({
+      hook_event_name: "PreToolUse",
+      tool_name: "AskUserQuestion",
+      tool_input: {
+        questions: [
+          {
+            header: "DB",
+            question: "Which database?",
+            multiSelect: false,
+            options: [{ label: "Postgres" }, { label: "SQLite" }],
+          },
+          {
+            header: "Cache",
+            question: "Which cache?",
+            multiSelect: false,
+            options: [{ label: "Redis" }, { label: "None" }],
+          },
+        ],
+      },
+    });
+    if (ask?.kind !== "question") throw new Error("expected a question ask");
+    // `question` is the CURRENT one (index 0) — back-compat for single-question consumers.
+    expect(ask.question.question).toBe("Which database?");
+    expect(ask.questionIndex).toBe(0);
+    expect(ask.questions?.map((q) => q.question)).toEqual(["Which database?", "Which cache?"]);
+    // Every question is normalized the same way q0 always was (string coercion, options mapped).
+    expect(ask.questions?.[1].options.map((o) => o.label)).toEqual(["Redis", "None"]);
+  });
+
+  it("a single-question tool call omits questions[]/questionIndex (back-compat)", () => {
+    const ask = buildAskFromEvent({
+      hook_event_name: "PreToolUse",
+      tool_name: "AskUserQuestion",
+      tool_input: {
+        questions: [{ header: "DB", question: "Which database?", multiSelect: false, options: [] }],
+      },
+    });
+    if (ask?.kind !== "question") throw new Error("expected a question ask");
+    expect(ask.questions).toBeUndefined();
+    expect(ask.questionIndex).toBeUndefined();
+  });
+
   it("maps a PermissionRequest on a tool to an approval", () => {
     const ask = buildAskFromEvent({
       hook_event_name: "PermissionRequest",

@@ -1,5 +1,6 @@
 import { runWithWorkspace } from "@/lib/db-drizzle";
-import { isDelivererLive, recordDelivererPresence } from "@/lib/deliverer-registry";
+import { isDelivererLive, readDelivererPresenceTs, recordDelivererPresence } from "@/lib/deliverer-registry";
+import { readDesktopTabPresence } from "@/lib/desktop-tab";
 import { workspaceIdFromRequest } from "@/lib/workspaces";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,17 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   return runWithWorkspace(workspaceIdFromRequest(req), async () => {
-    return Response.json({ live: isDelivererLive(Date.now()) });
+    // `ts` (the raw heartbeat, or null if never heartbeated) rides alongside `live` so a caller
+    // that needs to redo the freshness check itself — e.g. lib/open-review.ts choosing whether a
+    // presented plan should route to beacon-desktop instead of the browser — doesn't need a second
+    // round trip. `desktopTab` (GLOBAL, workspace-independent — lib/desktop-tab.ts) tags along for
+    // the same caller: a live desktop web view in ANY workspace catches the plan (owner's rule:
+    // never pop a browser tab while the app is open). Existing `live` consumers
+    // (components/ask/ask-modal.tsx) are unaffected.
+    return Response.json({
+      live: isDelivererLive(Date.now()),
+      ts: readDelivererPresenceTs(),
+      desktopTab: readDesktopTabPresence(),
+    });
   });
 }

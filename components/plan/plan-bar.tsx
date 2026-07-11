@@ -20,7 +20,7 @@ export function PlanBar() {
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-14 z-40 flex justify-center px-2">
-      <div className="pointer-events-auto flex max-w-3xl items-center gap-2 rounded-xl border border-emerald-500/30 bg-card/85 px-3 py-1.5 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-card/70">
+      <div className="pointer-events-auto flex max-w-3xl items-center gap-2 rounded-xl border border-emerald-500/30 bg-card/85 px-3 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-card/70">
         <Sparkles className="size-3.5 shrink-0 text-emerald-300" />
         <div className="min-w-0">
           <div className="truncate text-[12px] leading-tight text-foreground">

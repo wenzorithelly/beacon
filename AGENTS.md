@@ -33,6 +33,7 @@ Beacon is the visual planning surface for a terminal-side coding agent (Claude C
   - Agent-ask bridge — Intercepts the agent's AskUserQuestion/permission prompts; routes to Beacon only when the user is FOCUSED there, mirrors questions read-only otherwise, and auto-clears via transcript watch. (app/api/ask/answered/route.ts, app/api/ask/route.ts, app/api/tab/view/route.ts, bin/ask.ts, components/ask/ask-modal.tsx, lib/ask-store.ts)
 - **INFRA**
   - Live refresh (SSE) — Per-workspace SSE stream that pushes a {v, nav} payload: version bumps refresh the open canvas, nav-intents navigate it; each tick also records per-workspace tab presence. (app/api/stream/route.ts, components/live-refresh.tsx, lib/nav-decide.ts, lib/nav-intent.ts, lib/tab-presence.ts)
+  - Desktop shell UI seam — Generic keyed surface-state/surface-action bridge + shell: Tailwind variant — the open app's minimal, explicitly-gated awareness of the Beacon Desktop shell (app/globals.css, components/plan/plan-workspace.tsx, lib/desktop-shell.ts)
 - **INIT**
   - Repo mapping (init) — Persists a /beacon-init analysis (architecture nodes+edges, roadmap fronts, ProjectMeta incl. hasFrontend + classificationRoots) and regenerates AGENTS.md; same DB shape as propose_plan but commits directly. (app/api/architecture/sync/route.ts, app/api/init/route.ts, lib/architecture-sync.ts, lib/init.ts, lib/project-meta.ts)
 - **INSTALL**

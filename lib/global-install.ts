@@ -98,6 +98,13 @@ export const GLOBAL_HOOKS = [
       "Surface edit/create/run approvals in Beacon's modal; your allow/deny flows back (falls through to the terminal prompt if Beacon isn't open).",
   },
   {
+    event: "PostToolUse" as const,
+    matcher: "Artifact",
+    command: "beacon artifact",
+    description:
+      "Record a published Claude Artifact's URL to the workspace's delivery file so the desktop shell can react to it.",
+  },
+  {
     event: "UserPromptSubmit" as const,
     matcher: "*",
     command: "beacon prompt",
@@ -171,8 +178,15 @@ export interface GlobalAudit {
 export function auditGlobal(): GlobalAudit {
   const skills: Record<string, boolean> = {};
   for (const s of GLOBAL_SKILLS) skills[s] = isGlobalSkillInstalled(s);
+  // Two GLOBAL_HOOKS entries can share the same event (e.g. two PermissionRequest matchers, or now
+  // PostToolUse's "beacon hook" + "beacon artifact") — OR-merge per event instead of letting the
+  // last one checked silently overwrite an earlier true/false, which would flag a healthy event as
+  // broken (or vice versa) depending on iteration order.
   const hooks: Record<string, boolean> = {};
-  for (const h of GLOBAL_HOOKS) hooks[h.event] = hasGlobalHook({ event: h.event, command: h.command });
+  for (const h of GLOBAL_HOOKS) {
+    const present = hasGlobalHook({ event: h.event, command: h.command });
+    hooks[h.event] = (hooks[h.event] ?? false) || present;
+  }
   return {
     homeExists: existsSync(CLAUDE_DIR()),
     skills,

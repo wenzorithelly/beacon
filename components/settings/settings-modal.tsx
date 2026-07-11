@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 import { useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { BeaconMark } from "@/components/beacon-mark";
+import { isDesktopShell, type DesktopServerMode } from "@/lib/desktop-shell";
 import { buildTabHref, currentTabWs } from "@/lib/tab-ws";
 import { cn } from "@/lib/utils";
 
@@ -16,8 +17,17 @@ export type SettingsSection = {
   label: string;
   group: string;
   icon?: ReactNode;
+  /** Render this section only under the Beacon Desktop shell — same window.beaconDesktop gating
+   * its cards use (e.g. the Permissions card). A plain browser never shows the rail row. */
+  desktopOnly?: boolean;
   content: ReactNode;
 };
+
+// Sections are built server-side, but desktop-only visibility is a client fact (the shell's
+// preload stamps <html data-shell="desktop"> pre-hydration). Server snapshot is `false` so the
+// first client render matches the server HTML; under the shell the post-hydration re-render
+// reveals the row — same useSyncExternalStore recipe as the direct-modal store below.
+const subscribeNever = () => () => {};
 
 // ── Direct-wins dedup ───────────────────────────────────────────────────────────────────────
 // A bare `/settings` hard load renders the DIRECT modal (app/settings/page.tsx), then the per-tab
@@ -66,6 +76,38 @@ export function SettingsModal({
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // Rail-footer version identity, fetched once on mount. `serverVersion` is the trybeacon install
+  // actually SERVING this page (same source as the update banner's currentVersion — see
+  // app/api/app-version); `desktop` exists only under the shell, gated on the bridge method per
+  // lib/desktop-shell.ts convention. Every failure is silent: an empty footer beats a broken modal.
+  const [serverVersion, setServerVersion] = useState<string | null>(null);
+  const [desktop, setDesktop] = useState<{ app: string; serverMode: DesktopServerMode } | null>(
+    null,
+  );
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/app-version");
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled && typeof data?.version === "string") setServerVersion(data.version);
+        }
+      } catch {
+        /* offline / route missing — footer line stays empty */
+      }
+      try {
+        const v = await window.beaconDesktop?.getVersions?.();
+        if (!cancelled && v && typeof v.app === "string") setDesktop(v);
+      } catch {
+        /* older shell / torn-down bridge — no desktop line */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // The direct modal claims ownership; the intercepted one yields to it (see the store above).
   const directPresent = useSyncExternalStore(subscribeDirectModal, getDirectMounted, () => false);
   useEffect(() => {
@@ -73,7 +115,14 @@ export function SettingsModal({
     return registerDirectModal();
   }, [intercepted]);
 
-  const current = sections.find((s) => s.id === active) ?? sections[0];
+  // Drop desktop-only sections in a plain browser (see subscribeNever above).
+  const inShell = useSyncExternalStore(subscribeNever, isDesktopShell, () => false);
+  const visibleSections = useMemo(
+    () => sections.filter((s) => !s.desktopOnly || inShell),
+    [sections, inShell],
+  );
+
+  const current = visibleSections.find((s) => s.id === active) ?? visibleSections[0];
 
   // Live label/group match — quiet, client-side, no fetch. Groups render in first-seen order and
   // vanish when none of their rows match.
@@ -81,7 +130,7 @@ export function SettingsModal({
     const q = query.trim().toLowerCase();
     const order: string[] = [];
     const byGroup = new Map<string, SettingsSection[]>();
-    for (const s of sections) {
+    for (const s of visibleSections) {
       if (q && !s.label.toLowerCase().includes(q) && !s.group.toLowerCase().includes(q)) continue;
       if (!byGroup.has(s.group)) {
         byGroup.set(s.group, []);
@@ -90,7 +139,7 @@ export function SettingsModal({
       byGroup.get(s.group)!.push(s);
     }
     return order.map((g) => ({ label: g, items: byGroup.get(g)! }));
-  }, [sections, query]);
+  }, [visibleSections, query]);
 
   function close() {
     setOpen(false);
@@ -125,11 +174,10 @@ export function SettingsModal({
             "flex-col sm:flex-row",
             "duration-150 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.98] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98]",
           )}
-          // Heavier, softer lift than the default glass card so the panel floats above the board;
-          // keeps the glass inset sheen. Theme-aware via --glass-shadow / --glass-sheen.
+          // No outer drop shadow (owner call, 2026-07-09 — boxes read flat; the backdrop scrim +
+          // hairline border carry the separation). Only the glass inset sheen remains.
           style={{
-            boxShadow:
-              "0 40px 120px -32px var(--glass-shadow), 0 12px 40px -20px var(--glass-shadow), inset 0 1px 0 var(--glass-sheen)",
+            boxShadow: "inset 0 1px 0 var(--glass-sheen)",
           }}
         >
           {/* ── Left rail: brand eyebrow · title · search · grouped nav ─────────────────────── */}
@@ -220,6 +268,25 @@ export function SettingsModal({
                 ))
               )}
             </nav>
+
+            {/* ── Rail footer: quiet version identity. Line 1 = the trybeacon install serving the
+                app (browser AND shell); line 2 = the desktop app + bundled-vs-attached backend,
+                shell only. No card, no border — sm-only because the mobile rail is a top strip
+                with no bottom to sit at. */}
+            {(serverVersion || desktop) && (
+              <div className="hidden shrink-0 px-4 pb-3 pt-2 sm:block">
+                {serverVersion && (
+                  <p className="text-[10px] text-muted-foreground/70">Beacon v{serverVersion}</p>
+                )}
+                {desktop && (
+                  <p className="text-[10px] text-muted-foreground/70">
+                    Desktop v{desktop.app}
+                    {desktop.serverMode === "bundled" && " · bundled server"}
+                    {desktop.serverMode === "attached" && " · shared daemon"}
+                  </p>
+                )}
+              </div>
+            )}
           </aside>
 
           {/* ── Content pane: the active section's existing cards, scrollable ───────────────── */}

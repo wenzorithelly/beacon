@@ -1,9 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/lib/db-drizzle";
 import { node, edge, dbTable, endpoint } from "@/lib/drizzle/schema";
 import { propagateStatusUp } from "@/lib/map-ops";
 import {
-  NODE_STATUS,
   createEdgeSchema,
   createNodeSchema,
   positionSchema,
@@ -14,7 +13,7 @@ import {
 } from "@/lib/schemas";
 
 // Pure data mutations (validation + db). Kept free of Next imports so they can be
-// unit-tested directly; the `app/actions/*` wrappers add cache revalidation.
+// unit-tested directly; the /api/nodes routes (pinned to the tab's workspace) call these.
 
 export async function createNode(input: CreateNodeInput) {
   const data = createNodeSchema.parse(input);
@@ -75,34 +74,11 @@ export async function updateNode(id: string, input: UpdateNodeInput) {
   return updated;
 }
 
-export async function setNodeStatus(id: string, status: string) {
-  const parsed = NODE_STATUS.parse(status);
-  const [updated] = await db.update(node).set({ status: parsed }).where(eq(node.id, id)).returning();
-  await propagateStatusUp(id);
-  return updated;
-}
-
-/** Soft "park": mark deprioritized and drop to the lowest priority. Reversible. */
-export async function deprioritizeNode(id: string) {
-  const [updated] = await db
-    .update(node)
-    .set({ status: "DEPRIORITIZED", priority: 3 })
-    .where(eq(node.id, id))
-    .returning();
-  await propagateStatusUp(id);
-  return updated;
-}
-
-/** Soft cancel: keep the node for history, rendered struck-through. Not a delete. */
-export async function cancelNode(id: string) {
-  const [updated] = await db
-    .update(node)
-    .set({ status: "CANCELLED" })
-    .where(eq(node.id, id))
-    .returning();
-  await propagateStatusUp(id);
-  return updated;
-}
+// Status transitions (incl. soft cancel and the deprioritize "park") are plain
+// updateNode calls — {status:"CANCELLED"}, {status:"DEPRIORITIZED", priority:3} — via the
+// tab-pinned PATCH /api/nodes/{id}. The dedicated setNodeStatus/cancelNode/deprioritizeNode
+// helpers (and the cookie-pinned server actions that wrapped them) were removed once the
+// Details panel migrated to that route.
 
 export async function deleteNode(id: string) {
   const [deleted] = await db.delete(node).where(eq(node.id, id)).returning();
