@@ -1,5 +1,17 @@
 import Link from "next/link";
-import { ArrowRight, BookOpen, Cable, FolderGit2, Monitor, Palette, ShieldCheck, TriangleAlert } from "lucide-react";
+import {
+  ArrowRight,
+  Bot,
+  BookOpen,
+  Cable,
+  FolderGit2,
+  Lock,
+  Monitor,
+  Palette,
+  ShieldCheck,
+  SquareTerminal,
+  TriangleAlert,
+} from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { ContextCard } from "@/components/context-card";
@@ -7,6 +19,9 @@ import { DangerCard } from "@/components/danger-card";
 import { DeleteWorkspaceCard } from "@/components/delete-workspace-card";
 import { PermissionModeCard } from "@/components/permission-mode-card";
 import { DesktopSection } from "@/components/settings/desktop-section";
+import { PermissionsCard } from "@/components/settings/permissions-card";
+import { ClaudeAiCard } from "@/components/settings/claudeai-card";
+import { TerminalCard } from "@/components/settings/terminal-card";
 import { LinearCard } from "@/components/linear-card";
 import { AppearanceCard } from "@/components/appearance-card";
 import type { SettingsSection } from "@/components/settings/settings-modal";
@@ -44,6 +59,22 @@ export async function buildSettingsSections(wsParam?: string): Promise<SettingsS
       content: <DesktopSection />,
     },
     {
+      id: "terminal",
+      label: "Terminal",
+      group: "General",
+      icon: <SquareTerminal className={tabIcon} />,
+      desktopOnly: true,
+      content: <TerminalCard />,
+    },
+    {
+      id: "permissions",
+      label: "Permissions",
+      group: "General",
+      icon: <Lock className={tabIcon} />,
+      desktopOnly: true,
+      content: <PermissionsCard />,
+    },
+    {
       id: "agent",
       label: "Agent",
       group: "General",
@@ -79,6 +110,14 @@ export async function buildSettingsSections(wsParam?: string): Promise<SettingsS
       group: "Connections",
       icon: <Cable className={tabIcon} />,
       content: <LinearCard />,
+    },
+    {
+      id: "claudeai",
+      label: "Claude.ai",
+      group: "Connections",
+      icon: <Bot className={tabIcon} />,
+      desktopOnly: true,
+      content: <ClaudeAiCard />,
     },
     {
       id: "project",
