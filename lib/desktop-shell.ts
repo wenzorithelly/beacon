@@ -67,54 +67,38 @@ export function reportShellState(key: string, state: unknown): void {
 // calls are typed here (every method optional, for exactly that gating); the shell repo's
 // terminals/protocol.ts `BeaconDesktopApi` is the full contract's source of truth.
 
-/** One selectable app (Dock) icon as the shell reports it: stable id, human label, and a ~48px
- * data-URL preview the picker renders as its swatch (the page can't read the icon files itself). */
-export interface DesktopAppIcon {
-  id: string;
-  label: string;
-  dataUrl: string;
-}
-
 /** How the desktop shell acquired the backend serving this page: `bundled` = the app spawned and
  * owns it, `attached` = it reuses a shared daemon some CLI owns (the mode that can silently serve
  * stale code), `unknown` = the shell hasn't resolved a backend (e.g. dev-url mode). */
 export type DesktopServerMode = "bundled" | "attached" | "unknown";
 
-/** Stable id for one macOS permission row (Permissions card). Mirrors the shell's
- * `terminals/protocol.ts` — this repo's copy is the client-safe subset it actually renders.
- * `files` is ONE aggregated Files & Folders row over the per-folder Desktop/Documents/Downloads
- * TCC grants (the shell probes and prompts per folder under the hood). */
-export type PermissionId = "files" | "full-disk-access" | "notifications" | "launch-at-login";
-
-/** `partial` = the aggregated files row when only some folders are granted (row.note names the
- * missing ones). */
-export type PermissionStatus = "granted" | "denied" | "not-determined" | "partial" | "unavailable";
-
-/** One row's full state as the shell derives it (probe result + signed/dev flags folded in). */
-export interface PermissionRowState {
-  id: PermissionId;
-  status: PermissionStatus;
-  label: string;
-  why: string;
-  action: "prompt" | "open-settings" | "toggle" | "none";
-  deepLink?: string;
-  note?: string;
-}
+/** One desktop-shell setting as the shell describes it — this page renders purely off `kind`,
+ * with zero knowledge of what any `key` MEANS (that meaning lives entirely on the shell side).
+ * Every write (`setDesktopSetting`/`runDesktopAction`) resolves with the fresh FULL list, so the
+ * page always re-renders from the shell's own return value instead of guessing the next state. */
+export type DesktopDescriptor =
+  | { key: string; kind: "toggle"; label: string; description?: string; value: boolean }
+  | {
+      key: string;
+      kind: "select";
+      label: string;
+      description?: string;
+      value: string;
+      options: { value: string; label: string }[];
+    }
+  | { key: string; kind: "number"; label: string; description?: string; value: number }
+  | { key: string; kind: "action"; label: string; description?: string; hint?: string };
 
 export interface BeaconDesktopBridge {
-  /** App-icon picker (Appearance card). `setAppIcon` persists + applies to the Dock immediately
-   * and resolves with the id actually in effect (an unknown id is a shell-side no-op echo). */
-  listAppIcons?: () => Promise<DesktopAppIcon[]>;
-  getAppIcon?: () => Promise<string>;
-  setAppIcon?: (id: string) => Promise<string>;
   /** Shell + backend identity for the Settings rail footer: the desktop app's own version and
    * whether it runs its bundled server or attached to a shared daemon. */
   getVersions?: () => Promise<{ app: string; serverMode: DesktopServerMode }>;
-  /** Permissions card: current row states + whether this build is unsigned (grants may not
-   * survive a rebuild). `grantPermission` fires the row's action shell-side (OS prompt / toggle /
-   * open System Settings) and resolves with that row's resulting state. */
-  listPermissions?: () => Promise<{ rows: PermissionRowState[]; unsignedBuild: boolean }>;
-  grantPermission?: (id: PermissionId) => Promise<PermissionRowState>;
+  /** Desktop section (Settings): the shell's own settings, described neutrally — this page just
+   * renders by `kind` and never interprets a `key`. */
+  listDesktopSettings?: () => Promise<DesktopDescriptor[]>;
+  setDesktopSetting?: (key: string, value: boolean | string | number) => Promise<DesktopDescriptor[]>;
+  /** `action`-kind rows only — the shell opens its own native panel; this page just calls it. */
+  runDesktopAction?: (key: string) => Promise<DesktopDescriptor[]>;
 }
 
 declare global {
