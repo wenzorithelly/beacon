@@ -14,12 +14,14 @@ import {
   clearPendingAsk,
   isLoopRepush,
   markAskDelivered,
+  type PendingAsk,
   pushAsk,
   questionAnswerReason,
   questionMirrorPushBody,
   readAskResolution,
   readPendingAsk,
   resolveAsk,
+  sameAskView,
   summarizeApproval,
 } from "@/lib/ask-store";
 
@@ -98,6 +100,31 @@ describe("pure helpers", () => {
     const body = questionMirrorPushBody(q(), "/t.jsonl", qs, 0);
     expect(body.questions).toEqual(qs);
     expect(body.questionIndex).toBe(0);
+  });
+
+  it("sameAskView: false when questionIndex differs (the freeze bug — same id, next question)", () => {
+    const base = { id: "abc", questionIndex: 0, deliveredAt: undefined } as PendingAsk;
+    const advanced = { ...base, questionIndex: 1 } as PendingAsk;
+    expect(sameAskView(base, advanced)).toBe(false);
+  });
+
+  it("sameAskView: false when deliveredAt differs (undefined vs a number)", () => {
+    const base = { id: "abc", questionIndex: 0, deliveredAt: undefined } as PendingAsk;
+    const delivered = { ...base, deliveredAt: 1500 } as PendingAsk;
+    expect(sameAskView(base, delivered)).toBe(false);
+  });
+
+  it("sameAskView: true for identical snapshots (stability preserved, no needless re-render)", () => {
+    const a = { id: "abc", questionIndex: 0, deliveredAt: 1500 } as PendingAsk;
+    const b = { id: "abc", questionIndex: 0, deliveredAt: 1500 } as PendingAsk;
+    expect(sameAskView(a, b)).toBe(true);
+  });
+
+  it("sameAskView: null vs null is true, object vs null is false", () => {
+    expect(sameAskView(null, null)).toBe(true);
+    const a = { id: "abc", questionIndex: 0, deliveredAt: undefined } as PendingAsk;
+    expect(sameAskView(a, null)).toBe(false);
+    expect(sameAskView(null, a)).toBe(false);
   });
 
   it("isLoopRepush: only questions, same hash, within window", () => {

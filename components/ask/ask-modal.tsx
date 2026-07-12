@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import type { PendingAsk } from "@/lib/ask-store";
+import { sameAskView, type PendingAsk } from "@/lib/ask-store";
 import { ASK_DELIVERED_CLEAR_MS, ASK_QUESTION_ADVANCE_GUARD_MS } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { GlassPanel } from "@/components/ui/glass-panel";
@@ -45,7 +45,10 @@ export function AskModal() {
         // A mirror self-clears server-side in GET /api/ask (answered-in-terminal or stale), so a
         // resolved mirror simply comes back as null here — no separate poll needed.
         if (next && next.id === dismissed.current) return; // already answered; awaiting clear
-        setAsk((cur) => (cur?.id === next?.id ? cur : next));
+        // Compare id + questionIndex + deliveredAt, not just id: a multi-question ask keeps `id`
+        // constant while the server advances `questionIndex`/`deliveredAt` in place (see
+        // advancePendingAsk), so an id-only dedup would freeze the modal on the first question.
+        setAsk((cur) => (sameAskView(cur, next) ? cur : next));
       } catch {
         /* daemon blip — keep polling */
       }

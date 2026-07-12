@@ -91,6 +91,18 @@ export interface AskResolution {
 
 // ── pure helpers (unit-tested, no fs) ───────────────────────────────────────
 
+/** Two mirror snapshots represent the SAME view iff id, questionIndex, and deliveredAt all match.
+ *  A multi-question ask keeps `id` constant while `questionIndex`/`deliveredAt` advance, so an
+ *  id-only comparison would freeze the modal on the first question (bug 2026-07-12). */
+export function sameAskView(a: PendingAsk | null, b: PendingAsk | null): boolean {
+  if (a == null || b == null) return a === b;
+  return (
+    a.id === b.id &&
+    (a.questionIndex ?? 0) === (b.questionIndex ?? 0) &&
+    (a.deliveredAt ?? null) === (b.deliveredAt ?? null)
+  );
+}
+
 /** Stable content hash — the loop-guard key + id seed. Same prompt → same hash. A single AskQuestion
  *  hashes exactly as before (back-compat); pass the WHOLE `questions[]` for a multi-question ask so
  *  a repush of the same multi-ask set dedups as one unit instead of keying off question[0] alone. */
