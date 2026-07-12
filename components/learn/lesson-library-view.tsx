@@ -1,24 +1,46 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, BookOpen, Library } from "lucide-react";
 import { currentTabWs } from "@/lib/tab-ws";
 import { FileMentionProvider, MarkdownView } from "@/components/plan/markdown-view";
 import { MapClient } from "@/components/graph/map-client";
 import { lessonToBoard } from "@/lib/lesson-board";
+import { onShellAction, reportShellState, SHELL_SURFACE, type LearnHeaderState } from "@/lib/desktop-shell";
 import type { Lesson, LessonQuestion, SavedLessonSummary } from "@/lib/lesson-types";
 
 // The Lessons library: browse saved lessons and reopen any read-only (narrative + frozen map +
 // Q&A). The page reads the disk store server-side and passes the list (and the selected lesson
 // when ?id is set) here; navigation just changes the URL so the server re-renders.
 
-function learnHref(extra: Record<string, string>): string {
+export function learnHref(extra: Record<string, string>): string {
   const params = new URLSearchParams();
   const ws = currentTabWs();
   if (ws) params.set("ws", ws);
   for (const [k, v] of Object.entries(extra)) params.set(k, v);
   return `/learn?${params.toString()}`;
+}
+
+// ── Beacon Desktop shell bridge (lib/desktop-shell.ts — no-ops in a plain browser) ──────────────
+// Under the shell, the Lesson/Library toggle renders in the shell's chrome bar instead of the
+// in-page Library/back buttons (shell:hidden hides them). Both top-level /learn views share this;
+// only `active` differs, so it lives here next to learnHref rather than duplicated in each. Mirrors
+// plan-workspace.tsx's bridge effects.
+export function useLearnShellBridge(active: "lesson" | "library"): void {
+  const router = useRouter();
+  useEffect(() => {
+    reportShellState(SHELL_SURFACE.learnHeader, { toggle: { active } } satisfies LearnHeaderState);
+    return () => reportShellState(SHELL_SURFACE.learnHeader, null);
+  }, [active]);
+  useEffect(
+    () =>
+      onShellAction(SHELL_SURFACE.learnHeader, (action) => {
+        if (action === "library") router.push(learnHref({ view: "library" }));
+        else if (action === "lesson") router.push(learnHref({}));
+      }),
+    [router],
+  );
 }
 
 export function LessonLibraryView({
@@ -30,6 +52,9 @@ export function LessonLibraryView({
   selected: Lesson | null;
   repoFiles?: string[];
 }) {
+  // Reported at this top-level component (not in LibraryList/SavedLessonView) so it fires for both
+  // sub-views — the shell always sees "library" while any part of this surface is mounted.
+  useLearnShellBridge("library");
   if (selected) return <SavedLessonView lesson={selected} repoFiles={repoFiles} />;
   return <LibraryList lessons={lessons} />;
 }
@@ -44,7 +69,7 @@ function LibraryList({ lessons }: { lessons: SavedLessonSummary[] }) {
         </h1>
         <button
           onClick={() => router.push(learnHref({}))}
-          className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
+          className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground shell:hidden"
         >
           Back to current lesson
         </button>
@@ -89,7 +114,7 @@ function SavedLessonView({ lesson, repoFiles }: { lesson: Lesson; repoFiles: str
         <div className="pointer-events-none fixed right-3 top-3 z-30">
           <button
             onClick={() => router.push(learnHref({ view: "library" }))}
-            className="glass pointer-events-auto flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
+            className="glass pointer-events-auto flex h-10 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground shell:hidden"
           >
             <ArrowLeft className="size-3.5" /> Library
           </button>

@@ -13,6 +13,7 @@ import {
 } from "@/components/learn/lesson-narrative-panel";
 import { MapClient } from "@/components/graph/map-client";
 import { lessonToBoard } from "@/lib/lesson-board";
+import { learnHref, useLearnShellBridge } from "@/components/learn/lesson-library-view";
 import type { Lesson, LessonQuestion } from "@/lib/lesson-types";
 
 // /learn surface: the agent's interactive explanation. LEFT = the house-style narrative where the
@@ -53,6 +54,10 @@ export function LearnWorkspace({
   useEffect(() => {
     roundRef.current = round;
   }, [round]);
+
+  // Under the shell, the Lesson/Library toggle renders in the chrome bar instead of the in-page
+  // Library button below (shell:hidden hides it). Shared with lesson-library-view.tsx.
+  useLearnShellBridge("lesson");
 
   // Presence heartbeat so beacon_explain reuses this tab instead of opening a new one.
   useEffect(() => {
@@ -202,9 +207,9 @@ export function LearnWorkspace({
         <div className="pointer-events-none fixed right-3 top-3 z-30 flex items-center gap-2">
           <div className="glass pointer-events-auto flex h-10 items-center gap-0.5 rounded-full px-1">
             <button
-              onClick={() => router.push("/learn?view=library")}
+              onClick={() => router.push(learnHref({ view: "library" }))}
               title="Saved lessons"
-              className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
+              className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground shell:hidden"
             >
               <Library className="size-3.5" />
             </button>

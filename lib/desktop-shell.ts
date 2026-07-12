@@ -23,6 +23,7 @@
 /** Keys for shell-mirrored surfaces. Add new surfaces here so both repos share one vocabulary. */
 export const SHELL_SURFACE = {
   planHeader: "plan-header",
+  learnHeader: "learn-header",
 } as const;
 
 /** The /plan header state the shell's chrome bar renders (beacon-desktop chrome.cts). Page-level
@@ -31,6 +32,13 @@ export const SHELL_SURFACE = {
  * (plan-history-view.tsx), so there's nothing to keep in sync. */
 export interface PlanHeaderState {
   toggle: { active: "history" | "changes" } | null;
+}
+
+/** The /learn header state the shell's chrome bar renders (beacon-desktop chrome.cts): which
+ * top-level view is showing — the active lesson (learn-workspace.tsx) or the saved-lessons library
+ * (lesson-library-view.tsx). Page-level only, same rationale as PlanHeaderState. */
+export interface LearnHeaderState {
+  toggle: { active: "lesson" | "library" } | null;
 }
 
 /** True only inside the Beacon Desktop shell (its preload stamps <html data-shell="desktop"> at
