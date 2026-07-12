@@ -13,7 +13,12 @@ describe("extractArtifactFromEvent", () => {
       tool_input: { file_path: "/tmp/dashboard.html", description: "Bug dashboard" },
       tool_response: "Published to https://claude.ai/artifacts/abc123 successfully.",
     });
-    expect(found).toEqual({ url: "https://claude.ai/artifacts/abc123", title: "Bug dashboard" });
+    expect(found).toEqual({
+      url: "https://claude.ai/artifacts/abc123",
+      title: "Bug dashboard",
+      path: "/tmp/dashboard.html",
+      id: "abc123",
+    });
   });
 
   it("prefers a structured `url` field over scanning the stringified response", () => {
@@ -83,7 +88,7 @@ describe("extractArtifactFromEvent", () => {
       tool_input: {},
       tool_response: "https://claude.ai/artifacts/x",
     });
-    expect(found).toEqual({ url: "https://claude.ai/artifacts/x" });
+    expect(found).toEqual({ url: "https://claude.ai/artifacts/x", id: "x" }); // id still parses from the URL
     expect("title" in (found as object)).toBe(false);
   });
 
@@ -135,5 +140,74 @@ describe("extractArtifactFromEvent", () => {
         tool_response: null,
       }),
     ).toBeNull();
+  });
+
+  it("path: extracted from tool_input.file_path", () => {
+    const found = extractArtifactFromEvent({
+      hook_event_name: "PostToolUse",
+      tool_name: "Artifact",
+      tool_input: { file_path: "/private/tmp/scratch/bug-dashboard.html" },
+      tool_response: "https://claude.ai/artifacts/abc123",
+    });
+    expect(found?.path).toBe("/private/tmp/scratch/bug-dashboard.html");
+  });
+
+  it("path: omitted entirely when tool_input has no file_path", () => {
+    const found = extractArtifactFromEvent({
+      hook_event_name: "PostToolUse",
+      tool_name: "Artifact",
+      tool_input: {},
+      tool_response: "https://claude.ai/artifacts/abc123",
+    });
+    expect("path" in (found as object)).toBe(false);
+  });
+
+  it("id: parsed from the /artifacts/<id> URL segment", () => {
+    const found = extractArtifactFromEvent({
+      hook_event_name: "PostToolUse",
+      tool_name: "Artifact",
+      tool_input: {},
+      tool_response: "https://claude.ai/artifacts/abc123",
+    });
+    expect(found?.id).toBe("abc123");
+  });
+
+  it("id: also matches the singular /artifact/<id> URL form", () => {
+    const found = extractArtifactFromEvent({
+      hook_event_name: "PostToolUse",
+      tool_name: "Artifact",
+      tool_input: {},
+      tool_response: "https://claude.ai/artifact/xyz789",
+    });
+    expect(found?.id).toBe("xyz789");
+  });
+
+  it("id: stops at a trailing query string or slash", () => {
+    expect(
+      extractArtifactFromEvent({
+        hook_event_name: "PostToolUse",
+        tool_name: "Artifact",
+        tool_input: {},
+        tool_response: "https://claude.ai/artifacts/abc123?ref=share",
+      })?.id,
+    ).toBe("abc123");
+    expect(
+      extractArtifactFromEvent({
+        hook_event_name: "PostToolUse",
+        tool_name: "Artifact",
+        tool_input: {},
+        tool_response: "https://claude.ai/artifacts/abc123/",
+      })?.id,
+    ).toBe("abc123");
+  });
+
+  it("id: omitted entirely when the URL has no /artifact(s)/<id> segment", () => {
+    const found = extractArtifactFromEvent({
+      hook_event_name: "PostToolUse",
+      tool_name: "Artifact",
+      tool_input: {},
+      tool_response: "https://claude.ai/no-id-here",
+    });
+    expect("id" in (found as object)).toBe(false);
   });
 });

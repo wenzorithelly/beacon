@@ -1,12 +1,16 @@
-// Pure extraction of {url, title} from a PostToolUse hook event for the `Artifact` tool (the
-// Claude Code tool that publishes an HTML/MD file to a claude.ai URL) — shared by bin/artifact.ts
-// the same way lib/hook-files.ts's filesFromToolEvent is shared by bin/hook.ts.
+// Pure extraction of {url, title, path, id} from a PostToolUse hook event for the `Artifact` tool
+// (the Claude Code tool that publishes an HTML/MD file to a claude.ai URL) — shared by
+// bin/artifact.ts the same way lib/hook-files.ts's filesFromToolEvent is shared by bin/hook.ts.
 //
 // The Artifact tool's tool_response shape is NOT a documented/stable contract (unlike tool_input,
 // which the tool's own JSONSchema fixes), so extraction is deliberately tolerant: prefer a
 // structured field if the response happens to carry one, otherwise fall back to scanning the
 // stringified response for the first https://claude.ai/ URL. A non-publish tool_input.action
 // (e.g. "list") or a response with no URL anywhere is treated as a no-op, not an error.
+//
+// `path` (tool_input.file_path) and `id` (parsed from the URL) are best-effort extras: the caller
+// copies the local file to a stable location while it still exists (the scratch path is cleaned
+// up after the tool call) — see bin/artifact.ts.
 
 export interface ArtifactToolEvent {
   hook_event_name?: string;
@@ -19,11 +23,19 @@ export interface ArtifactToolEvent {
 export interface ExtractedArtifact {
   url: string;
   title?: string;
+  /** Local HTML/MD file the Artifact tool published FROM (tool_input.file_path), best-effort —
+   *  this scratchpad path is ephemeral, the caller must copy it before it's cleaned up. */
+  path?: string;
+  /** The artifact uuid parsed from the URL's `/artifact(s)/<id>` segment, when present. */
+  id?: string;
 }
 
 const CLAUDE_AI_URL_RE = /https:\/\/claude\.ai\/[^\s"'<>]+/;
 // Trim trailing punctuation a URL match can pick up from surrounding prose ("...see it here.").
 const TRAILING_PUNCT_RE = /[.,;:!?)\]]+$/;
+// The published URL's id segment, e.g. https://claude.ai/artifacts/<id> (also matches the
+// singular /artifact/<id> form) — stops at the next slash/query/fragment.
+const ARTIFACT_ID_RE = /\/artifacts?\/([^/?#]+)/;
 
 function cleanUrl(u: string): string {
   return u.replace(TRAILING_PUNCT_RE, "");
@@ -32,6 +44,10 @@ function cleanUrl(u: string): string {
 function firstClaudeUrlIn(s: string): string | null {
   const m = CLAUDE_AI_URL_RE.exec(s);
   return m ? cleanUrl(m[0]) : null;
+}
+
+function idFromUrl(url: string): string | undefined {
+  return ARTIFACT_ID_RE.exec(url)?.[1];
 }
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -87,10 +103,10 @@ function titleFromInput(input: Record<string, unknown> | null): string | undefin
 }
 
 /**
- * Pure: extract {url, title} from a PostToolUse `Artifact` event, or null when there's nothing to
- * deliver — wrong tool/event, a non-publish action (e.g. "list"), or no claude.ai URL found
- * anywhere in tool_response. Fail-open by contract: callers never throw on a null return, they
- * just skip the write.
+ * Pure: extract {url, title, path, id} from a PostToolUse `Artifact` event, or null when there's
+ * nothing to deliver — wrong tool/event, a non-publish action (e.g. "list"), or no claude.ai URL
+ * found anywhere in tool_response. Fail-open by contract: callers never throw on a null return,
+ * they just skip the write.
  */
 export function extractArtifactFromEvent(ev: ArtifactToolEvent): ExtractedArtifact | null {
   if (ev.hook_event_name !== "PostToolUse") return null;
@@ -109,5 +125,12 @@ export function extractArtifactFromEvent(ev: ArtifactToolEvent): ExtractedArtifa
   if (!url) return null;
 
   const title = titleFromInput(input);
-  return title ? { url, title } : { url };
+  const path = typeof input?.file_path === "string" ? input.file_path : undefined;
+  const id = idFromUrl(url);
+  return {
+    url,
+    ...(title ? { title } : {}),
+    ...(path ? { path } : {}),
+    ...(id ? { id } : {}),
+  };
 }
