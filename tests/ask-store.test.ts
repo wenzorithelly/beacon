@@ -21,9 +21,9 @@ import {
   readAskResolution,
   readPendingAsk,
   resolveAsk,
-  sameAskView,
   summarizeApproval,
 } from "@/lib/ask-store";
+import { sameAskView } from "@/lib/ask-view";
 
 const q = (over: Partial<AskQuestion> = {}): AskQuestion => ({
   header: "DB",

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { sameAskView, type PendingAsk } from "@/lib/ask-store";
+import type { PendingAsk } from "@/lib/ask-store";
+import { sameAskView } from "@/lib/ask-view";
 import { ASK_DELIVERED_CLEAR_MS, ASK_QUESTION_ADVANCE_GUARD_MS } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { GlassPanel } from "@/components/ui/glass-panel";
