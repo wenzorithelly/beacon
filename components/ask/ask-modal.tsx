@@ -164,7 +164,7 @@ export function AskModal() {
           : "Answer in your terminal — this is a mirror.";
     return (
       <div className="fixed right-4 bottom-4 z-[70] w-full max-w-sm">
-        <GlassPanel className="rounded-2xl border border-border/60 p-4">
+        <GlassPanel className="max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl border border-border/60 p-4">
           <div className="mb-1 flex items-center justify-between gap-2">
             <span className="rounded-full bg-muted px-2 py-0.5 text-[0.7rem] font-medium text-muted-foreground">
               {ask.question.header || "The agent is asking"}
