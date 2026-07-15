@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createId } from "@paralleldrive/cuid2";
 import {
   applyEdgeChanges,
@@ -319,6 +319,10 @@ export function MapClient({
   // Click-to-place: "+ Feature"/"+ Bug" arm a ghost that follows the cursor; the next canvas click
   // drops the new node there. Esc cancels.
   const [placing, setPlacing] = useState<null | "FEATURE" | "BUG">(null);
+  // Native HTML5 dragging renders the browser's detached drag image and macOS copy badge, which makes
+  // creating a feature feel like dropping a file. Keep drag-to-place, but own the gesture so the preview
+  // is a board card and the cursor stays in the app's visual language.
+  const [draggingCreate, setDraggingCreate] = useState<null | "FEATURE" | "BUG">(null);
   const [ghostPos, setGhostPos] = useState<{ x: number; y: number } | null>(null);
   // True only while a pan/zoom gesture is in flight. We drop expensive per-frame paint (card
   // shadows, transitions) for the duration via a `.rf-panning` class, then restore on settle —
@@ -612,16 +616,50 @@ export function MapClient({
     };
   }, [placing, pickingParent]);
 
-  // The "+ Feature"/"+ Component" and "+ Bug" buttons arm click-to-place (drop on the next click);
-  // arming one clears the sub-task parent-pick so the two modes never overlap.
-  const addNode = useCallback(() => {
-    setPickingParent(false);
-    setPlacing("FEATURE");
-  }, []);
-  const addBug = useCallback(() => {
-    setPickingParent(false);
-    setPlacing("BUG");
-  }, []);
+  // Pointer-driven drag-to-place replaces the browser's HTML5 drag payload. A short press still uses
+  // the existing click-to-place flow; once the pointer moves, the feature drops immediately on release.
+  const beginCreateDrag = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>, kind: "FEATURE" | "BUG") => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      setPickingParent(false);
+      const start = { x: event.clientX, y: event.clientY };
+      let dragging = false;
+
+      const finish = (end: PointerEvent) => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", finish);
+        window.removeEventListener("pointercancel", cancel);
+        if (dragging && flowRef.current) {
+          const pos = flowRef.current.screenToFlowPosition({ x: end.clientX, y: end.clientY });
+          void createNodeAt(pos.x, pos.y, kind);
+        } else {
+          // Click remains a deliberate alternate path for trackpad/keyboard users.
+          setPlacing(kind);
+        }
+        setDraggingCreate(null);
+        setGhostPos(null);
+      };
+      const cancel = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", finish);
+        setDraggingCreate(null);
+        setGhostPos(null);
+      };
+      const move = (next: PointerEvent) => {
+        if (!dragging && Math.hypot(next.clientX - start.x, next.clientY - start.y) < 6) return;
+        dragging = true;
+        setPlacing(null);
+        setDraggingCreate(kind);
+        setGhostPos({ x: next.clientX, y: next.clientY });
+      };
+
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", finish, { once: true });
+      window.addEventListener("pointercancel", cancel, { once: true });
+    },
+    [createNodeAt],
+  );
 
   // Distraction-free description editor: any card (or the detail panel) opens it via the context's
   // openFocus; it commits the edited markdown back through the same patch path on close.
@@ -1619,24 +1657,10 @@ export function MapClient({
         embedded ? "h-full" : "h-screen",
         panning && "rf-panning",
       )}
-      onDragOver={(e) => {
-        // Allow dropping the "+ Feature/Component" pill anywhere on the board.
-        if (!e.dataTransfer.types.includes("application/beacon-node")) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-      }}
-      onDrop={(e) => {
-        if (!e.dataTransfer.getData("application/beacon-node") || !flowRef.current) return;
-        e.preventDefault();
-        // Place the card's top-left where the pill was dropped (screen → flow coords).
-        const { x, y } = flowRef.current.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-        const kind = e.dataTransfer.getData("application/beacon-node-kind") === "BUG" ? "BUG" : "FEATURE";
-        void createNodeAt(x, y, kind);
-      }}
     >
       <ReactFlow
         {...canvasToolProps}
-        className={cn(paneClass, (placing || pickingParent) && "rf-placing")}
+        className={cn(paneClass, (placing || pickingParent || draggingCreate) && "rf-placing")}
         nodes={finalNodes}
         edges={
           // Far zoom: hide edges entirely — they'd render as noise between invisible cards.
@@ -1923,33 +1947,22 @@ export function MapClient({
           )}
           <div className="glass flex items-center gap-1 rounded-full p-1">
             <button
-              onClick={addNode}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData("application/beacon-node", view);
-                e.dataTransfer.effectAllowed = "copy";
-              }}
+              onPointerDown={(e) => beginCreateDrag(e, "FEATURE")}
               title={
                 view === "ARCHITECTURE"
-                  ? "Add component (click, or drag onto the board to place it)"
-                  : "Add feature (click, or drag onto the board to place it)"
+                  ? "Drag a component onto the board, or click to place it"
+                  : "Drag a feature onto the board, or click to place it"
               }
-              className="flex h-8 cursor-grab items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-[var(--ink-hover)] active:cursor-grabbing"
+              className="flex h-8 touch-none items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-[var(--ink-hover)]"
             >
                 <Plus className="size-3.5 text-[var(--accent-2,#ff7a45)]" />
               {view === "ARCHITECTURE" ? "Component" : "Feature"}
             </button>
             {view === "ROADMAP" && (
               <button
-                onClick={addBug}
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData("application/beacon-node", view);
-                  e.dataTransfer.setData("application/beacon-node-kind", "BUG");
-                  e.dataTransfer.effectAllowed = "copy";
-                }}
-                title="Add bug (click, or drag onto the board to place it)"
-                className="flex h-8 cursor-grab items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-[var(--ink-hover)] active:cursor-grabbing"
+                onPointerDown={(e) => beginCreateDrag(e, "BUG")}
+                title="Drag a bug onto the board, or click to place it"
+                className="flex h-8 touch-none items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-[var(--ink-hover)]"
               >
                 <BugIcon className="size-3.5 text-rose-400" />
                 Bug
@@ -2216,33 +2229,20 @@ export function MapClient({
 
       <FocusEditorModal payload={focusEdit} onDismiss={() => setFocusEdit(null)} />
 
-      {/* Click-to-place ghost: follows the cursor while a node is armed from the create palette. */}
-      {(placing || pickingParent) && ghostPos && (
+      {/* In-app creation preview: a tiny feature card, not the operating system's dragged-file image. */}
+      {(placing || pickingParent || draggingCreate) && ghostPos && (
         <div
-          className="pointer-events-none fixed z-50 flex translate-x-3 translate-y-3 items-center gap-1.5 rounded-lg border border-border bg-card/95 px-2.5 py-1.5 text-xs shadow-xl backdrop-blur dark:border-white/15"
+          className="pointer-events-none fixed z-50 w-52 translate-x-3 translate-y-3 rounded-xl border border-dashed border-[var(--accent-2,#ff7a45)]/70 bg-card/95 px-3 py-2 shadow-xl backdrop-blur dark:border-white/15"
           style={{ left: ghostPos.x, top: ghostPos.y }}
         >
-          <span
-            className={cn(
-              "rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-              placing === "BUG"
-                ? "bg-rose-500/15 text-rose-300"
-                : placing === "FEATURE"
-                  ? "bg-sky-500/15 text-sky-300"
-                  : "bg-zinc-500/15 text-zinc-300",
-            )}
-          >
-            {placing === "BUG"
-              ? "Bug"
-              : placing === "FEATURE"
-                ? view === "ARCHITECTURE"
-                  ? "Component"
-                  : "Feature"
-                : "Sub-task"}
-          </span>
-          <span className="text-muted-foreground">
-            {placing ? "click to place · Esc" : "click a feature to attach · Esc"}
-          </span>
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className={cn("size-1.5 rounded-full", (draggingCreate ?? placing) === "BUG" ? "bg-rose-400" : "bg-[var(--accent-2,#ff7a45)]")} />
+            {(draggingCreate ?? placing) === "BUG" ? "Bug" : draggingCreate === "FEATURE" || placing === "FEATURE" ? view === "ARCHITECTURE" ? "Component" : "Feature" : "Sub-task"}
+          </div>
+          <div className="mt-1 truncate text-sm font-medium text-foreground">New {(draggingCreate ?? placing) === "BUG" ? "bug" : "feature"}</div>
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            {draggingCreate ? "Release to create here" : placing ? "Click to place · Esc to cancel" : "Click a feature to attach · Esc to cancel"}
+          </div>
         </div>
       )}
 
