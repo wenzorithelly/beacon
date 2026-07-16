@@ -29,6 +29,7 @@ const {
   dataDirFor,
   ensureWorkspaceDb,
   repoRootFrom,
+  primaryWorktreePathFromPorcelain,
   getActiveId,
   setActiveId,
   activeWorkspace,
@@ -318,6 +319,27 @@ describe("repoRootFrom", () => {
     expect(repoRootFrom(sub)).toBe(root);
     // The whole point: the hook and `beacon mcp` derive the SAME id from anywhere in the repo.
     expect(idForPath(repoRootFrom(sub))).toBe(idForPath(root));
+  });
+
+  it("maps a linked Git worktree back to its primary workspace", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "beacon-primary-")));
+    const linked = mkdtempSync(join(tmpdir(), "beacon-linked-"));
+    rmSync(linked, { recursive: true, force: true }); // git worktree add requires the target not exist
+    execSync("git init -q", { cwd: root });
+    execSync("git -c user.name=Beacon -c user.email=beacon@example.test commit --allow-empty -qm init", { cwd: root });
+    execSync(`git worktree add -q -b linked-worktree ${JSON.stringify(linked)}`, { cwd: root });
+    try {
+      expect(repoRootFrom(linked)).toBe(root);
+      expect(idForPath(repoRootFrom(linked))).toBe(idForPath(root));
+    } finally {
+      execSync(`git worktree remove --force ${JSON.stringify(linked)}`, { cwd: root });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reads the primary path from Git's porcelain worktree list", () => {
+    expect(primaryWorktreePathFromPorcelain("worktree /repos/main\nHEAD abc\n\nworktree /repos/linked\nHEAD def\n")).toBe("/repos/main");
+    expect(primaryWorktreePathFromPorcelain("garbage")).toBeNull();
   });
 });
 

@@ -32,11 +32,19 @@ export function idForPath(path: string): string {
   return createHash("sha256").update(path).digest("hex").slice(0, 12);
 }
 
+/** The first entry in `git worktree list --porcelain` is the primary worktree. */
+export function primaryWorktreePathFromPorcelain(output: string): string | null {
+  for (const line of output.split(/\r?\n/)) {
+    if (line.startsWith("worktree ")) return line.slice("worktree ".length).trim() || null;
+  }
+  return null;
+}
+
 /**
- * The git toplevel for `cwd` (so a subdirectory of a repo still maps to the repo's workspace),
- * falling back to `cwd` itself when it isn't a git repo. Shared by `beacon mcp` and the
- * PostToolUse hook so both derive the SAME workspace id from a session's working directory —
- * which is what keeps an agent's edits attached to its own repo instead of the global active.
+ * The primary git worktree for `cwd` (so a subdirectory OR a linked agent worktree maps to the
+ * repository's one Beacon workspace), falling back to `cwd` itself when it isn't a git repo.
+ * Agent worktrees remain valid terminal/code sources, but they must never become separate Galaxy
+ * workspaces or receive their own Beacon data directory.
  */
 export function repoRootFrom(cwd: string = process.cwd()): string {
   const r = spawnSync("git", ["rev-parse", "--show-toplevel"], {
@@ -45,7 +53,16 @@ export function repoRootFrom(cwd: string = process.cwd()): string {
   });
   if (r.status === 0) {
     const top = r.stdout?.toString().trim();
-    if (top) return top;
+    if (top) {
+      const listed = spawnSync("git", ["worktree", "list", "--porcelain"], {
+        cwd: top,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      const primary = listed.status === 0
+        ? primaryWorktreePathFromPorcelain(listed.stdout?.toString() ?? "")
+        : null;
+      return primary ? resolve(primary) : top;
+    }
   }
   return cwd;
 }

@@ -23,9 +23,20 @@ const APPROVAL_PATTERNS: RegExp[] = [
   /\b(approve|green-?light|sign off on) (this|the plan|the approach|it)\b/i,
 ];
 
+// A completion handoff can legitimately ask the user for a go-ahead, but it is not a request to
+// review a proposed plan. In particular, agents often wait for permission to push, commit, merge, or
+// publish already-finished work. Those messages used to match the broad "waiting for your go-ahead"
+// rule above and caused the Stop hook to interrupt a finished session with an irrelevant /plan nudge.
+const COMPLETION_HANDOFF_PATTERNS: RegExp[] = [
+  /\b(?:waiting|awaiting)\s+(?:for|on)\s+your\s+(?:approval|go-?ahead|sign-?off|ok|decision)\b[^.?!]{0,120}\b(?:push|commit|merge|publish|release|submit)\b/i,
+  /\b(?:push|commit|merge|publish|release|submit)\b[^.?!]{0,120}\b(?:pr\s*#?\d+|pull request)\b/i,
+  /\b(?:changes|work)\b[^.?!]{0,120}\b(?:staged|complete|completed)\b[^.?!]{0,120}\b(?:push|commit|merge|publish|release|submit)\b/i,
+];
+
 /** True when `text` reads like an end-of-turn request for the user to approve/green-light a plan. */
 export function looksLikePlanApprovalRequest(text: string): boolean {
   if (!text || !text.trim()) return false;
+  if (COMPLETION_HANDOFF_PATTERNS.some((re) => re.test(text))) return false;
   return APPROVAL_PATTERNS.some((re) => re.test(text));
 }
 

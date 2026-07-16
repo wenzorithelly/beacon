@@ -66,12 +66,15 @@ async function readStdinJson<T>(): Promise<T | null> {
 }
 function gitToplevel(cwd?: string): string {
   try {
-    return execSync("git rev-parse --show-toplevel", {
+    const top = execSync("git rev-parse --show-toplevel", {
       cwd: cwd || process.cwd(),
       stdio: ["ignore", "pipe", "ignore"],
     })
       .toString()
       .trim();
+    const list = execSync("git worktree list --porcelain", { cwd: top, stdio: ["ignore", "pipe", "ignore"] }).toString();
+    const primary = list.split(/\r?\n/).find((line) => line.startsWith("worktree "))?.slice("worktree ".length).trim();
+    return primary || top;
   } catch {
     return cwd || process.cwd();
   }

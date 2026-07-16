@@ -27,12 +27,15 @@ const head = (s: string) => `\n\x1b[1m${s}\x1b[0m`;
 
 function gitToplevel(): string {
   try {
-    return execSync("git rev-parse --show-toplevel", {
+    const top = execSync("git rev-parse --show-toplevel", {
       cwd: process.cwd(),
       stdio: ["ignore", "pipe", "ignore"],
     })
       .toString()
       .trim();
+    const list = execSync("git worktree list --porcelain", { cwd: top, stdio: ["ignore", "pipe", "ignore"] }).toString();
+    const primary = list.split(/\r?\n/).find((line) => line.startsWith("worktree "))?.slice("worktree ".length).trim();
+    return primary || top;
   } catch {
     return "";
   }

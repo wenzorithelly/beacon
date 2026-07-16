@@ -29,6 +29,15 @@ describe("looksLikePlanApprovalRequest", () => {
     ];
     for (const c of cases) expect(looksLikePlanApprovalRequest(c)).toBe(false);
   });
+
+  it("does NOT fire on permission to ship already-completed work", () => {
+    const cases = [
+      "Nothing further to do — still waiting on your go-ahead to push to PR #460.",
+      "The changes are staged and ready to commit once you approve the release.",
+      "All tests pass. Want me to merge the pull request?",
+    ];
+    for (const c of cases) expect(looksLikePlanApprovalRequest(c)).toBe(false);
+  });
 });
 
 describe("lastAssistantText", () => {
@@ -136,6 +145,17 @@ describe("shouldNudgeToPresentPlan", () => {
     const jsonl = JSON.stringify({
       type: "assistant",
       message: { role: "assistant", content: [{ type: "text", text: "Done — all tests pass." }] },
+    });
+    expect(shouldNudgeToPresentPlan(jsonl)).toBe(false);
+  });
+
+  it("does not nudge a completed-work handoff that asks permission to push", () => {
+    const jsonl = JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "Nothing further to do — waiting on your go-ahead to push PR #460." }],
+      },
     });
     expect(shouldNudgeToPresentPlan(jsonl)).toBe(false);
   });

@@ -259,9 +259,15 @@ async function initPersist(file?: string) {
 
 function gitToplevel(): string {
   try {
-    return execSync("git rev-parse --show-toplevel", { cwd, stdio: ["ignore", "pipe", "ignore"] })
+    const top = execSync("git rev-parse --show-toplevel", { cwd, stdio: ["ignore", "pipe", "ignore"] })
       .toString()
       .trim();
+    // A linked worktree is a working source, not a second Beacon workspace. Git lists the primary
+    // worktree first; register that root so `beacon ensure` from an agent worktree stays attached
+    // to the parent project.
+    const list = execSync("git worktree list --porcelain", { cwd: top, stdio: ["ignore", "pipe", "ignore"] }).toString();
+    const primary = list.split(/\r?\n/).find((line) => line.startsWith("worktree "))?.slice("worktree ".length).trim();
+    return primary || top;
   } catch {
     return "";
   }
