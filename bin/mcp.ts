@@ -29,7 +29,10 @@ import type { ApprovedFeature } from "@/lib/plan-verdict";
 import { daemonBaseUrl } from "@/lib/daemon-server";
 import { openPlanTabIfNone } from "@/lib/plan-open";
 import { openLearnTabIfNone } from "@/lib/lesson-open";
+import { clearLessonListener, heartbeatLessonListener, holdLessonListener } from "@/lib/lesson-listener";
+import { sessionForTerminal } from "@/lib/agent-status";
 import { LESSON_VERBS } from "@/lib/lesson-types";
+import { randomUUID } from "node:crypto";
 import {
   PLAN_POLL_INTERVAL_MS,
   PLAN_TOOL_TIMEOUT_MS,
@@ -822,57 +825,77 @@ server.registerTool(
   async ({ title, topic, narrative, nodes, edges, tables, steps, answers }) => {
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
+    const listenerId = randomUUID();
+    // A recovery queue belongs only to the exact agent session that opened this lesson. A missing
+    // hook identity intentionally disables terminal fallback rather than leaking questions to a
+    // different session in the same workspace.
+    const ownerSessionId = sessionForTerminal(process.env.BEACON_TERMINAL_ID);
+    // Once we return a question verdict, leave a bounded handoff lease in place. That lets the MCP
+    // response reach this same agent without a duplicate terminal paste; after it expires the desktop
+    // fallback re-delivers the persisted queue if the turn was stopped or the terminal reconnects.
+    let handedQuestionBack = false;
 
     try {
-      await post("/api/lesson", { title, topic, narrative, nodes, edges, tables, steps, answers });
+      await post("/api/lesson", {
+        title, topic, narrative, nodes, edges, tables, steps, answers,
+        ...(ownerSessionId ? { ownerSessionId } : {}),
+      });
     } catch (e) {
       return errText(e);
     }
 
-    // Make the lesson VISIBLE: activate this repo's workspace and open a /learn tab if none is live.
-    await fetch(`${daemonBaseUrl()}/api/workspace/activate?id=${WORKSPACE_ID}`).catch(() => {});
-    await openLearnTabIfNone(daemonBaseUrl(), WORKSPACE_ID);
+    try {
+      heartbeatLessonListener(listenerId);
+      // Make the lesson VISIBLE: activate this repo's workspace and open a /learn tab if none is live.
+      await fetch(`${daemonBaseUrl()}/api/workspace/activate?id=${WORKSPACE_ID}`).catch(() => {});
+      await openLearnTabIfNone(daemonBaseUrl(), WORKSPACE_ID);
 
-    // Block for the verdict: questions (answer + re-push) | saved | closed. Persists on disk, so a
-    // timeout is resumable.
-    const deadline = Date.now() + PLAN_TOOL_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      await sleep(PLAN_POLL_INTERVAL_MS);
-      const v = (await api("/api/lesson/verdict").catch(() => null)) as
-        | { kind: "pending" }
-        | { kind: "questions"; rendered?: string }
-        | { kind: "saved"; lessonId: string; summary: string }
-        | { kind: "closed"; summary: string }
-        | { kind: "none" }
-        | null;
-      if (!v) continue;
+      // Block for the verdict: questions (answer + re-push) | saved | closed. Persists on disk, so a
+      // timeout is resumable.
+      const deadline = Date.now() + PLAN_TOOL_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        await sleep(PLAN_POLL_INTERVAL_MS);
+        heartbeatLessonListener(listenerId);
+        const v = (await api("/api/lesson/verdict").catch(() => null)) as
+          | { kind: "pending" }
+          | { kind: "questions"; rendered?: string }
+          | { kind: "saved"; lessonId: string; summary: string }
+          | { kind: "closed"; summary: string }
+          | { kind: "none" }
+          | null;
+        if (!v) continue;
 
-      if (v.kind === "questions") {
-        return text(
-          "💬 The user asked questions about the lesson in Beacon. Answer each one, then call " +
-            "`beacon_explain` AGAIN with the SAME lesson plus `answers:[{questionId,answer}]` (keyed " +
-            "by the [q:ID] below). Expand the narrative or add nodes where it helps the explanation. " +
-            "Keep looping until the user saves — DO NOT stop after one round:\n\n" +
-            (v.rendered ?? ""),
-        );
+        if (v.kind === "questions") {
+          holdLessonListener(listenerId);
+          handedQuestionBack = true;
+          return text(
+            "💬 The user asked questions about the lesson in Beacon. Answer each one, then call " +
+              "`beacon_explain` AGAIN with the SAME lesson plus `answers:[{questionId,answer}]` (keyed " +
+              "by the [q:ID] below). Expand the narrative or add nodes where it helps the explanation. " +
+              "Keep looping until the user saves — DO NOT stop after one round:\n\n" +
+              (v.rendered ?? ""),
+          );
+        }
+        if (v.kind === "saved") {
+          return text(
+            `✅ The user saved the lesson to their library. ${v.summary} You're done explaining — ` +
+              "they can reopen it anytime from /learn.",
+          );
+        }
+        if (v.kind === "closed") {
+          return text(
+            `The user closed the lesson without saving. ${v.summary} Stop here; ask if they'd like a different explanation.`,
+          );
+        }
+        // pending / none → keep polling.
       }
-      if (v.kind === "saved") {
-        return text(
-          `✅ The user saved the lesson to their library. ${v.summary} You're done explaining — ` +
-            "they can reopen it anytime from /learn.",
-        );
-      }
-      if (v.kind === "closed") {
-        return text(
-          `The user closed the lesson without saving. ${v.summary} Stop here; ask if they'd like a different explanation.`,
-        );
-      }
-      // pending / none → keep polling.
+      return text(
+        "Still waiting for the user to finish the lesson in Beacon. It's preserved — call " +
+          "`beacon_explain` again with the SAME lesson to resume.",
+      );
+    } finally {
+      if (!handedQuestionBack) clearLessonListener(listenerId);
     }
-    return text(
-      "Still waiting for the user to finish the lesson in Beacon. It's preserved — call " +
-        "`beacon_explain` again with the SAME lesson to resume.",
-    );
   },
 );
 

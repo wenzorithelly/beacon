@@ -74,6 +74,13 @@ describe("lesson store — push + current", () => {
     expect(second.updatedAt).toBeGreaterThan(first.updatedAt);
   });
 
+  it("keeps the lesson owned by its original agent session across a re-push", () => {
+    const first = pushLesson({ ...baseInput(), ownerSessionId: "session-a" }, 1000);
+    const second = pushLesson(baseInput(), 2000);
+    expect(first.ownerSessionId).toBe("session-a");
+    expect(second.ownerSessionId).toBe("session-a");
+  });
+
   it("clearCurrentLesson removes the live lesson", () => {
     pushLesson(baseInput(), 1000);
     clearCurrentLesson();

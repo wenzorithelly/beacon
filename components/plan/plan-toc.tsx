@@ -68,7 +68,7 @@ export function PlanToc({ markdown }: { markdown: string }) {
   };
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-background pt-16">
+    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-background pt-16 shell:pt-0">
       <div className="px-4 pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         Sections
       </div>

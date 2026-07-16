@@ -101,6 +101,9 @@ export interface LessonQuestion {
 
 export interface Lesson {
   id: string;
+  /** The agent session that owns this live teaching loop. Question recovery must never leak into
+   * another terminal session in the same workspace. */
+  ownerSessionId?: string;
   title: string;
   /** The user's request, verbatim — shown in the library. */
   topic: string;

@@ -413,8 +413,8 @@ function WaitingOverlay({ onDismiss }: { onDismiss: () => void }) {
       <div className="space-y-1">
         <h2 className="text-lg font-semibold text-foreground">Questions sent</h2>
         <p className="max-w-sm text-sm text-muted-foreground">
-          Your terminal session is answering. The updated lesson will appear here automatically —
-          if the session finished its turn, nudge it in the terminal.
+          Your questions are safely queued. If this turn stops, Beacon will hand them to the next
+          available terminal session; the updated lesson appears here when it answers.
         </p>
       </div>
       <button

@@ -90,6 +90,23 @@ function readStatusFile(workspaceId: string): AgentStatusFile | null {
   }
 }
 
+/** Resolve the agent-session id currently associated with one Beacon terminal. This is deliberately
+ * exact: Learn recovery must not choose a merely-recent sibling session in the same workspace. */
+export function sessionForTerminal(terminalId: string | null | undefined): string | null {
+  if (!terminalId) return null;
+  try {
+    const raw = JSON.parse(readFileSync(join(dataDir(), "agent-status.json"), "utf8")) as AgentStatusFile;
+    let newest: { id: string; ts: number } | null = null;
+    for (const [id, entry] of Object.entries(raw.sessions ?? {})) {
+      if (entry.terminalId !== terminalId || entry.state === "done") continue;
+      if (!newest || entry.ts > newest.ts) newest = { id, ts: entry.ts };
+    }
+    return newest?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * IO wrapper: resolve the workspace from `cwd` the SAME way the hooks/MCP server already do
  * (repoRootFrom + idForPath — see lib/workspaces.agentWorkspaceHeaders), read `BEACON_TERMINAL_ID`

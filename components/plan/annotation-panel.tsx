@@ -493,7 +493,7 @@ export function AnnotationPanel({
 
       <div
         ref={docRef}
-        className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-16 text-[15px] leading-[1.6] selection:bg-[var(--accent-2,#ff7a45)]/30"
+        className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-16 text-[15px] leading-[1.6] selection:bg-[var(--accent-2,#ff7a45)]/30 shell:pt-0"
       >
         <RenderedMarkdown
           markdown={markdown}

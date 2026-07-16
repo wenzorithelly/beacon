@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { runWithWorkspace } from "@/lib/db-drizzle";
 import { workspaceIdFromRequest } from "@/lib/workspaces";
-import { readQuestions, resetLessonRound, writeQuestions } from "@/lib/lesson-store";
+import { readCurrentLesson, readQuestions, resetLessonRound, writeQuestions } from "@/lib/lesson-store";
 
 export const dynamic = "force-dynamic";
 
@@ -40,14 +40,27 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const body = bodySchema.parse(await req.json());
   return runWithWorkspace(workspaceIdFromRequest(req), async () => {
+    const lesson = readCurrentLesson();
+    if (!lesson || lesson.status !== "live") {
+      return Response.json({ error: "no active lesson to receive questions" }, { status: 409 });
+    }
     const real = body.questions.filter((q) => q.question.trim());
     if (!real.length) {
       return Response.json({ error: "nothing to send — ask at least one question first" }, { status: 400 });
     }
     const existing = readQuestions();
+    const sameLesson = existing.lessonId === lesson.id
+      && existing.lessonCreatedAt === lesson.createdAt
+      && existing.ownerSessionId === lesson.ownerSessionId;
     const ids = new Set(real.map((q) => q.id));
-    const keep = existing.submitted ? existing.questions.filter((q) => !ids.has(q.id)) : [];
-    writeQuestions({ questions: [...keep, ...real], submitted: true });
+    const keep = sameLesson && existing.submitted ? existing.questions.filter((q) => !ids.has(q.id)) : [];
+    writeQuestions({
+      questions: [...keep, ...real],
+      submitted: true,
+      lessonId: lesson.id,
+      lessonCreatedAt: lesson.createdAt,
+      ...(lesson.ownerSessionId ? { ownerSessionId: lesson.ownerSessionId } : {}),
+    });
     return Response.json({ ok: true, count: real.length });
   });
 }

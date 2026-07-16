@@ -93,6 +93,8 @@ export const lessonInputSchema = z.object({
   steps: z.array(stepInput).optional(),
   // On a re-push the agent answers the user's questions by id.
   answers: z.array(z.object({ questionId: z.string(), answer: z.string() })).optional(),
+  // Filled by beacon_explain from the terminal hook state; never supplied by the lesson UI.
+  ownerSessionId: z.string().trim().min(1).optional(),
 });
 export type LessonInput = z.infer<typeof lessonInputSchema>;
 
@@ -199,6 +201,7 @@ export function buildLesson(input: LessonInput, prev: Lesson | null, now = Date.
 
   return {
     id: prev?.id ?? randomUUID().slice(0, 8),
+    ownerSessionId: input.ownerSessionId ?? prev?.ownerSessionId,
     title: input.title,
     topic: input.topic || prev?.topic || input.title,
     createdAt: prev?.createdAt ?? now,
@@ -233,12 +236,22 @@ export function pushLesson(input: LessonInput, now = Date.now()): Lesson {
 export interface StoredQuestions {
   questions: LessonQuestion[];
   submitted: boolean;
+  /** Identity fence for durable recovery. A queue is invalid as soon as the live lesson changes. */
+  lessonId?: string;
+  lessonCreatedAt?: number;
+  ownerSessionId?: string;
 }
 
 export function readQuestions(): StoredQuestions {
   try {
     const raw = JSON.parse(readFileSync(questionsPath(), "utf8")) as Partial<StoredQuestions>;
-    return { questions: raw.questions ?? [], submitted: !!raw.submitted };
+    return {
+      questions: raw.questions ?? [],
+      submitted: !!raw.submitted,
+      ...(typeof raw.lessonId === "string" ? { lessonId: raw.lessonId } : {}),
+      ...(typeof raw.lessonCreatedAt === "number" ? { lessonCreatedAt: raw.lessonCreatedAt } : {}),
+      ...(typeof raw.ownerSessionId === "string" ? { ownerSessionId: raw.ownerSessionId } : {}),
+    };
   } catch {
     return { questions: [], submitted: false };
   }
