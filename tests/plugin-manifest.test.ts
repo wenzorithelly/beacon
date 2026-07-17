@@ -35,9 +35,9 @@ describe("plugin manifest", () => {
 describe("plugin hooks", () => {
   const hooks = pluginHooks();
 
-  it("registers all six lifecycle events", () => {
+  it("registers the lifecycle events Beacon actively owns", () => {
     expect(Object.keys(hooks).sort()).toEqual(
-      ["PermissionRequest", "PostToolUse", "PreToolUse", "SessionStart", "Stop", "UserPromptSubmit"].sort(),
+      ["PermissionRequest", "PostToolUse", "PreToolUse", "SessionStart", "UserPromptSubmit"].sort(),
     );
   });
 
@@ -47,7 +47,6 @@ describe("plugin hooks", () => {
     expect(cmd("PostToolUse")).toBe(`bun ${BOOT} hook`);
     expect(cmd("PermissionRequest")).toBe(`bun ${BOOT} plan`);
     expect(cmd("UserPromptSubmit")).toBe(`bun ${BOOT} prompt`);
-    expect(cmd("Stop")).toBe(`bun ${BOOT} stop-hook`);
     expect(cmd("SessionStart")).toBe(`bun ${BOOT} ensure`);
   });
 

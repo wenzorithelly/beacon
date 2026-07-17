@@ -37,7 +37,7 @@ export const PLUGIN_SKILLS: Record<string, string> = {
   "beacon-explain": EXPLAIN_SKILL,
 };
 
-// The plugin's hooks — the 6 lifecycle events, each routed through the boot wrapper. Returned as the
+// The plugin's hooks — the lifecycle events Beacon actively owns, each routed through the boot wrapper. Returned as the
 // event→matchers map; written into plugin/hooks.json wrapped as { hooks: <map> }.
 export function pluginHooks() {
   const cmd = (sub: string) => ({ type: "command" as const, command: `bun ${BOOT} ${sub}` });
@@ -46,7 +46,6 @@ export function pluginHooks() {
     PostToolUse: [{ matcher: "Edit|Write|MultiEdit", hooks: [cmd("hook")] }],
     PermissionRequest: [{ matcher: "ExitPlanMode", hooks: [cmd("plan")] }],
     UserPromptSubmit: [{ matcher: "*", hooks: [cmd("prompt")] }],
-    Stop: [{ matcher: "*", hooks: [cmd("stop-hook")] }],
     SessionStart: [{ matcher: "*", hooks: [cmd("ensure")] }],
   };
 }

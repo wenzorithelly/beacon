@@ -21,6 +21,7 @@ import {
   removeGlobalHook,
   removeGlobalSkill,
   selfHealGlobal,
+  setupGlobalAssets,
 } from "@/lib/global-install";
 
 const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -264,6 +265,28 @@ describe("removeBeaconArtifacts", () => {
 });
 
 describe("selfHealGlobal", () => {
+  it("removes the legacy Beacon Stop hook but preserves user Stop hooks on setup", async () => {
+    mkdirSync(join(TMP_HOME, ".claude"), { recursive: true });
+    writeFileSync(
+      join(TMP_HOME, ".claude", "settings.json"),
+      JSON.stringify({
+        hooks: {
+          Stop: [
+            { matcher: "*", hooks: [{ type: "command", command: "beacon stop-hook" }] },
+            { matcher: "*", hooks: [{ type: "command", command: "my-notify" }] },
+          ],
+        },
+      }),
+    );
+
+    await setupGlobalAssets();
+
+    const stopHooks = JSON.parse(readFileSync(join(TMP_HOME, ".claude", "settings.json"), "utf8"))
+      .hooks.Stop.flatMap((entry: { hooks: { command: string }[] }) => entry.hooks);
+    expect(stopHooks.some((hook: { command: string }) => hook.command === "beacon stop-hook")).toBe(false);
+    expect(stopHooks).toContainEqual({ type: "command", command: "my-notify" });
+  });
+
   it("installs every missing global asset when ~/.claude is empty", async () => {
     const before = auditGlobal();
     expect(before.skills["beacon-init"]).toBe(false);
@@ -273,7 +296,6 @@ describe("selfHealGlobal", () => {
     expect(before.hooks.PostToolUse).toBe(false);
     expect(before.hooks.PermissionRequest).toBe(false);
     expect(before.hooks.UserPromptSubmit).toBe(false);
-    expect(before.hooks.Stop).toBe(false);
     expect(before.claudeMdBlock).toBe(false);
 
     const result = await selfHealGlobal();
@@ -281,7 +303,7 @@ describe("selfHealGlobal", () => {
     expect(result.skillsAdded).toEqual(
       expect.arrayContaining(["beacon-init", "beacon-refresh", "beacon-plan", "beacon-explain"]),
     );
-    expect(result.hooksAdded).toBe(8); // +2: beacon ask (PreToolUse AskUserQuestion, PermissionRequest edits); +1: beacon artifact (PostToolUse Artifact)
+    expect(result.hooksAdded).toBe(7); // +2: beacon ask (PreToolUse AskUserQuestion, PermissionRequest edits); +1: beacon artifact (PostToolUse Artifact)
     expect(result.claudeMdBlockTouched).toBe(true);
 
     const after = auditGlobal();
@@ -293,7 +315,6 @@ describe("selfHealGlobal", () => {
     expect(after.hooks.PostToolUse).toBe(true);
     expect(after.hooks.PermissionRequest).toBe(true);
     expect(after.hooks.UserPromptSubmit).toBe(true);
-    expect(after.hooks.Stop).toBe(true);
     expect(after.claudeMdBlock).toBe(true);
   });
 
@@ -359,10 +380,7 @@ describe("entry-point self-heal (subprocess)", () => {
         (m: { hooks: Array<{ command: string }> }) =>
           m.hooks?.some((h) => h.command === "beacon plan"),
       )).toBe(true);
-      expect(settings.hooks?.Stop?.some(
-        (m: { hooks: Array<{ command: string }> }) =>
-          m.hooks?.some((h) => h.command === "beacon stop-hook"),
-      )).toBe(true);
+      expect(settings.hooks?.Stop).toBeUndefined();
       const md = readFileSync(join(home, ".claude", "CLAUDE.md"), "utf8");
       expect(md).toContain("beacon:global:start");
     } finally {
@@ -383,11 +401,4 @@ describe("entry-point self-heal (subprocess)", () => {
     expect(src).toContain("selfHealGlobal");
   });
 
-  // The Stop hook is the catch-all that delivers Changes-view line-comments at turn-end (so a
-  // comment lands even when the agent stops editing files). A refactor must not silently drop it.
-  it("bin/stop-hook.ts claims diff comments at turn-end and blocks with them", () => {
-    const src = readFileSync(join(PKG_DIR, "bin", "stop-hook.ts"), "utf8");
-    expect(src).toContain("/api/changes/comment/claim");
-    expect(src).toContain('"block"');
-  });
 });

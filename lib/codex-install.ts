@@ -27,7 +27,7 @@ import { writeFileAtomic } from "@/lib/atomic-write";
 // format) from ~/.agents/skills. One hard difference: Codex has no
 // ExitPlanMode, so there is NO PermissionRequest plan bridge here — plan
 // review flows through the beacon_present_plan / beacon_propose_plan MCP
-// tools, steered by the AGENTS.md block + the Stop-hook nudge.
+// tools, steered by the AGENTS.md block.
 
 function userHome(): string {
   return process.env.HOME || process.env.USERPROFILE || homedir();
@@ -57,14 +57,9 @@ export const CODEX_HOOKS = [
     description:
       "On feature-y prompts in a Beacon-wired repo, remind the agent to run the context→propose→describe loop (no-op otherwise).",
   },
-  {
-    event: "Stop" as const,
-    matcher: "*",
-    command: "beacon stop-hook",
-    description:
-      "When the agent ends a turn asking for plan approval in prose, nudge it to present the plan on Beacon's /plan canvas.",
-  },
 ];
+
+const LEGACY_STOP_HOOK = { event: "Stop" as const, command: "beacon stop-hook" };
 
 // ── Detection ───────────────────────────────────────────────────────────────
 
@@ -328,9 +323,12 @@ export async function setupCodexAssets(): Promise<CodexSetupResult> {
     if (!isSkillInstalled(AGENTS_SKILLS_DIR(), name)) skillsAdded.push(name);
     installSkillFile(AGENTS_SKILLS_DIR(), name, skillBodies[name]);
   }
+  // Retire Beacon's old turn-ending hook on upgrade, but leave unrelated Stop
+  // hooks alone.
+  removeHookEntry(CODEX_HOOKS_FILE(), LEGACY_STOP_HOOK);
   let hooksAdded = 0;
   for (const h of CODEX_HOOKS) {
-    const matcherIsIgnored = h.event === "UserPromptSubmit" || h.event === "Stop";
+    const matcherIsIgnored = h.event === "UserPromptSubmit";
     if (matcherIsIgnored)
       dedupeHookEntry(CODEX_HOOKS_FILE(), {
         event: h.event,
@@ -393,6 +391,7 @@ export function removeCodexArtifacts(): CodexRemoveResult {
   let hooksRemoved = 0;
   for (const h of CODEX_HOOKS)
     if (removeHookEntry(CODEX_HOOKS_FILE(), { event: h.event, command: h.command })) hooksRemoved++;
+  if (removeHookEntry(CODEX_HOOKS_FILE(), LEGACY_STOP_HOOK)) hooksRemoved++;
   const agentsMdBlockRemoved = removeMarkerBlock(CODEX_AGENTS_MD(), AGENTS_MD_START, AGENTS_MD_END);
   const mcp = removeCodexMcp();
   return {

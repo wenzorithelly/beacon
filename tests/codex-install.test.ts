@@ -204,7 +204,7 @@ describe("setupCodexAssets / auditCodex / removeCodexArtifacts", () => {
     const hooks = JSON.parse(readFileSync(hooksJson(), "utf8"));
     expect(hooks.hooks.PostToolUse[0].matcher).toBe("apply_patch");
     expect(hooks.hooks.UserPromptSubmit[0].hooks[0].command).toBe("beacon prompt");
-    expect(hooks.hooks.Stop[0].hooks[0].command).toBe("beacon stop-hook");
+    expect(hooks.hooks.Stop).toBeUndefined();
     // No plan-approval interception exists in Codex — never register one.
     expect(hooks.hooks.PermissionRequest).toBeUndefined();
 
@@ -239,7 +239,7 @@ describe("setupCodexAssets / auditCodex / removeCodexArtifacts", () => {
     )).toBe(true);
   });
 
-  it("collapses duplicate matcherless Codex lifecycle hooks without touching user hooks", async () => {
+  it("removes legacy Beacon Stop hooks without touching user hooks", async () => {
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(
       hooksJson(),
@@ -261,16 +261,14 @@ describe("setupCodexAssets / auditCodex / removeCodexArtifacts", () => {
     await setupCodexAssets();
 
     const hooks = JSON.parse(readFileSync(hooksJson(), "utf8")).hooks;
-    for (const [event, command] of [
-      ["UserPromptSubmit", "beacon prompt"],
-      ["Stop", "beacon stop-hook"],
-    ]) {
-      expect(
-        hooks[event]
-          .flatMap((matcher: { hooks: { command: string }[] }) => matcher.hooks)
-          .filter((hook: { command: string }) => hook.command === command),
-      ).toHaveLength(1);
-    }
+    expect(
+      hooks.UserPromptSubmit.flatMap((matcher: { hooks: { command: string }[] }) => matcher.hooks)
+        .filter((hook: { command: string }) => hook.command === "beacon prompt"),
+    ).toHaveLength(1);
+    expect(
+      hooks.Stop.flatMap((matcher: { hooks: { command: string }[] }) => matcher.hooks)
+        .filter((hook: { command: string }) => hook.command === "beacon stop-hook"),
+    ).toHaveLength(0);
     expect(hooks.Stop.flatMap((matcher: { hooks: { command: string }[] }) => matcher.hooks)).toContainEqual({
       type: "command",
       command: "my-notify",

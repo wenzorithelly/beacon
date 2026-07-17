@@ -111,14 +111,12 @@ export const GLOBAL_HOOKS = [
     description:
       "On feature-y prompts in a Beacon-wired repo, remind the agent to run the context→propose→describe loop (no-op otherwise).",
   },
-  {
-    event: "Stop" as const,
-    matcher: "*",
-    command: "beacon stop-hook",
-    description:
-      "When the agent ends a turn asking for plan approval in prose (instead of presenting it), nudge it to present the plan on Beacon's /plan canvas. Bounded by stop_hook_active — at most one nudge.",
-  },
 ];
+
+// Beacon used to register a Stop hook. Keep this legacy spec only to remove that
+// entry from existing user configs during the next setup or uninstall; new
+// installs must never add a turn-ending hook.
+const LEGACY_STOP_HOOK = { event: "Stop" as const, command: "beacon stop-hook" };
 
 // ── Skills ──────────────────────────────────────────────────────────────────
 
@@ -230,6 +228,9 @@ export async function setupGlobalAssets(): Promise<SetupResult> {
     if (!isGlobalSkillInstalled(name)) skillsAdded.push(name);
     installGlobalSkill(name, skillBodies[name]);
   }
+  // Migrate existing installs away from the retired Stop hook without touching
+  // any user-owned handlers on the same event.
+  removeGlobalHook(LEGACY_STOP_HOOK);
   let hooksAdded = 0;
   for (const h of GLOBAL_HOOKS)
     if (ensureGlobalHook({ event: h.event, matcher: h.matcher, command: repointBeaconCommand(h.command) }))
@@ -339,6 +340,7 @@ export function removeBeaconArtifacts(): RemoveResult {
   for (const s of GLOBAL_SKILLS) if (removeGlobalSkill(s)) skillsRemoved.push(s);
   let hooksRemoved = 0;
   for (const h of GLOBAL_HOOKS) if (removeGlobalHook(h)) hooksRemoved++;
+  if (removeGlobalHook(LEGACY_STOP_HOOK)) hooksRemoved++;
   const claudeMdBlockRemoved = removeGlobalClaudeMdBlock();
   return { skillsRemoved, hooksRemoved, claudeMdBlockRemoved };
 }
