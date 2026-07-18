@@ -71,7 +71,7 @@ describe("selfHealGlobal in plugin mode", () => {
     expect(result.skillsAdded).toEqual(
       expect.arrayContaining(["beacon-init", "beacon-refresh", "beacon-plan"]),
     );
-    expect(result.hooksAdded).toBe(8); // +2: beacon ask (PreToolUse AskUserQuestion, PermissionRequest edits); +1: beacon artifact (PostToolUse Artifact)
+    expect(result.hooksAdded).toBe(7); // base 4 (guard, hook, plan, prompt) +2 beacon ask (PreToolUse AskUserQuestion, PermissionRequest edits) +1 beacon artifact (PostToolUse Artifact); Stop hook retired
     expect(auditGlobal().skills["beacon-init"]).toBe(true);
     expect(auditGlobal().hooks.PostToolUse).toBe(true);
   });

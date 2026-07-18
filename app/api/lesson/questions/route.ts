@@ -40,13 +40,15 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const body = bodySchema.parse(await req.json());
   return runWithWorkspace(workspaceIdFromRequest(req), async () => {
-    const lesson = readCurrentLesson();
-    if (!lesson || lesson.status !== "live") {
-      return Response.json({ error: "no active lesson to receive questions" }, { status: 409 });
-    }
+    // Validate the request (400) before checking server state (409): an empty submit is malformed
+    // regardless of whether a lesson is live.
     const real = body.questions.filter((q) => q.question.trim());
     if (!real.length) {
       return Response.json({ error: "nothing to send — ask at least one question first" }, { status: 400 });
+    }
+    const lesson = readCurrentLesson();
+    if (!lesson || lesson.status !== "live") {
+      return Response.json({ error: "no active lesson to receive questions" }, { status: 409 });
     }
     const existing = readQuestions();
     const sameLesson = existing.lessonId === lesson.id
