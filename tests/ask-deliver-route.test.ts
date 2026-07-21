@@ -7,9 +7,11 @@ process.env.BEACON_DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-ask-deliver-rou
 
 import { GET as askGet, POST as askPost } from "@/app/api/ask/route";
 import { POST as deliverPost } from "@/app/api/ask/deliver/route";
+import { writeJsonAtomic } from "@/lib/atomic-write";
 import { readAskDelivery } from "@/lib/ask-delivery";
 import { clearAskResolution, clearPendingAsk, readPendingAsk } from "@/lib/ask-store";
 import { recordDelivererPresence } from "@/lib/deliverer-registry";
+import { dataDir } from "@/lib/project";
 
 // The server-side backstop for the two-way ask bridge: clicking an option in Beacon only actually
 // delivers when a live deliverer is registered — this is what /api/ask/deliver enforces even if a
@@ -36,6 +38,26 @@ async function pushQuestion() {
           question: "Which database?",
           multiSelect: false,
           options: [{ label: "Postgres" }, { label: "SQLite" }],
+        },
+        mode: "mirror",
+      }),
+    }),
+  );
+  return (await res.json()) as { loop: boolean; id?: string };
+}
+
+async function pushMultiSelectQuestion() {
+  const res = await askPost(
+    new Request("http://test/api/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        kind: "question",
+        question: {
+          header: "Stack",
+          question: "Which layers?",
+          multiSelect: true,
+          options: [{ label: "Frontend" }, { label: "Backend" }],
         },
         mode: "mirror",
       }),
@@ -120,6 +142,25 @@ describe("once a deliverer has registered", () => {
     expect(body.delivererLive).toBe(true);
   });
 
+  it("GET /api/ask reports delivererCaps: [] for a bare {ts} heartbeat, and the written caps once present", async () => {
+    // recordDelivererPresence (above, in beforeEach) only ever writes the bare {ts} shape — an old
+    // shell's presence file — so caps reads empty even though the deliverer is live.
+    const bare = await askGet(new Request("http://test/api/ask"));
+    expect(((await bare.json()) as { delivererCaps?: string[] }).delivererCaps).toEqual([]);
+
+    // Write the presence file the way a capability-aware (desktop) deliverer would — same path the
+    // registry reads, under BEACON_DATA_DIR — and the GET should surface it.
+    writeJsonAtomic(join(dataDir(), "deliverer-presence.json"), {
+      ts: Date.now(),
+      caps: ["multiSelect", "freeText"],
+    });
+    const withCaps = await askGet(new Request("http://test/api/ask"));
+    expect(((await withCaps.json()) as { delivererCaps?: string[] }).delivererCaps).toEqual([
+      "multiSelect",
+      "freeText",
+    ]);
+  });
+
   it("POST /api/ask/deliver rejects (409) when the id no longer names the pending ask", async () => {
     await pushQuestion();
     const res = await deliverPost(req({ id: "stale-id", selected: ["Postgres"] }));
@@ -134,9 +175,32 @@ describe("once a deliverer has registered", () => {
     expect(readPendingAsk()?.deliveredAt).toBeGreaterThan(0);
   });
 
+  it("POST /api/ask/deliver passes freeText through to the recorded delivery (v4)", async () => {
+    const pushed = await pushQuestion();
+    const res = await deliverPost(req({ id: pushed.id, selected: ["my own answer"], freeText: true }));
+    expect(res.status).toBe(200);
+    expect(readAskDelivery()).toMatchObject({ askId: pushed.id, selected: ["my own answer"], freeText: true });
+    // and a plain label pick never grows the field — the record keeps its pre-v4 shape
+    const again = await pushQuestion();
+    await deliverPost(req({ id: again.id, selected: ["Postgres"] }));
+    expect(readAskDelivery()?.freeText).toBeUndefined();
+  });
+
   it("POST /api/ask/deliver rejects a malformed body (400)", async () => {
     const res = await deliverPost(req({ id: "x" }));
     expect(res.status).toBe(400);
+  });
+
+  it("POST /api/ask/deliver rejects (409) a freeText delivery to a multiSelect question", async () => {
+    const pushed = await pushMultiSelectQuestion();
+    const res = await deliverPost(req({ id: pushed.id, selected: ["typed text"], freeText: true }));
+    expect(res.status).toBe(409);
+  });
+
+  it("POST /api/ask/deliver rejects (409) a multi-label delivery to a single-select question", async () => {
+    const pushed = await pushQuestion();
+    const res = await deliverPost(req({ id: pushed.id, selected: ["Postgres", "SQLite"] }));
+    expect(res.status).toBe(409);
   });
 });
 

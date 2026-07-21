@@ -8,7 +8,7 @@ import {
   ensureHookEntry,
   dedupeHookEntry,
   hasHookEntry,
-  removeHookEntry,
+  pruneStaleBeaconHooks,
   ensureMarkerBlock,
   hasMarkerBlock,
   removeMarkerBlock,
@@ -58,8 +58,6 @@ export const CODEX_HOOKS = [
       "On feature-y prompts in a Beacon-wired repo, remind the agent to run the context→propose→describe loop (no-op otherwise).",
   },
 ];
-
-const LEGACY_STOP_HOOK = { event: "Stop" as const, command: "beacon stop-hook" };
 
 // ── Detection ───────────────────────────────────────────────────────────────
 
@@ -323,9 +321,9 @@ export async function setupCodexAssets(): Promise<CodexSetupResult> {
     if (!isSkillInstalled(AGENTS_SKILLS_DIR(), name)) skillsAdded.push(name);
     installSkillFile(AGENTS_SKILLS_DIR(), name, skillBodies[name]);
   }
-  // Retire Beacon's old turn-ending hook on upgrade, but leave unrelated Stop
-  // hooks alone.
-  removeHookEntry(CODEX_HOOKS_FILE(), LEGACY_STOP_HOOK);
+  // Sweep out any Beacon hook retired from CODEX_HOOKS (e.g. the old Stop hook)
+  // on upgrade, leaving unrelated user hooks alone.
+  pruneStaleBeaconHooks(CODEX_HOOKS_FILE(), CODEX_HOOKS.map((h) => ({ event: h.event, command: h.command })));
   let hooksAdded = 0;
   for (const h of CODEX_HOOKS) {
     const matcherIsIgnored = h.event === "UserPromptSubmit";
@@ -388,10 +386,7 @@ export interface CodexRemoveResult {
 export function removeCodexArtifacts(): CodexRemoveResult {
   const skillsRemoved: string[] = [];
   for (const s of GLOBAL_SKILLS) if (removeSkillDir(AGENTS_SKILLS_DIR(), s)) skillsRemoved.push(s);
-  let hooksRemoved = 0;
-  for (const h of CODEX_HOOKS)
-    if (removeHookEntry(CODEX_HOOKS_FILE(), { event: h.event, command: h.command })) hooksRemoved++;
-  if (removeHookEntry(CODEX_HOOKS_FILE(), LEGACY_STOP_HOOK)) hooksRemoved++;
+  const hooksRemoved = pruneStaleBeaconHooks(CODEX_HOOKS_FILE(), []);
   const agentsMdBlockRemoved = removeMarkerBlock(CODEX_AGENTS_MD(), AGENTS_MD_START, AGENTS_MD_END);
   const mcp = removeCodexMcp();
   return {

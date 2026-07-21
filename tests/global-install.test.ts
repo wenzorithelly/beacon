@@ -287,6 +287,37 @@ describe("selfHealGlobal", () => {
     expect(stopHooks).toContainEqual({ type: "command", command: "my-notify" });
   });
 
+  it("prunes ANY retired Beacon hook (not just Stop), keeping current + user hooks", async () => {
+    mkdirSync(join(TMP_HOME, ".claude"), { recursive: true });
+    writeFileSync(
+      join(TMP_HOME, ".claude", "settings.json"),
+      JSON.stringify({
+        hooks: {
+          // A Beacon hook retired from GLOBAL_HOOKS, written at the app path (as a real config is).
+          PostToolUse: [
+            {
+              matcher: "OldMatcher",
+              hooks: [{ type: "command", command: "/Applications/Beacon.app/Contents/Resources/bin/beacon retired-thing" }],
+            },
+            { matcher: "Bash", hooks: [{ type: "command", command: "user-script" }] },
+          ],
+          Stop: [{ matcher: "*", hooks: [{ type: "command", command: "beacon stop-hook" }] }],
+        },
+      }),
+    );
+
+    await setupGlobalAssets();
+
+    const settings = JSON.parse(readFileSync(join(TMP_HOME, ".claude", "settings.json"), "utf8"));
+    const commands = Object.values(settings.hooks).flatMap((entries: any) =>
+      entries.flatMap((e: any) => e.hooks.map((h: any) => h.command)),
+    );
+    expect(commands).not.toContain("/Applications/Beacon.app/Contents/Resources/bin/beacon retired-thing");
+    expect(settings.hooks.Stop).toBeUndefined(); // last Stop entry pruned → event removed
+    expect(commands).toContain("user-script"); // non-Beacon user hook untouched
+    expect(commands.some((c: string) => c.endsWith("beacon hook"))).toBe(true); // current hooks reinstalled
+  });
+
   it("installs every missing global asset when ~/.claude is empty", async () => {
     const before = auditGlobal();
     expect(before.skills["beacon-init"]).toBe(false);

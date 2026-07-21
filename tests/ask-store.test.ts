@@ -1,10 +1,11 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "bun:test";
 
 // Isolate the per-workspace data dir so each test starts from an empty bridge store.
-process.env.BEACON_DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-ask-"));
+const DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-ask-"));
+process.env.BEACON_DATA_DIR = DATA_DIR;
 
 import {
   advancePendingAsk,
@@ -19,11 +20,13 @@ import {
   questionAnswerReason,
   questionMirrorPushBody,
   readAskResolution,
+  readAskResolutionById,
   readPendingAsk,
+  readPendingAsks,
   resolveAsk,
   summarizeApproval,
 } from "@/lib/ask-store";
-import { sameAskView } from "@/lib/ask-view";
+import { sameAskQueue, sameAskView } from "@/lib/ask-view";
 
 const q = (over: Partial<AskQuestion> = {}): AskQuestion => ({
   header: "DB",
@@ -118,6 +121,15 @@ describe("pure helpers", () => {
     const a = { id: "abc", questionIndex: 0, deliveredAt: 1500 } as PendingAsk;
     const b = { id: "abc", questionIndex: 0, deliveredAt: 1500 } as PendingAsk;
     expect(sameAskView(a, b)).toBe(true);
+  });
+
+  it("sameAskQueue: length, order and per-entry view all count", () => {
+    const a = { id: "a", questionIndex: 0 } as PendingAsk;
+    const b = { id: "b", questionIndex: 0 } as PendingAsk;
+    expect(sameAskQueue([a, b], [a, b])).toBe(true);
+    expect(sameAskQueue([a, b], [b, a])).toBe(false); // order is what picks the head
+    expect(sameAskQueue([a, b], [a])).toBe(false); // one was answered — the card must move on
+    expect(sameAskQueue([a], [{ ...a, questionIndex: 1 } as PendingAsk])).toBe(false);
   });
 
   it("sameAskView: null vs null is true, object vs null is false", () => {
@@ -264,5 +276,142 @@ describe("advancePendingAsk", () => {
       1000,
     );
     expect(advancePendingAsk("stale-id")).toBeNull();
+  });
+});
+
+// The reported bug (2026-07-19): three agent sessions in ONE workspace each raised a question at the
+// same time and only ONE ever rendered — ask-pending.json was a single mutable slot whose setter
+// overwrote unconditionally, so the last writer won and the other two agents sat blocked on an
+// answer that could never be given. The store holds a queue now; these cover that it does, that each
+// entry stays independently addressable, and that the on-disk shape a shipped desktop build reads
+// (terminals/ask-deliverer.ts polls this exact file) is unchanged for a single-slot reader.
+describe("concurrent asks in one workspace", () => {
+  const pushMirror = (question: AskQuestion, now: number) =>
+    (
+      pushAsk(
+        { kind: "question", hash: askHash("question", question), question, mode: "mirror" },
+        now,
+      ) as { id: string }
+    ).id;
+
+  const qDb = q();
+  const qCache = q({ header: "Cache", question: "Which cache?", options: [{ label: "Redis" }, { label: "None" }] });
+  const qDeploy = q({ header: "Deploy", question: "Where to deploy?", options: [{ label: "Vercel" }] });
+
+  it("three sessions asking at once ALL survive — no clobbering", () => {
+    const ids = [pushMirror(qDb, 1000), pushMirror(qCache, 1001), pushMirror(qDeploy, 1002)];
+
+    const queued = readPendingAsks();
+    expect(queued).toHaveLength(3);
+    expect(queued.map((a) => a.id)).toEqual(ids);
+    expect(queued.map((a) => a.question?.question)).toEqual([
+      "Which database?",
+      "Which cache?",
+      "Where to deploy?",
+    ]);
+  });
+
+  it("each queued ask is independently answerable, and the next one takes the head", () => {
+    const [a, b, c] = [pushMirror(qDb, 1000), pushMirror(qCache, 1001), pushMirror(qDeploy, 1002)];
+
+    expect(readPendingAsk()?.id).toBe(a); // FIFO — the longest-blocked session is shown first
+
+    // Answer the middle one out of order: only it goes, the other two stay pending.
+    resolveAsk({ id: b, selected: ["Redis"] }, 2000);
+    expect(readPendingAsks().map((x) => x.id)).toEqual([a, c]);
+
+    resolveAsk({ id: a, selected: ["SQLite"] }, 2100);
+    expect(readPendingAsk()?.id).toBe(c); // the panel moves on instead of going empty
+
+    resolveAsk({ id: c, selected: ["Vercel"] }, 2200);
+    expect(readPendingAsk()).toBeNull();
+
+    // Every hook gets ITS OWN verdict back — none was hidden by a later one landing on top of it.
+    expect(readAskResolutionById(a)?.selected).toEqual(["SQLite"]);
+    expect(readAskResolutionById(b)?.selected).toEqual(["Redis"]);
+    expect(readAskResolutionById(c)?.selected).toEqual(["Vercel"]);
+  });
+
+  it("markAskDelivered / advancePendingAsk address an ask behind the head, not just the head", () => {
+    const head = pushMirror(qDb, 1000);
+    const multi = [qCache, qDeploy];
+    const behind = (
+      pushAsk(
+        {
+          kind: "question",
+          hash: askHash("question", multi),
+          question: multi[0],
+          questions: multi,
+          questionIndex: 0,
+          mode: "mirror",
+        },
+        1001,
+      ) as { id: string }
+    ).id;
+
+    expect(markAskDelivered(behind, 1500)).toBe(true);
+    expect(readPendingAsks().find((a) => a.id === behind)?.deliveredAt).toBe(1500);
+    expect(advancePendingAsk(behind)?.questionIndex).toBe(1);
+    expect(readPendingAsk()?.id).toBe(head); // head untouched throughout
+    expect(readPendingAsks()).toHaveLength(2);
+  });
+
+  it("two sessions asking the SAME question in the same millisecond stay two distinct asks", () => {
+    // makeAskId is `${hash}-${now}` — identical content at an identical clock tick collided, which
+    // would collapse them back into one addressable ask.
+    const ids = [pushMirror(qDb, 1000), pushMirror(qDb, 1000), pushMirror(qDb, 1000)];
+    expect(new Set(ids).size).toBe(3);
+    expect(readPendingAsks()).toHaveLength(3);
+  });
+
+  it("the file still reads as a single PendingAsk for an old single-slot consumer (desktop shell)", () => {
+    const head = pushMirror(qDb, 1000);
+    pushMirror(qCache, 1001);
+
+    // Exactly what terminals/ask-deliverer.ts does: JSON.parse the file and use `.id`/`.question`.
+    const raw = JSON.parse(readFileSync(join(DATA_DIR, "ask-pending.json"), "utf8"));
+    expect(raw.id).toBe(head);
+    expect(raw.question.options.map((o: { label: string }) => o.label)).toEqual(["Postgres", "SQLite"]);
+    expect(raw.mode).toBe("mirror");
+    expect(raw.asks).toHaveLength(2); // the full queue rides alongside for readers that want it
+  });
+
+  it("a legacy single-object file left by an older daemon is read as a one-ask queue", () => {
+    const legacy = {
+      id: "legacy-1",
+      kind: "question",
+      hash: "h",
+      createdAt: 1000,
+      mode: "mirror",
+      question: qDb,
+    };
+    writeFileSync(join(DATA_DIR, "ask-pending.json"), JSON.stringify(legacy));
+
+    expect(readPendingAsks()).toEqual([legacy as unknown as PendingAsk]);
+    expect(readPendingAsk()?.id).toBe("legacy-1");
+
+    // …and a new ask queues BEHIND it rather than overwriting it.
+    const next = pushMirror(qCache, 2000);
+    expect(readPendingAsks().map((a) => a.id)).toEqual(["legacy-1", next]);
+  });
+
+  it("back-to-back approval verdicts don't overwrite each other (each hook polls by its own id)", () => {
+    const mk = (file: string, now: number) => {
+      const approval = summarizeApproval("Write", { file_path: file, content: "x" });
+      return (
+        pushAsk({ kind: "approval", hash: askHash("approval", undefined, approval), approval }, now) as {
+          id: string;
+        }
+      ).id;
+    };
+    const first = mk("a.ts", 1000);
+    const second = mk("b.ts", 1001);
+
+    resolveAsk({ id: first, decision: "allow" }, 1200);
+    resolveAsk({ id: second, decision: "deny" }, 1250);
+
+    expect(readAskResolutionById(first)?.decision).toBe("allow");
+    expect(readAskResolutionById(second)?.decision).toBe("deny");
+    expect(readAskResolution()?.id).toBe(second); // newest still at the top level
   });
 });

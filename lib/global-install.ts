@@ -10,6 +10,7 @@ import {
   hasHookEntry,
   hookCommand,
   removeHookEntry,
+  pruneStaleBeaconHooks,
   ensureMarkerBlock,
   hasMarkerBlock,
   removeMarkerBlock,
@@ -112,11 +113,6 @@ export const GLOBAL_HOOKS = [
       "On feature-y prompts in a Beacon-wired repo, remind the agent to run the context→propose→describe loop (no-op otherwise).",
   },
 ];
-
-// Beacon used to register a Stop hook. Keep this legacy spec only to remove that
-// entry from existing user configs during the next setup or uninstall; new
-// installs must never add a turn-ending hook.
-const LEGACY_STOP_HOOK = { event: "Stop" as const, command: "beacon stop-hook" };
 
 // ── Skills ──────────────────────────────────────────────────────────────────
 
@@ -228,9 +224,9 @@ export async function setupGlobalAssets(): Promise<SetupResult> {
     if (!isGlobalSkillInstalled(name)) skillsAdded.push(name);
     installGlobalSkill(name, skillBodies[name]);
   }
-  // Migrate existing installs away from the retired Stop hook without touching
-  // any user-owned handlers on the same event.
-  removeGlobalHook(LEGACY_STOP_HOOK);
+  // Sweep out any Beacon hook retired from GLOBAL_HOOKS (e.g. the old Stop hook)
+  // from existing configs, leaving user-owned handlers on the same events alone.
+  pruneStaleBeaconHooks(SETTINGS_FILE(), GLOBAL_HOOKS.map((h) => ({ event: h.event, command: h.command })));
   let hooksAdded = 0;
   for (const h of GLOBAL_HOOKS)
     if (ensureGlobalHook({ event: h.event, matcher: h.matcher, command: repointBeaconCommand(h.command) }))
@@ -338,9 +334,7 @@ export interface RemoveResult {
 export function removeBeaconArtifacts(): RemoveResult {
   const skillsRemoved: string[] = [];
   for (const s of GLOBAL_SKILLS) if (removeGlobalSkill(s)) skillsRemoved.push(s);
-  let hooksRemoved = 0;
-  for (const h of GLOBAL_HOOKS) if (removeGlobalHook(h)) hooksRemoved++;
-  if (removeGlobalHook(LEGACY_STOP_HOOK)) hooksRemoved++;
+  const hooksRemoved = pruneStaleBeaconHooks(SETTINGS_FILE(), []);
   const claudeMdBlockRemoved = removeGlobalClaudeMdBlock();
   return { skillsRemoved, hooksRemoved, claudeMdBlockRemoved };
 }

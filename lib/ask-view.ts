@@ -18,3 +18,9 @@ export function sameAskView(a: PendingAsk | null, b: PendingAsk | null): boolean
     (a.deliveredAt ?? null) === (b.deliveredAt ?? null)
   );
 }
+
+/** Same, for the whole pending QUEUE (several sessions can be waiting at once). Order matters — the
+ *  panel renders the head — so this is a positional compare, not a set compare. */
+export function sameAskQueue(a: PendingAsk[], b: PendingAsk[]): boolean {
+  return a.length === b.length && a.every((x, i) => sameAskView(x, b[i]));
+}

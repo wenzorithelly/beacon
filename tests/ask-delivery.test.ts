@@ -26,6 +26,23 @@ describe("nextAskDelivery", () => {
     const second = nextAskDelivery(first, "ask-2", ["No"], 200);
     expect(second).toEqual({ seq: 2, askId: "ask-2", selected: ["No"], ts: 200 });
   });
+
+  it("carries freeText only when truthy — an older writer's record shape is unchanged (v4 additive)", () => {
+    expect(nextAskDelivery(null, "ask-1", ["typed answer"], 100, 0, true)).toEqual({
+      seq: 1,
+      askId: "ask-1",
+      selected: ["typed answer"],
+      ts: 100,
+      questionIndex: 0,
+      freeText: true,
+    });
+    expect(nextAskDelivery(null, "ask-1", ["Yes"], 100, undefined, false)).toEqual({
+      seq: 1,
+      askId: "ask-1",
+      selected: ["Yes"],
+      ts: 100,
+    });
+  });
 });
 
 describe("read/write round trip", () => {
@@ -39,5 +56,12 @@ describe("read/write round trip", () => {
     const second = writeAskDelivery("ask-def", ["SQLite"], 2000);
     expect(second.seq).toBe(2);
     expect(readAskDelivery()).toEqual(second);
+  });
+
+  it("round-trips a freeText delivery (continues from the prior test)", () => {
+    const third = writeAskDelivery("ask-ghi", ["my typed answer"], 3000, 0, true);
+    expect(third.seq).toBe(3);
+    expect(readAskDelivery()).toEqual(third);
+    expect(readAskDelivery()?.freeText).toBe(true);
   });
 });

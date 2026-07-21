@@ -20,3 +20,7 @@ export const isDelivererLive = p.isLive;
 export const isDelivererLiveAt = p.isLiveAt;
 export const recordDelivererPresence = p.record;
 export const readDelivererPresenceTs = p.readTs;
+// What a live deliverer advertises it can type — e.g. "multiSelect"/"freeText" (see
+// components/ask/ask-modal.tsx) — gating those surfaces on the SAME liveness check as clickability
+// itself. [] once stale, same as an old deliverer that never wrote `caps` at all.
+export const delivererCaps = (now: number): string[] => (p.isLive(now) ? p.readCaps() : []);

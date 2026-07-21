@@ -8,9 +8,10 @@ import { dataDir } from "@/lib/project";
 // Transient per-workspace state for the TWO-WAY "agent asks → both the terminal AND Beacon show it
 // → either can answer" bridge. Disk files next to the plan-loop's state (dataDir), mirroring
 // lib/plan-verdict:
-//   ask-pending.json    — the question/approval currently shown (the modal reads this)
-//   ask-resolution.json — the user's approval verdict, OR a question answered in the terminal (the
-//                         `beacon ask` hook still polls this for APPROVALS only — see bin/ask.ts)
+//   ask-pending.json    — every question/approval awaiting an answer (the modal reads this). A QUEUE,
+//                         not one slot: several sessions in a workspace can be blocked at once.
+//   ask-resolution.json — the user's approval verdicts, OR questions answered in the terminal, keyed
+//                         by ask id (the `beacon ask` hook polls this for APPROVALS only — bin/ask.ts)
 //   ask-delivery.json   — (lib/ask-delivery) a Beacon-side answer handed to a live deliverer to type
 //                         into the terminal — see lib/deliverer-registry
 // A QUESTION (PreToolUse:AskUserQuestion) is NEVER held or hijacked: the native terminal prompt
@@ -274,14 +275,94 @@ function readJson<T>(path: string): T | null {
   }
 }
 
-export const readPendingAsk = (): PendingAsk | null => readJson<PendingAsk>(pendingPath());
-export const writePendingAsk = (a: PendingAsk): void => writeJsonAtomic(pendingPath(), a);
+// ── the pending-ask QUEUE (was a single mutable slot) ───────────────────────
+// N agent sessions in ONE workspace can each be blocked on their own ask at the same time. They were
+// (2026-07-19: three questions, one rendered) — every push overwrote the same slot, so only the last
+// writer survived and the other two agents sat blocked on an answer nobody could ever give.
+//
+// The file now holds a QUEUE, while staying BACKWARD COMPATIBLE with consumers that read it as a
+// single PendingAsk object — the desktop shell polls this file directly and snapshots asks by id
+// (terminals/ask-deliverer.ts). The HEAD ask is still spread at the top level exactly as before; the
+// full queue rides alongside under `asks`. An old reader sees the head and is none the wiser; a new
+// reader takes `asks`.
+//
+// Head = the OLDEST pending ask (FIFO): the longest-blocked agent gets unblocked first, and a newly
+// arriving ask can never yank the card the user is mid-read on.
+type PendingAskFile = PendingAsk & { asks?: PendingAsk[] };
+
+// ponytail: hard cap so a never-answered ask can't grow the file without bound — 32 simultaneously
+// blocked agents in one repo isn't a real scenario. Raise it if that ever stops being true.
+const MAX_PENDING_ASKS = 32;
+
 export const clearPendingAsk = (): void => rmSync(pendingPath(), { force: true });
 
-export const readAskResolution = (): AskResolution | null =>
-  readJson<AskResolution>(resolutionPath());
-export const writeAskResolution = (r: AskResolution): void => writeJsonAtomic(resolutionPath(), r);
+/** Every ask currently awaiting an answer in this workspace, oldest first. */
+export function readPendingAsks(): PendingAsk[] {
+  const raw = readJson<PendingAskFile>(pendingPath());
+  if (!raw) return [];
+  return Array.isArray(raw.asks) ? raw.asks : [raw]; // a legacy single-object file → a 1-ask queue
+}
+
+export function writePendingAsks(list: PendingAsk[]): void {
+  if (!list.length) return clearPendingAsk();
+  const capped = list.slice(-MAX_PENDING_ASKS);
+  writeJsonAtomic(pendingPath(), { ...capped[0], asks: capped });
+}
+
+/** The ask the panel shows: the head of the queue (and the value an old single-slot reader sees). */
+export const readPendingAsk = (): PendingAsk | null => readPendingAsks()[0] ?? null;
+
+export const readPendingAskById = (id: string): PendingAsk | null =>
+  readPendingAsks().find((a) => a.id === id) ?? null;
+
+/** Upsert an ask into the queue: replaced in place when already queued, appended otherwise. */
+export function writePendingAsk(a: PendingAsk): void {
+  const list = readPendingAsks();
+  const i = list.findIndex((x) => x.id === a.id);
+  if (i < 0) list.push(a);
+  else list[i] = a;
+  writePendingAsks(list);
+}
+
+/** Drop one ask from the queue by id; the rest stay pending. Returns whether it was there. */
+export function removePendingAsk(id: string): boolean {
+  const list = readPendingAsks();
+  const next = list.filter((a) => a.id !== id);
+  if (next.length === list.length) return false;
+  writePendingAsks(next);
+  return true;
+}
+
+// ── resolutions (same story: keyed, not a single slot) ──────────────────────
+// `bin/ask.ts` long-polls /api/ask/verdict?id=… for the resolution of the ask IT pushed, so with
+// concurrent approvals answered back-to-back a single slot loses every verdict but the last — and
+// the losing hook then blocks for the full 10-minute re-arm window. Same additive shape as the
+// pending queue: newest resolution at the top level (what a single-slot reader saw), all of them
+// under `resolutions`.
+type AskResolutionFile = AskResolution & { resolutions?: AskResolution[] };
+
 export const clearAskResolution = (): void => rmSync(resolutionPath(), { force: true });
+
+export function readAskResolutions(): AskResolution[] {
+  const raw = readJson<AskResolutionFile>(resolutionPath());
+  if (!raw) return [];
+  return Array.isArray(raw.resolutions) ? raw.resolutions : [raw];
+}
+
+function writeAskResolutions(list: AskResolution[]): void {
+  if (!list.length) return clearAskResolution();
+  writeJsonAtomic(resolutionPath(), { ...list[list.length - 1], resolutions: list });
+}
+
+/** The most recent resolution — unchanged single-slot semantics for callers that just want "latest". */
+export const readAskResolution = (): AskResolution | null => readAskResolutions().at(-1) ?? null;
+
+/** The resolution for ONE ask. What /api/ask/verdict answers each blocked hook with. */
+export const readAskResolutionById = (id: string): AskResolution | null =>
+  readAskResolutions().find((r) => r.id === id) ?? null;
+
+export const writeAskResolution = (r: AskResolution): void =>
+  writeAskResolutions([...readAskResolutions().filter((x) => x.id !== r.id), r]);
 
 /** Register a new pending ask, applying the loop-guard. Returns `{loop:true}` (caller should let
  *  the tool through) or `{loop:false, id}` after writing the pending ask + clearing stale state. */
@@ -302,9 +383,22 @@ export function pushAsk(
   // Mirror is display-only (the terminal owns the answer, the hook never blocks on it), so it skips
   // the loop-guard and the resolution reset — those exist to stop an interactive re-ask storm.
   const mirror = args.mode === "mirror";
-  if (!mirror && isLoopRepush(readAskResolution(), args.hash, args.kind, now)) return { loop: true };
-  const id = makeAskId(args.hash, now);
-  if (!mirror) clearAskResolution();
+  const resolutions = readAskResolutions();
+  if (!mirror && resolutions.some((r) => isLoopRepush(r, args.hash, args.kind, now))) {
+    return { loop: true };
+  }
+  // Two sessions can ask the SAME question in the same millisecond — makeAskId would hand them the
+  // same id and they'd collapse back into one addressable ask. Disambiguate on collision only, so
+  // the ordinary id keeps its exact historical `${hash}-${now}` shape.
+  const queued = readPendingAsks();
+  const baseId = makeAskId(args.hash, now);
+  let id = baseId;
+  for (let n = 2; queued.some((a) => a.id === id); n++) id = `${baseId}-${n}`;
+  // Was: drop EVERY resolution on a push, so a stale one couldn't leak to the new hook. That would
+  // now clobber a concurrent ask's just-recorded verdict before its hook polled for it — and it's
+  // redundant anyway, since verdicts are read by id. Prune only the ones past the loop-guard window,
+  // which is the point after which a resolution can no longer mean anything to anyone.
+  if (!mirror) writeAskResolutions(resolutions.filter((r) => now - r.decidedAt < ASK_LOOP_GUARD_MS));
   writePendingAsk({
     id,
     kind: args.kind,
@@ -329,8 +423,8 @@ export function pushAsk(
  *  null) if `id` doesn't match the pending ask, there's no `questions[]`, or there's no next question
  *  — callers use that to distinguish "advanced" from "this was the last question, resolve as usual". */
 export function advancePendingAsk(id: string): PendingAsk | null {
-  const pending = readPendingAsk();
-  if (!pending || pending.id !== id || !pending.questions) return null;
+  const pending = readPendingAskById(id);
+  if (!pending || !pending.questions) return null;
   const nextIndex = (pending.questionIndex ?? 0) + 1;
   if (nextIndex >= pending.questions.length) return null;
   const next: PendingAsk = {
@@ -348,18 +442,19 @@ export function advancePendingAsk(id: string): PendingAsk | null {
  *  of clickable options while the transcript-watch auto-clear catches up). No-op (returns false) if
  *  `id` no longer matches the pending ask — it moved on or was already answered elsewhere. */
 export function markAskDelivered(id: string, now: number): boolean {
-  const pending = readPendingAsk();
-  if (!pending || pending.id !== id) return false;
+  const pending = readPendingAskById(id);
+  if (!pending) return false;
   writePendingAsk({ ...pending, deliveredAt: now });
   return true;
 }
 
-/** Record the user's answer to the currently-pending ask and clear it so the modal closes. */
+/** Record the user's answer to ONE pending ask and drop just that ask, so any others queued behind
+ *  it stay pending and the panel moves on to the next one instead of going empty. */
 export function resolveAsk(
   args: { id: string; selected?: string[]; decision?: "allow" | "deny" },
   now: number,
 ): void {
-  const pending = readPendingAsk();
+  const pending = readPendingAskById(args.id);
   writeAskResolution({
     id: args.id,
     hash: pending?.hash ?? "",
@@ -368,5 +463,5 @@ export function resolveAsk(
     decision: args.decision,
     decidedAt: now,
   });
-  clearPendingAsk();
+  removePendingAsk(args.id);
 }

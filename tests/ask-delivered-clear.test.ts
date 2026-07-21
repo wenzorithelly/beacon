@@ -34,12 +34,12 @@ const question = {
 
 const statusPath = join(DATA_DIR, "agent-status.json");
 
-async function pushMirror(): Promise<string> {
+async function pushMirror(q: typeof question = question): Promise<string> {
   const res = await askPost(
     new Request("http://test/api/ask", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind: "question", question, mode: "mirror" }),
+      body: JSON.stringify({ kind: "question", question: q, mode: "mirror" }),
     }),
   );
   const body = (await res.json()) as { loop: boolean; id?: string };
@@ -49,6 +49,11 @@ async function pushMirror(): Promise<string> {
 async function currentAsk(): Promise<PendingAsk | null> {
   const res = await askGet(new Request("http://test/api/ask"));
   return ((await res.json()) as { ask: PendingAsk | null }).ask;
+}
+
+async function currentQueue(): Promise<PendingAsk[]> {
+  const res = await askGet(new Request("http://test/api/ask"));
+  return ((await res.json()) as { asks: PendingAsk[] }).asks;
 }
 
 function seedWaitingStatus() {
@@ -82,6 +87,26 @@ describe("delivered mirror auto-clear (GET /api/ask)", () => {
     expect(await currentAsk()).toBeNull(); // card gone on the next poll
     expect(await currentAsk()).toBeNull(); // and the store stays empty
     expect(readStatus().sessions["sess-asking"].state).toBe("working"); // pill releases
+  });
+
+  it("sweeps ONLY the settled ask — the ones queued behind it stay, and the next becomes the head", async () => {
+    const first = await pushMirror();
+    const second = await pushMirror({ ...question, question: "Which cache?" });
+    expect(await currentQueue()).toHaveLength(2); // both visible to the panel's count
+
+    markAskDelivered(first, Date.now() - ASK_DELIVERED_CLEAR_MS - 1);
+
+    const left = await currentQueue();
+    expect(left.map((a) => a.id)).toEqual([second]); // the other agent is still waiting, not dropped
+    expect((await currentAsk())?.id).toBe(second); // panel moves on instead of going empty
+  });
+
+  it("sweeps a settled ask sitting BEHIND the head, so it never surfaces later as a dead question", async () => {
+    const head = await pushMirror();
+    const behind = await pushMirror({ ...question, question: "Which cache?" });
+    markAskDelivered(behind, Date.now() - ASK_DELIVERED_CLEAR_MS - 1);
+
+    expect((await currentQueue()).map((a) => a.id)).toEqual([head]);
   });
 
   it("TTL expiry still drops an abandoned mirror but does NOT fake an 'answer landed' status flip", async () => {

@@ -15,12 +15,16 @@ export interface AskDelivery {
    *  longer recognizes (e.g. it already saw a NEWER ask for the same workspace). */
   askId: string;
   /** The picked option label(s) — single-select delivery is always a 1-element array (see
-   *  components/ask/ask-modal.tsx and the digit-key mapping consumers use to inject it). */
+   *  components/ask/ask-modal.tsx and the digit-key mapping consumers use to inject it); a
+   *  multiSelect delivery carries every checked label. */
   selected: string[];
   ts: number;
   /** v2 multi-question: which question (0-based, within PendingAsk.questions) these `selected`
    *  labels answer. Absent ⇒ 0 (back-compat, single-question ask). */
   questionIndex?: number;
+  /** v4 free text: `selected[0]` is literal text the user typed (Claude Code's own "Type something"
+   *  row), not an option label. Absent ⇒ label pick (what every older writer produced). */
+  freeText?: boolean;
 }
 
 function deliveryPath(): string {
@@ -37,6 +41,7 @@ function readRecord(): AskDelivery | null {
           selected: r.selected as string[],
           ts: typeof r.ts === "number" ? r.ts : 0,
           ...(typeof r.questionIndex === "number" ? { questionIndex: r.questionIndex } : {}),
+          ...(r.freeText === true ? { freeText: true } : {}),
         }
       : null;
   } catch {
@@ -52,6 +57,7 @@ export function nextAskDelivery(
   selected: string[],
   now: number,
   questionIndex?: number,
+  freeText?: boolean,
 ): AskDelivery {
   return {
     seq: (prev?.seq ?? 0) + 1,
@@ -59,6 +65,7 @@ export function nextAskDelivery(
     selected,
     ts: now,
     ...(questionIndex !== undefined ? { questionIndex } : {}),
+    ...(freeText ? { freeText: true } : {}),
   };
 }
 
@@ -69,8 +76,9 @@ export function writeAskDelivery(
   selected: string[],
   now: number = Date.now(),
   questionIndex?: number,
+  freeText?: boolean,
 ): AskDelivery {
-  const next = nextAskDelivery(readRecord(), askId, selected, now, questionIndex);
+  const next = nextAskDelivery(readRecord(), askId, selected, now, questionIndex, freeText);
   writeJsonAtomic(deliveryPath(), next);
   return next;
 }

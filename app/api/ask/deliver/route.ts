@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { advancePendingAsk, markAskDelivered, readPendingAsk } from "@/lib/ask-store";
+import { advancePendingAsk, markAskDelivered, readPendingAskById } from "@/lib/ask-store";
 import { writeAskDelivery } from "@/lib/ask-delivery";
 import { runWithWorkspace } from "@/lib/db-drizzle";
 import { isDelivererLive } from "@/lib/deliverer-registry";
@@ -23,6 +23,8 @@ const bodySchema = z.object({
   id: z.string().min(1),
   selected: z.array(z.string()).min(1),
   questionIndex: z.number().int().min(0).default(0),
+  // v4: `selected[0]` is literal typed text for Claude Code's "Type something" row, not a label.
+  freeText: z.boolean().default(false),
 });
 
 export async function POST(req: Request) {
@@ -33,14 +35,43 @@ export async function POST(req: Request) {
       if (!isDelivererLive(now)) {
         return new Response("no live deliverer for this workspace", { status: 409 });
       }
-      const pending = readPendingAsk();
-      if (!pending || pending.id !== body.id) {
+      // By id, not "is it the head": several asks can be pending at once and the panel is free to
+      // answer any of them.
+      const pending = readPendingAskById(body.id);
+      if (!pending) {
         return new Response("ask is stale", { status: 409 });
       }
       if (body.questionIndex !== (pending.questionIndex ?? 0)) {
         return new Response("stale question index", { status: 409 });
       }
-      writeAskDelivery(body.id, body.selected, now, body.questionIndex);
+      // Mirrors the desktop planInjection's unsupported/unmappable set (see ask-modal.tsx's
+      // multiDeliverable/freeTextable) so deliveredAt never diverges from what the consumer can
+      // actually type: freeText and multiSelect are each single-question-only, freeText can't answer
+      // a multiSelect question, and the digit-key mapping only reaches options 1-9.
+      const q = pending.questions?.[pending.questionIndex ?? 0] ?? pending.question;
+      const multiQuestion = (pending.questions?.length ?? 1) > 1;
+      if (body.freeText && q?.multiSelect) {
+        return new Response("freeText unsupported for a multiSelect question", { status: 409 });
+      }
+      if (body.freeText && multiQuestion) {
+        return new Response("freeText unsupported for a multi-question ask", { status: 409 });
+      }
+      if (body.selected.length > 1 && !q?.multiSelect) {
+        return new Response("multi-label delivery requires a multiSelect question", { status: 409 });
+      }
+      if (body.selected.length > 1 && multiQuestion) {
+        return new Response("multiSelect delivery unsupported for a multi-question ask", { status: 409 });
+      }
+      if (body.freeText && (q?.options?.length ?? 0) >= 9) {
+        return new Response("too many options for the freeText row to stay mappable", { status: 409 });
+      }
+      if (
+        !body.freeText &&
+        body.selected.some((label) => (q?.options ?? []).findIndex((o) => o.label === label) >= 9)
+      ) {
+        return new Response("option unmappable past digit 9", { status: 409 });
+      }
+      writeAskDelivery(body.id, body.selected, now, body.questionIndex, body.freeText);
       const advanced = advancePendingAsk(body.id);
       if (!advanced) markAskDelivered(body.id, now); // last question — resolve as usual
       return Response.json({ ok: true });

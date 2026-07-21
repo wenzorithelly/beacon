@@ -1,10 +1,17 @@
 import { statSync } from "node:fs";
 import { z } from "zod";
 import { recordWorkspaceResumed } from "@/lib/agent-status";
-import { askHash, clearPendingAsk, pushAsk, readPendingAsk, transcriptShowsAnswered } from "@/lib/ask-store";
+import {
+  askHash,
+  type PendingAsk,
+  pushAsk,
+  readPendingAsks,
+  transcriptShowsAnswered,
+  writePendingAsks,
+} from "@/lib/ask-store";
 import { ASK_DELIVERED_CLEAR_MS, MIRROR_TTL_MS } from "@/lib/constants";
 import { runWithWorkspace } from "@/lib/db-drizzle";
-import { isDelivererLive } from "@/lib/deliverer-registry";
+import { delivererCaps, isDelivererLive } from "@/lib/deliverer-registry";
 import { readFileRange } from "@/lib/read-tail";
 import { workspaceIdFromRequest } from "@/lib/workspaces";
 
@@ -58,10 +65,7 @@ const pushSchema = z.discriminatedUnion("kind", [
 // (the CURRENT question, possibly already advanced past index 0 by app/api/ask/deliver) against that
 // line still resolves the WHOLE ask correctly — the GET handler below calls clearPendingAsk(), which
 // drops `questions`/`questionIndex` along with everything else, regardless of how far it advanced.
-function mirrorResolution(
-  ask: NonNullable<ReturnType<typeof readPendingAsk>>,
-  now: number,
-): "answered" | "expired" | null {
+function mirrorResolution(ask: PendingAsk, now: number): "answered" | "expired" | null {
   if (ask.deliveredAt != null && now - ask.deliveredAt >= ASK_DELIVERED_CLEAR_MS) return "answered";
   if (now - ask.createdAt > MIRROR_TTL_MS) return "expired"; // stale backstop
   if (!ask.transcriptPath || !ask.question) return null;
@@ -73,20 +77,34 @@ function mirrorResolution(
   }
 }
 
+// Several sessions in one workspace can be waiting at once, so the sweep runs over the WHOLE queue,
+// not just the head: an ask sitting behind the head that got answered in its own terminal must be
+// dropped where it stands, or it surfaces later as a dead question nobody is listening to any more.
+// The panel still renders one ask at a time (the head); it gets the whole queue so it can show an
+// honest count and move straight to the next one, rather than going empty until the following poll.
 export async function GET(req: Request) {
   return runWithWorkspace(workspaceIdFromRequest(req), async () => {
-    const ask = readPendingAsk();
-    const delivererLive = isDelivererLive(Date.now());
-    const resolution = ask?.mode === "mirror" ? mirrorResolution(ask, Date.now()) : null;
-    if (ask && resolution) {
-      clearPendingAsk(); // sync since the read above — no ask can interleave
+    const now = Date.now();
+    const delivererLive = isDelivererLive(now);
+    const queued = readPendingAsks();
+    const settled = new Set<string>();
+    let answered = false;
+    for (const a of queued) {
+      const resolution = a.mode === "mirror" ? mirrorResolution(a, now) : null;
+      if (!resolution) continue;
+      settled.add(a.id);
+      answered ||= resolution === "answered";
+    }
+    const asks = settled.size ? queued.filter((a) => !settled.has(a.id)) : queued;
+    if (settled.size) {
+      writePendingAsks(asks); // sync since the read above — no ask can interleave
       // The answer landed, so the asking session is no longer waiting on the user — flip its
       // agent-status back to "working" here (no hook fires at answer time), or the desktop
       // attention pill stays on "Needs input" until the turn ends.
-      if (resolution === "answered") recordWorkspaceResumed();
-      return Response.json({ ask: null, delivererLive });
+      if (answered) recordWorkspaceResumed();
     }
-    return Response.json({ ask, delivererLive });
+    // `ask` (the head) stays for back-compat; `asks` is the whole queue the panel walks.
+    return Response.json({ ask: asks[0] ?? null, asks, delivererLive, delivererCaps: delivererCaps(now) });
   });
 }
 

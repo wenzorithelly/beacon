@@ -307,6 +307,43 @@ export function removeHookEntry(
   return true;
 }
 
+/**
+ * Remove Beacon-owned hook entries (command binary basename === "beacon") whose
+ * (event, command) is NOT in `keep`. This is how a hook retired from the canonical
+ * list gets swept out of existing configs on the next self-heal — retiring a hook is
+ * just deleting it from the list, no per-hook legacy removal to remember. User-owned
+ * handlers on the same events (any other binary) are never touched. Pass `keep: []`
+ * to strip every Beacon hook (uninstall / plugin-stepaside). Returns the count removed.
+ */
+export function pruneStaleBeaconHooks(
+  file: string,
+  keep: Pick<HookSpec, "event" | "command">[],
+): number {
+  const doc = readHooksDoc(file);
+  if (!doc.hooks) return 0;
+  const keepSet = new Set(keep.map((k) => `${k.event} ${normalizeCommand(k.command)}`));
+  let removed = 0;
+  for (const event of Object.keys(doc.hooks)) {
+    const filtered = (doc.hooks[event] ?? [])
+      .map((m) => ({
+        ...m,
+        hooks: (m.hooks ?? []).filter((h) => {
+          const stale =
+            basename(commandBinary(h.command)) === "beacon" &&
+            !keepSet.has(`${event} ${normalizeCommand(h.command)}`);
+          if (stale) removed++;
+          return !stale;
+        }),
+      }))
+      .filter((m) => (m.hooks ?? []).length > 0);
+    if (filtered.length) doc.hooks[event] = filtered;
+    else delete doc.hooks[event];
+  }
+  if (Object.keys(doc.hooks).length === 0) delete doc.hooks;
+  if (removed) writeHooksDoc(file, doc);
+  return removed;
+}
+
 // ── Marker-delimited blocks (CLAUDE.md / AGENTS.md) ─────────────────────────
 
 export function ensureMarkerBlock(

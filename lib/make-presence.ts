@@ -18,6 +18,17 @@ export function makePresence(filename: string, ttlMs: number) {
       return null;
     }
   };
+  // Optional `caps` alongside `ts` (e.g. deliverer-presence.json's advertised capability strings) —
+  // absent or malformed (not an array, non-string entries) reads as [] rather than throwing, so an
+  // old writer that only ever wrote the bare {ts} shape just looks capability-less.
+  const readCaps = (): string[] => {
+    try {
+      const { caps } = JSON.parse(readFileSync(path(), "utf8")) as { caps?: unknown };
+      return Array.isArray(caps) ? caps.filter((c): c is string => typeof c === "string") : [];
+    } catch {
+      return [];
+    }
+  };
   // Pure freshness rule (unit-testable without the fs): a null ts is never live; a just-written or
   // slightly future-skewed ts is live; at/after the TTL it is not.
   const isLiveAt = (ts: number | null, now: number, ttl = ttlMs): boolean =>
@@ -26,6 +37,7 @@ export function makePresence(filename: string, ttlMs: number) {
     ttlMs,
     isLiveAt,
     readTs,
+    readCaps,
     record: (now: number) => writeJsonAtomic(path(), { ts: now }),
     isLive: (now: number) => isLiveAt(readTs(), now),
   };
