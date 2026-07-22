@@ -16,7 +16,7 @@ import {
   BEACON_WS_PATH_HEADER,
   ensureWorkspaceDb,
   idForPath,
-  isRegistrableWorkspacePath,
+  isImplicitlyRegistrablePath,
   isWorkspaceDeleted,
   listWorkspaces,
   repoRootFrom,
@@ -74,7 +74,7 @@ const WORKSPACE_ID = idForPath(WORKSPACE_PATH);
 // corruption). stderr only — stdout is the MCP transport.
 // Skip registration for a path that's the home dir / root, or a workspace the user deleted —
 // implicit self-heal must never resurrect a tombstoned workspace (only `beacon` / /beacon-init do).
-if (!isRegistrableWorkspacePath(WORKSPACE_PATH)) {
+if (!isImplicitlyRegistrablePath(WORKSPACE_PATH)) {
   // The MCP client (e.g. Cursor in a multi-folder workspace) launched us with a cwd that isn't a
   // registered repo. The server resolves the workspace anyway when exactly ONE is registered
   // (workspaceIdFromRequest's lone-workspace fallback); with several it can't guess — tell the user.

@@ -40,6 +40,7 @@ const {
   runWithWorkspace,
   getPinnedWorkspaceId,
   isRegistrableWorkspacePath,
+  isImplicitlyRegistrablePath,
   registerWorkspaceExplicit,
   isWorkspaceDeleted,
   tombstoneWorkspace,
@@ -47,6 +48,14 @@ const {
   agentWorkspaceHeaders,
 } = await import("@/lib/workspaces");
 const { pinned } = await import("@/lib/api-workspace");
+
+// Implicit self-registration (path header / MCP startup) only accepts a real git repo, so the
+// tests that exercise it need an actual one on disk rather than a made-up /repos/... path.
+function tmpRepo(prefix = "beacon-repo-"): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  execSync("git init -q", { cwd: dir });
+  return dir;
+}
 
 afterAll(() => {
   setActiveId(null);
@@ -64,6 +73,23 @@ describe("registrable-path + deletion tombstone guards", () => {
     expect(isRegistrableWorkspacePath(homedir())).toBe(false);
     expect(isRegistrableWorkspacePath(parse(process.cwd()).root)).toBe(false);
     expect(isRegistrableWorkspacePath("/repos/alpha")).toBe(true);
+  });
+
+  it("implicit registration refuses a non-git dir (agent scratchpads never become workspaces)", () => {
+    const scratch = realpathSync(mkdtempSync(join(tmpdir(), "beacon-scratchpad-")));
+    expect(isRegistrableWorkspacePath(scratch)).toBe(true); // the user may still add it by hand
+    expect(isImplicitlyRegistrablePath(scratch)).toBe(false); // but a hook/MCP never may
+    execSync("git init -q", { cwd: scratch });
+    expect(isImplicitlyRegistrablePath(scratch)).toBe(true);
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  it("resolveRequestWorkspaceId does NOT self-register a non-git path header", async () => {
+    const scratch = realpathSync(mkdtempSync(join(tmpdir(), "beacon-scratch-header-")));
+    const req = new Request("http://x", { headers: { [BEACON_WS_PATH_HEADER]: scratch } });
+    expect(await resolveRequestWorkspaceId(req)).toBeNull();
+    expect(getWorkspace(idForPath(scratch))).toBeNull();
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   it("addWorkspace throws for the home dir and never writes the registry", () => {
@@ -122,7 +148,7 @@ describe("agentWorkspaceHeaders (hooks/CLI → daemon self-heal)", () => {
 
   it("lets an unregistered-but-real repo resolve via the path header instead of the active fallback", async () => {
     // A repo whose id was never registered: id-only would fall back to active; id+path self-registers.
-    const repo = realpathSync(mkdtempSync(join(tmpdir(), "beacon-agent-repo-")));
+    const repo = tmpRepo("beacon-agent-repo-");
     setActiveId(addWorkspace(realpathSync(mkdtempSync(join(tmpdir(), "beacon-other-")))).id); // a DIFFERENT active ws
     const headers = agentWorkspaceHeaders(repo);
     expect(getWorkspace(headers["x-beacon-workspace"])).toBeNull(); // not registered yet
@@ -457,7 +483,7 @@ describe("resolveRequestWorkspaceId (self-register from path)", () => {
   });
 
   it("self-registers + provisions an UNKNOWN id when a matching path is supplied", async () => {
-    const path = "/repos/resolve-unregistered";
+    const path = tmpRepo("beacon-resolve-unregistered-");
     const id = idForPath(path);
     expect(getWorkspace(id)).toBeNull(); // not in the registry yet
     const req = new Request("http://x/api", {
@@ -478,7 +504,7 @@ describe("resolveRequestWorkspaceId (self-register from path)", () => {
   });
 
   it("registers from a lone path header (no id sent)", async () => {
-    const path = "/repos/resolve-lone-path";
+    const path = tmpRepo("beacon-resolve-lone-path-");
     const req = new Request("http://x/api", { headers: { [BEACON_WS_PATH_HEADER]: path } });
     expect(await resolveRequestWorkspaceId(req)).toBe(idForPath(path));
     expect(getWorkspace(idForPath(path))?.path).toBe(path);
@@ -492,7 +518,7 @@ describe("resolveRequestWorkspaceId (self-register from path)", () => {
 });
 
 it("pinned() self-registers an agent's unseen workspace from its path header", async () => {
-  const path = "/repos/pinned-self-register";
+  const path = tmpRepo("beacon-pinned-self-register-");
   const id = idForPath(path);
   expect(getWorkspace(id)).toBeNull();
   let seenPin: string | null = null;
@@ -607,7 +633,7 @@ describe("route workspace pinning (no cross-workspace leak)", () => {
     const { getDb } = await import("@/lib/db");
     const { getVersion } = await import("@/lib/ingest");
     const { POST } = await import("@/app/api/ingest/route");
-    const path = "/repos/ingest-self-register";
+    const path = tmpRepo("beacon-ingest-self-register-");
     const id = idForPath(path);
     expect(getWorkspace(id)).toBeNull();
 

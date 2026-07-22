@@ -78,6 +78,21 @@ export function isRegistrableWorkspacePath(path: string): boolean {
   return r !== resolve(homedir()) && r !== parse(r).root;
 }
 
+/**
+ * Stricter gate for IMPLICIT registration (MCP startup + the path-header self-heal below): the path
+ * must also be inside a real git repo. repoRootFrom() falls back to `cwd` when it isn't, so an agent
+ * session whose cwd wandered into a scratch/tmp dir (e.g. Claude Code's scratchpad) would otherwise
+ * silently create a workspace nobody asked for. Explicit user registration (`beacon`, /beacon-init)
+ * keeps using isRegistrableWorkspacePath, so a non-git project folder can still be added by hand.
+ */
+export function isImplicitlyRegistrablePath(path: string): boolean {
+  if (!isRegistrableWorkspacePath(path)) return false;
+  return spawnSync("git", ["rev-parse", "--git-dir"], {
+    cwd: path,
+    stdio: ["ignore", "ignore", "ignore"],
+  }).status === 0;
+}
+
 // ── Deletion tombstones ─────────────────────────────────────────────────────
 //
 // Deleting a workspace must STICK: implicit self-heal (the MCP server's startup register and the
@@ -334,7 +349,7 @@ export async function resolveRequestWorkspaceId(req: Request): Promise<string | 
   const headerPath = req.headers.get(BEACON_WS_PATH_HEADER);
   if (
     headerPath &&
-    isRegistrableWorkspacePath(headerPath) &&
+    isImplicitlyRegistrablePath(headerPath) &&
     !isWorkspaceDeleted(idForPath(headerPath)) &&
     (!headerId || idForPath(headerPath) === headerId)
   ) {
