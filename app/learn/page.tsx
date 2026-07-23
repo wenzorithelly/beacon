@@ -34,6 +34,11 @@ export default async function LearnPage({
         />
       );
     }
-    return <LearnWorkspace initialLesson={readCurrentLesson()} repoFiles={repoFiles} />;
+    // Hand the client the SAME workspace the server just resolved (resolveTabWorkspaceId's documented
+    // contract), so its poll/presence/save fetches header-pin to it. Otherwise the client falls back to
+    // currentTabWs() — sessionStorage — while this render used the cookie, and a /learn tab opened without
+    // a ?ws param polls a DIFFERENT workspace than it rendered: the lesson shows only after a manual
+    // Cmd-R re-render. (owner report, 2026-07-23: "lessons only appear after I press Command R".)
+    return <LearnWorkspace initialLesson={readCurrentLesson()} repoFiles={repoFiles} workspaceId={learnWs} />;
   });
 }

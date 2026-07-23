@@ -33,11 +33,17 @@ interface NodeQuestion {
 export function LearnWorkspace({
   initialLesson,
   repoFiles = [],
+  workspaceId = null,
 }: {
   initialLesson: Lesson | null;
   repoFiles?: string[];
+  // The server-resolved workspace for THIS render. Every data fetch pins to it so the poll can never
+  // read a different workspace than the page rendered (the "only after Cmd-R" bug). Falls back to the
+  // client's own tab resolution only when the server had nothing concrete to hand down (null).
+  workspaceId?: string | null;
 }) {
   const router = useRouter();
+  const tabWs = useMemo(() => workspaceId ?? currentTabWs(), [workspaceId]);
   const [lesson, setLesson] = useState<Lesson | null>(initialLesson);
   const [narrativeApi, setNarrativeApi] = useState<NarrativeApi | null>(null);
   const [nodeQuestions, setNodeQuestions] = useState<NodeQuestion[]>([]);
@@ -62,7 +68,7 @@ export function LearnWorkspace({
   // Presence heartbeat so beacon_explain reuses this tab instead of opening a new one.
   useEffect(() => {
     const beat = () =>
-      void fetch("/api/lesson/presence", { method: "POST", cache: "no-store", headers: wsHeaders(currentTabWs()) }).catch(
+      void fetch("/api/lesson/presence", { method: "POST", cache: "no-store", headers: wsHeaders(tabWs) }).catch(
         () => {},
       );
     beat();
@@ -73,7 +79,7 @@ export function LearnWorkspace({
   // Pull the latest (re)pushed lesson. A higher updatedAt = the agent answered and re-pushed.
   const poll = useCallback(async () => {
     try {
-      const res = await fetch("/api/lesson", { cache: "no-store", headers: wsHeaders(currentTabWs()) });
+      const res = await fetch("/api/lesson", { cache: "no-store", headers: wsHeaders(tabWs) });
       if (!res.ok) return;
       const body = (await res.json()) as { lesson: Lesson | null };
       const next = body.lesson;
@@ -83,6 +89,11 @@ export function LearnWorkspace({
         setAskNodeId(null);
         setOverall("");
         setWaiting(false);
+        // A strictly-newer lesson is a FRESH agent push — it supersedes a prior save/close, so drop the
+        // ended state and reopen. Without this the tab stayed stuck on the Saved/Closed card (or its stale
+        // lesson) and only a manual Cmd-R re-rendered the new push ("lessons only appear after Cmd-R").
+        setEnded(null);
+        setSavedId(null);
       } else if (!next && roundRef.current > 0) {
         setLesson(null);
       }
@@ -96,8 +107,11 @@ export function LearnWorkspace({
   // setInterval in a hidden tab, so the answered lesson wouldn't appear until a manual refresh.
   // Re-polling on visibilitychange/focus clears the "Questions sent" overlay the moment they
   // switch back; the updatedAt guard makes the extra call a no-op when nothing changed.
+  // Keep polling even while ended (saved/closed): a later beacon_explain push must reopen the tab on
+  // its own, because the presence heartbeat above never stops, so openLearnTabIfNone sees this tab as
+  // live and opens NO new one — this poll is the only path a new lesson can arrive by. The updatedAt
+  // guard in `poll` makes the extra calls no-ops until a genuinely newer lesson lands.
   useEffect(() => {
-    if (ended) return;
     const t = setInterval(() => void poll(), 3000);
     const onActive = () => {
       if (document.visibilityState === "visible") void poll();
@@ -109,7 +123,7 @@ export function LearnWorkspace({
       document.removeEventListener("visibilitychange", onActive);
       window.removeEventListener("focus", onActive);
     };
-  }, [ended, poll]);
+  }, [poll]);
 
   // Combine every pending question (text excerpts + node anchors + the overall box) into the wire
   // shape the API stores. askedAt is stamped on send.
@@ -136,7 +150,7 @@ export function LearnWorkspace({
     try {
       const res = await fetch("/api/lesson/questions", {
         method: "POST",
-        headers: { "content-type": "application/json", ...wsHeaders(currentTabWs()) },
+        headers: { "content-type": "application/json", ...wsHeaders(tabWs) },
         body: JSON.stringify({ questions: buildQuestions() }),
       });
       if (res.ok) {
@@ -150,7 +164,7 @@ export function LearnWorkspace({
   }, [sending, pendingCount, buildQuestions]);
 
   const save = useCallback(async () => {
-    const res = await fetch("/api/lesson/save", { method: "POST", headers: wsHeaders(currentTabWs()) });
+    const res = await fetch("/api/lesson/save", { method: "POST", headers: wsHeaders(tabWs) });
     if (res.ok) {
       const body = (await res.json()) as { lessonId?: string };
       setSavedId(body.lessonId ?? lesson?.id ?? null);
@@ -159,7 +173,7 @@ export function LearnWorkspace({
   }, [lesson]);
 
   const close = useCallback(async () => {
-    await fetch("/api/lesson/close", { method: "POST", headers: wsHeaders(currentTabWs()) }).catch(() => {});
+    await fetch("/api/lesson/close", { method: "POST", headers: wsHeaders(tabWs) }).catch(() => {});
     setEnded("closed");
   }, []);
 

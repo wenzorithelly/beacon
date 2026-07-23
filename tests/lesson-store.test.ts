@@ -125,7 +125,10 @@ describe("lesson store — round questions + answer merge", () => {
     pushLesson(baseInput(), 1000);
     writeQuestions({ questions: [q], submitted: true });
     const l = pushLesson(baseInput(), 2000);
-    expect(readQuestions()).toEqual({ questions: [q], submitted: true });
+    // The rewritten buffer now carries the lesson's identity fence (so the deliverer + verdict poll can
+    // still recover it) — the questions themselves must survive the re-push unchanged.
+    expect(readQuestions()).toMatchObject({ questions: [q], submitted: true });
+    expect(readQuestions().lessonId).toBe(l.id);
     expect(resolveLessonVerdict().kind).toBe("questions");
     // Folded into the lesson exactly once (visible as "waiting…"), even across re-pushes.
     expect(l.questions).toHaveLength(1);
@@ -186,14 +189,47 @@ describe("lesson verdict + resolution priority", () => {
   });
 
   it("resolves to questions when the round buffer is submitted (beats a live lesson)", () => {
-    pushLesson(baseInput(), 1000);
+    const l = pushLesson(baseInput(), 1000);
     writeQuestions({
       questions: [{ id: "q1", anchor: { kind: "overall" }, question: "wat?", askedAt: 1 }],
       submitted: true,
+      lessonId: l.id,
+      lessonCreatedAt: l.createdAt,
     });
     const r = resolveLessonVerdict();
     expect(r.kind).toBe("questions");
     if (r.kind === "questions") expect(r.questions).toHaveLength(1);
+  });
+
+  it("does NOT deliver a stale queue from a previous session to a new session's lesson", () => {
+    // The cross-session leak: session A pushes a lesson and the user submits questions; the user never
+    // answers, then session B opens a FRESH explain. B's verdict poll must NOT receive A's questions.
+    const a = pushLesson({ ...baseInput(), ownerSessionId: "sess-A" }, 1000);
+    writeQuestions({
+      questions: [{ id: "q1", anchor: { kind: "overall" }, question: "A's question", askedAt: 1 }],
+      submitted: true,
+      lessonId: a.id,
+      lessonCreatedAt: a.createdAt,
+      ownerSessionId: "sess-A",
+    });
+    const b = pushLesson({ ...baseInput(), title: "Different topic", ownerSessionId: "sess-B" }, 2000);
+    expect(b.id).not.toBe(a.id); // a new session mints a new lesson, not a continuation of A
+    expect(readQuestions().questions).toHaveLength(0); // A's queue was cleared, not inherited
+    expect(resolveLessonVerdict().kind).toBe("pending"); // B sees no stale questions
+  });
+
+  it("keeps delivering questions when the SAME session re-pushes (continuation, not a leak)", () => {
+    const a = pushLesson({ ...baseInput(), ownerSessionId: "sess-A" }, 1000);
+    writeQuestions({
+      questions: [{ id: "q1", anchor: { kind: "overall" }, question: "still asking", askedAt: 1 }],
+      submitted: true,
+      lessonId: a.id,
+      lessonCreatedAt: a.createdAt,
+      ownerSessionId: "sess-A",
+    });
+    const a2 = pushLesson({ ...baseInput(), ownerSessionId: "sess-A" }, 2000); // resume, no answers
+    expect(a2.id).toBe(a.id); // same session continues the same lesson
+    expect(resolveLessonVerdict().kind).toBe("questions");
   });
 
   it("does NOT resolve to questions when the buffer is unsubmitted", () => {

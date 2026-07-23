@@ -177,10 +177,18 @@ export function buildLesson(input: LessonInput, prev: Lesson | null, now = Date.
     narrativeAnchor: s.narrativeAnchor,
   }));
 
+  // A push from a DIFFERENT agent session is a NEW lesson, not a continuation: do NOT inherit the prior
+  // lesson's id/createdAt/owner or fold its questions. Inheriting them let a fresh explain (new session)
+  // adopt the previous session's identity, so its still-submitted queue delivered as if it belonged to
+  // this lesson — the cross-session question leak. Same session (or no session id to compare) continues.
+  const base = prev && input.ownerSessionId != null && prev.ownerSessionId != null
+    && prev.ownerSessionId !== input.ownerSessionId ? null : prev;
   const answersById = new Map((input.answers ?? []).map((a) => [a.questionId, a.answer]));
-  const buffer = readQuestions();
+  // A fresh lesson never folds the previous round's buffer (it belongs to the old session; pushLesson
+  // clears it). Reading it only for a continuation keeps buildLesson's output tied to `base`.
+  const buffer: StoredQuestions = base ? readQuestions() : { questions: [], submitted: false };
   // Any answer that targets an already-recorded question (a later round answering an older one).
-  const prevQuestions = (prev?.questions ?? []).map((q) => {
+  const prevQuestions = (base?.questions ?? []).map((q) => {
     const answer = answersById.get(q.id);
     return answer && !q.answer ? { ...q, answer, answeredAt: now } : q;
   });
@@ -200,12 +208,12 @@ export function buildLesson(input: LessonInput, prev: Lesson | null, now = Date.
   const questions = [...prevQuestions, ...submittedThisRound];
 
   return {
-    id: prev?.id ?? randomUUID().slice(0, 8),
-    ownerSessionId: input.ownerSessionId ?? prev?.ownerSessionId,
+    id: base?.id ?? randomUUID().slice(0, 8),
+    ownerSessionId: input.ownerSessionId ?? base?.ownerSessionId,
     title: input.title,
-    topic: input.topic || prev?.topic || input.title,
-    createdAt: prev?.createdAt ?? now,
-    updatedAt: Math.max(now, (prev?.updatedAt ?? 0) + 1),
+    topic: input.topic || base?.topic || input.title,
+    createdAt: base?.createdAt ?? now,
+    updatedAt: Math.max(now, (base?.updatedAt ?? 0) + 1),
     status: "live",
     narrative: input.narrative,
     nodes,
@@ -221,13 +229,30 @@ export function buildLesson(input: LessonInput, prev: Lesson | null, now = Date.
 // NOT answer stay submitted — a re-push that resumes after the blocking tool timed out must not
 // swallow them, so the agent's next verdict poll re-delivers them.
 export function pushLesson(input: LessonInput, now = Date.now()): Lesson {
+  const prev = readCurrentLesson();
   const buffer = readQuestions();
-  const lesson = buildLesson(input, readCurrentLesson(), now);
+  const lesson = buildLesson(input, prev, now);
   writeCurrentLesson(lesson);
+  // A fresh lesson (a new session took over — buildLesson minted a new id) never carries the previous
+  // lesson's queue: it belongs to the old owner and must not follow into this one.
+  if (!prev || lesson.id !== prev.id) {
+    resetLessonRound();
+    return lesson;
+  }
   const answered = new Set(lesson.questions.filter((q) => q.answer).map((q) => q.id));
   const remaining = buffer.submitted ? buffer.questions.filter((q) => !answered.has(q.id)) : [];
-  if (remaining.length) writeQuestions({ questions: remaining, submitted: true });
-  else resetLessonRound();
+  // Preserve the identity fence when rewriting the still-unanswered queue. Dropping it (the old bug) left
+  // the queue unattributed, so neither the verdict poll (now scoped) nor the terminal deliverer (already
+  // scoped) could recover it — the user's remaining questions silently never reached the agent.
+  if (remaining.length) {
+    writeQuestions({
+      questions: remaining,
+      submitted: true,
+      lessonId: lesson.id,
+      lessonCreatedAt: lesson.createdAt,
+      ...(lesson.ownerSessionId ? { ownerSessionId: lesson.ownerSessionId } : {}),
+    });
+  } else resetLessonRound();
   return lesson;
 }
 
