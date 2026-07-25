@@ -67,8 +67,12 @@ export function PlanToc({ markdown }: { markdown: string }) {
     setActive(id);
   };
 
+  // `shell:pt-3` — under the desktop shell there is no floating in-page nav to clear (pt-16), but
+  // pt-0 put the "Sections" eyebrow flush against the shell's chrome bar, reading as a collision
+  // (owner, 2026-07-24: "it's literally almost cutting the words"). Same value on the prose pane
+  // next door (annotation-panel.tsx) so the two panes stay top-aligned.
   return (
-    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-background pt-16 shell:pt-0">
+    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-background pt-16 shell:pt-3">
       <div className="px-4 pb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         Sections
       </div>

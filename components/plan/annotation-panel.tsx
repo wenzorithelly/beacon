@@ -491,9 +491,11 @@ export function AnnotationPanel({
         </div>
       </div>
 
+      {/* `shell:pt-3` (not pt-0): no floating in-page nav to clear under the desktop shell, but the
+          markdown's H1 sat flush against the chrome bar — see plan-toc.tsx for the same reasoning. */}
       <div
         ref={docRef}
-        className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-16 text-[15px] leading-[1.6] selection:bg-[var(--accent-2,#ff7a45)]/30 shell:pt-0"
+        className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-16 text-[15px] leading-[1.6] selection:bg-[var(--accent-2,#ff7a45)]/30 shell:pt-3"
       >
         <RenderedMarkdown
           markdown={markdown}
