@@ -12,6 +12,8 @@ import { addSubtasksUnder, startFeature } from "@/lib/map-ops";
 import { createNode } from "@/lib/mutations";
 import { resetDb } from "./helpers";
 
+const TEST_DESC = "A fixture description long enough to clear the roadmap card body minimum length.";
+
 beforeEach(resetDb);
 
 // Every agent surface that creates roadmap cards must be able to type them as bugs.
@@ -20,8 +22,8 @@ describe("propose_plan / ```beacon block — featureItemSchema kind", () => {
   it("persists a kind=BUG draft feature", async () => {
     await persistFeatureDraft({
       features: [
-        { title: "Fix verdict race", cluster: "PLAN", priority: 1, kind: "BUG" },
-        { title: "Plain feature", cluster: "PLAN", priority: 2 },
+        { title: "Fix verdict race", description: TEST_DESC, cluster: "PLAN", priority: 1, kind: "BUG" },
+        { title: "Plain feature", description: TEST_DESC, cluster: "PLAN", priority: 2 },
       ],
     });
     const bug = await db.query.node.findFirst({
@@ -37,7 +39,7 @@ describe("propose_plan / ```beacon block — featureItemSchema kind", () => {
 
   it("is tolerant of lowercase kind", async () => {
     await persistFeatureDraft({
-      features: [{ title: "Lowercase bug", cluster: "PLAN", priority: 2, kind: "bug" }],
+      features: [{ title: "Lowercase bug", description: TEST_DESC, cluster: "PLAN", priority: 2, kind: "bug" }],
     });
     const n = await db.query.node.findFirst({
       where: (t, { eq }) => eq(t.title, "Lowercase bug"),
@@ -47,7 +49,7 @@ describe("propose_plan / ```beacon block — featureItemSchema kind", () => {
 
   it("round-trips kind through getFeatureDraft", async () => {
     await persistFeatureDraft({
-      features: [{ title: "Fix verdict race", cluster: "PLAN", priority: 1, kind: "BUG" }],
+      features: [{ title: "Fix verdict race", description: TEST_DESC, cluster: "PLAN", priority: 1, kind: "BUG" }],
     });
     const draft = await getFeatureDraft();
     expect(draft.features[0].kind).toBe("BUG");
@@ -57,7 +59,7 @@ describe("propose_plan / ```beacon block — featureItemSchema kind", () => {
 describe("beacon_init_persist — roadmap items with kind", () => {
   it("persists a kind=BUG roadmap item", async () => {
     await persistRoadmap([
-      { title: "Fix watcher leak", category: "INTEL", priority: 1, kind: "BUG" },
+      { title: "Fix watcher leak", description: TEST_DESC, category: "INTEL", priority: 1, kind: "BUG" },
       { title: "Strategic theme" },
     ]);
     const bug = await db.query.node.findFirst({
@@ -73,7 +75,7 @@ describe("beacon_init_persist — roadmap items with kind", () => {
 
 describe("beacon_feature (add/start) — kind", () => {
   it("creates a new node as a BUG when kind is passed", async () => {
-    const r = await startFeature({
+    const r = await startFeature({ detail: TEST_DESC,
       title: "Crash when approving an empty plan",
       cluster: "PLAN",
       kind: "BUG",

@@ -22,6 +22,8 @@ import { POST as draftApprovePost } from "@/app/api/draft/approve/route";
 import { DELETE as draftDelete } from "@/app/api/draft/route";
 import { POST as annotationsPost } from "@/app/api/plan/annotations/route";
 
+const TEST_DESC = "A fixture description long enough to clear the roadmap card body minimum length.";
+
 function postReq(url: string, body: unknown): Request {
   return new Request(url, {
     method: "POST",
@@ -64,7 +66,7 @@ describe("resolvePlanVerdict — D1: approve is never misread as discard", () =>
 
   it("resolves a FEATURES-ONLY approve as approved (the headline bug)", async () => {
     await planPost(
-      planReq({ description: "feature plan", features: [{ title: "Org mgmt", cluster: "AUTH", priority: 1 }] }),
+      planReq({ description: "feature plan", features: [{ title: "Org mgmt", description: TEST_DESC, cluster: "AUTH", priority: 1 }] }),
     );
     expect((await resolvePlanVerdict()).kind).toBe("pending");
 
@@ -93,8 +95,8 @@ describe("approve verdict carries each feature's title→id", () => {
       planReq({
         description: "feature plan",
         features: [
-          { title: "Org mgmt", cluster: "AUTH", priority: 1 },
-          { title: "Billing portal", cluster: "BILLING", priority: 2 },
+          { title: "Org mgmt", description: TEST_DESC, cluster: "AUTH", priority: 1 },
+          { title: "Billing portal", description: TEST_DESC, cluster: "BILLING", priority: 2 },
         ],
       }),
     );

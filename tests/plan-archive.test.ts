@@ -13,6 +13,8 @@ import { POST as planPost, DELETE as planDelete } from "@/app/api/plan/route";
 import { approvePlan, resolvePlanVerdict } from "@/lib/plan-resolve";
 import { listHistory } from "@/lib/plan-history";
 
+const TEST_DESC = "A fixture description long enough to clear the roadmap card body minimum length.";
+
 function reqJson(body: unknown): Request {
   return new Request("http://test/api/plan", {
     method: "POST",
@@ -42,7 +44,7 @@ describe("approving a plan archives its full markdown", () => {
     await planPost(reqJson({ description: "Harden the loop", markdown: RICH }));
     // Round 2: a follow-up beacon_propose_plan adds a feature board but no prose.
     await planPost(
-      reqJson({ description: "Harden the loop", features: [{ title: "Some feature", cluster: "AUTH", priority: 2 }] }),
+      reqJson({ description: "Harden the loop", features: [{ title: "Some feature", description: TEST_DESC, cluster: "AUTH", priority: 2 }] }),
     );
     await approvePlan();
     // The prose must survive — it was never explicitly replaced.
@@ -53,7 +55,7 @@ describe("approving a plan archives its full markdown", () => {
     await planPost(reqJson({ description: "Harden the loop", markdown: RICH }));
     // A genuinely different plan (new description), board-only — must start fresh.
     await planPost(
-      reqJson({ description: "Add billing", features: [{ title: "Invoices", cluster: "BILLING", priority: 2 }] }),
+      reqJson({ description: "Add billing", features: [{ title: "Invoices", description: TEST_DESC, cluster: "BILLING", priority: 2 }] }),
     );
     await approvePlan();
     const md = listHistory()[0]?.markdown ?? "";
@@ -71,7 +73,7 @@ describe("approving a plan archives its full markdown", () => {
       "",
       "```beacon",
       "{",
-      '  "features": [ { "title": "Refresh token rotation", "cluster": "AUTH", "priority": 1 } ],',
+      `  "features": [ { "title": "Refresh token rotation", "description": ${JSON.stringify(TEST_DESC)}, "cluster": "AUTH", "priority": 1 } ],`,
       '  "tables": [ { "name": "refresh_tokens", "domain": "AUTH", "columns": [ { "name": "id", "type": "uuid", "isPk": true } ] } ],',
       '  "endpoints": [ { "method": "POST", "path": "/api/v1/auth/refresh", "uses": [ { "table": "refresh_tokens" } ] } ]',
       "}",
@@ -101,8 +103,8 @@ describe("approving a plan archives its full markdown", () => {
       reqJson({
         description: "Multi-feature plan",
         features: [
-          { title: "Refresh token rotation", cluster: "AUTH", priority: 1 },
-          { title: "Email verification", cluster: "AUTH", priority: 2 },
+          { title: "Refresh token rotation", description: TEST_DESC, cluster: "AUTH", priority: 1 },
+          { title: "Email verification", description: TEST_DESC, cluster: "AUTH", priority: 2 },
         ],
       }),
     );

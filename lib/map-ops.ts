@@ -373,6 +373,7 @@ export async function startFeature(input: {
     title,
     category: cluster,
     layer,
+    description: input.detail,
     requireLayer,
     existing: nodes.map((n) => ({ id: n.id, title: n.title, cluster: n.cluster, status: n.status })),
   });

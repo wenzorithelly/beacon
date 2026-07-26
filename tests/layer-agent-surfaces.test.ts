@@ -14,6 +14,8 @@ import { createNode } from "@/lib/mutations";
 import { setProjectMeta } from "@/lib/project-meta";
 import { resetDb } from "./helpers";
 
+const TEST_DESC = "A fixture description long enough to clear the roadmap card body minimum length.";
+
 beforeEach(async () => {
   await resetDb();
   await db.delete(projectMeta);
@@ -26,9 +28,9 @@ describe("propose_plan / ```beacon block — featureItemSchema layer", () => {
   it("persists layer on draft features and defaults to null", async () => {
     await persistFeatureDraft({
       features: [
-        { title: "Login screen", cluster: "AUTH", priority: 1, layer: "frontend" },
-        { title: "Session API", cluster: "AUTH", priority: 1, layer: "BACKEND" },
-        { title: "Unlayered", cluster: "AUTH", priority: 2 },
+        { title: "Login screen", description: TEST_DESC, cluster: "AUTH", priority: 1, layer: "frontend" },
+        { title: "Session API", description: TEST_DESC, cluster: "AUTH", priority: 1, layer: "BACKEND" },
+        { title: "Unlayered", description: TEST_DESC, cluster: "AUTH", priority: 2 },
       ],
     });
     const fe = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.title, "Login screen") });
@@ -41,7 +43,7 @@ describe("propose_plan / ```beacon block — featureItemSchema layer", () => {
 
   it("drops an invalid layer to null instead of failing the parse", async () => {
     await persistFeatureDraft({
-      features: [{ title: "Weird", cluster: "AUTH", priority: 2, layer: "middleware" }],
+      features: [{ title: "Weird", description: TEST_DESC, cluster: "AUTH", priority: 2, layer: "middleware" }],
     });
     const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.title, "Weird") });
     expect(n?.layer).toBeNull();
@@ -49,7 +51,7 @@ describe("propose_plan / ```beacon block — featureItemSchema layer", () => {
 
   it("round-trips layer through getFeatureDraft", async () => {
     await persistFeatureDraft({
-      features: [{ title: "Login screen", cluster: "AUTH", priority: 1, layer: "fullstack" }],
+      features: [{ title: "Login screen", description: TEST_DESC, cluster: "AUTH", priority: 1, layer: "fullstack" }],
     });
     const draft = await getFeatureDraft();
     expect(draft.features[0].layer).toBe("fullstack");
@@ -59,8 +61,8 @@ describe("propose_plan / ```beacon block — featureItemSchema layer", () => {
 describe("beacon_init_persist — roadmap items + components with layer", () => {
   it("persists layer on roadmap items", async () => {
     await persistRoadmap([
-      { title: "Settings screen", category: "UI", priority: 2, layer: "frontend" },
-      { title: "No layer", category: "UI", priority: 2 },
+      { title: "Settings screen", description: TEST_DESC, category: "UI", priority: 2, layer: "frontend" },
+      { title: "No layer", description: TEST_DESC, category: "UI", priority: 2 },
     ]);
     const fe = await db.query.node.findFirst({
       where: (t, { eq }) => eq(t.title, "Settings screen"),
@@ -104,7 +106,7 @@ describe("beacon_feature (done) — architecture upsert layer", () => {
 
 describe("beacon_feature (add/start) — layer", () => {
   it("creates a new node with the given layer", async () => {
-    const r = await startFeature({ title: "Share token API", cluster: "PLAN", layer: "backend" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Share token API", cluster: "PLAN", layer: "backend" });
     expect(r.action).toBe("created");
     const n = await db.query.node.findFirst({
       where: (t, { eq }) => eq(t.title, "Share token API"),
@@ -114,7 +116,7 @@ describe("beacon_feature (add/start) — layer", () => {
 
   it("a sub-task nested under a front inherits the parent's layer", async () => {
     await createNode({ view: "ROADMAP", title: "Share links", cluster: "PLAN", layer: "fullstack" });
-    const r = await startFeature({ title: "Mint token route", front: "Share links" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Mint token route", front: "Share links" });
     expect(r.action).toBe("created");
     const n = await db.query.node.findFirst({
       where: (t, { eq }) => eq(t.title, "Mint token route"),
@@ -124,14 +126,14 @@ describe("beacon_feature (add/start) — layer", () => {
 
   it("rejects a new top-level feature without layer when the workspace has a frontend", async () => {
     await setProjectMeta({ hasFrontend: true });
-    const r = await startFeature({ title: "Share token API", cluster: "PLAN" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Share token API", cluster: "PLAN" });
     expect(r.action).toBe("rejected");
     if (r.action === "rejected") expect(r.message).toContain("layer");
   });
 
   it("does not require layer when the workspace has no frontend", async () => {
     await setProjectMeta({ hasFrontend: false });
-    const r = await startFeature({ title: "Share token API", cluster: "PLAN" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Share token API", cluster: "PLAN" });
     expect(r.action).toBe("created");
   });
 });

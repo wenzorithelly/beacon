@@ -16,6 +16,15 @@ export const featureItemSchema = z
           title: z.string().trim().min(1),
           role: z.string().nullish(),
           plain: z.string().nullish(),
+          // `description` is THE agent-facing name for a card's body — one field, everywhere.
+          // `plain` above is the DB column it lands in, kept accepted here only so callers written
+          // against the column name don't break; it is not documented on any tool schema.
+          //
+          // Why this exists: zod STRIPS unknown keys, so a plan that wrote the natural
+          // `description` used to lose it silently — 14 cards landed with empty bodies and not one
+          // error anywhere. Same failure the `category` aliases below already guard against, and
+          // for the reason stated there: the natural choice must not be dropped on the floor.
+          description: z.string().nullish(),
           cluster: z.string().nullish(),
           // The agent + UI both call the category "category", and "domain" is the adjacent word
           // it reaches for — accept all three and normalize to `cluster` below so a plan written
@@ -38,11 +47,12 @@ export const featureItemSchema = z
           // transport array only — never stored as a DB scalar list (it becomes Edge rows).
           dependsOn: z.array(z.string()).nullish(),
         })
-        // Normalize the category aliases (`category`/`domain` → `cluster`) and clamp priority into
-        // Beacon's P0..P3 range so a slightly-off plan still lands on the board instead of being
-        // dropped wholesale.
-        .transform(({ category, domain, priority, kind, layer, ...f }) => ({
+        // Normalize the category aliases (`category`/`domain` → `cluster`) and `description` onto
+        // the `plain` column, and clamp priority into Beacon's P0..P3 range so a slightly-off plan
+        // still lands on the board instead of being dropped wholesale.
+        .transform(({ category, domain, description, priority, kind, layer, ...f }) => ({
           ...f,
+          plain: description ?? f.plain ?? null,
           cluster: f.cluster ?? category ?? domain ?? null,
           priority: priority == null ? null : Math.max(0, Math.min(3, Math.round(priority))),
           kind: kind?.trim().toUpperCase() === "BUG" ? ("BUG" as const) : ("FEATURE" as const),

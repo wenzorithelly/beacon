@@ -220,10 +220,12 @@ server.registerTool(
         .describe(
           "title of an EXISTING parent feature to nest a NEW card under (add/start). NOT a domain tag (use `category`); a `front` matching nothing is REJECTED.",
         ),
-      detail: z
+      description: z
         .string()
         .optional()
-        .describe("one-line plain-language description shown on the card (add/start)."),
+        .describe(
+          "REQUIRED for a NEW card (add/start): the card's body — what the work IS and why. Minimum 80 characters; a title alone is unreadable a week later. Markdown is welcome, and naming the files it touches in `backticks` makes them clickable on the board. Ignored when matching an existing card. Also the markdown summary for `done` (single form).",
+        ),
       kind: z
         .enum(["FEATURE", "BUG"])
         .optional()
@@ -278,10 +280,6 @@ server.registerTool(
         .describe(
           "done: register MANY features at once — one entry per feature the plan created, each id-keyed. Use this instead of N separate calls.",
         ),
-      description: z
-        .string()
-        .optional()
-        .describe("done (single form, omit when using `features`): the markdown summary of the shipped feature."),
       files: z.array(z.string()).optional().describe("done (single form): repo-relative files the feature touched."),
       architecture: architectureItemSchema,
     },
@@ -514,7 +512,12 @@ server.registerTool(
           z.object({
             title: z.string(),
             role: z.string().optional().describe("one-line technical role"),
-            plain: z.string().optional().describe("one plain-language sentence for the user"),
+            description: z
+              .string()
+              .optional()
+              .describe(
+                "REQUIRED — the card's body: what the work IS, why it matters, and the files it touches in `backticks`. Minimum 80 characters; markdown is welcome and a fuller body is better.",
+              ),
             category: z
               .string()
               .optional()
@@ -614,7 +617,7 @@ server.registerTool(
     // describes models/migrations but passes NO `tables` is rejected here. Re-call with tables.
     const hasTables = (tables?.length ?? 0) > 0;
     const featureText = (features ?? [])
-      .map((f) => `${f.title} ${f.role ?? ""} ${f.plain ?? ""}`)
+      .map((f) => `${f.title} ${f.role ?? ""} ${f.description ?? ""}`)
       .join("\n");
     const dbSignaled =
       (endpoints?.length ?? 0) > 0 || mentionsDbSchema(`${description}\n${featureText}`);

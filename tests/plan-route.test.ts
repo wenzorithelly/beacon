@@ -19,6 +19,8 @@ import {
   DELETE as annotationsDelete,
 } from "@/app/api/plan/annotations/route";
 
+const TEST_DESC = "A fixture description long enough to clear the roadmap card body minimum length.";
+
 function reqJson(url: string, body: unknown): Request {
   return new Request(url, {
     method: "POST",
@@ -237,8 +239,8 @@ describe("POST /api/plan enforces category + priority on every feature", () => {
       reqJson("http://test/api/plan", {
         description: "complete features",
         features: [
-          { title: "Search", cluster: "SEARCH", priority: 2 },
-          { title: "Critical path", cluster: "DATA", priority: 0 },
+          { title: "Search", description: TEST_DESC, cluster: "SEARCH", priority: 2 },
+          { title: "Critical path", description: TEST_DESC, cluster: "DATA", priority: 0 },
         ],
       }),
     );
@@ -286,7 +288,7 @@ describe("POST /api/plan requires layer only when the workspace has a frontend",
     const res = await planPost(
       reqJson("http://test/api/plan", {
         description: "no layers",
-        features: [{ title: "Search", cluster: "SEARCH", priority: 2 }],
+        features: [{ title: "Search", description: TEST_DESC, cluster: "SEARCH", priority: 2 }],
       }),
     );
     expect(res.status).toBe(422);
@@ -301,8 +303,8 @@ describe("POST /api/plan requires layer only when the workspace has a frontend",
       reqJson("http://test/api/plan", {
         description: "layered",
         features: [
-          { title: "Search UI", cluster: "SEARCH", priority: 2, layer: "frontend" },
-          { title: "Search API", cluster: "SEARCH", priority: 2, layer: "backend" },
+          { title: "Search UI", description: TEST_DESC, cluster: "SEARCH", priority: 2, layer: "frontend" },
+          { title: "Search API", description: TEST_DESC, cluster: "SEARCH", priority: 2, layer: "backend" },
         ],
       }),
     );
@@ -318,7 +320,7 @@ describe("POST /api/plan requires layer only when the workspace has a frontend",
     const res = await planPost(
       reqJson("http://test/api/plan", {
         description: "backend-only workspace",
-        features: [{ title: "Queue worker", cluster: "INFRA", priority: 1 }],
+        features: [{ title: "Queue worker", description: TEST_DESC, cluster: "INFRA", priority: 1 }],
       }),
     );
     expect(res.ok).toBe(true);
@@ -330,7 +332,7 @@ describe("POST /api/plan requires layer only when the workspace has a frontend",
     const res = await planPost(
       reqJson("http://test/api/plan", {
         description: "detected frontend",
-        features: [{ title: "Queue worker", cluster: "INFRA", priority: 1 }],
+        features: [{ title: "Queue worker", description: TEST_DESC, cluster: "INFRA", priority: 1 }],
       }),
     );
     expect(res.status).toBe(422);
@@ -348,7 +350,7 @@ describe("POST /api/plan re-processes a same-plan resume when the board failed t
   // pushing the identical plan must re-process (not short-circuit as a resume) so a fixed
   // extraction can populate it — and any obsolete "where are the tables?" feedback resets.
   it("re-processes (resets feedback) on an identical re-push when the board is empty but the plan wants one", async () => {
-    const md = ["# Plan", "prose", "```beacon", JSON.stringify({ features: [{ title: "X", cluster: "DATA", priority: 1 }] }), "```"].join("\n");
+    const md = ["# Plan", "prose", "```beacon", JSON.stringify({ features: [{ title: "X", description: TEST_DESC, cluster: "DATA", priority: 1 }] }), "```"].join("\n");
     // Round 1 renders the feature board fine.
     await planPost(reqJson("http://test/api/plan", { description: "p", markdown: md }));
     const draftCount = async () =>
@@ -377,7 +379,7 @@ describe("POST /api/plan re-processes a same-plan resume when the board failed t
   });
 
   it("still RESUMES (preserves feedback) on an identical re-push when the board IS rendered", async () => {
-    const md = ["# Plan", "prose", "```beacon", JSON.stringify({ features: [{ title: "Y", cluster: "DATA", priority: 1 }] }), "```"].join("\n");
+    const md = ["# Plan", "prose", "```beacon", JSON.stringify({ features: [{ title: "Y", description: TEST_DESC, cluster: "DATA", priority: 1 }] }), "```"].join("\n");
     await planPost(reqJson("http://test/api/plan", { description: "q", markdown: md }));
     await annotationsPost(reqJson("http://test/api/plan/annotations", { annotations: [], globalComment: "looks good but rename" }));
     // Identical re-push while the board is rendered → resume → feedback preserved.

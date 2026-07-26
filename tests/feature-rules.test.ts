@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
+  MIN_DESCRIPTION_CHARS,
+  describedEnough,
   existingCategories,
   validateFeatureCreation,
   validateFront,
@@ -12,18 +14,25 @@ const ROADMAP = [
   { id: "f2", title: "Harden auth and admin access", cluster: "AUTH", status: "DONE" },
 ];
 
+// A description that clears MIN_DESCRIPTION_CHARS, so the tests below exercise the rule they name
+// instead of all tripping the description gate. Every fixture that is SUPPOSED to pass carries it.
+const DESC =
+  "Adds the thing this card is about, why it matters for the board, and the files it touches.";
+
 describe("validateProposedFeatures", () => {
-  it("passes when every feature has a category + priority", () => {
+  it("passes when every feature has a category + priority + description", () => {
     expect(
       validateProposedFeatures([
-        { title: "Auth", cluster: "AUTH", priority: 1 },
-        { title: "Search", cluster: "SEARCH", priority: 2 },
+        { title: "Auth", cluster: "AUTH", priority: 1, description: DESC },
+        { title: "Search", cluster: "SEARCH", priority: 2, description: DESC },
       ]),
     ).toBeNull();
   });
 
   it("accepts priority 0 (P0) — it is set, not missing", () => {
-    expect(validateProposedFeatures([{ title: "Critical", cluster: "DATA", priority: 0 }])).toBeNull();
+    expect(
+      validateProposedFeatures([{ title: "Critical", cluster: "DATA", priority: 0, description: DESC }]),
+    ).toBeNull();
   });
 
   it("passes for an empty plan (no features)", () => {
@@ -31,30 +40,55 @@ describe("validateProposedFeatures", () => {
   });
 
   it("flags a feature missing its category", () => {
-    const err = validateProposedFeatures([{ title: "Search", priority: 2 }]);
+    const err = validateProposedFeatures([{ title: "Search", priority: 2, description: DESC }]);
     expect(err).toContain("Search");
     expect(err).toContain("category");
     expect(err).not.toContain("priority +"); // only category is missing
   });
 
   it("treats a blank/whitespace category as missing", () => {
-    const err = validateProposedFeatures([{ title: "Search", cluster: "   ", priority: 2 }]);
+    const err = validateProposedFeatures([
+      { title: "Search", cluster: "   ", priority: 2, description: DESC },
+    ]);
     expect(err).toContain("category");
   });
 
   it("flags a feature missing its priority", () => {
-    const err = validateProposedFeatures([{ title: "Search", cluster: "SEARCH" }]);
+    const err = validateProposedFeatures([{ title: "Search", cluster: "SEARCH", description: DESC }]);
     expect(err).toContain("priority");
   });
 
-  it("flags both when a feature has neither", () => {
+  it("flags a feature missing its description", () => {
+    const err = validateProposedFeatures([{ title: "Search", cluster: "SEARCH", priority: 2 }])!;
+    expect(err).toContain("Search");
+    expect(err).toContain("description");
+  });
+
+  it("flags a description that exists but is too thin, naming the shortfall", () => {
+    const err = validateProposedFeatures([
+      { title: "Search", cluster: "SEARCH", priority: 2, description: "TBD" },
+    ])!;
+    // "missing description" would tell the agent to add a field it already sent — say EXPAND.
+    expect(err).toContain("fuller description");
+    expect(err).toContain("3 chars");
+    expect(err).toContain(String(MIN_DESCRIPTION_CHARS));
+  });
+
+  it("treats a whitespace-only description as missing", () => {
+    const err = validateProposedFeatures([
+      { title: "Search", cluster: "SEARCH", priority: 2, description: "        \n   " },
+    ])!;
+    expect(err).toContain("description");
+  });
+
+  it("flags all three when a feature has none of them", () => {
     const err = validateProposedFeatures([{ title: "Bare" }]);
-    expect(err).toContain("category + priority");
+    expect(err).toContain("category + priority + description");
   });
 
   it("lists only the incomplete features", () => {
     const err = validateProposedFeatures([
-      { title: "Good", cluster: "AUTH", priority: 1 },
+      { title: "Good", cluster: "AUTH", priority: 1, description: DESC },
       { title: "Bad", cluster: "", priority: null },
     ]);
     expect(err).toContain("Bad");
@@ -62,13 +96,16 @@ describe("validateProposedFeatures", () => {
   });
 
   it("does not require layer by default", () => {
-    expect(validateProposedFeatures([{ title: "API", cluster: "DATA", priority: 1 }])).toBeNull();
+    expect(
+      validateProposedFeatures([{ title: "API", cluster: "DATA", priority: 1, description: DESC }]),
+    ).toBeNull();
   });
 
   it("requires layer when requireLayer is set, naming the valid values", () => {
-    const err = validateProposedFeatures([{ title: "API", cluster: "DATA", priority: 1 }], {
-      requireLayer: true,
-    })!;
+    const err = validateProposedFeatures(
+      [{ title: "API", cluster: "DATA", priority: 1, description: DESC }],
+      { requireLayer: true },
+    )!;
     expect(err).toContain("API");
     expect(err).toContain("layer");
     expect(err).toContain("frontend");
@@ -78,7 +115,7 @@ describe("validateProposedFeatures", () => {
 
   it("treats an invalid layer value as missing when required", () => {
     const err = validateProposedFeatures(
-      [{ title: "API", cluster: "DATA", priority: 1, layer: "middleware" }],
+      [{ title: "API", cluster: "DATA", priority: 1, layer: "middleware", description: DESC }],
       { requireLayer: true },
     );
     expect(err).toContain("layer");
@@ -88,12 +125,25 @@ describe("validateProposedFeatures", () => {
     expect(
       validateProposedFeatures(
         [
-          { title: "API", cluster: "DATA", priority: 1, layer: "backend" },
-          { title: "Screen", cluster: "UI", priority: 2, layer: "Frontend" },
+          { title: "API", cluster: "DATA", priority: 1, layer: "backend", description: DESC },
+          { title: "Screen", cluster: "UI", priority: 2, layer: "Frontend", description: DESC },
         ],
         { requireLayer: true },
       ),
     ).toBeNull();
+  });
+});
+
+describe("describedEnough", () => {
+  it("accepts a description at exactly the minimum", () => {
+    expect(describedEnough({ title: "x", description: "y".repeat(MIN_DESCRIPTION_CHARS) })).toBe(true);
+  });
+  it("rejects one character short", () => {
+    expect(describedEnough({ title: "x", description: "y".repeat(MIN_DESCRIPTION_CHARS - 1) })).toBe(false);
+  });
+  it("rejects missing and blank", () => {
+    expect(describedEnough({ title: "x" })).toBe(false);
+    expect(describedEnough({ title: "x", description: "   " })).toBe(false);
   });
 });
 
@@ -107,21 +157,69 @@ describe("existingCategories", () => {
 });
 
 describe("validateFeatureCreation", () => {
-  it("passes for a fresh, categorized, non-duplicate feature", () => {
+  it("passes for a fresh, categorized, described, non-duplicate feature", () => {
     expect(
-      validateFeatureCreation({ title: "Redis rate limiting", category: "INFRA", existing: ROADMAP }),
+      validateFeatureCreation({
+        title: "Redis rate limiting",
+        category: "INFRA",
+        description: DESC,
+        existing: ROADMAP,
+      }),
     ).toBeNull();
   });
 
   it("rejects a feature with no category and surfaces categories to reuse", () => {
-    const err = validateFeatureCreation({ title: "Redis rate limiting", category: "", existing: ROADMAP })!;
+    const err = validateFeatureCreation({
+      title: "Redis rate limiting",
+      category: "",
+      description: DESC,
+      existing: ROADMAP,
+    })!;
     expect(err).toContain("category");
     expect(err).toContain("AUTH");
     expect(err).toContain("DATA");
   });
 
+  it("rejects a feature with no description, pointing at `description`", () => {
+    const err = validateFeatureCreation({
+      title: "Redis rate limiting",
+      category: "INFRA",
+      existing: ROADMAP,
+    })!;
+    expect(err).toContain("no description");
+    expect(err).toContain("`description`");
+    expect(err).toContain(String(MIN_DESCRIPTION_CHARS));
+  });
+
+  it("rejects a too-thin description, naming its length", () => {
+    const err = validateFeatureCreation({
+      title: "Redis rate limiting",
+      category: "INFRA",
+      description: "later",
+      existing: ROADMAP,
+    })!;
+    expect(err).toContain("5-char description");
+  });
+
+  it("checks description LAST — a duplicate is reported before the missing body", () => {
+    // Writing 80 characters about a card that already exists wastes the write, so every cheaper
+    // rejection must fire first.
+    const err = validateFeatureCreation({
+      title: "Expand corpus coverage",
+      category: "DATA",
+      existing: ROADMAP,
+    })!;
+    expect(err.toLowerCase()).toContain("already");
+    expect(err).not.toContain("description");
+  });
+
   it("blocks a near-duplicate of an existing feature, naming it + its status", () => {
-    const err = validateFeatureCreation({ title: "Expand corpus coverage", category: "DATA", existing: ROADMAP })!;
+    const err = validateFeatureCreation({
+      title: "Expand corpus coverage",
+      category: "DATA",
+      description: DESC,
+      existing: ROADMAP,
+    })!;
     expect(err).toContain("Expand corpus coverage");
     expect(err.toLowerCase()).toContain("already");
     expect(err).toContain("PENDING");
@@ -129,14 +227,24 @@ describe("validateFeatureCreation", () => {
 
   it("allows a genuinely different title in the same category", () => {
     expect(
-      validateFeatureCreation({ title: "Stripe billing webhooks", category: "DATA", existing: ROADMAP }),
+      validateFeatureCreation({
+        title: "Stripe billing webhooks",
+        category: "DATA",
+        description: DESC,
+        existing: ROADMAP,
+      }),
     ).toBeNull();
   });
 
   it("allows a SAME-title feature in a different category", () => {
     // "Expand corpus coverage" exists in DATA — the same title under SEARCH is a distinct card.
     expect(
-      validateFeatureCreation({ title: "Expand corpus coverage", category: "SEARCH", existing: ROADMAP }),
+      validateFeatureCreation({
+        title: "Expand corpus coverage",
+        category: "SEARCH",
+        description: DESC,
+        existing: ROADMAP,
+      }),
     ).toBeNull();
   });
 
@@ -145,7 +253,13 @@ describe("validateFeatureCreation", () => {
       { id: "x", title: "Search", cluster: "SEARCH", layer: "backend", status: "PENDING" },
     ];
     expect(
-      validateFeatureCreation({ title: "Search", category: "SEARCH", layer: "frontend", existing }),
+      validateFeatureCreation({
+        title: "Search",
+        category: "SEARCH",
+        layer: "frontend",
+        description: DESC,
+        existing,
+      }),
     ).toBeNull();
   });
 
@@ -157,22 +271,31 @@ describe("validateFeatureCreation", () => {
       title: "Search",
       category: "SEARCH",
       layer: "backend",
+      description: DESC,
       existing,
     })!;
     expect(err.toLowerCase()).toContain("already");
   });
 
   it("rejects a blank title", () => {
-    expect(validateFeatureCreation({ title: "   ", category: "DATA", existing: ROADMAP })).toContain("title");
+    expect(
+      validateFeatureCreation({ title: "   ", category: "DATA", description: DESC, existing: ROADMAP }),
+    ).toContain("title");
   });
 
   it("requires layer only when requireLayer is set", () => {
     expect(
-      validateFeatureCreation({ title: "Stripe billing webhooks", category: "INFRA", existing: ROADMAP }),
+      validateFeatureCreation({
+        title: "Stripe billing webhooks",
+        category: "INFRA",
+        description: DESC,
+        existing: ROADMAP,
+      }),
     ).toBeNull();
     const err = validateFeatureCreation({
       title: "Stripe billing webhooks",
       category: "INFRA",
+      description: DESC,
       requireLayer: true,
       existing: ROADMAP,
     })!;
@@ -186,6 +309,7 @@ describe("validateFeatureCreation", () => {
         title: "Stripe billing webhooks",
         category: "INFRA",
         layer: "backend",
+        description: DESC,
         requireLayer: true,
         existing: ROADMAP,
       }),

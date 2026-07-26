@@ -10,6 +10,8 @@ import { node } from "@/lib/drizzle/schema";
 import { resetDb } from "./helpers";
 import { POST } from "@/app/api/map/start/route";
 
+const TEST_DESC = "A fixture description long enough to clear the roadmap card body minimum length.";
+
 beforeEach(resetDb);
 
 function post(body: unknown) {
@@ -26,7 +28,7 @@ function post(body: unknown) {
 // `flagExisting` through to startFeature.
 describe("POST /api/map/start", () => {
   it("creates a PENDING card for an add (status:'backlog')", async () => {
-    const res = await post({ title: "Backlog via route zzz", category: "DATA", status: "backlog", flagExisting: false });
+    const res = await post({ detail: TEST_DESC, title: "Backlog via route zzz", category: "DATA", status: "backlog", flagExisting: false });
     expect(res.status).toBe(200);
     const r = (await res.json()) as { action: string; id: string };
     expect(r.action).toBe("created");
@@ -35,14 +37,14 @@ describe("POST /api/map/start", () => {
   });
 
   it("threads priority onto a new card", async () => {
-    const res = await post({ title: "P3 card zzz", category: "DATA", priority: 3, status: "backlog", flagExisting: false });
+    const res = await post({ detail: TEST_DESC, title: "P3 card zzz", category: "DATA", priority: 3, status: "backlog", flagExisting: false });
     const r = (await res.json()) as { id: string };
     const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, r.id) });
     expect(n!.priority).toBe(3);
   });
 
   it("starts an IN_PROGRESS card for a start (status:'active')", async () => {
-    const res = await post({ title: "Active via route zzz", category: "DATA", status: "active", flagExisting: true });
+    const res = await post({ detail: TEST_DESC, title: "Active via route zzz", category: "DATA", status: "active", flagExisting: true });
     const r = (await res.json()) as { action: string; id: string };
     expect(r.action).toBe("created");
     const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, r.id) });
@@ -53,7 +55,7 @@ describe("POST /api/map/start", () => {
     await db
       .insert(node)
       .values({ view: "ROADMAP", title: "Existing card", cluster: "DATA", status: "PENDING" });
-    const res = await post({ title: "Existing card", flagExisting: false });
+    const res = await post({ detail: TEST_DESC, title: "Existing card", flagExisting: false });
     const r = (await res.json()) as { action: string };
     expect(r.action).toBe("exists");
     const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.title, "Existing card") });

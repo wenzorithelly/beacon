@@ -61,6 +61,25 @@ describe("extractBeaconBlock", () => {
     expect(out.prose).not.toContain("```beacon");
   });
 
+  // REGRESSION: `description` is the documented agent-facing field for a card's body, but the item
+  // schema only declared `plain` — and zod STRIPS unknown keys, so a plan that wrote `description`
+  // lost it with no error anywhere. Fourteen cards landed on a real board with empty bodies before
+  // anyone noticed. It must survive the parse, normalized onto the `plain` column.
+  it("carries a feature `description` through onto `plain`", () => {
+    const body = "What the work is, why it matters, and the files it touches.";
+    const md = planWith({ features: [{ title: "Described", description: body }] });
+    const out = extractBeaconBlock(md);
+    expect(out.features?.[0].plain).toBe(body);
+  });
+
+  it("prefers `description` over a legacy `plain` when both are present", () => {
+    const md = planWith({
+      features: [{ title: "Both", description: "the new field", plain: "the column name" }],
+    });
+    const out = extractBeaconBlock(md);
+    expect(out.features?.[0].plain).toBe("the new field");
+  });
+
   it("handles a tables-only block (no features) including endpoints + relations", () => {
     const md = planWith({
       tables: [

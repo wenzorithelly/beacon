@@ -12,17 +12,19 @@ import { node, edge } from "@/lib/drizzle/schema";
 import { resetDb } from "./helpers";
 import { addSubtasksUnder, startFeature } from "@/lib/map-ops";
 
+const TEST_DESC = "A fixture description long enough to clear the roadmap card body minimum length.";
+
 beforeEach(resetDb);
 
 describe("startFeature creation guard", () => {
   it("rejects creating a brand-new feature without a category", async () => {
-    const r = await startFeature({ title: "Some brand new thing zzz" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Some brand new thing zzz" });
     expect(r.action).toBe("rejected");
     if (r.action === "rejected") expect(r.message).toContain("category");
   });
 
   it("creates (IN_PROGRESS, with the category) when a category is provided", async () => {
-    const r = await startFeature({ title: "Some brand new thing zzz", cluster: "DATA" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Some brand new thing zzz", cluster: "DATA" });
     expect(r.action).toBe("created");
     if (r.action === "created") {
       const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, r.id) });
@@ -32,7 +34,7 @@ describe("startFeature creation guard", () => {
   });
 
   it("rejects a front that matches no existing feature (front-as-domain-tag footgun)", async () => {
-    const r = await startFeature({ title: "Some task", cluster: "DATA", front: "CRAWL" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Some task", cluster: "DATA", front: "CRAWL" });
     expect(r.action).toBe("rejected");
     if (r.action === "rejected") expect(r.message).toContain("CRAWL");
   });
@@ -42,7 +44,7 @@ describe("startFeature creation guard", () => {
       .insert(node)
       .values({ view: "ROADMAP", title: "Expand corpus coverage", cluster: "DATA" })
       .returning();
-    const r = await startFeature({
+    const r = await startFeature({ detail: TEST_DESC,
       title: "Add a fresh crawler source",
       cluster: "DATA",
       front: "Expand corpus coverage",
@@ -58,14 +60,14 @@ describe("startFeature creation guard", () => {
     await db
       .insert(node)
       .values({ view: "ROADMAP", title: "Expand corpus coverage", cluster: "DATA", status: "PENDING" });
-    const r = await startFeature({ title: "Expand corpus coverage" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Expand corpus coverage" });
     expect(r.action).toBe("flagged");
   });
 });
 
 describe("startFeature status (backlog vs active create)", () => {
   it("creates a PENDING card when status is 'backlog'", async () => {
-    const r = await startFeature({ title: "Backlog idea zzz", cluster: "DATA", status: "backlog" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Backlog idea zzz", cluster: "DATA", status: "backlog" });
     expect(r.action).toBe("created");
     if (r.action === "created") {
       const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, r.id) });
@@ -74,7 +76,7 @@ describe("startFeature status (backlog vs active create)", () => {
   });
 
   it("creates an IN_PROGRESS card when status is 'active'", async () => {
-    const r = await startFeature({ title: "Active idea zzz", cluster: "DATA", status: "active" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Active idea zzz", cluster: "DATA", status: "active" });
     expect(r.action).toBe("created");
     if (r.action === "created") {
       const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, r.id) });
@@ -83,7 +85,7 @@ describe("startFeature status (backlog vs active create)", () => {
   });
 
   it("tolerates a raw DB status value ('PENDING') on create", async () => {
-    const r = await startFeature({ title: "Raw status zzz", cluster: "DATA", status: "PENDING" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Raw status zzz", cluster: "DATA", status: "PENDING" });
     expect(r.action).toBe("created");
     if (r.action === "created") {
       const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, r.id) });
@@ -92,7 +94,7 @@ describe("startFeature status (backlog vs active create)", () => {
   });
 
   it("defaults to IN_PROGRESS when no status is given (back-compat)", async () => {
-    const r = await startFeature({ title: "Default status zzz", cluster: "DATA" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Default status zzz", cluster: "DATA" });
     expect(r.action).toBe("created");
     if (r.action === "created") {
       const n = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, r.id) });
@@ -106,7 +108,7 @@ describe("startFeature add intent (flagExisting: false)", () => {
     await db
       .insert(node)
       .values({ view: "ROADMAP", title: "Expand corpus coverage", cluster: "DATA", status: "PENDING" });
-    const r = await startFeature({ title: "Expand corpus coverage", flagExisting: false });
+    const r = await startFeature({ detail: TEST_DESC, title: "Expand corpus coverage", flagExisting: false });
     expect(r.action).toBe("exists");
     const n = await db.query.node.findFirst({
       where: (t, { eq }) => eq(t.title, "Expand corpus coverage"),
@@ -115,7 +117,7 @@ describe("startFeature add intent (flagExisting: false)", () => {
   });
 
   it("still rejects a brand-new add with no category", async () => {
-    const r = await startFeature({ title: "Brand new backlog zzz", status: "backlog", flagExisting: false });
+    const r = await startFeature({ detail: TEST_DESC, title: "Brand new backlog zzz", status: "backlog", flagExisting: false });
     expect(r.action).toBe("rejected");
     if (r.action === "rejected") expect(r.message).toContain("category");
   });
@@ -133,7 +135,7 @@ describe("startFeature places the new card in its group without moving anything"
       .returning();
     await db.insert(edge).values({ fromId: b.id, toId: a.id, kind: "DEPENDS" });
 
-    const r = await startFeature({ title: "Another data thing zzz", cluster: "DATA" });
+    const r = await startFeature({ detail: TEST_DESC, title: "Another data thing zzz", cluster: "DATA" });
     expect(r.action).toBe("created");
 
     const aAfter = await db.query.node.findFirst({ where: (t, { eq }) => eq(t.id, a.id) });

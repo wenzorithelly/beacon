@@ -17,11 +17,35 @@ export interface FeatureLike {
   domain?: string | null;
   priority?: number | null;
   layer?: string | null;
+  // A card with a title and nothing else is unreadable a week later — the reader can't tell what
+  // the work IS without re-deriving it. There is ONE agent-facing name for this: `description`.
+  description?: string | null;
+  // `plain` is the DB COLUMN the description normalizes onto (lib/feature-design's transform), and
+  // it is NOT a second agent-facing name — no tool schema mentions it. It's declared here only
+  // because /api/plan validates the POST-TRANSFORM features (route.ts `featureInput = parsed.features`),
+  // by which point `description` is already `plain`. Reading both is what lets one rule serve the
+  // pre-parse MCP path and the post-parse route path.
+  plain?: string | null;
 }
 
 // The feature's category, accepting the `cluster` / `category` / `domain` aliases.
 export function featureCategory(f: FeatureLike): string | null {
   return f.cluster ?? f.category ?? f.domain ?? null;
+}
+
+/** The card's body, whether it's still the agent's `description` or the normalized `plain` column. */
+export function featureDescription(f: FeatureLike): string {
+  return (f.description ?? f.plain ?? "").trim();
+}
+
+// Minimum length for a description to count as one. A gate that only checks non-empty is theater:
+// it is satisfied by "TBD", which is exactly the card this rule exists to prevent. 80 characters is
+// about one real sentence — enough to say what the work is and why, short enough that a genuinely
+// small card isn't blocked. Markdown is welcome and unbounded above.
+export const MIN_DESCRIPTION_CHARS = 80;
+
+export function describedEnough(f: FeatureLike): boolean {
+  return featureDescription(f).length >= MIN_DESCRIPTION_CHARS;
 }
 
 // Does an EXISTING card collide with a CANDIDATE (a proposed feature / an `add`)? It collides
@@ -45,13 +69,15 @@ export function collidesWith(existing: BucketKeyed, candidate: BucketKeyed): boo
   return true;
 }
 
-// Returns an agent-facing rejection message when any feature is missing its category/priority
-// (and, when the workspace has a frontend, its layer), or null when every feature is complete.
+// Returns an agent-facing rejection message when any feature is missing its category/priority/
+// description (and, when the workspace has a frontend, its layer), or null when every feature is
+// complete.
 export function validateProposedFeatures(
   features: FeatureLike[],
   opts?: { requireLayer?: boolean },
 ): string | null {
   const requireLayer = opts?.requireLayer ?? false;
+  let anyThin = false;
   const gaps = features
     .map((f) => {
       const missing: string[] = [];
@@ -59,6 +85,13 @@ export function validateProposedFeatures(
       if (!category || !category.trim()) missing.push("category");
       if (f.priority == null) missing.push("priority");
       if (requireLayer && !normalizeLayer(f.layer)) missing.push("layer");
+      // A too-short description reads differently from a missing one — name which it is, so the
+      // agent knows to EXPAND rather than to add a field it already sent.
+      if (!describedEnough(f)) {
+        const had = featureDescription(f).length;
+        missing.push(had ? `a fuller description (has ${had} chars, needs ${MIN_DESCRIPTION_CHARS})` : "description");
+        anyThin = true;
+      }
       return missing.length
         ? `  • "${f.title?.trim() || "(untitled)"}" — missing ${missing.join(" + ")}`
         : null;
@@ -69,15 +102,22 @@ export function validateProposedFeatures(
     ? " This workspace has a frontend surface, so every feature must also carry `layer`: " +
       '"frontend" | "backend" | "fullstack" — which side of the stack the work lands on.'
     : "";
+  const descriptionRule = anyThin
+    ? " Every feature also needs a real `description` — a title alone is unreadable a week later, " +
+      "when nobody can tell what the work IS without re-deriving it. Markdown is welcome: say what " +
+      "the card does, why it matters, and name the files it touches in `backticks`."
+    : "";
   return (
-    "⛔ Every roadmap feature needs a category AND a priority — they drive grouping and ordering " +
-    "on the board, and the user shouldn't have to add them by hand." +
+    "⛔ Every roadmap feature needs a category AND a priority AND a description — they drive " +
+    "grouping, ordering and comprehension on the board, and the user shouldn't have to add them by " +
+    "hand." +
     layerRule +
+    descriptionRule +
     " Missing:\n" +
     gaps.join("\n") +
     "\n\nRe-present with each feature carrying its category as `category` (or `cluster` — both " +
-    "work; e.g. AUTH, SEARCH, DATA, INTEL, BILLING …) and `priority` (0 = P0 critical, 1 = P1 " +
-    "high, 2 = P2 medium, 3 = P3 low)." +
+    "work; e.g. AUTH, SEARCH, DATA, INTEL, BILLING …), `priority` (0 = P0 critical, 1 = P1 " +
+    "high, 2 = P2 medium, 3 = P3 low), and `description`." +
     (requireLayer ? " Set `layer` on EVERY feature too." : "") +
     " Don't rely on defaults."
   );
@@ -105,13 +145,16 @@ export function existingCategories(features: ExistingFeature[]): string[] {
 }
 
 /** Guard for creating a SINGLE roadmap feature on the loose paths (start_feature / add_subtasks),
- *  mirroring the propose_plan gate: a feature must carry a category and must not duplicate an
- *  existing one. Returns an agent-facing rejection message, or null when it's safe to create.
- *  Pure (no db) so the route + the MCP process share one rule. */
+ *  mirroring the propose_plan gate: a feature must carry a category and a description, and must not
+ *  duplicate an existing one. Returns an agent-facing rejection message, or null when it's safe to
+ *  create. Pure (no db) so the route + the MCP process share one rule. */
 export function validateFeatureCreation(input: {
   title: string;
   category?: string | null;
   layer?: string | null;
+  /** beacon_feature calls it `detail`; the plan flow calls it `description`. Either satisfies this. */
+  detail?: string | null;
+  description?: string | null;
   requireLayer?: boolean;
   existing: ExistingFeature[];
 }): string | null {
@@ -155,6 +198,19 @@ export function validateFeatureCreation(input: {
       `⛔ "${title}" already exists as the feature "${f?.title ?? dup.best.title}"${status}. Don't ` +
       `create a duplicate — start it with \`beacon_feature({ action: "start", id })\`, add sub-tasks ` +
       `with \`beacon_feature({ action: "subtasks" })\`, or finish it with \`beacon_feature({ action: "done" })\`.`
+    );
+  }
+
+  // Description is checked LAST, deliberately: it's the only gap that costs the agent real work to
+  // close, so every cheaper rejection (no category, wrong layer, already exists) must fire first.
+  // Telling someone to write 80 characters about a card that already exists wastes the write.
+  if (!describedEnough({ title, description: input.description })) {
+    const had = featureDescription({ title, description: input.description }).length;
+    return (
+      `⛔ Feature "${title}" ${had ? `has only a ${had}-char description` : "has no description"} — ` +
+      `every roadmap card needs at least ${MIN_DESCRIPTION_CHARS} characters saying what the work IS ` +
+      `and why, or it's unreadable a week later. Pass it as \`description\`; markdown is welcome, and ` +
+      `naming the files it touches in \`backticks\` makes them clickable on the board.`
     );
   }
   return null;

@@ -18,7 +18,6 @@ export interface FeatureToolArgs {
   category?: string;
   priority?: number;
   front?: string;
-  detail?: string;
   kind?: string;
   layer?: string;
   status?: string; // add only: "backlog" | "active"
@@ -26,9 +25,12 @@ export interface FeatureToolArgs {
   parentId?: string;
   parentTitle?: string;
   items?: unknown[];
+  // add / start / done all share ONE description field — the card's body on create, the shipped
+  // summary on done. `/api/map/start` still names it `detail` in its own body; that stays an
+  // internal route field, mapped below, so the agent surface only ever says `description`.
+  description?: string;
   // done
   features?: unknown[];
-  description?: string;
   files?: string[];
   architecture?: unknown[];
 }
@@ -45,7 +47,7 @@ export function planFeatureRequest(
           title: args.title,
           id: args.id,
           front: args.front,
-          detail: args.detail,
+          detail: args.description,
           category: args.category,
           priority: args.priority,
           kind: args.kind,
@@ -61,7 +63,7 @@ export function planFeatureRequest(
           title: args.title,
           id: args.id,
           front: args.front,
-          detail: args.detail,
+          detail: args.description,
           category: args.category,
           priority: args.priority,
           kind: args.kind,
