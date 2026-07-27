@@ -308,9 +308,11 @@ describe("selfHealGlobal", () => {
 
     await setupGlobalAssets();
 
-    const settings = JSON.parse(readFileSync(join(TMP_HOME, ".claude", "settings.json"), "utf8"));
-    const commands = Object.values(settings.hooks).flatMap((entries: any) =>
-      entries.flatMap((e: any) => e.hooks.map((h: any) => h.command)),
+    const settings: { hooks: Record<string, { hooks: { command: string }[] }[]> } = JSON.parse(
+      readFileSync(join(TMP_HOME, ".claude", "settings.json"), "utf8"),
+    );
+    const commands = Object.values(settings.hooks).flatMap((entries) =>
+      entries.flatMap((e) => e.hooks.map((h) => h.command)),
     );
     expect(commands).not.toContain("/Applications/Beacon.app/Contents/Resources/bin/beacon retired-thing");
     expect(settings.hooks.Stop).toBeUndefined(); // last Stop entry pruned → event removed

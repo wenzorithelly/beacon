@@ -179,14 +179,19 @@ export function addWorkspace(path: string, name?: string, now = new Date().toISO
   if (!isRegistrableWorkspacePath(path)) {
     throw new Error(`beacon: refusing to register a non-repo path as a workspace: ${path}`);
   }
-  const id = idForPath(path);
+  const list = readRegistry();
+  // ONE entry per path. An entry whose stored path already IS this repo owns it even when its id
+  // doesn't hash that path — a directory rename patched into the registry, a symlinked or
+  // trailing-slash path. Keying purely on idForPath() would then add a SECOND entry for the same
+  // repo (two identically-named cards in the switcher, the new one pointing at an empty data dir),
+  // so reuse the existing id: the boards live under it.
+  const existing = list.find((w) => w.path === path) ?? list.find((w) => w.id === idForPath(path));
+  const id = existing?.id ?? idForPath(path);
   if (isWorkspaceDeleted(id)) {
     throw new Error(
       `beacon: workspace ${id} (${path}) was deleted — run \`beacon\` or /beacon-init to re-add it`,
     );
   }
-  const list = readRegistry();
-  const existing = list.find((w) => w.id === id);
   const ws: Workspace = {
     id,
     path,

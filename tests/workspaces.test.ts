@@ -97,6 +97,21 @@ describe("registrable-path + deletion tombstone guards", () => {
     expect(listWorkspaces()).toHaveLength(0);
   });
 
+  it("addWorkspace never creates a second entry for a path an entry already owns", () => {
+    // A renamed repo dir whose registry path was patched in place leaves an entry whose id no
+    // longer hashes its path. Re-registering that path must REUSE the entry (its data dir holds
+    // the boards) instead of minting a duplicate card in the switcher.
+    const drifted = addWorkspace("/repos/old-name");
+    writeFileSync(
+      join(HOME, "workspaces.json"),
+      JSON.stringify([{ ...drifted, path: "/repos/new-name", name: "new-name" }]),
+    );
+    const again = addWorkspace("/repos/new-name");
+    expect(again.id).toBe(drifted.id);
+    expect(idForPath("/repos/new-name")).not.toBe(drifted.id); // the drift is real, not normalized away
+    expect(listWorkspaces()).toHaveLength(1);
+  });
+
   it("addWorkspace throws for a tombstoned id (implicit re-add is refused)", () => {
     const id = idForPath("/repos/tomb");
     tombstoneWorkspace(id);
