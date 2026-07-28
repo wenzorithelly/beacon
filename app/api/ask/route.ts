@@ -47,6 +47,10 @@ const pushSchema = z.discriminatedUnion("kind", [
     questionIndex: z.number().int().min(0).optional(),
     mode: z.enum(["interactive", "mirror"]).optional(),
     transcriptPath: z.string().optional(),
+    // The PreToolUse event's `tool_use_id` — stable across PreToolUse → PostToolUse for the same
+    // tool call, so POST /api/ask/answered can find + clear THIS mirror by it (see
+    // lib/ask-store.resolveAskByToolUseId). Optional: back-compat for pushes predating this field.
+    toolUseId: z.string().optional(),
   }),
   z.object({ kind: z.literal("approval"), approval: approvalSchema }),
 ]);
@@ -141,6 +145,7 @@ export async function POST(req: Request) {
             mode: body.mode,
             transcriptPath: body.transcriptPath,
             transcriptOffset,
+            toolUseId: body.toolUseId,
           },
           Date.now(),
         ),

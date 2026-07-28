@@ -61,6 +61,13 @@ export interface PendingAsk {
    *  only bytes written after it, so a PRIOR answer to an identical question can't false-clear a
    *  re-ask (which mirror mode allows — it skips the loop-guard). */
   transcriptOffset?: number;
+  /** mirror only — the hook event's `tool_use_id`, stable across PreToolUse → PostToolUse for the
+   *  SAME AskUserQuestion tool call. PostToolUse:AskUserQuestion (bin/ask.ts) uses it to find + clear
+   *  THIS mirror the moment the tool call completes — the primary "answered" signal (see
+   *  resolveAskByToolUseId below), with the transcript scan / deliveredAt / TTL staying as backstops
+   *  for asks pushed before this field existed, or a hook invocation that never fires. Optional so
+   *  existing persisted entries still parse. */
+  toolUseId?: string;
   question?: AskQuestion;
   /** v2 multi-question: ALL questions from the tool call, present only when there's more than one.
    *  `id`/`createdAt`/`hash` stay CONSTANT across the whole sequence — only `question`/`questionIndex`
@@ -152,6 +159,7 @@ export function questionMirrorPushBody(
   transcriptPath: string | undefined,
   questions?: AskQuestion[],
   questionIndex?: number,
+  toolUseId?: string,
 ): {
   kind: "question";
   question: AskQuestion;
@@ -159,6 +167,7 @@ export function questionMirrorPushBody(
   transcriptPath?: string;
   questions?: AskQuestion[];
   questionIndex?: number;
+  toolUseId?: string;
 } {
   return {
     kind: "question",
@@ -166,6 +175,7 @@ export function questionMirrorPushBody(
     mode: "mirror",
     transcriptPath,
     ...(questions ? { questions, questionIndex } : {}),
+    ...(toolUseId ? { toolUseId } : {}),
   };
 }
 
@@ -377,6 +387,7 @@ export function pushAsk(
     mode?: AskMode;
     transcriptPath?: string;
     transcriptOffset?: number;
+    toolUseId?: string;
   },
   now: number,
 ): { loop: true } | { loop: false; id: string } {
@@ -407,6 +418,7 @@ export function pushAsk(
     mode: args.mode,
     transcriptPath: args.transcriptPath,
     transcriptOffset: args.transcriptOffset,
+    toolUseId: args.toolUseId,
     question: args.question,
     questions: args.questions,
     questionIndex: args.questionIndex,
@@ -464,4 +476,17 @@ export function resolveAsk(
     decidedAt: now,
   });
   removePendingAsk(args.id);
+}
+
+/** Clear a pending ask by the hook event's `tool_use_id` — the PostToolUse:AskUserQuestion signal
+ *  that the tool call actually completed (answered in the terminal, delivered via Beacon, or
+ *  dismissed/interrupted; either way there's nothing left to mirror). Unlike resolveAsk, a question
+ *  never has a hook blocked on its answer (see bin/ask.ts), so there's no resolution to record — just
+ *  drop the ask (its whole `questions[]`, however far it advanced) wholesale. No-op (returns false)
+ *  when no pending ask carries this tool_use_id: already cleared by another path, an approval (which
+ *  has no tool_use_id), or an ask pushed before this field existed. */
+export function resolveAskByToolUseId(toolUseId: string): boolean {
+  const pending = readPendingAsks().find((a) => a.toolUseId === toolUseId);
+  if (!pending) return false;
+  return removePendingAsk(pending.id);
 }

@@ -92,6 +92,13 @@ export const GLOBAL_HOOKS = [
       "Surface the agent's AskUserQuestion in Beacon's modal; your pick flows back as the answer (falls through to the terminal if Beacon isn't open).",
   },
   {
+    event: "PostToolUse" as const,
+    matcher: "AskUserQuestion",
+    command: "beacon ask",
+    description:
+      "Clear the AskUserQuestion mirror once the tool call completes — the primary signal that it was answered (transcript scan / TTL still back it up).",
+  },
+  {
     event: "PermissionRequest" as const,
     matcher: "Edit|Write|MultiEdit|Bash|NotebookEdit",
     command: "beacon ask",

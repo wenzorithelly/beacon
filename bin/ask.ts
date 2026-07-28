@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * `beacon ask` — the agent-ask bridge hook. ONE binary for two Claude Code hook events:
+ * `beacon ask` — the agent-ask bridge hook. ONE binary for THREE Claude Code hook events:
  *
  *   • PreToolUse (matcher AskUserQuestion) — the agent asks a structured question. The native
  *     terminal picker is NEVER held or hijacked: this ALWAYS falls through immediately so the
@@ -11,6 +11,16 @@
  *     there too — whether its options are clickable there depends on a live "input deliverer" being
  *     registered for the workspace (lib/deliverer-registry), decided client-side by the modal, not
  *     by this hook.
+ *   • PostToolUse (matcher AskUserQuestion) — the tool call just completed: the PRIMARY signal that
+ *     the mirror pushed above was answered (in the terminal, via a Beacon delivery, or dismissed).
+ *     Correlated by `tool_use_id`, stable across both events (see lib/ask-store's PendingAsk
+ *     .toolUseId + resolveAskByToolUseId). Never blocks — the tool already ran — and the transcript
+ *     scan / deliveredAt / TTL in mirrorResolution stay as backstops for anything this doesn't catch.
+ *     NOT also registered on PostToolUseFailure: Claude Code's docs don't say whether — or with what
+ *     payload — that event fires when the user Escapes out of AskUserQuestion without answering, and
+ *     a hook registered for an event that never actually fires for this case is dead weight. The
+ *     30-min MIRROR_TTL_MS backstop already exists precisely for an abandoned/interrupted ask, so
+ *     that's what covers Escape/cancel today; revisit if Claude Code ever documents the shape.
  *   • PermissionRequest (matcher Edit|Write|MultiEdit|Bash|NotebookEdit; NOT ExitPlanMode — the plan
  *     hook owns that) — the agent asks to edit/create/run. Unchanged scope: still redirects into
  *     Beacon's blocking modal ONLY when a Beacon tab is OPEN AND FOCUSED for the repo, and still
@@ -27,10 +37,11 @@ import { PLAN_HOOK_REARM_MS, PLAN_POLL_INTERVAL_MS } from "@/lib/constants";
 import { daemonBaseUrl } from "@/lib/daemon-server";
 import { planAllowOutput } from "@/lib/permission-modes";
 
-// The hook event carries session_id too (verified per-file per the agent-status spec), though
-// lib/ask-store's HookEvent doesn't declare it (that module is shared by non-hook callers). Extend
-// locally so we can key the agent-status write by session without widening the shared type.
-type StatusEvent = HookEvent & { session_id?: string };
+// The hook event carries session_id and (for AskUserQuestion) tool_use_id too, though lib/ask-store's
+// HookEvent doesn't declare either (that module is shared by non-hook callers). Extend locally so we
+// can key the agent-status write by session, and the PostToolUse correlation by tool_use_id, without
+// widening the shared type.
+type StatusEvent = HookEvent & { session_id?: string; tool_use_id?: string };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -84,12 +95,31 @@ const workspaceIdForPath = (p: string) =>
 (async () => {
   const event = await readStdinJson<StatusEvent>();
   if (!event) failOpen();
-  const ask = buildAskFromEvent(event);
-  if (!ask) failOpen(); // not one of ours (or a malformed AUQ) → let it run
 
   const base = daemonBaseUrl();
   const wsId = workspaceIdForPath(gitToplevel(event.cwd));
   const headers = { "content-type": "application/json", "x-beacon-workspace": wsId };
+
+  // PostToolUse:AskUserQuestion — the tool call just completed, so the mirror pushed by the
+  // PreToolUse leg above (if any) can be cleared NOW instead of waiting on the transcript scan or
+  // the deliveredAt/TTL backstops. Correlated by `tool_use_id`, which Claude Code keeps stable
+  // across PreToolUse → PostToolUse for the SAME tool call (see lib/ask-store.resolveAskByToolUseId).
+  // Best-effort and NEVER blocks — there's nothing left to gate once the tool has already run.
+  if (event.hook_event_name === "PostToolUse" && event.tool_name === "AskUserQuestion") {
+    if (event.tool_use_id) {
+      await fetch(`${base}/api/ask/answered`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ toolUseId: event.tool_use_id }),
+        signal: AbortSignal.timeout(1500),
+      }).catch(() => {});
+    }
+    failOpen();
+  }
+
+  const ask = buildAskFromEvent(event);
+  if (!ask) failOpen(); // not one of ours (or a malformed AUQ) → let it run
+
   const cwd = event.cwd || process.cwd();
   const sessionId = event.session_id || "";
 
@@ -109,7 +139,13 @@ const workspaceIdForPath = (p: string) =>
         method: "POST",
         headers,
         body: JSON.stringify(
-          questionMirrorPushBody(ask.question, event.transcript_path, ask.questions, ask.questionIndex),
+          questionMirrorPushBody(
+            ask.question,
+            event.transcript_path,
+            ask.questions,
+            ask.questionIndex,
+            event.tool_use_id,
+          ),
         ),
         signal: AbortSignal.timeout(1500),
       }).catch(() => {});

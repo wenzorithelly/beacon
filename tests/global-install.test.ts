@@ -336,7 +336,7 @@ describe("selfHealGlobal", () => {
     expect(result.skillsAdded).toEqual(
       expect.arrayContaining(["beacon-init", "beacon-refresh", "beacon-plan", "beacon-explain"]),
     );
-    expect(result.hooksAdded).toBe(7); // +2: beacon ask (PreToolUse AskUserQuestion, PermissionRequest edits); +1: beacon artifact (PostToolUse Artifact)
+    expect(result.hooksAdded).toBe(8); // +3: beacon ask (PreToolUse AskUserQuestion, PostToolUse AskUserQuestion, PermissionRequest edits); +1: beacon artifact (PostToolUse Artifact)
     expect(result.claudeMdBlockTouched).toBe(true);
 
     const after = auditGlobal();

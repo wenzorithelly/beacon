@@ -22,8 +22,10 @@ import {
   readAskResolution,
   readAskResolutionById,
   readPendingAsk,
+  readPendingAskById,
   readPendingAsks,
   resolveAsk,
+  resolveAskByToolUseId,
   summarizeApproval,
 } from "@/lib/ask-store";
 import { sameAskQueue, sameAskView } from "@/lib/ask-view";
@@ -103,6 +105,13 @@ describe("pure helpers", () => {
     const body = questionMirrorPushBody(q(), "/t.jsonl", qs, 0);
     expect(body.questions).toEqual(qs);
     expect(body.questionIndex).toBe(0);
+  });
+
+  it("questionMirrorPushBody carries toolUseId through when given, omits it otherwise", () => {
+    const withId = questionMirrorPushBody(q(), "/t.jsonl", undefined, undefined, "toolu_1");
+    expect(withId.toolUseId).toBe("toolu_1");
+    const without = questionMirrorPushBody(q(), "/t.jsonl");
+    expect(without.toolUseId).toBeUndefined();
   });
 
   it("sameAskView: false when questionIndex differs (the freeze bug — same id, next question)", () => {
@@ -226,6 +235,51 @@ describe("markAskDelivered", () => {
   it("is a no-op when there is no pending ask at all", () => {
     clearPendingAsk();
     expect(markAskDelivered("anything", 1500)).toBe(false);
+  });
+});
+
+// The primary "answered" signal (bin/ask.ts's PostToolUse:AskUserQuestion leg → POST /api/ask/answered
+// → here): the tool call completed, so the mirror it pushed at PreToolUse can be cleared by the same
+// tool_use_id right away, instead of waiting on the transcript scan or the deliveredAt/TTL backstops.
+describe("resolveAskByToolUseId", () => {
+  it("clears the pending ask carrying the matching toolUseId", () => {
+    const hash = askHash("question", q());
+    const pushed = pushAsk(
+      { kind: "question", hash, question: q(), mode: "mirror", toolUseId: "toolu_1" },
+      1000,
+    ) as { id: string };
+    expect(resolveAskByToolUseId("toolu_1")).toBe(true);
+    expect(readPendingAsk()).toBeNull();
+    expect(readPendingAskById(pushed.id)).toBeNull();
+  });
+
+  it("is a safe no-op for an unknown toolUseId — the ask stays pending", () => {
+    const hash = askHash("question", q());
+    pushAsk({ kind: "question", hash, question: q(), mode: "mirror", toolUseId: "toolu_1" }, 1000);
+    expect(resolveAskByToolUseId("toolu_does_not_exist")).toBe(false);
+    expect(readPendingAsk()?.toolUseId).toBe("toolu_1"); // untouched
+  });
+
+  it("is a safe no-op when there is no pending ask at all", () => {
+    clearPendingAsk();
+    expect(resolveAskByToolUseId("anything")).toBe(false);
+  });
+
+  it("clears only the matching ask, leaving others in the queue (behind or ahead) untouched", () => {
+    const qCache = q({ header: "Cache", question: "Which cache?" });
+    const first = pushAsk(
+      { kind: "question", hash: askHash("question", q()), question: q(), mode: "mirror", toolUseId: "toolu_1" },
+      1000,
+    ) as { id: string };
+    const second = pushAsk(
+      { kind: "question", hash: askHash("question", qCache), question: qCache, mode: "mirror", toolUseId: "toolu_2" },
+      1001,
+    ) as { id: string };
+
+    expect(resolveAskByToolUseId("toolu_2")).toBe(true);
+    const left = readPendingAsks();
+    expect(left.map((a) => a.id)).toEqual([first.id]);
+    expect(left[0].id).not.toBe(second.id);
   });
 });
 
