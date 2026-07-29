@@ -32,6 +32,7 @@ import "@xyflow/react/dist/style.css";
 import {
   Bug as BugIcon,
   Compass,
+  EyeOff,
   GitBranch,
   HelpCircle,
   LayoutGrid,
@@ -57,7 +58,9 @@ import { FocusEditorModal, type FocusEditPayload } from "@/components/graph/focu
 import { useCanvasTool, CanvasToolToggle } from "@/components/graph/canvas-tool";
 import { NodeEditContext, type NodeEditApi } from "@/components/graph/node-edit-context";
 import { neighborIds } from "@/components/graph/db-types";
-import { CanvasTabs } from "@/components/graph/canvas-tabs";
+import { BOARD_TABS, CanvasTabs } from "@/components/graph/canvas-tabs";
+import { ColumnsView } from "@/components/columns/columns-view";
+import type { GroupField } from "@/lib/board-grouping";
 import { CanvasSearch } from "@/components/graph/canvas-search";
 import { ShareBoardButton } from "@/components/share/share-dialog";
 import {
@@ -79,7 +82,14 @@ import {
 import { ARCH_STATUSES, ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
 import { layerStripeCss, normalizeLayer, type Layer } from "@/lib/layer";
 import { LayerToggle, layerEmphasisMatch } from "@/components/graph/layer-toggle";
-import { layoutRoadmap, statusLaneKey, type RoadmapGroupBy } from "@/lib/roadmap-layout";
+import {
+  estimateRoadmapCardHeight,
+  layoutRoadmapLanes,
+  statusLaneKey,
+  ROADMAP_ROW_H,
+  type RoadmapGroupBy,
+  type RoadmapLane,
+} from "@/lib/roadmap-layout";
 import { layeredLayout } from "@/lib/layered-layout";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
 import { collapsedDescendants, childCounts } from "@/lib/node-collapse";
@@ -99,17 +109,23 @@ const GROUP_BY_OPTIONS: { value: RoadmapGroupBy; label: string }[] = [
   { value: "priority", label: "Priority" },
 ];
 
-// Human label for a lane, by the grouping dimension — used on the lane background headers.
-// Status lanes key on the REAL workflow state when the card carries one (statusLaneKey), so a
-// Linear "In Review" card heads its own lane instead of reading "In progress".
-function laneLabel(groupBy: RoadmapGroupBy, d: MapNodeData): string {
-  if (groupBy === "status") {
-    const k = statusLaneKey({ status: d.status, stateName: d.externalMeta?.state?.name });
-    return STATUS_META[k]?.label ?? k;
-  }
-  if (groupBy === "priority") return `P${d.priority}`;
+// The lane a card belongs to, as the RAW key the layout used (`layoutRoadmapLanes`) — that's what
+// joins a card to its lane rect. Display text comes back on the lane itself, so nothing here has
+// to label anything. Status lanes key on the REAL workflow state when the card carries one, per
+// team (statusLaneKey), so two teams' "Done" states stay separate lanes.
+function laneKeyOf(groupBy: RoadmapGroupBy, d: MapNodeData): string {
+  if (groupBy === "status")
+    return statusLaneKey({
+      status: d.status,
+      stateName: d.externalMeta?.state?.name,
+      teamKey: d.externalMeta?.team?.key,
+    });
+  if (groupBy === "priority") return String(d.priority);
   return d.cluster?.trim() || "—";
 }
+
+/** Stable empty lane list so a resync on an ungrouped board doesn't re-render on a fresh []. */
+const NO_LANES: RoadmapLane[] = [];
 
 const PERSIST_FIELDS = new Set(["title", "role", "plain", "cluster", "layer", "status", "priority"]);
 
@@ -161,6 +177,42 @@ function buildNodes(payload: MapNodePayload[]): Node<MapNodeData>[] {
       openBugs: n.bugFlags.filter((f) => !f.resolved).length,
     },
   }));
+}
+
+// The inverse of buildNodes: a LIVE canvas node back in the server payload's shape. The detail
+// panel and the columns board both read MapNodePayload, and reading the SSR prop instead meant a
+// field you had just edited was missing there while correct on the card. Everything the canvas
+// doesn't model (files, bugFlags, …) still comes from the server row; a card created this session
+// has no row yet, so those default empty.
+function toPayload(n: Node<MapNodeData>, base?: MapNodePayload): MapNodePayload {
+  const d = n.data;
+  return {
+    ...base,
+    id: n.id,
+    view: d.view,
+    kind: d.kind ?? "FEATURE",
+    cluster: d.cluster,
+    layer: d.layer ?? null,
+    title: d.title,
+    role: d.role,
+    plain: d.plain,
+    status: d.status,
+    priority: d.priority,
+    x: n.position.x,
+    y: n.position.y,
+    source: d.source,
+    sourceRef: d.sourceRef,
+    assigneeName: d.assigneeName,
+    assigneeAvatarUrl: d.assigneeAvatarUrl,
+    externalMeta: d.externalMeta,
+    parentId: d.parentId,
+    isCriterion: d.isCriterion,
+    signals: d.signals,
+    importsIn: d.importsIn,
+    importsOut: d.importsOut,
+    files: base?.files ?? [],
+    bugFlags: base?.bugFlags ?? [],
+  };
 }
 
 function buildEdges(payload: MapNodePayload[], edges: MapEdgePayload[], extraIds?: Set<string>): Edge[] {
@@ -234,6 +286,7 @@ export function MapClient({
   minimap,
   staticEdgeLabels = false,
   tableNodes,
+  columns = false,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   nodes: MapNodePayload[];
@@ -296,6 +349,10 @@ export function MapClient({
   // (x/y) — they cross the MapNodeData boundary via a cast, like the annotation cards. `group` is
   // the banding group the layout used, so the card joins that labeled region box.
   tableNodes?: { id: string; x: number; y: number; group?: string; data: LessonTableData }[];
+  // Render the COLUMNS (kanban) board over this same roadmap data instead of the canvas. That view
+  // stores no layout — a drop writes the grouped field — so it shares this component only for the
+  // mutation paths (saveFields / createNodeAt / the focus editor), not the React Flow surface.
+  columns?: boolean;
 }) {
   // 1-based work-order rank per feature id (#1, #2, …); #1 also drives the jump button.
   const workOrderKey = workOrder.join(",");
@@ -440,23 +497,56 @@ export function MapClient({
     };
   }, [readOnly, initialNodes]);
 
-  // Inline edit: update React Flow state optimistically; persist via the no-revalidate
-  // route so the canvas never reflows mid-edit. categories feed the inline picker.
-  const patch = useCallback((id: string, fields: Record<string, unknown>, persist: boolean) => {
-    setNodes((nds) =>
-      nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...fields } } : n)),
-    );
-    if (persist) {
-      const body = Object.fromEntries(
-        Object.entries(fields).filter(([k]) => PERSIST_FIELDS.has(k)),
-      );
-      void fetch(`/api/nodes/${id}`, {
+  // In-flight create POST per node id. A new card renders with its client-generated id BEFORE the
+  // POST lands, so a field edit made in that window (picking a category right after "+ Feature")
+  // must QUEUE BEHIND the create — otherwise the PATCH reaches a row that doesn't exist yet, 404s,
+  // and the edit is lost (the "category vanishes until I refresh" bug). The window is widest on
+  // the session's first create, while Next is still compiling /api/nodes.
+  const pendingCreate = useRef(new Map<string, Promise<void>>());
+
+  // THE writer for every node-field edit — inline card edits, the detail panel, the columns board.
+  // Snapshots the pre-edit values synchronously (before the caller's optimistic update), waits out
+  // an in-flight create for this id, writes, and restores the snapshot if the write didn't land.
+  const writeFields = useCallback(async (id: string, fields: Record<string, unknown>) => {
+    const before = nodesRef.current.find((n) => n.id === id);
+    const prev = before
+      ? Object.fromEntries(
+          Object.keys(fields).map((k) => [k, (before.data as Record<string, unknown>)[k]]),
+        )
+      : null;
+    try {
+      await pendingCreate.current.get(id);
+      const res = await fetch(`/api/nodes/${id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(fields),
       });
+      if (!res.ok) throw new Error(`save failed (${res.status})`);
+    } catch {
+      // The write never landed (a 404 means it hit no row at all) — restore the card.
+      if (prev)
+        setNodes((nds) =>
+          nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...prev } } : n)),
+        );
     }
   }, []);
+
+  // Inline edit: update React Flow state optimistically; persist via the no-revalidate
+  // route so the canvas never reflows mid-edit. categories feed the inline picker.
+  const patch = useCallback(
+    (id: string, fields: Record<string, unknown>, persist: boolean) => {
+      const body = persist
+        ? Object.fromEntries(Object.entries(fields).filter(([k]) => PERSIST_FIELDS.has(k)))
+        : null;
+      // Snapshot-then-write BEFORE the optimistic update so a failed write has real values to
+      // roll back to.
+      if (body && Object.keys(body).length) void writeFields(id, body);
+      setNodes((nds) =>
+        nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...fields } } : n)),
+      );
+    },
+    [writeFields],
+  );
 
   // Distinct clusters in this view, for the inline category picker. This value flows into
   // `editApi` (the NodeEditContext value), and during a drag `nodes` changes ~60×/s — a fresh
@@ -516,28 +606,11 @@ export function MapClient({
   // priority / layer / description edits, cancel and deprioritize through here.
   const saveFields = useCallback(
     async (id: string, fields: Record<string, unknown>) => {
-      const before = nodesRef.current.find((n) => n.id === id);
-      const prev = before
-        ? Object.fromEntries(
-            Object.keys(fields).map((k) => [
-              k,
-              (before.data as Record<string, unknown>)[k],
-            ]),
-          )
-        : null;
+      const done = writeFields(id, fields); // snapshots first, then writes
       patch(id, fields, false);
-      try {
-        const res = await fetch(`/api/nodes/${id}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(fields),
-        });
-        if (!res.ok) throw new Error(`save failed (${res.status})`);
-      } catch {
-        if (prev) patch(id, prev, false); // the write never landed — restore the card
-      }
+      await done;
     },
-    [patch],
+    [patch, writeFields],
   );
 
   // Accept an init/AI suggestion: flip source INIT→MANUAL so a future /beacon-init (which
@@ -554,9 +627,19 @@ export function MapClient({
   // impatient users into clicking again and creating duplicates. If the write fails we
   // roll the optimistic card back out. Shared by the "+ Feature" button and drag-to-drop.
   const createNodeAt = useCallback(
-    async (x: number, y: number, kind: "FEATURE" | "BUG" = "FEATURE") => {
+    async (
+      x: number,
+      y: number,
+      kind: "FEATURE" | "BUG" = "FEATURE",
+      // Fields the card is born with (the columns board creates INTO a column). They ride the
+      // CREATE itself — setting them with a follow-up PATCH is exactly the race above.
+      init: { cluster?: string | null; layer?: string | null; status?: string; priority?: number } = {},
+    ) => {
       const id = createId();
-      const status = view === "ARCHITECTURE" ? "REBUILD" : "PENDING";
+      const status = init.status ?? (view === "ARCHITECTURE" ? "REBUILD" : "PENDING");
+      const priority = init.priority ?? 2;
+      const cluster = init.cluster ?? null;
+      const layer = init.layer ?? null;
       const title = kind === "BUG" ? "New bug" : "New node";
       setNodes((nds) => [
         ...nds,
@@ -569,8 +652,9 @@ export function MapClient({
             role: null,
             plain: null,
             status,
-            priority: 2,
-            cluster: null,
+            priority,
+            cluster,
+            layer,
             view,
             kind,
             source: "MANUAL",
@@ -585,23 +669,32 @@ export function MapClient({
       setExpandedIds((prev) => new Set(prev).add(id));
       setEditingTitleId(id);
       setSelectedId(id);
+      const created = (async () => {
+        try {
+          const res = await fetch("/api/nodes", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ id, view, kind, title, status, priority, cluster, layer, x, y }),
+          });
+          if (!res.ok) throw new Error("create failed");
+        } catch {
+          // The write never landed — undo the optimistic insert.
+          setNodes((nds) => nds.filter((n) => n.id !== id));
+          setExpandedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+          setEditingTitleId((e) => (e === id ? null : e));
+          setSelectedId((s) => (s === id ? null : s));
+        }
+      })();
+      // Every field edit on this id queues behind the create until it settles.
+      pendingCreate.current.set(id, created);
       try {
-        const res = await fetch("/api/nodes", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id, view, kind, title, status, x, y }),
-        });
-        if (!res.ok) throw new Error("create failed");
-      } catch {
-        // The write never landed — undo the optimistic insert.
-        setNodes((nds) => nds.filter((n) => n.id !== id));
-        setExpandedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-        setEditingTitleId((e) => (e === id ? null : e));
-        setSelectedId((s) => (s === id ? null : s));
+        await created;
+      } finally {
+        pendingCreate.current.delete(id);
       }
     },
     [view],
@@ -689,6 +782,47 @@ export function MapClient({
   const [focusEdit, setFocusEdit] = useState<FocusEditPayload | null>(null);
   const openFocus = useCallback((p: FocusEditPayload) => setFocusEdit(p), []);
 
+  // ── Columns board bindings (see the `columns` prop) ────────────────────────────────────────
+  // A drop / peek-panel edit takes the awaited, rolled-back save path — never the fire-and-forget
+  // one — and a card added to a column is BORN with that column's value.
+  const changeField = useCallback(
+    (nodeId: string, field: GroupField, value: string | number | null) => {
+      void saveFields(nodeId, { [field]: value });
+    },
+    [saveFields],
+  );
+  const addCardInColumn = useCallback(
+    (field: GroupField, value: string | number | null) => {
+      const init =
+        field === "priority"
+          ? { priority: Number(value) }
+          : field === "status"
+            ? { status: String(value) }
+            : field === "layer"
+              ? { layer: value as string | null }
+              : { cluster: value as string | null };
+      // The columns board holds no coordinates — that's its whole point — but the canvas still
+      // needs one, so park the card below everything instead of stacking every new card at 0,0.
+      const y = nodesRef.current.reduce((m, n) => Math.max(m, n.position.y + ROADMAP_ROW_H), 0);
+      void createNodeAt(0, y, "FEATURE", init);
+    },
+    [createNodeAt],
+  );
+  const editDescription = useCallback(
+    (nodeId: string) => {
+      const n = nodesRef.current.find((x) => x.id === nodeId);
+      if (!n) return;
+      openFocus({
+        id: nodeId,
+        title: n.data.title || "Untitled",
+        value: n.data.plain ?? "",
+        editable: !readOnly,
+        onCommit: (v) => void saveFields(nodeId, { plain: v.trim() || null }),
+      });
+    },
+    [openFocus, readOnly, saveFields],
+  );
+
   const editApi: NodeEditApi = useMemo(
     () => ({
       view,
@@ -715,6 +849,94 @@ export function MapClient({
   // on load; clicking a group button arranges instantly and lanes are drawn from `arrangedBy`,
   // so they always match the real card positions.
   const [arrangedBy, setArrangedBy] = useState<RoadmapGroupBy | null>(initialArrangedBy);
+  // The lane rectangles of the layout that produced the CURRENT positions. Region boxes are drawn
+  // from these, not from the bounding box of wherever the cards have since drifted — so they stay
+  // uniform and non-overlapping. Only valid for `arrangedBy`, so the two are always set together.
+  const [lanes, setLanes] = useState<RoadmapLane[]>(NO_LANES);
+  // Lane lenses: fold a lane down to its header strip (its cards hide with it), and drop lanes
+  // that have no cards left after filtering.
+  const [collapsedLanes, setCollapsedLanes] = useState<ReadonlySet<string>>(() => new Set());
+  const [hideEmptyLanes, setHideEmptyLanes] = useState(false);
+  const toggleLane = useCallback(
+    (key: string, next: boolean) =>
+      setCollapsedLanes((prev) => {
+        const s = new Set(prev);
+        if (next) s.add(key);
+        else s.delete(key);
+        return s;
+      }),
+    [],
+  );
+
+  // Lay `source` out into lanes and apply the result to canvas state. Positions are the layout's
+  // to own while a grouping is active; the caller decides whether to persist them.
+  const relayout = useCallback((source: Node<MapNodeData>[], by: RoadmapGroupBy) => {
+    const { positions, lanes: laid } = layoutRoadmapLanes(
+      source
+        .filter((n) => n.type !== "annotation")
+        .map((n) => ({
+          id: n.id,
+          parentId: n.data.parentId ?? null,
+          cluster: n.data.cluster,
+          status: n.data.status,
+          priority: n.data.priority,
+          // Real workflow state (Linear cards) — status lanes split by it ("In Review" ≠ started),
+          // per team, since a state name is only unique within its team.
+          stateName: n.data.externalMeta?.state?.name ?? null,
+          stateType: n.data.externalMeta?.state?.type ?? null,
+          teamKey: n.data.externalMeta?.team?.key ?? null,
+          // Title + role drive the height estimate so a long-title card reserves room and doesn't
+          // overlap its neighbour/sub-task at full zoom.
+          title: n.data.title,
+          role: n.data.role,
+        })),
+      by,
+      // Size the board to THIS screen — wider viewport lays out wider (less vertical scroll).
+      { viewportAspect: window.innerWidth / window.innerHeight },
+    );
+    setLanes(laid);
+    setNodes(
+      source.map((n) => {
+        const p = positions.get(n.id);
+        return p ? { ...n, position: p } : n;
+      }),
+    );
+    return positions;
+  }, []);
+
+  // Mirror of `arrangedBy` for the derive effect below: it must react to a SERVER RESYNC only.
+  // Taking arrangedBy as a dep would make a Group-by click re-derive from the server payload and
+  // throw away cards/edits that only exist in local state — arrange() already laid those out.
+  // Declared before that effect so it is always current when the effect reads it.
+  const arrangedByRef = useRef(arrangedBy);
+  useEffect(() => {
+    arrangedByRef.current = arrangedBy;
+  }, [arrangedBy]);
+  const derivedFitDone = useRef(false);
+
+  // WHEN A GROUPING IS ACTIVE, CARD POSITIONS ARE DERIVED — never read from the DB. The stored x/y
+  // drift the moment a card changes lane, which is why the board used to render the LABEL of a
+  // grouping over cards sitting at stale positions until you re-clicked the pill. So recompute the
+  // layout from every server payload, including the first paint. Runs AFTER the resync effect
+  // above (declaration order), so it lays out the nodes that effect just installed. Deliberately
+  // NOT persisted: a derived board can't go stale, and a page view shouldn't write.
+  useEffect(() => {
+    const by = view === "ROADMAP" ? arrangedByRef.current : null;
+    if (!by) {
+      setLanes(NO_LANES);
+      return;
+    }
+    relayout(initialNodes, by);
+    // The one-shot `fitView` prop framed the pre-layout positions; frame the derived board once.
+    if (derivedFitDone.current) return;
+    derivedFitDone.current = true;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() =>
+        flowRef.current?.fitView({ padding: 0.15, minZoom: 0.38, maxZoom: 0.9, duration: 0 }),
+      ),
+    );
+  }, [initialNodes, view, relayout]);
+
   const [searchQuery, setSearchQuery] = useState("");
   // Semantic-zoom level, lifted out of the React Flow context by <LodReporter/> — drives
   // edge hiding + the far-zoom region summaries.
@@ -870,9 +1092,33 @@ export function MapClient({
     [nodePayload, collapsedIds],
   );
 
+  // Only meaningful while the roadmap is grouped: which lane a card sits in (a sub-task rides its
+  // parent's lane, exactly as the layout stacked it).
+  const laneOf = useCallback(
+    (n: Node<MapNodeData>, byId: Map<string, Node<MapNodeData>>) => {
+      if (view !== "ROADMAP" || !arrangedBy) return null;
+      const parent = n.data.parentId ? byId.get(n.data.parentId) : undefined;
+      return laneKeyOf(arrangedBy, (parent ?? n).data);
+    },
+    [view, arrangedBy],
+  );
+  // Cards folded away by a COLLAPSED LANE. Kept out of the visible set but still counted in their
+  // lane's header — a collapsed lane must read "7", not "0".
+  const laneHiddenIds = useMemo(() => {
+    if (collapsedLanes.size === 0 || view !== "ROADMAP" || !arrangedBy) return new Set<string>();
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    return new Set(
+      nodes.filter((n) => collapsedLanes.has(laneOf(n, byId) ?? "")).map((n) => n.id),
+    );
+  }, [nodes, collapsedLanes, view, arrangedBy, laneOf]);
+
   const visibleNodes = useMemo(
-    () => nodes.map((n) => ({ ...n, hidden: !passes(n.data) || collapseHiddenIds.has(n.id) })),
-    [nodes, passes, collapseHiddenIds],
+    () =>
+      nodes.map((n) => ({
+        ...n,
+        hidden: !passes(n.data) || collapseHiddenIds.has(n.id) || laneHiddenIds.has(n.id),
+      })),
+    [nodes, passes, collapseHiddenIds, laneHiddenIds],
   );
   const hiddenIds = useMemo(
     () => new Set(visibleNodes.filter((n) => n.hidden).map((n) => n.id)),
@@ -1036,30 +1282,35 @@ export function MapClient({
   );
   const tableIds = useMemo(() => new Set((tableNodes ?? []).map((t) => t.id)), [tableNodes]);
 
-  // Group-region containers (Gestalt common region). Roadmap: shown once the board is arranged,
-  // labeled by the dimension it was ACTUALLY arranged by (`arrangedBy`) — never a stale selector.
-  // Architecture: always grouped by domain. Children belong to their parent's region (one hop —
-  // sub-tasks can't nest). Recomputed from displayNodes each render, so they track live drags.
+  // Group-region containers (Gestalt common region). Roadmap: the LAYOUT's own lane rects, so the
+  // boxes are uniform and non-overlapping no matter where the cards have drifted (a bounding box
+  // of drifted cards is what made the lanes overlap); items then only supply the per-lane counts.
+  // Architecture: bounding boxes by domain, unchanged. Children belong to their parent's region
+  // (one hop — sub-tasks can't nest). Recomputed from displayNodes each render, so the
+  // architecture boxes track live drags.
   const regions = useMemo(() => {
     if (view === "ROADMAP" && !arrangedBy) return [];
     if (view !== "ROADMAP" && view !== "ARCHITECTURE") return [];
+    const laneRects = view === "ROADMAP" && arrangedBy ? lanes : null;
     const byId = new Map(displayNodes.map((n) => [n.id, n]));
     const items: RegionInput[] = [];
     for (const n of displayNodes) {
-      if (n.hidden || n.type === "annotation") continue;
+      // A lane-collapsed card is hidden but still belongs to (and counts toward) its lane.
+      if ((n.hidden && !laneHiddenIds.has(n.id)) || n.type === "annotation") continue;
       const parent = n.data.parentId ? byId.get(n.data.parentId) : undefined;
       const groupNode = parent ?? n;
-      const group =
-        view === "ROADMAP" && arrangedBy
-          ? laneLabel(arrangedBy, groupNode.data)
-          : groupNode.data.cluster?.trim() || "—";
+      const group = laneRects
+        ? laneKeyOf(arrangedBy!, groupNode.data)
+        : groupNode.data.cluster?.trim() || "—";
       items.push({
         id: n.id,
         group,
         x: n.position.x,
         y: n.position.y,
         w: n.measured?.width ?? (n.data.isChild ? 224 : 256),
-        h: n.measured?.height ?? 96,
+        // ONE card-height model, shared with the layout that placed the card — a second estimate
+        // here silently diverged from it.
+        h: estimateRoadmapCardHeight(n.data, childCountById.get(n.id) ?? 0),
       });
     }
     // Lesson table cards live outside displayNodes but belong to their layout group's region.
@@ -1074,13 +1325,26 @@ export function MapClient({
         h: tableMeasured.get(t.id)?.height ?? 200,
       });
     }
-    return computeGroupRegions(items);
-  }, [displayNodes, arrangedBy, view, tableNodes, tableMeasured, tableDragged]);
+    return computeGroupRegions(items, laneRects ? { lanes: laneRects } : {});
+  }, [
+    displayNodes,
+    arrangedBy,
+    lanes,
+    laneHiddenIds,
+    childCountById,
+    view,
+    tableNodes,
+    tableMeasured,
+    tableDragged,
+  ]);
 
   // Color regions only when the grouping IS the category dimension — hashing a status or
   // priority label into the category palette would imply a meaning the color doesn't have.
   const regionTone =
     view === "ARCHITECTURE" || arrangedBy === "cluster" ? ("category" as const) : ("neutral" as const);
+  // Lane lenses only make sense where the boxes ARE lanes: the architecture board's regions are
+  // bounding boxes around cards this component doesn't fold away, so it gets no collapse control.
+  const laneMode = view === "ROADMAP" && !!arrangedBy;
 
   const displayEdges = useMemo(() => {
     // Tour spotlight: while a step frames a domain, only edges within it stay bright.
@@ -1510,9 +1774,22 @@ export function MapClient({
     return () => window.removeEventListener("keydown", onKey);
   }, [pickingParent]);
 
+  // The board's cards in payload shape, derived from LIVE canvas state (see toPayload). Reading
+  // the SSR prop here is what made a just-edited field show correctly on the card but stale in the
+  // detail panel. Skipped entirely while nothing consumes it — `nodes` changes on every drag frame
+  // and there's no reason to rebuild this behind a closed panel.
+  const wantsPayload = panelOpen || columns;
+  const livePayload = useMemo<MapNodePayload[]>(() => {
+    if (!wantsPayload) return [];
+    const base = new Map(nodePayload.map((n) => [n.id, n]));
+    return nodes
+      .filter((n) => n.type !== "annotation")
+      .map((n) => toPayload(n, base.get(n.id)));
+  }, [wantsPayload, nodes, nodePayload]);
+
   const selected = useMemo(
-    () => nodePayload.find((n) => n.id === selectedId) ?? null,
-    [nodePayload, selectedId],
+    () => livePayload.find((n) => n.id === selectedId) ?? null,
+    [livePayload, selectedId],
   );
 
   // Where the dragged cards sat before the drag. React Flow has already moved them by the time
@@ -1569,31 +1846,7 @@ export function MapClient({
   // group buttons — picking a dimension IS the action, there's no separate Arrange button.
   const arrange = useCallback(
     (by: RoadmapGroupBy) => {
-    const pos = layoutRoadmap(
-      nodes.map((n) => ({
-        id: n.id,
-        parentId: n.data.parentId ?? null,
-        cluster: n.data.cluster,
-        status: n.data.status,
-        priority: n.data.priority,
-        // Real workflow state (Linear cards) — status lanes split by it ("In Review" ≠ started).
-        stateName: n.data.externalMeta?.state?.name ?? null,
-        stateType: n.data.externalMeta?.state?.type ?? null,
-        // Title + role drive the height estimate so a long-title card reserves room and doesn't
-        // overlap its neighbour/sub-task at full zoom.
-        title: n.data.title,
-        role: n.data.role,
-      })),
-      by,
-      // Size the board to THIS screen — wider viewport lays out wider (less vertical scroll).
-      { viewportAspect: window.innerWidth / window.innerHeight },
-    );
-    setNodes((nds) =>
-      nds.map((n) => {
-        const p = pos.get(n.id);
-        return p ? { ...n, position: p } : n;
-      }),
-    );
+    const pos = relayout(nodes, by);
     const batch = Array.from(pos, ([id, p]) => ({ id, x: p.x, y: p.y }));
     if (batch.length)
       void fetch("/api/nodes/positions", {
@@ -1612,7 +1865,7 @@ export function MapClient({
       flowRef.current?.fitView({ duration: 600, padding: 0.2, ease: easeSpringGlide }),
     );
     },
-    [nodes],
+    [nodes, relayout],
   );
 
   // Auto re-arrange when a card's value for the CURRENT group-by dimension changes — e.g. marking
@@ -1704,6 +1957,29 @@ export function MapClient({
       else next.add(s);
       return next;
     });
+  }
+
+  // The COLUMNS board: same data, same mutation paths, no canvas. Its own tab strip sits in the
+  // top band next to the floating nav, exactly where the canvas puts its own.
+  if (columns) {
+    return (
+      <div className="canvas-dots relative h-screen w-full">
+        <div className="glass absolute right-3 top-3 z-30 rounded-full px-1 py-0.5">
+          <CanvasTabs active="COLUMNS" tabs={BOARD_TABS} />
+        </div>
+        <ColumnsView
+          nodes={livePayload}
+          edges={edgePayload}
+          hasFrontend={hasFrontend}
+          readOnly={readOnly}
+          onChangeField={changeField}
+          onAddCard={addCardInColumn}
+          onEditDescription={editDescription}
+          className="pt-14"
+        />
+        <FocusEditorModal payload={focusEdit} onDismiss={() => setFocusEdit(null)} />
+      </div>
+    );
   }
 
   return (
@@ -1859,7 +2135,14 @@ export function MapClient({
 
         {/* Labeled group containers — flow coordinate space, so they pan/zoom with the canvas.
             Non-interactive; each box sits in the padding around its members. */}
-        <GroupRegions regions={regions} tone={regionTone} lod={lod} />
+        <GroupRegions
+          regions={regions}
+          tone={regionTone}
+          lod={lod}
+          collapsed={laneMode ? collapsedLanes : undefined}
+          onToggleCollapse={laneMode ? toggleLane : undefined}
+          hideEmpty={laneMode && hideEmptyLanes}
+        />
         <LodReporter onLod={setLod} />
 
         <Controls
@@ -2011,6 +2294,26 @@ export function MapClient({
                   {o.label}
                 </button>
               ))}
+              {arrangedBy && (
+                <>
+                  <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
+                  <button
+                    type="button"
+                    aria-pressed={hideEmptyLanes}
+                    onClick={() => setHideEmptyLanes((v) => !v)}
+                    title="Hide lanes with no cards"
+                    className={cn(
+                      "flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium transition-colors",
+                      hideEmptyLanes
+                        ? "bg-[var(--ink-active)] text-foreground"
+                        : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
+                    )}
+                  >
+                    <EyeOff className="size-3" />
+                    Hide empty
+                  </button>
+                </>
+              )}
             </div>
           )}
           <div className="glass flex items-center gap-1 rounded-full p-1">
@@ -2088,15 +2391,7 @@ export function MapClient({
               panelOpen && "!mr-[352px]",
             )}
           >
-            <CanvasTabs
-              active={view}
-              tabs={[
-                { value: "ROADMAP", label: "Roadmap", href: "/map?view=ROADMAP" },
-                { value: "ARCHITECTURE", label: "Architecture", href: "/map?view=ARCHITECTURE" },
-                { value: "DATABASE", label: "Database", href: "/map?view=DATABASE" },
-                { value: "FILES", label: "Files", href: "/map?view=FILES" },
-              ]}
-            />
+            <CanvasTabs active={view} tabs={BOARD_TABS} />
           </Panel>
         )}
 
@@ -2282,7 +2577,7 @@ export function MapClient({
         <DetailSidebar
           view={view}
           selected={selected}
-          allNodes={nodePayload}
+          allNodes={livePayload}
           onClose={() => {
             setPanelOpen(false);
             setPanelTab("details"); // closing always resets to Details for the next open

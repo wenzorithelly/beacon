@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Database, FolderTree, MapPinned, Network } from "lucide-react";
+import { Columns3, Database, FolderTree, MapPinned, Network } from "lucide-react";
 import type { ComponentType } from "react";
 import { currentTabWs } from "@/lib/tab-ws";
 import { useTabSwitch, type ShellView } from "@/components/graph/tab-switch-context";
@@ -23,10 +23,21 @@ export type CanvasTab = {
 
 const ICON_BY_VALUE: Record<string, ComponentType<{ className?: string }>> = {
   ROADMAP: MapPinned,
+  COLUMNS: Columns3,
   ARCHITECTURE: Network,
   FILES: FolderTree,
   DATABASE: Database,
 };
+
+/** The /map view strip, in reading order. COLUMNS is not a <MapTabsShell/> view, so it navigates
+ *  (a <Link>) while the other three switch client-side — see TabSwitchContext. */
+export const BOARD_TABS: CanvasTab[] = [
+  { value: "ROADMAP", label: "Roadmap", href: "/map?view=ROADMAP" },
+  { value: "COLUMNS", label: "Columns", href: "/map?view=COLUMNS" },
+  { value: "ARCHITECTURE", label: "Architecture", href: "/map?view=ARCHITECTURE" },
+  { value: "DATABASE", label: "Database", href: "/map?view=DATABASE" },
+  { value: "FILES", label: "Files", href: "/map?view=FILES" },
+];
 
 export function CanvasTabs({ tabs, active }: { tabs: CanvasTab[]; active: string }) {
   // Carry this tab's workspace through the view switch (the hrefs arrive as /map?view=X with no

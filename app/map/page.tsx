@@ -33,7 +33,9 @@ export default async function MapPage({
         ? "FILES"
         : sp.view === "DATABASE"
           ? "DATABASE"
-          : "ROADMAP";
+          : sp.view === "COLUMNS"
+            ? "COLUMNS"
+            : "ROADMAP";
 
   // Pin the render to THIS tab's workspace: the per-tab `?ws=` param wins (so a /map tab keeps
   // showing its repo even after opening another repo flips the browser-wide beacon_ws cookie),
@@ -92,6 +94,22 @@ export default async function MapPage({
           touched={readTouched()}
           hasFrontend={await resolveHasFrontend()}
           classificationRoots={await resolveClassificationRoots()}
+        />
+      );
+    }
+
+    if (view === "COLUMNS") {
+      // The kanban board over the roadmap: layout is computed at render time and stored nowhere,
+      // so it needs no arrange pass and no positions — just the cards and their DEPENDS edges.
+      // Kept OUT of the tab shell (which only holds the three canvas boards).
+      const { nodes, edges } = await readRoadmapBoard("ROADMAP");
+      return (
+        <MapClient
+          view="ROADMAP"
+          columns
+          nodes={nodes}
+          edges={edges}
+          hasFrontend={await resolveHasFrontend()}
         />
       );
     }
