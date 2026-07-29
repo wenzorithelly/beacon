@@ -35,14 +35,29 @@ export interface RoadmapLayoutNode {
    *  the actual state ("In Review") instead of collapsing everything started into IN_PROGRESS. */
   stateName?: string | null;
   stateType?: string | null;
+  /** Linear team key (externalMeta.team.key) — the workflow state's OWNER. A state name is only
+   *  unique within a team, so this is what makes the lane key unambiguous. */
+  teamKey?: string | null;
 }
 
-// Lane key for group-by-status: the REAL workflow-state name when the card carries one, EXCEPT a
-// name that is just a case-variant of the Beacon status label ("In Progress" ≈ "In progress") —
-// that merges into the native lane so manual and synced cards group together.
-export function statusLaneKey(n: Pick<RoadmapLayoutNode, "status" | "stateName">): string {
+// Lane key for group-by-status.
+//
+// A Linear workflow state is only identified by (team, name): two teams each have their own "Done"
+// state, and matching on the bare name silently merged them — and merged them into the native
+// Beacon lane too, since "Done" is also a status label. So when the card carries its team, the lane
+// key is qualified with it ("Done · ENG") and can no longer collide with another team's state or
+// with a Beacon status key.
+//
+// Without a team there is nothing to tell two states apart, so the original rule stands: the REAL
+// state name, EXCEPT a name that is just a case-variant of the Beacon status label ("In Progress" ≈
+// "In progress"), which merges into the native lane so manual and synced cards group together.
+export function statusLaneKey(
+  n: Pick<RoadmapLayoutNode, "status" | "stateName" | "teamKey">,
+): string {
   const name = (n.stateName ?? "").trim();
   if (!name) return n.status;
+  const team = (n.teamKey ?? "").trim();
+  if (team) return `${name} · ${team}`;
   const label = STATUS_META[n.status]?.label ?? n.status;
   return name.toLowerCase() === label.toLowerCase() ? n.status : name;
 }
@@ -150,11 +165,45 @@ function laneOrderFor(
   return keys.includes("—") ? [...named, "—"] : named;
 }
 
+/** A lane the layout actually laid out: WHERE the group lives on the board, not where its cards
+ *  happen to have drifted to. Feed these to `computeGroupRegions({ lanes })` and the lane boxes are
+ *  correct, uniform and non-overlapping by construction. */
+export interface RoadmapLane {
+  key: string;
+  /** Human header text for the lane (status → "In progress", priority → "P0", cluster → itself). */
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface RoadmapLayoutResult {
+  positions: Map<string, { x: number; y: number }>;
+  lanes: RoadmapLane[];
+}
+
+/** Display text for a lane key, by dimension. */
+export function roadmapLaneLabel(groupBy: RoadmapGroupBy, key: string): string {
+  if (groupBy === "status") return STATUS_META[key]?.label ?? key;
+  if (groupBy === "priority") return `P${key}`;
+  return key;
+}
+
+/** Positions only — the original signature, unchanged for every existing caller. */
 export function layoutRoadmap(
   nodes: RoadmapLayoutNode[],
   groupBy: RoadmapGroupBy,
   opts: RoadmapLayoutOptions = {},
 ): Map<string, { x: number; y: number }> {
+  return layoutRoadmapLanes(nodes, groupBy, opts).positions;
+}
+
+export function layoutRoadmapLanes(
+  nodes: RoadmapLayoutNode[],
+  groupBy: RoadmapGroupBy,
+  opts: RoadmapLayoutOptions = {},
+): RoadmapLayoutResult {
   const colW = opts.colW ?? ROADMAP_COL_W;
   const rowH = opts.rowH ?? ROADMAP_ROW_H;
   const childIndent = opts.childIndent ?? ROADMAP_CHILD_INDENT;
@@ -231,9 +280,18 @@ export function layoutRoadmap(
     { gapX: laneGap, gapY: bandGap, viewportAspect: opts.viewportAspect, minBandW, aspectSlack: 1.5 },
   );
   const out = new Map<string, { x: number; y: number }>();
+  const lanes: RoadmapLane[] = [];
   for (const block of laneBlocks) {
     const origin = origins.get(block.id)!;
     for (const [id, p] of block.local) out.set(id, { x: origin.x + p.x, y: origin.y + p.y });
+    lanes.push({
+      key: block.id,
+      label: roadmapLaneLabel(groupBy, block.id),
+      x: origin.x,
+      y: origin.y,
+      w: block.w,
+      h: block.h,
+    });
   }
-  return out;
+  return { positions: out, lanes };
 }
