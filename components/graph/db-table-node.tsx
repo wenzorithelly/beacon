@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useState, type CSSProperties } from "react";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { KeyRound, Link2, MessageSquarePlus, Plus, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -34,6 +34,11 @@ export type DbTableNodeData = {
   onPinClick?: (annotationId: string) => void;
   /** Plan review: comment on this table / a column row (excerpt = `table` / `table.column`). */
   onComment?: (excerpt: string) => void;
+  /** Board-load arrival flash delay (ms), ranked by reading order — undefined = no flash. Lives
+   *  in `data` (not a React-Flow-level node style) because React Flow merges node-level
+   *  className/style onto the `.react-flow__node` WRAPPER, which sits behind this component's
+   *  own opaque card background — a flash there would be invisible. */
+  arriveDelayMs?: number;
 };
 
 export type DbTableNode = Node<DbTableNodeData>;
@@ -113,7 +118,7 @@ function contentFitWidth(
 // memo: skip re-rendering an unchanged table card on every canvas re-render / drag frame.
 // The DbEditContext value is stable (commit/router callbacks), so an untouched card's props
 // don't change and memo can bail out.
-export const DbTableNode = memo(function DbTableNode({ id, data, selected }: NodeProps<DbTableNode>) {
+export const DbTableNode = memo(function DbTableNode({ id, data }: NodeProps<DbTableNode>) {
   const draft = data.source === "DRAFT";
   // Diff accent (draft only): green = new table, amber = modified vs. the live schema, sky = unchanged.
   const accent =
@@ -150,9 +155,15 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
   const cardWidth = contentFitWidth(data.name, draft ? cols : data.columns, data.fkTargets, draft, data.diffColumns);
   // Shared shell: dark glass card, 12px radius, hairline rows. NO overflow-hidden — the
   // annotation pins ride half-outside the right edge — so the header tints its own top corners.
+  // Board-load arrival flash — applied on THIS card's own root (see the `arriveDelayMs` doc
+  // comment on DbTableNodeData for why it can't live at the React-Flow node level).
+  const arriveStyle: CSSProperties | undefined =
+    data.arriveDelayMs !== undefined
+      ? ({ "--arrive-delay": `${data.arriveDelayMs}ms` } as CSSProperties)
+      : undefined;
   const shell = cn(
-    "relative rounded-xl border bg-card/95 text-card-foreground shadow-[0_18px_50px_-22px_rgba(0,0,0,0.9)] backdrop-blur dark:bg-[#161618]/95",
-    selected && "ring-2 ring-[var(--accent,#f5b942)]",
+    "board-card relative rounded-xl border bg-card/95 text-card-foreground shadow-[0_18px_50px_-22px_rgba(0,0,0,0.9)] backdrop-blur dark:bg-[#161618]/95",
+    data.arriveDelayMs !== undefined && "node-arrive",
   );
 
   // Semantic zoom: name-only card below the mid threshold; invisible (region summaries take
@@ -167,7 +178,7 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
           // Keep visible at far zoom on read-only boards (no region summaries to fall back on).
           lod === "far" && !edit.readOnly && "!opacity-0",
         )}
-        style={{ width: cardWidth }}
+        style={{ width: cardWidth, ...arriveStyle }}
       >
         <FourDotHandles />
         <div className="flex items-center gap-2">
@@ -180,7 +191,7 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
 
   if (!draft) {
     return (
-      <div className={shell} style={{ width: cardWidth, borderColor: `${color}3d` }}>
+      <div className={shell} style={{ width: cardWidth, borderColor: `${color}3d`, ...arriveStyle }}>
         <Handles />
         <div
           className="group/row relative flex items-center justify-between rounded-t-[11px] px-3 py-2"
@@ -190,7 +201,7 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
             {data.source === "INTROSPECTION" && (
               <span title="live — derived from your code" className="inline-block size-1.5 shrink-0 rounded-full bg-emerald-400" />
             )}
-            <span className="truncate" title={data.name}>
+            <span className="board-card-title truncate" title={data.name}>
               {data.name}
             </span>
           </span>
@@ -252,7 +263,7 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
 
   // ── Draft: fully editable ──
   return (
-    <div className={cn(shell, "group/card")} style={{ width: cardWidth, borderColor: `${accent}59` }}>
+    <div className={cn(shell, "group/card")} style={{ width: cardWidth, borderColor: `${accent}59`, ...arriveStyle }}>
       <Handles />
       <div
         className="group/row relative flex items-center gap-1.5 rounded-t-[11px] px-3 py-2"
@@ -270,7 +281,7 @@ export const DbTableNode = memo(function DbTableNode({ id, data, selected }: Nod
             if (e.key === "Enter") e.currentTarget.blur();
           }}
           placeholder="table"
-          className={cn(noDrag, "min-w-0 flex-1 bg-transparent font-mono text-[13px] font-semibold tracking-tight outline-none")}
+          className={cn(noDrag, "board-card-title min-w-0 flex-1 bg-transparent font-mono text-[13px] font-semibold tracking-tight outline-none")}
         />
         <RiskBadgeRow badges={riskBadges} />
         <span

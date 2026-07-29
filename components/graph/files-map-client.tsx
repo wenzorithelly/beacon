@@ -17,6 +17,7 @@ import {
   type Node,
   type NodeChange,
   type ReactFlowInstance,
+  type XYPosition,
 } from "@xyflow/react";
 import {
   forceCollide,
@@ -53,7 +54,9 @@ import { classifyFileLayers } from "@/lib/file-layer";
 import { buildGroupKeys } from "@/lib/file-groups";
 import { LAYER_COLORS, LAYER_META, layerStripeCss, type Layer } from "@/lib/layer";
 import { LodReporter, useZoomLOD } from "@/components/graph/use-zoom-lod";
+import { SNAP_GRID, useSnapToGrid } from "@/components/graph/use-snap-grid";
 import { FILES_LOD, type Lod } from "@/lib/zoom-lod";
+import { easeSpringGlide } from "@/lib/spring-ease";
 import { categoryHex } from "@/lib/category-color";
 import { cn } from "@/lib/utils";
 import { useColorMode } from "@/components/theme/use-color-mode";
@@ -477,6 +480,7 @@ export function FilesMapClient({
   const [circularOnly, setCircularOnly] = useState(false);
   // React Flow colorMode tracks the app theme (see useColorMode) so light theme isn't overridden.
   const colorMode = useColorMode();
+  const snapToGrid = useSnapToGrid();
   // Touched-Files: "focus edits" dims everything except files edited this session (focus+context).
   const [editsOnly, setEditsOnly] = useState(false);
   // Layer emphasis (FE/BE/FS pills): dims non-matching files instead of hiding them.
@@ -497,7 +501,12 @@ export function FilesMapClient({
     setSelectedId(path);
     setSelectedEdgeId(null);
     const n = rfRef.current?.getNode(path);
-    if (n && rfRef.current) rfRef.current.setCenter(n.position.x + 40, n.position.y + 12, { zoom: 1.4, duration: 600 });
+    if (n && rfRef.current)
+      rfRef.current.setCenter(n.position.x + 40, n.position.y + 12, {
+        zoom: 1.4,
+        duration: 600,
+        ease: easeSpringGlide,
+      });
   }, []);
   // Toggle "focus edits": dim everything except files edited this session AND zoom to them, so
   // one click both isolates and frames the edited set (the previous separate crosshair was unclear).
@@ -511,7 +520,8 @@ export function FilesMapClient({
     // render — that triggered a MiniMap setState-in-render warning).
     if (next && rfRef.current) {
       const ids = Array.from(touchedInfo.keys()).map((id) => ({ id }));
-      if (ids.length) rfRef.current.fitView({ nodes: ids, duration: 600, padding: 0.4 });
+      if (ids.length)
+        rfRef.current.fitView({ nodes: ids, duration: 600, padding: 0.4, ease: easeSpringGlide });
     }
   }, [editsOnly, touchedInfo]);
 
@@ -530,9 +540,10 @@ export function FilesMapClient({
         duration: 700,
         padding: 0.3,
         maxZoom: 1.1,
+        ease: easeSpringGlide,
       });
     } else {
-      rfRef.current.fitView({ duration: 700, padding: 0.1 });
+      rfRef.current.fitView({ duration: 700, padding: 0.1, ease: easeSpringGlide });
     }
   }, []);
   const tour = useCanvasTour(tourSteps, focusTourStep);
@@ -553,12 +564,32 @@ export function FilesMapClient({
     [],
   );
 
-  const persistPos = useCallback((path: string, x: number, y: number) => {
-    void fetch("/api/code-graph/position", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ path, x, y }),
-    });
+  // Where the dragged dots sat before the drag — React Flow has already moved them by the time
+  // the write goes out, so this is the only snapshot a failed write can restore.
+  const dragStartPos = useRef(new Map<string, XYPosition>());
+
+  // Persist dragged file dots. React Flow hands the drag handlers EVERY node that moved, so a
+  // multi-select drag saves as ONE batch (the route already takes one) instead of persisting the
+  // grabbed dot and letting the rest snap back on the next resync. Awaited + rolled back so a
+  // failed write reads as the dots returning, not as a silent divergence from the db.
+  const persistPos = useCallback(async (moved: { path: string; x: number; y: number }[]) => {
+    if (!moved.length) return;
+    const before = new Map(dragStartPos.current);
+    try {
+      const res = await fetch("/api/code-graph/position", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ batch: moved }),
+      });
+      if (!res.ok) throw new Error(`position save failed (${res.status})`);
+    } catch {
+      setNodes((nds) =>
+        nds.map((n) => {
+          const p = before.get(n.id);
+          return p ? { ...n, position: p } : n;
+        }),
+      );
+    }
   }, []);
 
   // O(1) lookup for "is this edge circular?" via the React Flow edge id.
@@ -817,11 +848,19 @@ export function FilesMapClient({
         onInit={(inst) => {
           rfRef.current = inst;
         }}
-        onNodeDragStop={(_, node) =>
-          persistPos(node.id, node.position.x, node.position.y)
+        onNodeDragStart={(_, __, dragged) => {
+          dragStartPos.current = new Map(dragged.map((n) => [n.id, n.position]));
+        }}
+        onNodeDragStop={(_, __, dragged) =>
+          void persistPos(
+            dragged.map((n) => ({ path: n.id, x: n.position.x, y: n.position.y })),
+          )
         }
         deleteKeyCode={null}
         colorMode={colorMode}
+        // Dots land on the canvas dot grid; hold ⌥ to drop one anywhere (see useSnapToGrid).
+        snapToGrid={snapToGrid}
+        snapGrid={SNAP_GRID}
         fitView
         // Land at the colorful dot web, never on the far-zoom summary blocks: the fit can
         // zoom out to take in the whole graph, but not past the dots' readable range.
@@ -961,7 +1000,13 @@ export function FilesMapClient({
                   .filter((f) => (groupKeys.get(f.path) ?? "(root)") === g.group)
                   .map((f) => ({ id: f.path }));
                 if (ids.length)
-                  rfRef.current?.fitView({ nodes: ids, duration: 600, padding: 0.3, maxZoom: 1 });
+                  rfRef.current?.fitView({
+                    nodes: ids,
+                    duration: 600,
+                    padding: 0.3,
+                    maxZoom: 1,
+                    ease: easeSpringGlide,
+                  });
               }}
               title={`${g.count} files — click to zoom to ${g.group}`}
               className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
@@ -998,6 +1043,7 @@ export function FilesMapClient({
                 nodes: [...searchMatchIds].map((id) => ({ id })),
                 duration: 600,
                 padding: 0.3,
+                ease: easeSpringGlide,
               });
             }}
           />

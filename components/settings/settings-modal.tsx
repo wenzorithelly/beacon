@@ -5,29 +5,28 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 import { useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { BeaconMark } from "@/components/beacon-mark";
-import { isDesktopShell, type DesktopServerMode } from "@/lib/desktop-shell";
+import { sectionSummary, useSummaryVersion } from "@/components/settings/section-summary";
 import { buildTabHref, currentTabWs } from "@/lib/tab-ws";
 import { cn } from "@/lib/utils";
 
-// One settings section = one rail row + its content pane. `group` clusters rows under a quiet
-// header (like the Claude-desktop settings dialog); the server builds these so the delete-workspace
-// card can target this tab's repo. Content is the existing settings cards, unchanged.
+// One settings section = one rail row + its content pane. The server builds these so the
+// delete-workspace card can target this tab's repo.
+//
+// `group` is gone: with five sections, the General/Connections/Workspace headers were labelling one
+// or two rows each. `description` is new — the pane header states what a section is FOR, once, so
+// the cards inside it no longer each have to.
 export type SettingsSection = {
   id: string;
   label: string;
-  group: string;
+  /** Shown under the section title in the pane header. One line, plain, no marketing. */
+  description?: string;
+  /** The settings this section contains, in the words someone would type looking for them. Feeds
+   * the rail search so a query for a CONTROL ("opacity") finds the section holding it, instead of
+   * only matching section names. Authored next to the content so the two stay adjacent. */
+  keywords?: string[];
   icon?: ReactNode;
-  /** Render this section only under the Beacon Desktop shell — same window.beaconDesktop gating
-   * its cards use (e.g. the Permissions card). A plain browser never shows the rail row. */
-  desktopOnly?: boolean;
   content: ReactNode;
 };
-
-// Sections are built server-side, but desktop-only visibility is a client fact (the shell's
-// preload stamps <html data-shell="desktop"> pre-hydration). Server snapshot is `false` so the
-// first client render matches the server HTML; under the shell the post-hydration re-render
-// reveals the row — same useSyncExternalStore recipe as the direct-modal store below.
-const subscribeNever = () => () => {};
 
 // ── Direct-wins dedup ───────────────────────────────────────────────────────────────────────
 // A bare `/settings` hard load renders the DIRECT modal (app/settings/page.tsx), then the per-tab
@@ -76,14 +75,12 @@ export function SettingsModal({
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Rail-footer version identity, fetched once on mount. `serverVersion` is the trybeacon install
-  // actually SERVING this page (same source as the update banner's currentVersion — see
-  // app/api/app-version); `desktop` exists only under the shell, gated on the bridge method per
-  // lib/desktop-shell.ts convention. Every failure is silent: an empty footer beats a broken modal.
+  // Rail-footer version identity, fetched once on mount: the trybeacon install actually SERVING this
+  // page (same source as the update banner's currentVersion — see app/api/app-version). The desktop
+  // app's own version used to sit under it; it now belongs to the shell's Settings window, which is
+  // the surface that knows what a desktop build even is. Failure is silent: an empty footer beats a
+  // broken modal.
   const [serverVersion, setServerVersion] = useState<string | null>(null);
-  const [desktop, setDesktop] = useState<{ app: string; serverMode: DesktopServerMode } | null>(
-    null,
-  );
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -95,12 +92,6 @@ export function SettingsModal({
         }
       } catch {
         /* offline / route missing — footer line stays empty */
-      }
-      try {
-        const v = await window.beaconDesktop?.getVersions?.();
-        if (!cancelled && v && typeof v.app === "string") setDesktop(v);
-      } catch {
-        /* older shell / torn-down bridge — no desktop line */
       }
     })();
     return () => {
@@ -115,31 +106,29 @@ export function SettingsModal({
     return registerDirectModal();
   }, [intercepted]);
 
-  // Drop desktop-only sections in a plain browser (see subscribeNever above).
-  const inShell = useSyncExternalStore(subscribeNever, isDesktopShell, () => false);
-  const visibleSections = useMemo(
-    () => sections.filter((s) => !s.desktopOnly || inShell),
-    [sections, inShell],
-  );
+  // Re-render the rail whenever any card publishes a new value summary (section-summary.tsx). The
+  // version counter is the subscription; `sectionSummary(id)` is read per row during render.
+  useSummaryVersion();
 
-  const current = visibleSections.find((s) => s.id === active) ?? visibleSections[0];
+  const current = sections.find((s) => s.id === active) ?? sections[0];
 
-  // Live label/group match — quiet, client-side, no fetch. Groups render in first-seen order and
-  // vanish when none of their rows match.
-  const groups = useMemo(() => {
+  // ── Search over SETTINGS, not section names ────────────────────────────────────────────────
+  // The old search matched `label`/`group` only: typing "opacity" returned "No settings match"
+  // while a Background opacity slider sat two clicks away — a search box that answers "no" about
+  // something the app plainly has is worse than no search box. Each section now declares the
+  // settings it contains (`keywords`, authored next to the content in settings-sections.tsx), so a
+  // query for a CONTROL finds the section holding it.
+  const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const order: string[] = [];
-    const byGroup = new Map<string, SettingsSection[]>();
-    for (const s of visibleSections) {
-      if (q && !s.label.toLowerCase().includes(q) && !s.group.toLowerCase().includes(q)) continue;
-      if (!byGroup.has(s.group)) {
-        byGroup.set(s.group, []);
-        order.push(s.group);
-      }
-      byGroup.get(s.group)!.push(s);
-    }
-    return order.map((g) => ({ label: g, items: byGroup.get(g)! }));
-  }, [visibleSections, query]);
+    if (!q) return sections;
+    return sections.filter(
+      (s) =>
+        s.label.toLowerCase().includes(q) ||
+        s.description?.toLowerCase().includes(q) ||
+        s.keywords?.some((k) => k.toLowerCase().includes(q)),
+    );
+  }, [sections, query]);
+
 
   function close() {
     setOpen(false);
@@ -220,52 +209,66 @@ export function SettingsModal({
 
             <nav
               aria-label="Settings sections"
-              className="flex gap-1 overflow-x-auto px-3 pb-3 sm:flex-1 sm:flex-col sm:gap-0.5 sm:overflow-x-visible sm:overflow-y-auto"
+              className="flex gap-1 overflow-x-auto px-2 pb-3 sm:flex-1 sm:flex-col sm:gap-0.5 sm:overflow-x-visible sm:overflow-y-auto"
             >
-              {groups.length === 0 ? (
-                <p className="px-1 py-2 text-[12px] text-muted-foreground">No settings match.</p>
+              {matches.length === 0 ? (
+                <p className="px-2 py-2 text-[12px] leading-relaxed text-muted-foreground">
+                  Nothing matches that. Try a word from the control itself — “blur”, “scrollback”,
+                  “shell”.
+                </p>
               ) : (
-                groups.map((g) => (
-                  <div key={g.label} className="shrink-0 sm:mt-3 sm:first:mt-1">
-                    <p className="hidden px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 sm:block">
-                      {g.label}
-                    </p>
-                    <div className="flex gap-1 sm:flex-col sm:gap-0.5">
-                      {g.items.map((s) => {
-                        const on = s.id === active;
-                        return (
-                          <button
-                            key={s.id}
-                            type="button"
-                            aria-current={on ? "page" : undefined}
-                            onClick={() => setActive(s.id)}
-                            className={cn(
-                              "group flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors sm:w-full",
-                              on
-                                ? "bg-[var(--ink-active)] text-foreground"
-                                : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
-                            )}
-                          >
-                            {s.icon && (
-                              <span
-                                aria-hidden
-                                className={cn(
-                                  "shrink-0 transition-colors",
-                                  on
-                                    ? "text-[var(--accent-2,#ff7a45)]"
-                                    : "text-muted-foreground group-hover:text-foreground",
-                                )}
-                              >
-                                {s.icon}
-                              </span>
-                            )}
-                            {s.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))
+                matches.map((s) => {
+                  const on = s.id === active;
+                  // The row states its own current value underneath its label, so "what's my
+                  // renderer?" is answered by the rail instead of by opening the section. Published
+                  // by the cards themselves (section-summary.tsx) — empty until they've loaded, and
+                  // absent entirely in a plain browser, in which case the row is just a label.
+                  const summary = sectionSummary(s.id);
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      aria-current={on ? "page" : undefined}
+                      onClick={() => setActive(s.id)}
+                      className={cn(
+                        "group flex shrink-0 items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors sm:w-full",
+                        "focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none",
+                        on
+                          ? "bg-[var(--ink-active)]"
+                          : "hover:bg-[var(--ink-hover)]",
+                      )}
+                    >
+                      {s.icon && (
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "mt-px shrink-0 transition-colors",
+                            on
+                              ? "text-[var(--accent-2,#ff7a45)]"
+                              : "text-muted-foreground group-hover:text-foreground",
+                          )}
+                        >
+                          {s.icon}
+                        </span>
+                      )}
+                      <span className="min-w-0">
+                        <span
+                          className={cn(
+                            "block text-[13px] font-medium leading-tight",
+                            on ? "text-foreground" : "text-muted-foreground group-hover:text-foreground",
+                          )}
+                        >
+                          {s.label}
+                        </span>
+                        {summary && (
+                          <span className="mt-0.5 hidden truncate text-[10.5px] leading-tight text-muted-foreground/70 sm:block">
+                            {summary}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })
               )}
             </nav>
 
@@ -273,23 +276,19 @@ export function SettingsModal({
                 app (browser AND shell); line 2 = the desktop app + bundled-vs-attached backend,
                 shell only. No card, no border — sm-only because the mobile rail is a top strip
                 with no bottom to sit at. */}
-            {(serverVersion || desktop) && (
+            {serverVersion && (
               <div className="hidden shrink-0 px-4 pb-3 pt-2 sm:block">
                 {serverVersion && (
                   <p className="text-[10px] text-muted-foreground/70">Beacon v{serverVersion}</p>
-                )}
-                {desktop && (
-                  <p className="text-[10px] text-muted-foreground/70">
-                    Desktop v{desktop.app}
-                    {desktop.serverMode === "bundled" && " · bundled server"}
-                    {desktop.serverMode === "attached" && " · shared daemon"}
-                  </p>
                 )}
               </div>
             )}
           </aside>
 
-          {/* ── Content pane: the active section's existing cards, scrollable ───────────────── */}
+          {/* ── Content pane ───────────────────────────────────────────────────────────────────
+              The pane header names the section ONCE. Sections used to be titled up to four times
+              over (rail row, card icon, card title, card description) because each held exactly one
+              card; the single-card sections now render their content bare. */}
           <div className="relative min-w-0 flex-1 overflow-y-auto">
             <DialogPrimitive.Close
               aria-label="Close settings"
@@ -300,7 +299,17 @@ export function SettingsModal({
             >
               <X className="size-4" />
             </DialogPrimitive.Close>
-            <div className="space-y-4 px-5 py-6 sm:px-7 sm:py-7">{current?.content}</div>
+            {current && (
+              <header className="border-b border-border px-5 pb-3.5 pt-5 pr-14 sm:px-7 sm:pr-16 sm:pt-6">
+                <h2 className="text-[16px] font-semibold tracking-[-0.015em]">{current.label}</h2>
+                {current.description && (
+                  <p className="mt-1 max-w-[62ch] text-[12px] leading-relaxed text-muted-foreground">
+                    {current.description}
+                  </p>
+                )}
+              </header>
+            )}
+            <div className="space-y-4 px-5 py-5 sm:px-7 sm:py-6">{current?.content}</div>
           </div>
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>

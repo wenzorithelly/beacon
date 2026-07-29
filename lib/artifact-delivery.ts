@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeJsonAtomic } from "@/lib/atomic-write";
-import { dataDirFor, idForPath, repoRootFrom } from "@/lib/workspaces";
+import { dataDirFor, workspaceIdForCwd } from "@/lib/workspaces";
 
 // Per-workspace "the agent published a Claude Artifact" single-slot delivery — the desktop
 // shell (separate repo) polls this file the same way it already polls agent-status.json
@@ -10,7 +10,7 @@ import { dataDirFor, idForPath, repoRootFrom } from "@/lib/workspaces";
 // Unlike ask-delivery.ts (written from a Next API route under the request-pinned workspace), this
 // is written directly by the `beacon artifact` PostToolUse hook — a bare CLI process with no
 // request context — so every function here takes an explicit `workspaceId`, resolved by the
-// caller the same way lib/agent-status.ts does (repoRootFrom(cwd) + idForPath).
+// caller the same way lib/agent-status.ts does (workspaceIdForCwd).
 //
 // File: ~/.beacon/<workspaceId>/artifact-delivery.json
 
@@ -94,7 +94,7 @@ export function writeArtifactDelivery(
 
 /**
  * IO wrapper for the `beacon artifact` hook: resolve the workspace from `cwd` the SAME way
- * lib/agent-status.ts's recordAgentStatus does (repoRootFrom + idForPath), read
+ * lib/agent-status.ts's recordAgentStatus does (workspaceIdForCwd), read
  * `BEACON_TERMINAL_ID` from env (the desktop shell injects it into every PTY; plain terminals have
  * none → omitted), and write atomically. `path` should already be the STABLE copied location (the
  * hook copies the ephemeral tool_input.file_path itself, before calling this). Best-effort and
@@ -109,7 +109,7 @@ export function recordArtifactDelivery(
   id?: string,
 ): void {
   try {
-    const workspaceId = idForPath(repoRootFrom(cwd));
+    const workspaceId = workspaceIdForCwd(cwd);
     const terminalId = process.env.BEACON_TERMINAL_ID || undefined;
     writeArtifactDelivery(workspaceId, url, Date.now(), title, terminalId, path, id);
   } catch {

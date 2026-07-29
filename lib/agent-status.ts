@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeJsonAtomic } from "@/lib/atomic-write";
 import { dataDir } from "@/lib/project";
-import { dataDirFor, idForPath, repoRootFrom } from "@/lib/workspaces";
+import { dataDirFor, workspaceIdForCwd } from "@/lib/workspaces";
 
 // Per-workspace "what is this agent session doing right now" bridge — the disk contract other
 // surfaces (the desktop shell's terminal headers/attention pills — separate repo) read directly,
@@ -109,7 +109,7 @@ export function sessionForTerminal(terminalId: string | null | undefined): strin
 
 /**
  * IO wrapper: resolve the workspace from `cwd` the SAME way the hooks/MCP server already do
- * (repoRootFrom + idForPath — see lib/workspaces.agentWorkspaceHeaders), read `BEACON_TERMINAL_ID`
+ * (workspaceIdForCwd — registry-first, see lib/workspaces), read `BEACON_TERMINAL_ID`
  * from env (the desktop shell injects it into every PTY; plain terminals have none → null), merge,
  * and write atomically. Best-effort and NEVER throws — hooks call this synchronously and must never
  * be trapped by a status-write failure.
@@ -117,7 +117,7 @@ export function sessionForTerminal(terminalId: string | null | undefined): strin
 export function recordAgentStatus(cwd: string, sessionId: string, state: AgentState): void {
   try {
     if (!sessionId) return;
-    const workspaceId = idForPath(repoRootFrom(cwd));
+    const workspaceId = workspaceIdForCwd(cwd);
     const terminalId = process.env.BEACON_TERMINAL_ID || null;
     const next = mergeAgentStatus(readStatusFile(workspaceId), {
       sessionId,

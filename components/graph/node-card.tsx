@@ -1,8 +1,10 @@
 "use client";
 
-import { createElement, memo, useEffect, useState } from "react";
+import { createElement, memo, useEffect, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "motion/react";
 import { type Node, type NodeProps } from "@xyflow/react";
+import { easeSpringGlide, SPRING_GLIDE_SECONDS } from "@/lib/spring-ease";
 import { FourDotHandles } from "@/components/graph/handles";
 import { PinRail } from "@/components/graph/annotation-node";
 import {
@@ -115,6 +117,11 @@ export type MapNodeData = {
   collapsed?: boolean;
   /** Toggle the collapse state for this card's sub-tasks (view-only; not persisted). */
   onToggleCollapse?: (id: string) => void;
+  /** Board-load arrival flash delay (ms), ranked by reading order — undefined = no flash. Lives
+   *  in `data` (not a React-Flow-level node style) because React Flow merges node-level
+   *  className/style onto the `.react-flow__node` WRAPPER, which sits behind this component's
+   *  own opaque card background — a flash there would be invisible. */
+  arriveDelayMs?: number;
 };
 
 export type MapNode = Node<MapNodeData>;
@@ -495,9 +502,10 @@ const PRIORITY_BORDER = [
   "border-border",
 ] as const;
 
-// memo: during a drag React Flow re-renders the canvas ~60×/s. memo skips a card whose props
-// (id/data/selected) are unchanged — which they are for non-dragged cards.
-export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps<MapNode>) {
+// memo: during a drag React Flow re-renders the canvas ~60×/s regardless (NodeProps carries
+// position/dragging fields memo can't see past). `selected` is read purely via CSS now
+// (`.react-flow__node.selected .board-card` in globals.css), not here.
+export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps<MapNode>) {
   const {
     categories,
     statuses,
@@ -537,6 +545,12 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
   const working = data.status === "IN_PROGRESS";
   const suggested = data.source === "INIT" && data.view === "ROADMAP";
 
+  // Board-load arrival flash — applied on THIS card's own root (see the `arriveDelayMs` doc
+  // comment on MapNodeData for why it can't live at the React-Flow node level).
+  const arriveClass = data.arriveDelayMs !== undefined ? "node-arrive" : undefined;
+  const arriveStyle: CSSProperties | undefined =
+    data.arriveDelayMs !== undefined ? { "--arrive-delay": `${data.arriveDelayMs}ms` } as CSSProperties : undefined;
+
   // Read-only boards (shared view / archived plan history) never persist edits.
   const save = (fields: Record<string, unknown>) => {
     if (!readOnly) patch(id, fields, true);
@@ -573,15 +587,16 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
     return (
       <div
         className={cn(
-          "relative rounded-lg border bg-card px-3 py-2.5 text-card-foreground shadow-sm",
+          "board-card relative rounded-lg border bg-card px-3 py-2.5 text-card-foreground shadow-sm",
           "w-fit max-w-[296px]",
           data.isChild ? "min-w-56" : "min-w-64",
           isBug ? "border-rose-400/50 bg-rose-500/[0.05]" : priorityBorder,
           working && "border-sky-400/60",
-          selected && "ring-2 ring-[var(--accent,#f5b942)]",
           cancelled && "opacity-60",
           lod === "far" && !readOnly && "!opacity-0",
+          arriveClass,
         )}
+        style={arriveStyle}
       >
         <FourDotHandles />
         <StatusStripe status={data.status} />
@@ -680,7 +695,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
       }}
       className={cn(
         noDrag,
-        "field-sizing-content w-full resize-none bg-transparent text-sm font-medium leading-snug outline-none placeholder:text-muted-foreground/60",
+        "board-card-title field-sizing-content w-full resize-none bg-transparent text-sm font-medium leading-snug outline-none placeholder:text-muted-foreground/60",
         cancelled && "line-through",
       )}
     />
@@ -879,16 +894,23 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
   if (isArch) {
     const tint = categoryHex(data.cluster);
     return (
-      <div
+      <motion.div
+        // Off while dragging: `layout` FLIPs on the ancestor .react-flow__node's OWN live drag
+        // transform too (Motion measures viewport-space rects, which shift every drag frame
+        // regardless of this card's actual size) — gating it off during `dragging` keeps the
+        // card glued 1:1 to the pointer instead of fighting the drag with a competing spring.
+        layout={!dragging}
+        transition={{ duration: SPRING_GLIDE_SECONDS, ease: easeSpringGlide }}
         className={cn(
-          "group/nc relative rounded-lg border bg-card px-3 py-2.5 text-card-foreground shadow-sm transition",
+          "board-card group/nc relative rounded-lg border bg-card px-3 py-2.5 text-card-foreground shadow-sm transition",
           "w-fit min-w-60 max-w-72",
           draft ? "border-dashed border-sky-400/50 bg-sky-500/[0.06]" : "border-border",
           working && "border-sky-400/60 shadow-[0_0_0_1px_rgba(56,160,255,0.25)]",
-          selected && "ring-2 ring-[var(--accent,#f5b942)]",
           cancelled && "opacity-60",
           dimmed && "opacity-70 border-dashed",
+          arriveClass,
         )}
+        style={arriveStyle}
       >
         {edgeChrome}
 
@@ -939,7 +961,7 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
         {cornerTools}
 
         {expandBody}
-      </div>
+      </motion.div>
     );
   }
 
@@ -947,9 +969,12 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
   const progressTotal = data.childCount ?? 0;
   const progressDone = data.childDone ?? 0;
   return (
-    <div
+    <motion.div
+      // Off while dragging — see the architecture card's identical comment above.
+      layout={!dragging}
+      transition={{ duration: SPRING_GLIDE_SECONDS, ease: easeSpringGlide }}
       className={cn(
-        "group/nc relative flex rounded-lg border bg-card text-card-foreground shadow-sm transition",
+        "board-card group/nc relative flex rounded-lg border bg-card text-card-foreground shadow-sm transition",
         "w-fit max-w-96",
         expanded ? "min-w-80" : "min-w-64",
         draft
@@ -961,10 +986,11 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
         working && "border-sky-400/60 shadow-[0_0_0_1px_rgba(56,160,255,0.25)]",
         data.isNext && "border-emerald-400/70 shadow-[0_0_0_2px_rgba(52,211,153,0.35)]",
         data.workOrderRank != null && data.workOrderRank > 1 && "border-emerald-400/25",
-        selected && "ring-2 ring-[var(--accent,#f5b942)]",
         cancelled && "opacity-60",
         dimmed && "opacity-70 border-dashed",
+        arriveClass,
       )}
+      style={arriveStyle}
     >
       {edgeChrome}
       {cornerTools}
@@ -1078,6 +1104,6 @@ export const NodeCard = memo(function NodeCard({ id, data, selected }: NodeProps
         {signalsRow}
         {expandBody}
       </div>
-    </div>
+    </motion.div>
   );
 });

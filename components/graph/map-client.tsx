@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { createId } from "@paralleldrive/cuid2";
 import {
   applyEdgeChanges,
@@ -18,6 +25,7 @@ import {
   type Node,
   type NodeChange,
   type ReactFlowInstance,
+  type XYPosition,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -78,7 +86,9 @@ import { collapsedDescendants, childCounts } from "@/lib/node-collapse";
 import { nodePassesFilters, type RoadmapFilters } from "@/lib/map-filters";
 import { GroupRegions } from "@/components/graph/group-regions";
 import { LodReporter } from "@/components/graph/use-zoom-lod";
+import { SNAP_GRID, useSnapToGrid } from "@/components/graph/use-snap-grid";
 import type { Lod } from "@/lib/zoom-lod";
+import { easeSpringGlide } from "@/lib/spring-ease";
 import { cn } from "@/lib/utils";
 import { useColorMode } from "@/components/theme/use-color-mode";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
@@ -303,6 +313,18 @@ export function MapClient({
     [nodePayload, edgePayload, tableNodes],
   );
 
+  // Board-load arrival: stagger the card-arrive flash by reading order (top-to-bottom, then
+  // left-to-right), ranked ONCE from whatever nodePayload the board mounted with. A lazy useState
+  // initializer (not a memo keyed on nodePayload) is deliberate — nodePayload changes on every
+  // server resync (an edit, a save, live-refresh), and re-ranking there would replay the flash on
+  // every mutation instead of just once at load. Capped at 20 cards (480ms max cascade) — a huge
+  // board settles at once past that rather than a multi-second entrance.
+  const [arriveDelayById] = useState<Map<string, number>>(() => {
+    const ranked = [...nodePayload].sort((a, b) => a.y - b.y || a.x - b.x);
+    const m = new Map<string, number>();
+    ranked.forEach((n, i) => m.set(n.id, Math.min(i, 20) * 24));
+    return m;
+  });
 
   const [nodes, setNodes] = useState<Node<MapNodeData>[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
@@ -331,6 +353,7 @@ export function MapClient({
   // React Flow's colorMode must track the app theme, or its `.dark` root re-scopes the whole
   // canvas to the dark palette in light theme (see useColorMode).
   const colorMode = useColorMode();
+  const snapToGrid = useSnapToGrid();
 
   // Mirror the nodes in a ref so the STABLE mutation callbacks (saveFields / removeNode)
   // can snapshot pre-update values for rollback without taking `nodes` as a dep — that
@@ -904,9 +927,10 @@ export function MapClient({
         duration: 700,
         padding: 0.3,
         maxZoom: 1.1,
+        ease: easeSpringGlide,
       });
     } else {
-      flowRef.current.fitView({ duration: 700, padding: 0.2 });
+      flowRef.current.fitView({ duration: 700, padding: 0.2, ease: easeSpringGlide });
     }
   }, []);
   const tour = useCanvasTour(tourSteps, focusTourStep);
@@ -955,6 +979,12 @@ export function MapClient({
       // An expanded card grows over its neighbours — lift it above every collapsed card
       // (still below annotation chrome at zIndex 30) so its body isn't covered by them.
       if (expandedIds.has(n.id)) base = { ...base, zIndex: 25 };
+      // Board-load arrival flash lives in `data` (NodeCard applies it to its OWN root), not a
+      // React-Flow-level node className/style — that lands on the `.react-flow__node` WRAPPER,
+      // which sits BEHIND this card's own opaque background and would never be visible. A node
+      // absent from the rank map (created after mount, e.g. "+ Feature") defaults to 0 — an
+      // un-staggered flash, since a brand-new DOM node plays its entrance regardless.
+      base = { ...base, data: { ...base.data, arriveDelayMs: arriveDelayById.get(n.id) ?? 0 } };
       if (base.hidden) return base;
       // Layer emphasis is the BASELINE lens: search/click focus takes over while active.
       if (!effectiveFocusIds) {
@@ -990,7 +1020,7 @@ export function MapClient({
         },
       };
     });
-  }, [visibleNodes, effectiveFocusIds, spotlightIds, workOrderRank, expandedIds, layerDimIds, childCountById, childDoneById, collapsedIds, toggleCollapse]);
+  }, [visibleNodes, effectiveFocusIds, spotlightIds, workOrderRank, expandedIds, layerDimIds, childCountById, childDoneById, collapsedIds, toggleCollapse, arriveDelayById]);
 
   // React Flow keeps appended lesson table cards `visibility: hidden` until their measured
   // dimensions are applied back — capture them here (see annoMeasured below for the full story).
@@ -1485,13 +1515,37 @@ export function MapClient({
     [nodePayload, selectedId],
   );
 
-  const persistPosition = useCallback((id: string, x: number, y: number) => {
-    void fetch(`/api/nodes/${id}/position`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ x, y }),
-    });
-  }, []);
+  // Where the dragged cards sat before the drag. React Flow has already moved them by the time
+  // the write goes out, so this is the only snapshot a failed write can restore.
+  const dragStartPos = useRef(new Map<string, XYPosition>());
+
+  // Persist dragged cards. React Flow hands the drag handlers EVERY node that moved, so a
+  // multi-select drag commits as ONE batch through the endpoint Arrange already uses — saving
+  // just the grabbed card left its companions to snap back on the next server resync.
+  // Optimistic + rollback like saveFields: a failed write puts the cards back where they were,
+  // so the divergence shows up now instead of at some later refresh.
+  const persistPositions = useCallback(
+    async (moved: { id: string; x: number; y: number }[]) => {
+      if (!moved.length) return;
+      const before = new Map(dragStartPos.current);
+      try {
+        const res = await fetch("/api/nodes/positions", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ batch: moved }),
+        });
+        if (!res.ok) throw new Error(`position save failed (${res.status})`);
+      } catch {
+        setNodes((nds) =>
+          nds.map((n) => {
+            const p = before.get(n.id);
+            return p ? { ...n, position: p } : n;
+          }),
+        );
+      }
+    },
+    [],
+  );
 
   // Center + select a card. Reads the live node so the camera uses the measured/current
   // position, not a stale payload. Shared by search and "Work on next".
@@ -1505,6 +1559,7 @@ export function MapClient({
     flowRef.current.setCenter(n.position.x + w / 2, n.position.y + h / 2, {
       zoom: 1.2,
       duration: 600,
+      ease: easeSpringGlide,
     });
   }, []);
 
@@ -1554,7 +1609,7 @@ export function MapClient({
       body: JSON.stringify({ board: "roadmap", arrangedBy: by }),
     });
     requestAnimationFrame(() =>
-      flowRef.current?.fitView({ duration: 600, padding: 0.2 }),
+      flowRef.current?.fitView({ duration: 600, padding: 0.2, ease: easeSpringGlide }),
     );
     },
     [nodes],
@@ -1620,7 +1675,9 @@ export function MapClient({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ batch }),
       });
-    requestAnimationFrame(() => flowRef.current?.fitView({ duration: 600, padding: 0.2 }));
+    requestAnimationFrame(() =>
+      flowRef.current?.fitView({ duration: 600, padding: 0.2, ease: easeSpringGlide }),
+    );
   }, [nodes, edgePayload]);
 
   // The capped, ranked list drives the results popover. (The full match set that drives the
@@ -1765,18 +1822,29 @@ export function MapClient({
             setSelectedEdgeId(null);
           }
         }}
-        onNodeDragStop={(_, node) => {
-          if (node.id.startsWith("anno-")) {
-            // Board annotations remember where you parked the card; plan cards don't move.
-            if (boardMode)
-              patchBoardAnno(node.id.slice(5), { x: node.position.x, y: node.position.y });
-            return;
+        onNodeDragStart={(_, __, dragged) => {
+          dragStartPos.current = new Map(dragged.map((n) => [n.id, n.position]));
+        }}
+        onNodeDragStop={(_, __, dragged) => {
+          // `dragged` is every node the drag moved, not just the one under the cursor. Annotations
+          // live in their own store and cards in the batch endpoint, so a mixed selection splits.
+          const moved: { id: string; x: number; y: number }[] = [];
+          for (const n of dragged) {
+            if (n.id.startsWith("anno-")) {
+              // Board annotations remember where you parked the card; plan cards don't move.
+              if (boardMode) patchBoardAnno(n.id.slice(5), { x: n.position.x, y: n.position.y });
+            } else if (!readOnly) {
+              // archived board: dragging declutters locally, never persists
+              moved.push({ id: n.id, x: n.position.x, y: n.position.y });
+            }
           }
-          if (readOnly) return; // archived board: dragging declutters locally, never persists
-          persistPosition(node.id, node.position.x, node.position.y);
+          void persistPositions(moved);
         }}
         deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
         colorMode={colorMode}
+        // Cards land on the canvas dot grid; hold ⌥ to drop one anywhere (see useSnapToGrid).
+        snapToGrid={snapToGrid}
+        snapGrid={SNAP_GRID}
         fitView
         // Open at readable cards (mid LOD), never on the far-zoom summary blocks — a huge
         // board gets cropped rather than reduced to specks; panning covers the rest.
@@ -2055,6 +2123,7 @@ export function MapClient({
                 nodes: [...searchMatchIds].map((id) => ({ id })),
                 duration: 600,
                 padding: 0.2,
+                ease: easeSpringGlide,
               });
             }}
           />

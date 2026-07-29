@@ -167,6 +167,43 @@ export function getWorkspace(id: string): Workspace | null {
 }
 
 /**
+ * ONE entry per path. An entry whose stored path already IS this repo owns it even when its id
+ * doesn't hash that path — a directory rename patched into the registry, a symlinked or
+ * trailing-slash path, or an id minted before the current hashing. Keying purely on idForPath()
+ * would then treat the same repo as a SECOND workspace (two identically-named cards in the
+ * switcher, the new one pointing at an empty data dir), so the existing id wins: the boards live
+ * under it.
+ */
+function entryOwning(list: Workspace[], path: string): Workspace | undefined {
+  return list.find((w) => w.path === path) ?? list.find((w) => w.id === idForPath(path));
+}
+
+/**
+ * The workspace id that actually OWNS `path` — the registry entry claiming this repo when there is
+ * one, else the hash for a genuinely new repo. **Use this, not `idForPath`, anywhere an id names a
+ * `~/.beacon/<id>/` directory or a `?ws=` parameter.**
+ *
+ * `idForPath` is only the minting function. Calling it directly to answer "which workspace is this
+ * repo?" splits a workspace in two the moment the registry's id stops matching its path's hash:
+ * `addWorkspace` correctly keeps writing to the established id, while every direct `idForPath`
+ * caller writes to the hashed one. Measured symptoms of exactly that (2026-07-28, `platform`):
+ * agent status files, artifact deliveries and the MCP server's `?ws=` all pointed at an
+ * unregistered id whose db.sqlite was empty in every table, `beacon` provisioned a second database
+ * under it while registering the first, and the desktop shell — which resolves ids through the
+ * registry — rendered "No workspace" with no terminals when a plan approval navigated it there.
+ */
+export function workspaceIdForPath(path: string): string {
+  return entryOwning(readRegistry(), path)?.id ?? idForPath(path);
+}
+
+/** {@link workspaceIdForPath} for a working directory: resolves the repo root first, the same way
+ *  every agent-side writer must (a subdirectory or a linked agent worktree maps to the repo's one
+ *  workspace — see repoRootFrom). */
+export function workspaceIdForCwd(cwd: string = process.cwd()): string {
+  return workspaceIdForPath(repoRootFrom(cwd));
+}
+
+/**
  * Add a repo (or refresh its name) and mark it most-recently-opened. Idempotent.
  *
  * Refuses two classes of path so the registry never fills with junk: the home dir / filesystem
@@ -180,12 +217,7 @@ export function addWorkspace(path: string, name?: string, now = new Date().toISO
     throw new Error(`beacon: refusing to register a non-repo path as a workspace: ${path}`);
   }
   const list = readRegistry();
-  // ONE entry per path. An entry whose stored path already IS this repo owns it even when its id
-  // doesn't hash that path — a directory rename patched into the registry, a symlinked or
-  // trailing-slash path. Keying purely on idForPath() would then add a SECOND entry for the same
-  // repo (two identically-named cards in the switcher, the new one pointing at an empty data dir),
-  // so reuse the existing id: the boards live under it.
-  const existing = list.find((w) => w.path === path) ?? list.find((w) => w.id === idForPath(path));
+  const existing = entryOwning(list, path);
   const id = existing?.id ?? idForPath(path);
   if (isWorkspaceDeleted(id)) {
     throw new Error(
@@ -210,7 +242,7 @@ export function addWorkspace(path: string, name?: string, now = new Date().toISO
  * self-heal never calls this, so a workspace deleted in Settings stays gone until the user opts in.
  */
 export function registerWorkspaceExplicit(path: string, name?: string): Workspace {
-  clearWorkspaceTombstone(idForPath(path));
+  clearWorkspaceTombstone(workspaceIdForPath(path));
   return addWorkspace(path, name);
 }
 
@@ -334,7 +366,7 @@ export const BEACON_WS_PATH_HEADER = "x-beacon-workspace-path";
 // mis-targets. `cwd` defaults to this process's cwd (where the agent spawned the hook).
 export function agentWorkspaceHeaders(cwd: string = process.cwd()): Record<string, string> {
   const path = repoRootFrom(cwd);
-  return { "x-beacon-workspace": idForPath(path), [BEACON_WS_PATH_HEADER]: path };
+  return { "x-beacon-workspace": workspaceIdForPath(path), [BEACON_WS_PATH_HEADER]: path };
 }
 
 /**

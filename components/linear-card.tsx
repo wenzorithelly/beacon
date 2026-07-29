@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useSectionSummary } from "@/components/settings/section-summary";
 import type { LinearScope } from "@/lib/linear/types";
 
 // Settings panel for the Linear ↔ Beacon sync. A personal API key is bound to one Linear workspace,
@@ -60,6 +61,7 @@ export function LinearCard() {
 
   // Load the team/project/milestone options whenever connected — the picker is always visible.
   const connected = status?.connected ?? false;
+  useSectionSummary("connections", "linear", status ? (connected ? "Linear connected" : "Linear off") : undefined);
   useEffect(() => {
     if (!connected) return;
     let on = true;

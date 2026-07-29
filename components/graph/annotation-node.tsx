@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,7 +26,12 @@ export type AnnotationNodeData = {
 
 export type AnnotationFlowNode = Node<AnnotationNodeData>;
 
-export function AnnotationCardNode({ data, selected }: NodeProps<AnnotationFlowNode>) {
+// memo: skip re-rendering an unchanged annotation card on every canvas re-render / drag frame —
+// the same bail-out every other node type on these boards already has.
+export const AnnotationCardNode = memo(function AnnotationCardNode({
+  data,
+  selected,
+}: NodeProps<AnnotationFlowNode>) {
   const [body, setBody] = useState(data.text);
   // Re-seed when another surface (live refresh, undo) changes the text under us.
   useEffect(() => {
@@ -99,7 +104,7 @@ export function AnnotationCardNode({ data, selected }: NodeProps<AnnotationFlowN
       )}
     </div>
   );
-}
+});
 
 /** Serializable board-annotation row passed from /map pages into the canvases. */
 export interface BoardAnnotationPayload {

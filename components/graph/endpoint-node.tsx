@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useState, type CSSProperties } from "react";
 import { type Node, type NodeProps } from "@xyflow/react";
 import { MessageSquarePlus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -28,6 +28,11 @@ export type EndpointNodeData = {
   onPinClick?: (annotationId: string) => void;
   /** Plan review: comment on this endpoint (excerpt = `METHOD path`). */
   onComment?: (excerpt: string) => void;
+  /** Board-load arrival flash delay (ms), ranked by reading order — undefined = no flash. Lives
+   *  in `data` (not a React-Flow-level node style) because React Flow merges node-level
+   *  className/style onto the `.react-flow__node` WRAPPER, which sits behind this component's
+   *  own opaque card background — a flash there would be invisible. */
+  arriveDelayMs?: number;
 };
 
 export type EndpointNode = Node<EndpointNodeData>;
@@ -36,7 +41,7 @@ const noDrag = "nodrag nopan";
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 // memo: skip re-rendering an unchanged endpoint pill on every canvas re-render / drag frame.
-export const EndpointNode = memo(function EndpointNode({ id, data, selected }: NodeProps<EndpointNode>) {
+export const EndpointNode = memo(function EndpointNode({ id, data }: NodeProps<EndpointNode>) {
   const color = METHOD_COLOR[data.method] ?? "#8a8a8a";
   const draft = data.source === "DRAFT";
   // Diff accent (draft only): green = new endpoint vs. the live schema, sky = already exists.
@@ -56,6 +61,14 @@ export const EndpointNode = memo(function EndpointNode({ id, data, selected }: N
   }, [data.rev]);
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
+  // Board-load arrival flash — applied on THIS card's own root (see the `arriveDelayMs` doc
+  // comment on EndpointNodeData for why it can't live at the React-Flow node level).
+  const arriveClass = data.arriveDelayMs !== undefined ? "node-arrive" : undefined;
+  const arriveStyle: CSSProperties | undefined =
+    data.arriveDelayMs !== undefined
+      ? ({ "--arrive-delay": `${data.arriveDelayMs}ms` } as CSSProperties)
+      : undefined;
+
   // Semantic zoom: method+path only below the mid threshold; invisible below far (the box
   // keeps its size so the docked column under a table stays visually stable).
   const lod = useZoomLOD(DB_LOD);
@@ -63,17 +76,18 @@ export const EndpointNode = memo(function EndpointNode({ id, data, selected }: N
     return (
       <div
         className={cn(
-          "relative flex w-[300px] items-center gap-2 rounded-lg border border-border bg-card/95 px-2.5 py-2 text-card-foreground backdrop-blur dark:bg-[#161618]/95",
-          selected && "ring-2 ring-[var(--accent,#f5b942)]",
+          "board-card relative flex w-[300px] items-center gap-2 rounded-lg border border-border bg-card/95 px-2.5 py-2 text-card-foreground backdrop-blur dark:bg-[#161618]/95",
           // Keep visible at far zoom on read-only boards (no region summaries to fall back on).
           lod === "far" && !edit.readOnly && "!opacity-0",
+          arriveClass,
         )}
+        style={arriveStyle}
       >
         <FourDotHandles />
         <span className={cn("shrink-0 font-mono text-[12px] font-bold", methodTextClass(data.method))}>
           {data.method}
         </span>
-        <span title={data.path} className="truncate font-mono text-[13px]">{data.path}</span>
+        <span title={data.path} className="board-card-title truncate font-mono text-[13px]">{data.path}</span>
       </div>
     );
   }
@@ -81,11 +95,14 @@ export const EndpointNode = memo(function EndpointNode({ id, data, selected }: N
   return (
     <div
       className={cn(
-        "group relative flex w-[300px] items-center gap-2 rounded-lg border bg-card/95 px-2.5 py-1.5 text-card-foreground shadow-[0_12px_36px_-18px_rgba(0,0,0,0.9)] backdrop-blur dark:bg-[#161618]/95",
+        "board-card group relative flex w-[300px] items-center gap-2 rounded-lg border bg-card/95 px-2.5 py-1.5 text-card-foreground shadow-[0_12px_36px_-18px_rgba(0,0,0,0.9)] backdrop-blur dark:bg-[#161618]/95",
         draft ? "border-dashed" : "border-border",
-        selected && "ring-2 ring-[var(--accent,#f5b942)]",
+        arriveClass,
       )}
-      style={draft ? { borderColor: `${accent}66`, background: `${accent}0f` } : undefined}
+      style={{
+        ...(draft ? { borderColor: `${accent}66`, background: `${accent}0f` } : undefined),
+        ...arriveStyle,
+      }}
     >
       <FourDotHandles />
       {data.source === "INTROSPECTION" && (
@@ -122,7 +139,7 @@ export const EndpointNode = memo(function EndpointNode({ id, data, selected }: N
               stop(e);
               if (e.key === "Enter") e.currentTarget.blur();
             }}
-            className={cn(noDrag, "min-w-0 flex-1 bg-transparent font-mono text-[11px] outline-none")}
+            className={cn(noDrag, "board-card-title min-w-0 flex-1 bg-transparent font-mono text-[11px] outline-none")}
           />
           <RiskBadgeRow badges={riskBadges} />
           <span
@@ -160,7 +177,7 @@ export const EndpointNode = memo(function EndpointNode({ id, data, selected }: N
           </span>
           <span
             title={data.path}
-            className="min-w-0 flex-1 break-all font-mono text-[11px] leading-tight [-webkit-box-orient:vertical] [-webkit-line-clamp:2] [display:-webkit-box] overflow-hidden"
+            className="board-card-title min-w-0 flex-1 break-all font-mono text-[11px] leading-tight [-webkit-box-orient:vertical] [-webkit-line-clamp:2] [display:-webkit-box] overflow-hidden"
           >
             {data.path}
           </span>

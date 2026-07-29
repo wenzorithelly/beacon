@@ -25,6 +25,7 @@ const {
   removeWorkspace,
   touchWorkspace,
   idForPath,
+  workspaceIdForPath,
   dbUrlFor,
   dataDirFor,
   ensureWorkspaceDb,
@@ -110,6 +111,24 @@ describe("registrable-path + deletion tombstone guards", () => {
     expect(again.id).toBe(drifted.id);
     expect(idForPath("/repos/new-name")).not.toBe(drifted.id); // the drift is real, not normalized away
     expect(listWorkspaces()).toHaveLength(1);
+  });
+
+  it("workspaceIdForPath returns the OWNING entry's id, not the path hash", () => {
+    // The bug this exists to prevent (2026-07-28, `platform`): every agent-side writer called
+    // idForPath directly, so a workspace whose registry id had drifted from its path's hash split
+    // in two — boards under the registered id, agent-status/artifact/?ws= under the hashed one,
+    // whose db.sqlite was empty in every table.
+    const owner = addWorkspace("/repos/old-name");
+    writeFileSync(
+      join(HOME, "workspaces.json"),
+      JSON.stringify([{ ...owner, path: "/repos/new-name", name: "new-name" }]),
+    );
+    expect(idForPath("/repos/new-name")).not.toBe(owner.id); // drift is real
+    expect(workspaceIdForPath("/repos/new-name")).toBe(owner.id); // …and resolution follows the entry
+  });
+
+  it("workspaceIdForPath falls back to the hash for a repo no entry owns", () => {
+    expect(workspaceIdForPath("/repos/brand-new")).toBe(idForPath("/repos/brand-new"));
   });
 
   it("addWorkspace throws for a tombstoned id (implicit re-add is refused)", () => {

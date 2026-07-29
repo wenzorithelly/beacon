@@ -150,6 +150,115 @@
   --scrollbar-thumb-hover: oklch(1 0 0 / 0.3);
 }
 
+/* ── Motion system — the ONE set of durations/easings every board on this canvas uses ──────
+   Ported verbatim (docs/superpowers/specs/2026-07-27-motion-and-feel-design.md §4 T4.11/T4.15)
+   from the desktop shell's terminals/motion.css, so the web boards move with the SAME hand as
+   the Electron chrome wrapping them. Springs beat beziers for state changes because a spring
+   ARRIVES early and SETTLES late — the eye reads "done" before the motion technically ends.
+   `--spring-snap` reaches 90% of its travel in 105ms (settles at 260ms with a ~2% overshoot,
+   read as physical mass); `--spring-glide` reaches 90% in 190ms and settles at 325ms with no
+   overshoot (panels/cards/canvas shouldn't bounce). Real SwiftUI spring step-responses
+   (response/dampingFraction: snap 0.22s/0.78, glide 0.34s/0.92) sampled into CSS `linear()`
+   easings (Chromium 113+, this repo ships whatever the user's browser is — degrades to a
+   linear step if `linear()` is unsupported, never a hard cut). `lib/spring-ease.ts` mirrors the
+   same two sample arrays as a plain JS function for React Flow's imperative viewport moves
+   (fitView/setCenter), which take an `ease: (t) => number`, not CSS. Adding a value here is a
+   design decision, not a convenience — if a surface needs a duration off this scale, the
+   question is why it's special, not which number to hardcode. */
+:root {
+  --dur-instant: 90ms; /* hover/press feedback — must feel like a state, not an animation */
+  --dur-fast: 120ms; /* small affordances: buttons, chips, icon rotations */
+  --dur-base: 180ms; /* the default — anything that moves within one pane */
+  --dur-slow: 260ms; /* panels, drawers, palettes */
+  --dur-cinematic: 380ms; /* a transition that crosses the whole surface */
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* decelerate — the default for things arriving */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1); /* both ends eased — things moving in place */
+  --ease-emph-in: cubic-bezier(0.3, 0, 0.8, 0.15); /* accelerate away — things LEAVING */
+  --ease-back: cubic-bezier(0.34, 1.56, 0.64, 1); /* deliberate overshoot — confirmations only */
+
+  --dur-spring-snap: 260ms;
+  --spring-snap: linear(
+    0,
+    0.0351,
+    0.1207,
+    0.233,
+    0.355,
+    0.4754,
+    0.5868,
+    0.6851,
+    0.7687,
+    0.8373,
+    0.8919,
+    0.934,
+    0.9652,
+    0.9875,
+    1.0026,
+    1.0121,
+    1.0174,
+    1.0196,
+    1.0198,
+    1.0186,
+    1.0166,
+    1.0143,
+    1.0118,
+    1.0095,
+    1.0074,
+    1.0055,
+    1.004
+  );
+
+  --dur-spring-glide: 325ms;
+  --spring-glide: linear(
+    0,
+    0.0202,
+    0.0709,
+    0.1402,
+    0.2195,
+    0.3025,
+    0.3849,
+    0.4637,
+    0.5371,
+    0.6041,
+    0.6642,
+    0.7175,
+    0.764,
+    0.8044,
+    0.839,
+    0.8684,
+    0.8932,
+    0.9139,
+    0.9312,
+    0.9454,
+    0.9571,
+    0.9665,
+    0.9742,
+    0.9803,
+    0.9852,
+    0.9891,
+    0.9921,
+    0.9944,
+    0.9962
+  );
+}
+
+/* Reduced motion: zero the DURATION tokens and every tokenized transition on the boards
+   collapses to an instant state change in one place — no per-component sweep. Colors,
+   opacity-only fades and other non-motion transitions are deliberately NOT swept here (see the
+   same ruling in terminals/motion.css) — a `* { transition: none }` sledgehammer removes
+   affordances the user still needs. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+    --dur-cinematic: 0ms;
+    --dur-spring-snap: 0ms;
+    --dur-spring-glide: 0ms;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -500,6 +609,45 @@ html[data-shell="desktop"] .react-flow__panel {
 .react-flow__handle.valid,
 .react-flow.connecting .react-flow__handle {
   opacity: 1;
+}
+
+/* ── Board-card micro-states (roadmap/arch cards, DB tables, endpoints) ────────────────────
+   Design (2026-07-27 motion spec §4 T4.13): hover raises the card's edge + its title's weight,
+   never a shadow — the owner's flat rhythm (CLAUDE.md) forbids outer drop shadows here just like
+   the desktop shell. The "raised edge" is an INSET accent hairline (not a drop shadow — same
+   family as .glass's inset specular sheen above), so it never fights each card's own semantic
+   border color (priority heat, domain tint, diff accent), which several of these cards set via
+   inline `style` and a plain CSS border-color rule couldn't out-specificity anyway. React Flow
+   already stamps `.selected` on `.react-flow__node` (see the handle rule above), so both states
+   key off it without any extra prop plumbing. Selection reuses the same hairline at full
+   strength and SPRINGS in (`--spring-snap`) so committing a selection reads as heavier than the
+   hover preview, which is instant. Order matters: `.selected` is declared after `:hover` so a
+   hovered+selected card shows the stronger selected state (equal specificity, source order wins). */
+.board-card {
+  transition: box-shadow var(--dur-fast) var(--ease-out);
+}
+.react-flow__node:hover .board-card {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent-2, #ff7a45) 45%, transparent);
+}
+.react-flow__node.selected .board-card {
+  box-shadow: inset 0 0 0 1.5px var(--accent-2, #ff7a45);
+  transition: box-shadow var(--dur-spring-snap) var(--spring-snap);
+}
+.board-card-title {
+  transition: font-weight var(--dur-instant) var(--ease-out);
+}
+.react-flow__node:hover .board-card-title {
+  font-weight: 600;
+}
+
+/* Board load: cards flash in with a per-card stagger (JS ranks by reading order and sets
+   --arrive-delay inline), reusing the SAME card-arrive keyframe as the Changes view's "just
+   landed" transient below — one semantic ("this card just arrived"), two surfaces. Tokenized
+   duration means the reduced-motion collapse (--dur-slow → 0ms above) kills the flash too,
+   instead of needing its own guard. */
+.node-arrive {
+  animation: card-arrive var(--dur-slow) var(--ease-out);
+  animation-delay: var(--arrive-delay, 0ms);
 }
 
 /* FigJam-style edges: hovering an edge gives it a pointer cursor + slightly thicker

@@ -1,6 +1,6 @@
 import type { Snapshot } from "@/lib/ingest";
 import type { CodeGraphInput } from "@/lib/code-graph";
-import { BEACON_WS_PATH_HEADER, idForPath } from "@/lib/workspaces";
+import { BEACON_WS_PATH_HEADER, workspaceIdForPath } from "@/lib/workspaces";
 
 function workspaceHeaders(explicitWsId?: string): Record<string, string> {
   const h: Record<string, string> = { "content-type": "application/json" };
@@ -12,7 +12,7 @@ function workspaceHeaders(explicitWsId?: string): Record<string, string> {
   // `beacon mcp` registers), instead of the ingest falling back to the browser's active repo.
   if (explicitWsId) h["x-beacon-workspace"] = explicitWsId;
   else if (process.env.BEACON_REPO) {
-    h["x-beacon-workspace"] = idForPath(process.env.BEACON_REPO);
+    h["x-beacon-workspace"] = workspaceIdForPath(process.env.BEACON_REPO);
     h[BEACON_WS_PATH_HEADER] = process.env.BEACON_REPO;
   }
   return h;

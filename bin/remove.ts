@@ -16,7 +16,7 @@ import {
   dataDirFor,
   getActiveId,
   getWorkspace,
-  idForPath,
+  workspaceIdForCwd,
   repoRootFrom,
   type Workspace,
 } from "@/lib/workspaces";
@@ -33,12 +33,12 @@ const head = (s: string) => `\n\x1b[1m${s}\x1b[0m`;
 // Resolve the target to a registered workspace: a bare run means the current repo, a
 // 12-hex registered id is used as-is, anything else is treated as a path.
 function resolveTarget(): Workspace | null {
-  if (!target) return getWorkspace(idForPath(repoRootFrom(process.cwd())));
+  if (!target) return getWorkspace(workspaceIdForCwd());
   if (/^[0-9a-f]{12}$/.test(target)) {
     const byId = getWorkspace(target);
     if (byId) return byId;
   }
-  return getWorkspace(idForPath(repoRootFrom(resolve(target))));
+  return getWorkspace(workspaceIdForCwd(resolve(target)));
 }
 
 const ws = resolveTarget();

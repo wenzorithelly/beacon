@@ -195,7 +195,7 @@ async function setupRepo(repo: string, quiet = false) {
 // natively. The analysis JSON is read from `file`, or from stdin when no path is given.
 async function initPersist(file?: string) {
   const repo = gitToplevel() || cwd;
-  const { idForPath, isRegistrableWorkspacePath, BEACON_WS_PATH_HEADER } = await import(mod("lib/workspaces.ts"));
+  const { workspaceIdForPath, isRegistrableWorkspacePath, BEACON_WS_PATH_HEADER } = await import(mod("lib/workspaces.ts"));
   if (!isRegistrableWorkspacePath(repo)) {
     console.error(
       `[beacon] refusing to init ${repo} — that's your home directory, not a project.\n` +
@@ -228,7 +228,7 @@ async function initPersist(file?: string) {
   // /api/init. Mirrors bare `beacon`, minus opening a browser.
   await setupRepo(repo, true);
   const port = await ensureDaemon();
-  const id = idForPath(repo);
+  const id = workspaceIdForPath(repo);
 
   // Same POST the MCP server makes. The path header makes /api/init register this workspace
   // (clearing any deletion tombstone) and provision its db before writing — so we don't here.
@@ -426,10 +426,10 @@ async function bootViaApp(): Promise<string | null> {
 // is a graceful no-op, never an error.
 async function ensurePanel() {
   const repo = gitToplevel() || cwd;
-  const { registerWorkspaceExplicit, idForPath, ensureWorkspaceDb, isRegistrableWorkspacePath } =
+  const { registerWorkspaceExplicit, workspaceIdForPath, ensureWorkspaceDb, isRegistrableWorkspacePath } =
     await import(mod("lib/workspaces.ts"));
   if (!isRegistrableWorkspacePath(repo)) return;
-  const id = idForPath(repo);
+  const id = workspaceIdForPath(repo);
   await ensureWorkspaceDb(id);
   registerWorkspaceExplicit(repo);
   const port = await ensureDaemon();
@@ -438,7 +438,7 @@ async function ensurePanel() {
 
 async function launchPanel() {
   const repo = gitToplevel() || cwd;
-  const { registerWorkspaceExplicit, idForPath, dataDirFor, ensureWorkspaceDb, isRegistrableWorkspacePath } =
+  const { registerWorkspaceExplicit, workspaceIdForPath, dataDirFor, ensureWorkspaceDb, isRegistrableWorkspacePath } =
     await import(mod("lib/workspaces.ts"));
   if (!isRegistrableWorkspacePath(repo)) {
     console.error(
@@ -447,7 +447,7 @@ async function launchPanel() {
     );
     process.exit(1);
   }
-  const id = idForPath(repo);
+  const id = workspaceIdForPath(repo);
   const data = dataDirFor(id);
 
   // First run for this repo: create its database (in-process via libSQL — see

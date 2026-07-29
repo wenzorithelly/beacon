@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useSectionSummary } from "@/components/settings/section-summary";
 import { PERMISSION_MODE_OPTIONS, type PermissionMode } from "@/lib/permission-modes";
 
 // Settings control for the global "after approving a plan, the agent enters…" preference.
@@ -52,6 +53,7 @@ export function PermissionModeCard() {
   }
 
   const current = PERMISSION_MODE_OPTIONS.find((o) => o.value === mode);
+  useSectionSummary("agent", "mode", current?.label);
 
   return (
     <Card>

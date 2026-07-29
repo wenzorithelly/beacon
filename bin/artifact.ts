@@ -20,7 +20,7 @@ import { copyFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { appendArtifactHistory, recordArtifactDelivery } from "@/lib/artifact-delivery";
 import { extractArtifactFromEvent, type ArtifactToolEvent } from "@/lib/artifact-event";
-import { dataDirFor, idForPath, repoRootFrom } from "@/lib/workspaces";
+import { dataDirFor, workspaceIdForCwd } from "@/lib/workspaces";
 
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
@@ -30,9 +30,9 @@ try {
   const found = extractArtifactFromEvent(ev);
   if (found) {
     const cwd = typeof ev.cwd === "string" ? ev.cwd : process.cwd();
-    // Same resolution as recordArtifactDelivery uses internally (repoRootFrom + idForPath) — kept
+    // Same resolution as recordArtifactDelivery uses internally (workspaceIdForCwd) — kept
     // in sync deliberately, needed here up front to place the copied file/history in the right dir.
-    const workspaceId = idForPath(repoRootFrom(cwd));
+    const workspaceId = workspaceIdForCwd(cwd);
 
     let stablePath: string | undefined;
     if (found.path && found.id) {

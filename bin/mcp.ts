@@ -15,11 +15,11 @@ import {
   addWorkspace,
   BEACON_WS_PATH_HEADER,
   ensureWorkspaceDb,
-  idForPath,
   isImplicitlyRegistrablePath,
   isWorkspaceDeleted,
   listWorkspaces,
   repoRootFrom,
+  workspaceIdForPath,
 } from "@/lib/workspaces";
 import { mentionsDbSchema } from "@/lib/plan-block";
 import { planFeatureRequest, type FeatureAction } from "@/lib/feature-tool";
@@ -64,7 +64,7 @@ await selfHealGlobal();
 // ITS workspace's DB — never whatever the user has selected in the browser dropdown.
 // This is what stops a /beacon-init in one repo from landing in another's database.
 const WORKSPACE_PATH = repoRootFrom();
-const WORKSPACE_ID = idForPath(WORKSPACE_PATH);
+const WORKSPACE_ID = workspaceIdForPath(WORKSPACE_PATH);
 
 // Register THIS repo + provision its db on startup, BEFORE serving any tool. The registry and the
 // per-workspace db live on shared disk (~/.beacon), so registering from this process is enough for

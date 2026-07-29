@@ -15,6 +15,7 @@ import {
   type Edge,
   type Node,
   type ReactFlowInstance,
+  type XYPosition,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -57,9 +58,11 @@ import {
 } from "@/lib/db-board-layout";
 import { GroupRegions } from "@/components/graph/group-regions";
 import { LodReporter } from "@/components/graph/use-zoom-lod";
+import { SNAP_GRID, useSnapToGrid } from "@/components/graph/use-snap-grid";
 import { DB_LOD, type Lod } from "@/lib/zoom-lod";
 import { canvasDragPersistTarget } from "@/lib/canvas-readonly";
 import { diffDraftTables, diffDraftEndpoints, type NodeDiff } from "@/lib/db-diff";
+import { easeSpringGlide } from "@/lib/spring-ease";
 import { cn } from "@/lib/utils";
 import { useColorMode } from "@/components/theme/use-color-mode";
 import type {
@@ -267,6 +270,7 @@ export function DbMapClient({
   const [panning, setPanning] = useState(false);
   // React Flow colorMode tracks the app theme (see useColorMode) so light theme isn't overridden.
   const colorMode = useColorMode();
+  const snapToGrid = useSnapToGrid();
   const [panelTab, setPanelTab] = useState<"details" | "comments">("details");
   const [busy, setBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -657,7 +661,26 @@ export function DbMapClient({
   );
   const realTableIds = useMemo(() => new Set(tables.map((t) => t.id)), [tables]);
 
+  // Board-load arrival: stagger the card-arrive flash by reading order, ranked ONCE from
+  // whatever tables/endpoints exist at mount. A lazy useState initializer (not a memo keyed on
+  // allTables/allEndpoints, which change on every draft edit) — re-ranking there would replay the
+  // flash on every edit instead of just once at load. Capped at 20 cards (480ms max cascade).
+  const [arriveDelayById] = useState<Map<string, number>>(() => {
+    const ranked = [...allTables, ...allEndpoints].sort((a, b) => a.y - b.y || a.x - b.x);
+    const m = new Map<string, number>();
+    ranked.forEach((it, i) => m.set(it.id, Math.min(i, 20) * 24));
+    return m;
+  });
+
   const buildNodes = useCallback((): DbNode[] => {
+    // The arrival flash's delay lives in `data` (DbTableNode/EndpointNode apply it to their OWN
+    // root), NOT a React-Flow-level node className/style — that lands on the `.react-flow__node`
+    // WRAPPER, which sits BEHIND each card's own opaque background and would never be visible.
+    // `arriveDelayById` is stable across rebuilds (mode flips, doc edits), so a node that already
+    // arrived gets the SAME numeric value back every time, which is what stops the CSS animation
+    // from restarting on every buildNodes() call. A node absent from the map (created after
+    // mount) defaults to 0 — an un-staggered flash, since a brand-new DOM node plays it regardless.
+    const arriveDelayMs = (id: string) => arriveDelayById.get(id) ?? 0;
     const tableNodes: Node<DbTableNodeData>[] = allTables.map((t) => ({
       id: t.id,
       type: "dbTable",
@@ -676,6 +699,7 @@ export function DbMapClient({
         pins: pinsByTarget.get(t.id),
         onPinClick,
         onComment: nodeOnComment,
+        arriveDelayMs: arriveDelayMs(t.id),
       },
     }));
     const endpointNodes: Node<EndpointNodeData>[] = allEndpoints.map((e) => ({
@@ -691,6 +715,7 @@ export function DbMapClient({
         diffStatus: endpointDiffs.get(e.id)?.status,
         diffChanges: endpointDiffs.get(e.id)?.changes,
         pins: pinsByTarget.get(e.id),
+        arriveDelayMs: arriveDelayMs(e.id),
         onPinClick,
         onComment: nodeOnComment,
       },
@@ -750,6 +775,7 @@ export function DbMapClient({
     nodeOnComment,
     patchBoardAnno,
     removeBoardAnno,
+    arriveDelayById,
   ]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<DbNode>(buildNodes());
@@ -769,47 +795,94 @@ export function DbMapClient({
     });
     if (modeFlipped)
       requestAnimationFrame(() =>
-        rfRef.current?.fitView({ duration: 500, padding: 0.15, minZoom: 0.2, maxZoom: 0.9 }),
+        rfRef.current?.fitView({
+          duration: 500,
+          padding: 0.15,
+          minZoom: 0.2,
+          maxZoom: 0.9,
+          ease: easeSpringGlide,
+        }),
       );
   }, [buildNodes, setNodes, showEndpoints]);
 
-  const persistReal = useCallback((kind: string, id: string, x: number, y: number) => {
-    void fetch(`/api/db/position`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind, id, x, y }),
-    });
+  // Where the dragged nodes sat before the drag — React Flow has already moved them by the time
+  // the write goes out, so this is the only snapshot a failed write can restore.
+  const dragStartPos = useRef(new Map<string, XYPosition>());
+
+  // /api/db/position takes ONE row, so a multi-select drag fires N parallel writes rather than
+  // teaching the route (and its other caller) a batch shape — the smaller correct diff for a
+  // board where a selection is a handful of tables. Awaited per row so ONLY the rows that failed
+  // roll back: an un-awaited write that 500s leaves the canvas showing a position the db never got.
+  const persistReal = useCallback(
+    async (rows: { kind: string; id: string; x: number; y: number }[]) => {
+      if (!rows.length) return;
+      const before = new Map(dragStartPos.current);
+      const failed = await Promise.all(
+        rows.map((r) =>
+          fetch(`/api/db/position`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(r),
+          })
+            .then((res) => (res.ok ? null : r.id))
+            .catch(() => r.id),
+        ),
+      );
+      const stuck = new Set(failed.filter((id): id is string => id !== null));
+      if (stuck.size)
+        setNodes((nds) =>
+          nds.map((n) => {
+            const p = stuck.has(n.id) ? before.get(n.id) : undefined;
+            return p ? { ...n, position: p } : n;
+          }),
+        );
+    },
+    [setNodes],
+  );
+
+  const onNodeDragStart = useCallback((_e: MouseEvent | TouchEvent, _node: Node, dragged: Node[]) => {
+    dragStartPos.current = new Map(dragged.map((n) => [n.id, n.position]));
   }, []);
 
   const onNodeDragStop = useCallback(
-    (_e: MouseEvent | TouchEvent, node: Node) => {
-      const { x, y } = node.position;
-      // Read-only (shared view / archived plan) → "none": never persist. The decision (incl. the
-      // readOnly guard) lives in canvasDragPersistTarget so the write site can't drift from it.
-      const target = canvasDragPersistTarget({
-        readOnly,
-        nodeId: node.id,
-        isDraft: draftIds.has(node.id),
-        boardMode,
-      });
-      if (target === "annotation") {
-        // Board annotations remember where you parked the card; plan cards are session-local.
-        patchBoardAnno(node.id.slice(5), { x, y });
-      } else if (target === "draft") {
-        // Position lives in the draft doc, but moving a node isn't an undoable edit.
-        silent((doc) => {
-          if (doc.tables.some((t) => t.id === node.id))
-            return { ...doc, tables: doc.tables.map((t) => (t.id === node.id ? { ...t, x, y } : t)) };
-          if (doc.endpoints.some((e) => e.id === node.id))
-            return {
-              ...doc,
-              endpoints: doc.endpoints.map((e) => (e.id === node.id ? { ...e, x, y } : e)),
-            };
-          return doc;
+    (_e: MouseEvent | TouchEvent, _node: Node, dragged: Node[]) => {
+      // `dragged` is every node the drag moved, not just the one under the cursor — persisting
+      // only the grabbed one left the rest of a multi-select to snap back on the next resync.
+      // Each still routes through canvasDragPersistTarget (read-only → "none") so the write site
+      // can't drift from the guard.
+      const reals: { kind: string; id: string; x: number; y: number }[] = [];
+      const draftPos = new Map<string, XYPosition>();
+      for (const node of dragged) {
+        const { x, y } = node.position;
+        const target = canvasDragPersistTarget({
+          readOnly,
+          nodeId: node.id,
+          isDraft: draftIds.has(node.id),
+          boardMode,
         });
-      } else if (target === "real") {
-        persistReal(node.type === "endpoint" ? "endpoint" : "table", node.id, x, y);
+        if (target === "annotation") {
+          // Board annotations remember where you parked the card; plan cards are session-local.
+          patchBoardAnno(node.id.slice(5), { x, y });
+        } else if (target === "draft") {
+          draftPos.set(node.id, { x, y });
+        } else if (target === "real") {
+          reals.push({ kind: node.type === "endpoint" ? "endpoint" : "table", id: node.id, x, y });
+        }
       }
+      if (draftPos.size)
+        // Position lives in the draft doc, but moving a node isn't an undoable edit.
+        silent((doc) => ({
+          ...doc,
+          tables: doc.tables.map((t) => {
+            const p = draftPos.get(t.id);
+            return p ? { ...t, x: p.x, y: p.y } : t;
+          }),
+          endpoints: doc.endpoints.map((e) => {
+            const p = draftPos.get(e.id);
+            return p ? { ...e, x: p.x, y: p.y } : e;
+          }),
+        }));
+      void persistReal(reals);
     },
     [readOnly, draftIds, silent, persistReal, boardMode, patchBoardAnno],
   );
@@ -959,6 +1032,7 @@ export function DbMapClient({
       rfRef.current.setCenter(n.position.x + w / 2, n.position.y + h / 2, {
         zoom: 0.9,
         duration: 600,
+        ease: easeSpringGlide,
       });
     },
     [endpointMeta],
@@ -1340,6 +1414,7 @@ export function DbMapClient({
             setSelectedEdgeId(null);
             setPanelOpen(false); // click the empty canvas to dismiss the detail panel
           }}
+          onNodeDragStart={onNodeDragStart}
           onNodeDragStop={onNodeDragStop}
           onEdgesDelete={(removed) => {
             // FK relations carry id prefix `fk-`; endpoint→table usage links use `u-`.
@@ -1368,6 +1443,9 @@ export function DbMapClient({
           }}
           deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
           colorMode={colorMode}
+          // Tables land on the canvas dot grid; hold ⌥ to drop one anywhere (see useSnapToGrid).
+          snapToGrid={snapToGrid}
+          snapGrid={SNAP_GRID}
           fitView
           // Open at readable tables (mid LOD), never on the far-zoom summary blocks — a huge
           // board gets cropped rather than reduced to specks; panning covers the rest.
@@ -1476,6 +1554,7 @@ export function DbMapClient({
                   nodes: [...searchMatchIds].map((id) => ({ id })),
                   duration: 600,
                   padding: 0.2,
+                  ease: easeSpringGlide,
                 });
               }}
             />
