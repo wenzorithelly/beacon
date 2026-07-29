@@ -84,6 +84,7 @@ export function FocusEditorModal({
             type="button"
             onClick={commit}
             title="Close (Esc)"
+            aria-label="Close (Esc)"
             className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
           >
             <X className="size-4" />

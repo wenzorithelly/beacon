@@ -2,6 +2,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 import { EditorContent, ReactRenderer, useEditor } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
 import type { Editor } from "@tiptap/core";
 import { Placeholder } from "@tiptap/extensions";
 import { Bold, Italic, List, ListChecks, ListOrdered } from "lucide-react";
@@ -38,8 +39,8 @@ export function RichNodeEditor({
   bare?: boolean;
   className?: string;
   placeholder?: string;
-  // When false (read-only boards: shared view, archived plan history) the editor renders its
-  // content but can't be typed into, and the formatting toolbar is hidden.
+  // When false (read-only boards: shared view, archived plan history, the expanded card's
+  // description) the editor renders its content but can't be typed into.
   editable?: boolean;
 }) {
   const editor = useEditor({
@@ -78,7 +79,20 @@ export function RichNodeEditor({
   if (!editor) return null;
   return (
     <div className="flex flex-col gap-1">
-      {editable && <Toolbar editor={editor} compact={compact} />}
+      {/* Formatting is selection-triggered (Linear/Notion): the bubble appears over a non-empty
+          text selection and vanishes when it collapses — Tiptap's default shouldShow already
+          means "focused, non-empty selection, editable". Appended to <body> so a scroll
+          container (the focus modal, the detail panel) can't clip it. */}
+      {editable && (
+        <BubbleMenu
+          editor={editor}
+          appendTo={() => document.body}
+          options={{ strategy: "fixed", placement: "top", offset: 8 }}
+          className="glass nodrag nopan z-[100] flex items-center gap-0.5 rounded-lg p-1 shadow-xl"
+        >
+          <Toolbar editor={editor} compact={compact} />
+        </BubbleMenu>
+      )}
       <EditorContent
         editor={editor}
         // Stop keystrokes bubbling to the canvas (delete/space/etc. are canvas shortcuts).
@@ -100,7 +114,7 @@ export function RichNodeEditor({
 }
 
 // Slim formatting toolbar — markdown shortcuts cover most typing, so this only surfaces the
-// common toggles. Kept compact for the node card.
+// common toggles. Lives inside the selection bubble above.
 function Toolbar({ editor, compact }: { editor: Editor; compact?: boolean }) {
   useEditorTick(editor); // keep isActive() highlights current
   const c = () => editor.chain().focus();

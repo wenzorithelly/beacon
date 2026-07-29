@@ -1,6 +1,14 @@
 "use client";
 
-import { createElement, memo, useEffect, useState, type CSSProperties } from "react";
+import {
+  createElement,
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { type Node, type NodeProps } from "@xyflow/react";
@@ -312,6 +320,7 @@ function CornerTools({
           onFocus();
         }}
         title="Edit description in focus mode"
+        aria-label="Edit description in focus mode"
         className="flex w-0 items-center justify-center overflow-hidden rounded p-0 text-muted-foreground opacity-0 transition-all hover:text-[#ff7a45] group-hover/nc:w-6 group-hover/nc:p-0.5 group-hover/nc:opacity-100"
       >
         <Maximize2 className="size-3.5" />
@@ -323,6 +332,8 @@ function CornerTools({
           onExpand();
         }}
         title={expanded ? "Collapse" : "Expand in place"}
+        aria-label={expanded ? "Collapse card" : "Expand card in place"}
+        aria-expanded={expanded}
         className="flex w-0 items-center justify-center overflow-hidden rounded p-0 text-muted-foreground opacity-0 transition-all hover:text-foreground group-hover/nc:w-6 group-hover/nc:p-0.5 group-hover/nc:opacity-100"
       >
         <ChevronDown className={cn("size-3.5 transition-transform", expanded && "rotate-180")} />
@@ -334,6 +345,7 @@ function CornerTools({
           onDetails();
         }}
         title="Open details side panel"
+        aria-label="Open details side panel"
         className="flex w-0 items-center justify-center overflow-hidden rounded p-0 text-muted-foreground opacity-0 transition-all hover:text-[#ff7a45] group-hover/nc:w-6 group-hover/nc:p-0.5 group-hover/nc:opacity-100"
       >
         <PanelRight className="size-3.5" />
@@ -431,6 +443,7 @@ function BugFlagButton({ nodeId }: { nodeId: string }) {
       <button
         type="button"
         title="Flag a bug on this component"
+        aria-label="Flag a bug on this component"
         onClick={(e) => {
           e.stopPropagation();
           setOpen((o) => !o);
@@ -557,6 +570,39 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
   };
   const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
+  // Escape while editing the title/category cancels the edit. The blur handler that normally
+  // persists runs BEFORE React flushes a setState from the same event, so the revert is signalled
+  // through a ref and applied in onBlur — the one place that sees it in time.
+  const escRevert = useRef(false);
+  const escapeField = (e: ReactKeyboardEvent<HTMLElement>) => {
+    if (e.key !== "Escape") return;
+    escRevert.current = true;
+    e.currentTarget.blur();
+  };
+
+  // Escape collapses an expanded card. Bound to the React Flow node WRAPPER (our parent) rather
+  // than this card's root, because that wrapper is what actually holds focus once you click a
+  // card — a handler on the root would only fire when focus already sits on one of its controls.
+  // Skipped while a field / the rich editor has focus (those revert their own edit) and while the
+  // card is collapsed, so Escape falls through to React Flow's own "deselect node". The focus
+  // modal (document capture) and the bug-flag popover (stops its own keys) still win.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const host = expanded
+      ? (rootRef.current?.closest<HTMLElement>(".react-flow__node") ?? rootRef.current)
+      : null;
+    if (!host) return;
+    const onCardEscape = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (e.key !== "Escape" || t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
+        return;
+      e.stopPropagation();
+      toggleExpand(id);
+    };
+    host.addEventListener("keydown", onCardEscape);
+    return () => host.removeEventListener("keydown", onCardEscape);
+  }, [expanded, id, toggleExpand]);
+
   // Blow the description up into the distraction-free focus modal (board blurs behind it).
   const focusDescription = () =>
     openFocus({
@@ -618,6 +664,7 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
           <button
             type="button"
             title={`Annotate ${data.title}`}
+            aria-label={`Annotate ${data.title}`}
             onClick={(e) => {
               stop(e);
               data.onComment?.(data.title);
@@ -635,6 +682,7 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
   );
 
   // The collapse toggle (folds a card's sub-tasks) — shared between both shapes.
+  const subtaskToggleLabel = `${data.collapsed ? "Show" : "Hide"} ${data.childCount} sub-task${data.childCount === 1 ? "" : "s"}`;
   const collapseToggle = (data.childCount ?? 0) > 0 && (
     <button
       type="button"
@@ -642,11 +690,9 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
         stop(e);
         data.onToggleCollapse?.(id);
       }}
-      title={
-        data.collapsed
-          ? `Show ${data.childCount} sub-task${data.childCount === 1 ? "" : "s"}`
-          : `Hide ${data.childCount} sub-task${data.childCount === 1 ? "" : "s"}`
-      }
+      title={subtaskToggleLabel}
+      aria-label={subtaskToggleLabel}
+      aria-expanded={!data.collapsed}
       className={cn(
         noDrag,
         "mt-0.5 flex shrink-0 items-center gap-0.5 rounded px-1 text-[10px] font-semibold transition-colors",
@@ -683,11 +729,17 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
       }}
       onChange={(e) => setTitle(e.target.value)}
       onBlur={() => {
+        if (escRevert.current) {
+          escRevert.current = false;
+          setTitle(data.title);
+          return;
+        }
         const v = title.trim();
         if (v && v !== data.title) save({ title: v });
       }}
       onKeyDown={(e) => {
         stop(e);
+        escapeField(e);
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           e.currentTarget.blur();
@@ -712,11 +764,17 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
         title={isArch ? "Architecture domain — the lane this component lives in" : undefined}
         onChange={(e) => setCluster(e.target.value)}
         onBlur={() => {
+          if (escRevert.current) {
+            escRevert.current = false;
+            setCluster(data.cluster ?? "");
+            return;
+          }
           const v = cluster.trim() || null;
           if (v !== (data.cluster ?? null)) save({ cluster: v });
         }}
         onKeyDown={(e) => {
           stop(e);
+          escapeField(e);
           if (e.key === "Enter") e.currentTarget.blur();
         }}
         className={cn(
@@ -811,20 +869,44 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
     </div>
   );
 
-  // The expand body — a rich Tiptap editor for the description plus priority/layer editing and
-  // secondary actions. (Focus-write lives in the corner toolbar, not here.)
+  // The expand body — the description READ-ONLY (no formatting bar on the board) plus
+  // priority/layer editing and secondary actions. Clicking the description hands off to the
+  // focus modal, which is the one place you write.
+  const descHint = readOnly ? "Open description" : "Click to write";
   const expandBody = expanded && (
     <div className="mt-2 w-0 min-w-full space-y-2 border-t border-border pt-2">
-      <RichNodeEditor
-        compact
-        editable={!readOnly}
-        value={plain}
-        onChange={setPlain}
-        onBlur={() => {
-          const v = plain.trim() || null;
-          if (v !== (data.plain ?? null)) save({ plain: v });
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={descHint}
+        title={descHint}
+        onClick={(e) => {
+          stop(e);
+          focusDescription();
         }}
-      />
+        onKeyDown={(e) => {
+          stop(e);
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            focusDescription();
+          }
+        }}
+        className={cn(
+          noDrag,
+          "group/desc -mx-1 cursor-text rounded-md border border-transparent px-1 py-1 transition-colors hover:border-border hover:bg-[var(--ink-hover)]",
+        )}
+      >
+        {plain.trim() ? (
+          <>
+            <RichNodeEditor compact editable={false} value={plain} onChange={() => {}} />
+            <span className="mt-0.5 block text-[9px] uppercase tracking-wide text-muted-foreground/0 transition-colors group-hover/desc:text-muted-foreground/70">
+              {descHint}
+            </span>
+          </>
+        ) : (
+          <span className="text-xs text-muted-foreground/60">{descHint}…</span>
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-1.5 pr-8">
         <div className="flex items-center gap-1">
           {!isArch && (
@@ -901,6 +983,7 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
         // card glued 1:1 to the pointer instead of fighting the drag with a competing spring.
         layout={!dragging}
         transition={{ duration: SPRING_GLIDE_SECONDS, ease: easeSpringGlide }}
+        ref={rootRef}
         className={cn(
           "board-card group/nc relative rounded-lg border bg-card px-3 py-2.5 text-card-foreground shadow-sm transition",
           "w-fit min-w-60 max-w-72",
@@ -973,6 +1056,7 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
       // Off while dragging — see the architecture card's identical comment above.
       layout={!dragging}
       transition={{ duration: SPRING_GLIDE_SECONDS, ease: easeSpringGlide }}
+      ref={rootRef}
       className={cn(
         "board-card group/nc relative flex rounded-lg border bg-card text-card-foreground shadow-sm transition",
         "w-fit max-w-96",
@@ -1056,6 +1140,7 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
               <button
                 type="button"
                 title="Accept suggestion — turn it into your own feature"
+                aria-label="Accept suggestion — turn it into your own feature"
                 disabled={accepting}
                 onClick={(e) => {
                   stop(e);
@@ -1068,6 +1153,7 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
               <button
                 type="button"
                 title="Dismiss suggestion (deletes the card)"
+                aria-label="Dismiss suggestion (deletes the card)"
                 disabled={accepting}
                 onClick={(e) => {
                   stop(e);
