@@ -10,7 +10,12 @@ export const PATCH = pinned(
   async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
     const { id } = await params;
     try {
-      await updateNode(id, updateNodeSchema.parse(await req.json()));
+      // A zero-row update is a LOST WRITE, not a success: the canvas creates cards with a
+      // client-generated id and renders them before the POST lands, so an edit typed in that
+      // window used to be answered 204 and silently dropped (the "category vanishes until I
+      // refresh" bug). 404 lets the caller detect it.
+      const updated = await updateNode(id, updateNodeSchema.parse(await req.json()));
+      if (!updated) return new Response("Node not found", { status: 404 });
       return new Response(null, { status: 204 });
     } catch (e) {
       return new Response(`Invalid edit: ${e instanceof Error ? e.message : "error"}`, {

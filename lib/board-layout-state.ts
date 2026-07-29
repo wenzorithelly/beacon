@@ -76,6 +76,11 @@ export function readBoardLayout(board: BoardKey): {
   };
 }
 
+// Read-modify-write, and deliberately SYNCHRONOUS end to end (readFileSync → merge →
+// writeJsonAtomic's writeFileSync+renameSync). One daemon = one Node process, so with no await
+// between the read and the write the event loop cannot interleave two callers and there is no
+// lost update to lock against. Keep it that way: turning any step async (fs/promises) reopens the
+// race and needs a real serialization — tests/create-atomicity.test.ts guards the property.
 export function writeBoardLayout(board: BoardKey, patch: BoardEntry): void {
   const state = readState() ?? {};
   state[board] = { ...state[board], ...patch };

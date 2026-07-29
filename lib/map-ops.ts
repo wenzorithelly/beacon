@@ -9,7 +9,7 @@ import { collidesWith, validateFeatureCreation, validateFront } from "@/lib/feat
 import { normalizeLayer } from "@/lib/layer";
 import { resolveHasFrontend } from "@/lib/project-meta";
 import { placeInGroup, placeWithoutOverlap } from "@/lib/node-placement";
-import { layoutRoadmap, type RoadmapGroupBy } from "@/lib/roadmap-layout";
+import { layoutRoadmap, statusLaneKey, type RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { parseExternalMeta } from "@/lib/linear/mapping";
 import { layeredLayout } from "@/lib/layered-layout";
 import {
@@ -24,6 +24,30 @@ import { setAppSettings } from "@/lib/settings";
 
 async function setCurrent(id: string) {
   await setAppSettings({ currentFeatureId: id });
+}
+
+// Which lane a roadmap card belongs to ON THE BOARD AS IT IS CURRENTLY ARRANGED. `arrangedBy` is
+// the dimension the last arrange used (null → cluster, the board's default). Placing a new card by
+// its theme cluster on a status- or priority-grouped board dropped it in the wrong lane, so the
+// layout drifted further out of its grouping every session. Same three dimensions as
+// lib/roadmap-layout's lane keys — status reuses statusLaneKey, so a Linear card lands in its
+// real workflow-state lane ("In Review"), exactly where the layout would put it.
+interface GroupKeyed {
+  cluster: string | null;
+  status: string;
+  priority: number;
+  externalMeta?: string | null;
+}
+function activeGroupKey(): (n: GroupKeyed) => string {
+  const by = readBoardLayout("roadmap").arrangedBy;
+  if (by === "status")
+    return (n) =>
+      statusLaneKey({
+        status: n.status,
+        stateName: parseExternalMeta(n.externalMeta)?.state?.name ?? null,
+      });
+  if (by === "priority") return (n) => String(n.priority);
+  return (n) => (n.cluster ?? "").trim() || "—";
 }
 
 // Map write operations used by the HTTP API + the MCP server. Lets a Claude Code
@@ -353,13 +377,14 @@ export async function startFeature(input: {
 
   let parentId: string | null = null;
   let frontTitle: string | null = null;
+  let front: (typeof nodes)[number] | undefined;
   let inheritedCluster: string | null = null;
   let inheritedLayer: string | null = null;
   if (frontInput) {
     const f = matchFeature(frontInput, fronts.map((n) => ({ id: n.id, title: n.title }))).best!;
     parentId = f.id;
     frontTitle = f.title;
-    const front = nodes.find((n) => n.id === f.id);
+    front = nodes.find((n) => n.id === f.id);
     inheritedCluster = front?.cluster ?? null;
     inheritedLayer = front?.layer ?? null;
   }
@@ -379,29 +404,31 @@ export async function startFeature(input: {
   });
   if (createErr) return { action: "rejected", message: createErr };
 
-  // Sub-tasks stack under their parent; a new top-level feature lands INSIDE its theme's
-  // region (shortest masonry column) instead of a blind row — the board stays organized
-  // without a full re-layout.
-  const siblings = parentId ? nodes.filter((n) => n.parentId === parentId).length : 0;
-  const groupKey = (c: string | null) => (c ?? "").trim() || "—";
-  const pos = parentId
-    ? placeWithoutOverlap(
-        nodes.map((n) => ({ x: n.x, y: n.y })),
-        {
-          x: fronts.find((f) => f.id === parentId)?.x ?? 0,
-          y: 160 + siblings * 110,
-        },
-      )
-    : placeInGroup(
-        nodes
-          .filter((n) => !n.parentId && groupKey(n.cluster) === groupKey(cluster))
-          .map((n) => ({ x: n.x, y: n.y })),
-        nodes.map((n) => ({ x: n.x, y: n.y })),
-      );
   // "backlog"/"pending" lands the card in the backlog (PENDING); anything else (incl. the
   // default "start" intent) starts it IN_PROGRESS.
   const s = (input.status ?? "").trim().toLowerCase();
   const createStatus = s === "backlog" || s === "pending" ? "PENDING" : "IN_PROGRESS";
+  const priority = typeof input.priority === "number" ? input.priority : 2; // = the column default
+
+  // Sub-tasks stack under their parent; a new top-level feature lands INSIDE the region of the
+  // lane it belongs to on the board as currently grouped (shortest masonry column) instead of a
+  // blind row — the board stays organized without a full re-layout.
+  const siblings = parentId ? nodes.filter((n) => n.parentId === parentId).length : 0;
+  const groupKey = activeGroupKey();
+  const lane = groupKey({ cluster, status: createStatus, priority, externalMeta: null });
+  const pos = parentId
+    ? placeWithoutOverlap(nodes.map((n) => ({ x: n.x, y: n.y })), {
+        // Relative to the PARENT (like addSubtasksUnder) — an absolute y dropped a sub-task of a
+        // far-down card at the top of the board, away from the parent it belongs to.
+        x: front?.x ?? 0,
+        y: (front?.y ?? 0) + 160 + siblings * 110,
+      })
+    : placeInGroup(
+        nodes
+          .filter((n) => !n.parentId && groupKey(n) === lane)
+          .map((n) => ({ x: n.x, y: n.y })),
+        nodes.map((n) => ({ x: n.x, y: n.y })),
+      );
   const [task] = await db
     .insert(node)
     .values({
@@ -411,7 +438,7 @@ export async function startFeature(input: {
       plain: input.detail ?? null,
       cluster,
       layer,
-      priority: typeof input.priority === "number" ? input.priority : undefined,
+      priority,
       status: createStatus,
       source: "SESSION",
       parentId,
