@@ -3060,7 +3060,10 @@ export function MapClient({
   if (columns) {
     return (
       <div ref={rootRef} className="canvas-dots relative h-screen w-full">
-        <div className="absolute right-3 top-3 z-30 flex items-center gap-2">
+        {/* `board-chrome` (globals.css) carries the SAME inset React Flow's `<Panel>` gives the
+            canvas branch, including the desktop shell's 6px override — hardcoding `top-3 right-3`
+            here is what made the tabs jump when flipping layouts. */}
+        <div className="board-chrome absolute right-0 top-0 z-30 flex items-center gap-2">
           <LayoutToggle value={layout} onChange={changeLayout} />
           <div className="glass rounded-full px-1 py-0.5">
             <CanvasTabs active="ROADMAP" tabs={BOARD_TABS} />

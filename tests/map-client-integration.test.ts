@@ -1014,3 +1014,26 @@ describe("canvas tabs — one shared strip, no per-board copies", () => {
     });
   }
 });
+
+// The Canvas and Columns layouts render the SAME top-right chrome, but on different surfaces:
+// the canvas via React Flow's `<Panel>` (library margin 15px, overridden to 6px under the desktop
+// shell), Columns via a plain absolute div. When the columns side hardcoded `top-3 right-3` (12px)
+// the chrome visibly jumped every time you flipped layouts — 3px in a browser, 6px in the shell.
+describe("board chrome sits at the same inset in both roadmap layouts", () => {
+  const CSS = src("app/globals.css");
+
+  it("the columns branch takes its inset from .board-chrome, not a hardcoded one", () => {
+    expect(MAP_CLIENT).toContain('className="board-chrome absolute right-0 top-0');
+    expect(MAP_CLIENT).not.toContain('className="absolute right-3 top-3 z-30');
+  });
+
+  it(".board-chrome mirrors React Flow's default panel margin", () => {
+    expect(CSS).toMatch(/\.board-chrome\s*\{\s*margin:\s*15px/);
+  });
+
+  it("the desktop-shell override covers both surfaces", () => {
+    expect(CSS).toMatch(
+      /html\[data-shell="desktop"\] \.react-flow__panel,\s*\n\s*html\[data-shell="desktop"\] \.board-chrome\s*\{\s*margin:\s*6px/,
+    );
+  });
+});

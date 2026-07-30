@@ -367,10 +367,20 @@
   }
 }
 
+/* Top-right board chrome (layout toggle + dataset tabs) on a surface that is NOT a React Flow
+   canvas — the Columns layout. It has no `<Panel>`, so it takes its inset from here instead, and
+   the value MUST track `.react-flow__panel` below: the two render the same chrome, and the
+   roadmap's Canvas/Columns toggle switches between them. Any drift shows up as the chrome
+   visibly jumping when you flip layouts. */
+.board-chrome {
+  margin: 15px; /* mirrors React Flow's library default */
+}
+
 /* Inside the Beacon Desktop shell: React Flow's library default panel margin (15px) reads as too
    much air under the shell's compact 44px chrome bar — was previously overridden by CSS the shell
    injected; first-party now (the data-shell ruling was relaxed 2026-07-09). */
-html[data-shell="desktop"] .react-flow__panel {
+html[data-shell="desktop"] .react-flow__panel,
+html[data-shell="desktop"] .board-chrome {
   margin: 6px;
 }
 
