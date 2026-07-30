@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, type DragEvent } from "react";
-import { Bug, Check, Hourglass, Lock, Maximize2, Monitor, Server } from "lucide-react";
+import { Bug, Check, ChevronRight, Hourglass, Lock, Maximize2, Monitor, Server } from "lucide-react";
 import { PRIORITY_HUE, PRIORITY_LABELS } from "@/lib/board-grouping";
 import { categoryColorClass } from "@/lib/category-color";
 import { LAYER_META, normalizeLayer } from "@/lib/layer";
@@ -14,6 +14,9 @@ export type Spotlight = "none" | "selected" | "blocker" | "dependent" | "dimmed"
 
 export interface ColumnCardProps {
   node: MapNodePayload;
+  /** Set on a sub-task — rendered as a breadcrumb above the title, Linear-style, so a child card
+   *  on its own in a column still says what it belongs to. */
+  parentTitle?: string;
   /** Computed, never stored: has a DEPENDS edge to something that isn't DONE. */
   blocked: boolean;
   childCount: number;
@@ -69,6 +72,7 @@ const RELATION_CHIP = {
  *  in the other, which no browser or screen reader accepts. */
 export const ColumnCard = memo(function ColumnCard({
   node,
+  parentTitle,
   blocked,
   childCount,
   childDone,
@@ -113,6 +117,14 @@ export const ColumnCard = memo(function ColumnCard({
           style={{ background: PRIORITY_HUE[node.priority] ?? PRIORITY_HUE[3] }}
         />
         <span className="sr-only">{PRIORITY_LABELS[node.priority] ?? "priority"}. </span>
+
+        {parentTitle && (
+          <div className="mb-1 flex items-center gap-0.5 text-[10px] text-muted-foreground">
+            <ChevronRight aria-hidden className="size-2.5 shrink-0" />
+            <span className="truncate">{parentTitle}</span>
+            <span className="sr-only">— sub-task of</span>
+          </div>
+        )}
 
         <div
           className={cn(

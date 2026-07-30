@@ -85,9 +85,9 @@ export function ColumnsView({
   const cardCount = allColumns.reduce((sum, c) => sum + c.cards.length, 0);
   const deps = useMemo(() => dependencyGraph(nodes, edges), [nodes, edges]);
 
-  // Sub-task rollup: direct children per parent, and how many of them are done. Children get no
-  // card of their own (buildColumns keeps top-level only) — this progress bar IS how they show up,
-  // so it must be computed over the FULL node list, not the columns.
+  // Sub-task rollup: direct children per parent, and how many of them are done. Children carry
+  // their own card now, but the parent keeps this bar as the at-a-glance total — computed over the
+  // FULL node list, since a child may sit in a hidden/collapsed column.
   const children = useMemo(() => {
     const m = new Map<string, { total: number; done: number }>();
     for (const n of nodes) {
@@ -376,6 +376,7 @@ export function ColumnsView({
                     <li key={n.id} data-card-id={n.id}>
                       <ColumnCard
                         node={n}
+                        parentTitle={n.parentId ? byId.get(n.parentId)?.title : undefined}
                         blocked={deps.blocked.has(n.id)}
                         childCount={c?.total ?? 0}
                         childDone={c?.done ?? 0}

@@ -137,8 +137,10 @@ describe("buildColumns — card order", () => {
 });
 
 describe("buildColumns — sub-tasks", () => {
-  // A column board shows TOP-LEVEL cards only (Linear/GitHub Projects treat sub-issues the same,
-  // and the canvas nests them under their parent). The parent's sub-task progress bar carries them.
+  // Owner ruling, reversing the earlier top-level-only rule: sub-issues get their OWN card, in the
+  // column their OWN field puts them in — exactly Linear's board — with the parent named above the
+  // title (ColumnCard's `parentTitle`). Holding them back left columns reading as empty while real
+  // work sat inside them.
   const withKids = [
     node("parent", { status: "IN_PROGRESS", cluster: "AUTH", priority: 0 }),
     node("kid-1", { parentId: "parent", status: "DONE", cluster: "AUTH", priority: 0 }),
@@ -146,26 +148,26 @@ describe("buildColumns — sub-tasks", () => {
     node("other", { status: "PENDING", cluster: "DATA", priority: 1 }),
   ];
 
-  it("gives a sub-task no card of its own, in any dimension", () => {
+  it("gives a sub-task a card of its own, in every dimension", () => {
     for (const by of GROUP_BYS) {
       const ids = buildColumns(withKids, by).flatMap((c) => c.cards.map((n) => n.id));
-      expect(ids.sort()).toEqual(["other", "parent"]);
+      expect(ids.sort()).toEqual(["kid-1", "kid-2", "other", "parent"]);
     }
   });
 
-  it("counts only top-level cards per column (a child never inflates its own category)", () => {
+  it("files a child by its OWN field, not its parent's", () => {
     const cols = nonEmpty(buildColumns(withKids, "cluster"));
     expect(keysOf(cols)).toEqual(["AUTH", "DATA"]);
-    expect(idsIn(cols, "AUTH")).toEqual(["parent"]);
-    expect(idsIn(cols, "DATA")).toEqual(["other"]); // kid-2 is DATA but stays off the board
-    expect(cols.map((c) => c.cards.length)).toEqual([1, 1]);
+    expect(idsIn(cols, "AUTH").sort()).toEqual(["kid-1", "parent"]);
+    expect(idsIn(cols, "DATA").sort()).toEqual(["kid-2", "other"]); // kid-2 is DATA, parent is AUTH
   });
 
-  it("leaves empty a column that only sub-tasks would have filled", () => {
+  it("fills a column that only sub-tasks land in", () => {
     const cols = nonEmpty(
       buildColumns([node("p"), node("k", { parentId: "p", status: "DONE" })], "status"),
     );
-    expect(keysOf(cols)).toEqual(["PENDING"]);
+    expect(keysOf(cols)).toEqual(["PENDING", "DONE"]); // canonical status order, not data order
+    expect(idsIn(cols, "DONE")).toEqual(["k"]);
   });
 });
 
@@ -204,7 +206,7 @@ describe("dependencyGraph", () => {
     expect(g.blockedBy.x).toEqual(["dead"]); // still LISTED as a dependency, just not blocking
   });
 
-  it("still resolves dependencies on sub-tasks, which carry no column of their own", () => {
+  it("still resolves a dependency pointing at a sub-task", () => {
     const g = dependencyGraph(
       [node("top"), node("kid", { parentId: "top-2", status: "PENDING" })],
       [{ fromId: "top", toId: "kid", kind: "DEPENDS" }],

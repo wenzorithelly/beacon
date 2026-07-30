@@ -50,7 +50,7 @@ const NEUTRAL_DOT = "#71717a";
 /** The subset of a roadmap node this module needs — MapNodePayload satisfies it. */
 export interface GroupableNode {
   id: string;
-  /** Non-null on a sub-task. Sub-tasks get no column of their own (see buildColumns). */
+  /** Non-null on a sub-task — the card renders its parent's title above its own. */
   parentId: string | null;
   status: string;
   priority: number;
@@ -131,17 +131,17 @@ function fixedKeys(by: GroupBy): readonly string[] {
  *  key the data introduced (sorted), then the unset column last — so an off-list value degrades
  *  into its own column instead of dropping the card.
  *
- *  TOP-LEVEL CARDS ONLY: a sub-task never gets a card of its own here (same as Linear/GitHub
- *  Projects sub-issues, and same as the canvas, which nests them under their parent). The parent
- *  card's sub-task progress bar carries the children, so nothing is lost — and column counts read
- *  as "features in this column", not "features plus their checklists". */
+ *  SUB-TASKS GET THEIR OWN CARD, same as Linear's board: a sub-issue sits in the column its OWN
+ *  status/priority/category puts it in, with its parent named above the title (ColumnCard's
+ *  `parentTitle`). Holding them back made a column read as empty while real work sat inside it —
+ *  the parent's progress bar says "3 left" but not where. The parent keeps that bar regardless. */
 export function buildColumns<T extends GroupableNode>(
   nodes: readonly T[],
   by: GroupBy,
 ): BoardColumn<T>[] {
   const buckets = new Map<string, T[]>();
   // Priority asc, incoming (createdAt) order as the stable tie-break.
-  const ordered = nodes.filter((n) => !n.parentId).map((n, i) => ({ n, i }));
+  const ordered = nodes.map((n, i) => ({ n, i }));
   ordered.sort((a, b) => a.n.priority - b.n.priority || a.i - b.i);
   for (const { n } of ordered) {
     const k = groupKey(n, by);

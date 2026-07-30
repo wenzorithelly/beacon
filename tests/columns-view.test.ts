@@ -186,6 +186,23 @@ describe("columns view — dependency sections disappear when empty", () => {
 
 // Owner ruling: sub-issues render Linear-style — a row per child, click to drill in, and a way
 // back out — reusing DepRow rather than a second row component.
+describe("columns view — sub-issues sit on the board under their parent's name", () => {
+  it("names the parent above the title, Linear-style", () => {
+    const card = src("components/columns/column-card.tsx");
+    expect(card).toContain("parentTitle");
+    expect(card).toContain("{parentTitle && (");
+    expect(card).toContain("sub-task of"); // the screen-reader half of the breadcrumb
+    // above the title, not below it
+    expect(card.indexOf("{parentTitle && (")).toBeLessThan(card.indexOf("{node.title}"));
+  });
+
+  it("resolves the parent through the board's live index", () => {
+    expect(src("components/columns/columns-view.tsx")).toContain(
+      "parentTitle={n.parentId ? byId.get(n.parentId)?.title : undefined}",
+    );
+  });
+});
+
 describe("columns view — sub-issues drill-in and back", () => {
   const panel = () => src("components/columns/peek-panel.tsx");
 
