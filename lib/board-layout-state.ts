@@ -34,7 +34,10 @@ interface BoardEntry {
   collapsed?: string[];
 }
 
-type State = Partial<Record<BoardKey, BoardEntry>>;
+// `savedViews` is the same file's second tenant — the named filter/arrange presets owned by
+// lib/saved-views.ts. Kept opaque here (that module validates the blob with Zod on every read)
+// so the two share one atomic write instead of racing over two files.
+type State = Partial<Record<BoardKey, BoardEntry>> & { savedViews?: unknown };
 
 function statePath(): string {
   return join(dataDir(), "board-layout-state.json");
@@ -84,5 +87,18 @@ export function readBoardLayout(board: BoardKey): {
 export function writeBoardLayout(board: BoardKey, patch: BoardEntry): void {
   const state = readState() ?? {};
   state[board] = { ...state[board], ...patch };
+  writeJsonAtomic(statePath(), state);
+}
+
+// Saved-views blob accessors — for lib/saved-views.ts only. Read-modify-write is fully
+// synchronous (readFileSync → mutate → atomic rename), so a saved-view write and a layout
+// write can never interleave and drop each other's slice of the file.
+export function readSavedViewsRaw(): unknown {
+  return readState()?.savedViews;
+}
+
+export function writeSavedViewsRaw(views: unknown): void {
+  const state = readState() ?? {};
+  state.savedViews = views;
   writeJsonAtomic(statePath(), state);
 }
