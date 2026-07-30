@@ -85,7 +85,8 @@ export const ColumnCard = memo(function ColumnCard({
     spotlight === "blocker" || spotlight === "dependent" ? RELATION_CHIP[spotlight] : null;
 
   return (
-    <div className="group/cc relative">
+    // data-card: the board clears the spotlight on any click that lands outside one.
+    <div data-card className="group/cc relative">
       <button
         type="button"
         draggable={draggable}

@@ -122,8 +122,9 @@ describe("columns view — the spotlight says WHICH relationship", () => {
 
   it("offers an obvious way to clear it", () => {
     const body = src("components/columns/columns-view.tsx");
-    expect(body).toContain("Clear spotlight");
+    // Not a button — clicking off a card, or Escape. See the click-off tests below.
     expect(body).toContain("clearSpotlight");
+    expect(body).toContain('closest("[data-card]")');
   });
 });
 
@@ -321,5 +322,20 @@ describe("role keeps an editing path after the Edit dialog was removed", () => {
     const sidebar = src("components/graph/detail-sidebar.tsx");
     expect(sidebar).not.toContain('mode="edit"');
     expect(sidebar).toContain('mode="create"');
+  });
+});
+
+// Owner: "we dont need this button, clicking outside the node should do it".
+describe("spotlight clears by clicking off a card", () => {
+  it("has no Clear spotlight button", () => {
+    expect(src("components/columns/columns-view.tsx")).not.toContain("Clear spotlight");
+  });
+
+  it("clears on a board click that misses a card", () => {
+    const view = src("components/columns/columns-view.tsx");
+    expect(view).toContain('closest("[data-card]")');
+    expect(view).toContain("clearSpotlight()");
+    // the marker the check relies on
+    expect(src("components/columns/column-card.tsx")).toContain("data-card");
   });
 });

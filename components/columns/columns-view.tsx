@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { ChevronLeft, ChevronRight, Columns3, EyeOff, Plus, Target, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Columns3, EyeOff, Plus, Target } from "lucide-react";
 import { ColumnCard, type Spotlight } from "@/components/columns/column-card";
 import { CardDetailModal } from "@/components/columns/peek-panel";
 import { TabBtn } from "@/components/ui/tab-button";
@@ -270,18 +270,19 @@ export function ColumnsView({
           >
             Open details
           </button>
-          <button
-            type="button"
-            onClick={clearSpotlight}
-            className="flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <X className="size-3" /> Clear spotlight
-          </button>
         </div>
       )}
 
       {/* board */}
-      <div ref={boardRef} className="flex min-h-0 flex-1 gap-2 overflow-x-auto px-1.5 pb-1.5">
+      {/* Clicking off a card clears the spotlight — no dedicated button. A card, and any control
+          inside one, carries data-card so those clicks pass through untouched. */}
+      <div
+        ref={boardRef}
+        onClick={(e) => {
+          if (!(e.target as HTMLElement).closest("[data-card]")) clearSpotlight();
+        }}
+        className="flex min-h-0 flex-1 gap-2 overflow-x-auto px-1.5 pb-1.5"
+      >
         {columns.length === 0 && (
           <p className="m-auto text-xs text-muted-foreground">No cards on this board yet.</p>
         )}
