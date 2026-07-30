@@ -41,6 +41,8 @@ import {
   SlidersHorizontal,
   Target,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { BOARDS_CHANGED_EVENT, type BoardsChangedDetail } from "@/components/live-refresh";
 import { NodeCard, type MapNodeData } from "@/components/graph/node-card";
 import {
   ANNOTATION_ACCENT,
@@ -95,6 +97,11 @@ import { layeredLayout } from "@/lib/layered-layout";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
 import { collapsedDescendants, childCounts } from "@/lib/node-collapse";
 import { nodePassesFilters, type RoadmapFilters } from "@/lib/map-filters";
+import { serializeFilters, type BoardFilterState } from "@/lib/filter-url";
+import { readUrlFilters, useUrlFilters } from "@/components/graph/use-url-filters";
+import { useUndo } from "@/components/graph/use-undo";
+import { SavedViewsMenu } from "@/components/graph/saved-views-menu";
+import type { SavedView, SavedViewBoard, SavedViewState } from "@/lib/saved-views";
 import { GroupRegions } from "@/components/graph/group-regions";
 import { LodReporter } from "@/components/graph/use-zoom-lod";
 import { SNAP_GRID, useSnapToGrid } from "@/components/graph/use-snap-grid";
@@ -243,12 +250,90 @@ function buildEdges(payload: MapNodePayload[], edges: MapEdgePayload[], extraIds
         targetHandle: e.targetHandle ?? undefined,
         label: e.label ?? defaultLabel,
         type: "deletable",
+        // The edge's real relationship, carried on the React Flow object. Without it the kind is
+        // only encoded as a STROKE COLOR, so recreating a deleted RELATES/REPLACES edge (undo)
+        // silently recreated it as DEPENDS — the POST defaults when `kind` is absent.
+        data: { kind: e.kind },
         markerEnd: { type: MarkerType.ArrowClosed, color: s.stroke },
         style: { stroke: s.stroke, strokeDasharray: s.dash },
       };
     });
 
   return [...containment, ...explicit];
+}
+
+type Rec = Record<string, unknown>;
+const isRec = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Structural equality over the plain-JSON board payload (no Dates/Maps/Sets in MapNodePayload). */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a as Rec);
+  const kb = Object.keys(b as Rec);
+  if (ka.length !== kb.length) return false;
+  return ka.every((k) => k in (b as Rec) && deepEqual((a as Rec)[k], (b as Rec)[k]));
+}
+
+export interface ReconcileGuards {
+  /** Local rows the server payload hasn't caught up with yet — an optimistic create whose POST is
+   *  still in flight. Anything ELSE missing from the payload was genuinely deleted and drops. */
+  pending?: ReadonlySet<string>;
+  /** id → `data` keys whose LOCAL value wins over the server's: a field write still in flight, and
+   *  whatever the user has open in the focus editor / title input. node-card and the detail panel
+   *  both re-seed their local text off `data.plain`, so without this a resync landing mid-edit
+   *  overwrites what is being typed. */
+  holdFields?: ReadonlyMap<string, ReadonlySet<string>>;
+  /** ids whose LOCAL position wins — a drag/arrange whose batch write hasn't landed yet. */
+  holdPositions?: ReadonlySet<string>;
+}
+
+/**
+ * Merge a freshly-read server board into the live one BY ID.
+ *
+ * The point is object IDENTITY: a card whose row didn't change keeps its EXACT previous object, so
+ * a 200-card board re-renders the one card that moved instead of all 200 (every memo downstream —
+ * visibleNodes → displayNodes → regions → finalNodes — is keyed on those references). Local-only
+ * fields React Flow owns (`selected`, `measured`, `dragging`, …) ride along on the previous object
+ * and are never clobbered, which is also why selection survives a resync.
+ *
+ * Pure and DOM-free — see tests/map-client-integration.test.ts.
+ */
+export function reconcileById<T extends { id: string; position?: XYPosition; data?: unknown }>(
+  prev: readonly T[],
+  next: readonly T[],
+  guards: ReconcileGuards = {},
+): T[] {
+  if (!prev.length) return [...next];
+  const before = new Map(prev.map((p) => [p.id, p]));
+  const out = next.map((n) => {
+    const p = before.get(n.id);
+    if (!p) return n;
+    const hold = guards.holdFields?.get(n.id);
+    const data =
+      hold?.size && isRec(n.data) && isRec(p.data)
+        ? {
+            ...n.data,
+            // Only keys the local row actually has — holding a key it lacks would write undefined.
+            ...Object.fromEntries(
+              [...hold].filter((k) => k in (p.data as Rec)).map((k) => [k, (p.data as Rec)[k]]),
+            ),
+          }
+        : n.data;
+    const merged = {
+      ...p,
+      ...n,
+      ...(data !== undefined ? { data } : {}),
+      ...(guards.holdPositions?.has(n.id) && p.position ? { position: p.position } : {}),
+    } as T;
+    return deepEqual(p, merged) ? p : merged;
+  });
+  if (guards.pending?.size) {
+    const seen = new Set(next.map((n) => n.id));
+    for (const p of prev) if (!seen.has(p.id) && guards.pending.has(p.id)) out.push(p);
+  }
+  return out;
 }
 
 export interface MapClientHandle {
@@ -382,6 +467,11 @@ export function MapClient({
 
   const [nodes, setNodes] = useState<Node<MapNodeData>[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
+  // The server ROWS the board is currently showing. Seeded from the prop and replaced by
+  // adoptBoard, so everything derived from the payload rather than from canvas state — the filter
+  // chip lists, sub-task counts, the collapse tree, the canvas annotations, the architecture tour
+  // — tracks a granular refetch too, not just a full router.refresh().
+  const [boardPayload, setBoardPayload] = useState<MapNodePayload[]>(nodePayload);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Edge selection is exclusive with node selection — clicking an edge focuses
   // just its source+target, clicking a card focuses its 1-hop neighbours.
@@ -408,6 +498,11 @@ export function MapClient({
   // canvas to the dark palette in light theme (see useColorMode).
   const colorMode = useColorMode();
   const snapToGrid = useSnapToGrid();
+  // Only used as the fallback when a claimed live-refresh couldn't be served (see adoptBoard).
+  const router = useRouter();
+  // Lesson-table ids, mirrored so the refetch path can rebuild edges without depending on the
+  // memo that is declared much further down.
+  const tableIdsRef = useRef<Set<string>>(new Set());
 
   // Mirror the nodes in a ref so the STABLE mutation callbacks (saveFields / removeNode)
   // can snapshot pre-update values for rollback without taking `nodes` as a dep — that
@@ -465,13 +560,6 @@ export function MapClient({
   // without restructuring the tree to put MapClient under a ReactFlowProvider.
   const flowRef = useRef<ReactFlowInstance<Node<MapNodeData>, Edge> | null>(null);
 
-  // Resync from the server after a mutation (router.refresh sends new props). Syncing
-  // external (server) state into React Flow's local state is exactly what an effect is for.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setNodes(initialNodes), [initialNodes]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setEdges(initialEdges), [initialEdges]);
-
   // readOnly (archived plan history) boards mount inside a flex pane that can size a tick after
   // init, so the one-shot `fitView` prop may fit a not-yet-sized container — leaving the snapshot
   // parked off to one side. Re-fit once layout settles (double rAF), and again when a different
@@ -494,6 +582,59 @@ export function MapClient({
     };
   }, [readOnly, initialNodes]);
 
+  // Distraction-free description editor: any card (or the detail panel) opens it via the context's
+  // openFocus; it commits the edited markdown back through the same patch path on close. Declared
+  // up here because both the undo stack (which stands down while the modal owns the keyboard) and
+  // the resync guards (which must not overwrite the text being edited) read it.
+  const [focusEdit, setFocusEdit] = useState<FocusEditPayload | null>(null);
+  const openFocus = useCallback((p: FocusEditPayload) => setFocusEdit(p), []);
+
+  // Board undo/redo (⌘Z / ⌘⇧Z). Created ONCE; every mutation site records its own inverse. Off on
+  // read-only + embedded boards (nothing there is the user's to undo) and while the focus editor
+  // owns the keyboard.
+  const undo = useUndo(!readOnly && !embedded && !focusEdit);
+  // `push` is stable across stack changes (see use-undo), so mutation callbacks can depend on it.
+  const pushUndo = undo.push;
+
+  // ── Resync guards: what a server payload must NOT overwrite ───────────────────────────────────
+  // node id → the `data` keys currently owned by the client (a PATCH in flight, or the text the
+  // user has open). ponytail: plain Sets, not refcounts — two overlapping writes to the SAME field
+  // release on the first settle, which at worst lets the (already-written) server value win.
+  const heldFields = useRef(new Map<string, Set<string>>());
+  // Node ids whose position write is in flight — the server still reports the OLD x/y.
+  const heldPositions = useRef(new Set<string>());
+  // Mirrored so `reconcileGuards` can stay a stable callback.
+  const editingRef = useRef<{ plain: string | null; title: string | null }>({
+    plain: null,
+    title: null,
+  });
+  useEffect(() => {
+    editingRef.current = { plain: focusEdit?.id ?? null, title: editingTitleId };
+  }, [focusEdit, editingTitleId]);
+
+  // What a reconcile must leave alone, sampled at the moment it runs.
+  const reconcileGuards = useCallback((): ReconcileGuards => {
+    const holdFields = new Map<string, ReadonlySet<string>>();
+    for (const [id, keys] of heldFields.current) if (keys.size) holdFields.set(id, new Set(keys));
+    const hold = (id: string | null, key: string) => {
+      if (!id) return;
+      holdFields.set(id, new Set(holdFields.get(id)).add(key));
+    };
+    hold(editingRef.current.plain, "plain");
+    hold(editingRef.current.title, "title");
+    return {
+      pending: new Set(pendingCreate.current.keys()),
+      holdFields,
+      holdPositions: new Set(heldPositions.current),
+    };
+  }, []);
+
+  // saveFields is declared further down (it routes back through writeFields, which records the
+  // undo entry that calls it) — the ref breaks that cycle without reordering the file.
+  const saveFieldsRef = useRef<(id: string, fields: Record<string, unknown>) => Promise<void>>(
+    async () => {},
+  );
+
   // In-flight create POST per node id. A new card renders with its client-generated id BEFORE the
   // POST lands, so a field edit made in that window (picking a category right after "+ Feature")
   // must QUEUE BEHIND the create — otherwise the PATCH reaches a row that doesn't exist yet, 404s,
@@ -504,29 +645,61 @@ export function MapClient({
   // THE writer for every node-field edit — inline card edits, the detail panel, the columns board.
   // Snapshots the pre-edit values synchronously (before the caller's optimistic update), waits out
   // an in-flight create for this id, writes, and restores the snapshot if the write didn't land.
-  const writeFields = useCallback(async (id: string, fields: Record<string, unknown>) => {
-    const before = nodesRef.current.find((n) => n.id === id);
-    const prev = before
-      ? Object.fromEntries(
-          Object.keys(fields).map((k) => [k, (before.data as Record<string, unknown>)[k]]),
-        )
-      : null;
-    try {
-      await pendingCreate.current.get(id);
-      const res = await fetch(`/api/nodes/${id}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(fields),
-      });
-      if (!res.ok) throw new Error(`save failed (${res.status})`);
-    } catch {
-      // The write never landed (a 404 means it hit no row at all) — restore the card.
-      if (prev)
-        setNodes((nds) =>
-          nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...prev } } : n)),
-        );
-    }
-  }, []);
+  const writeFields = useCallback(
+    async (id: string, fields: Record<string, unknown>) => {
+      const before = nodesRef.current.find((n) => n.id === id);
+      const keys = Object.keys(fields);
+      const prev = before
+        ? Object.fromEntries(keys.map((k) => [k, (before.data as Record<string, unknown>)[k]]))
+        : null;
+
+      // Undo is recorded HERE — the single place that holds the true pre-edit values — so every
+      // writer (inline card edit, detail panel, columns board, the focus editor) is covered
+      // without a push at each call site. The undo thunk writes back through saveFields, which
+      // re-enters this function; UndoStack ignores pushes while it is applying, so that can't
+      // append a bogus entry. `source` is skipped on purpose: accept-suggestion's INIT→MANUAL is a
+      // one-way door the schema will not reverse.
+      if (prev && !("source" in fields)) {
+        const sorted = [...keys].sort();
+        pushUndo({
+          label: `Edit ${sorted.join(", ")}`,
+          // Typing a title is ONE undo step, not forty.
+          coalesceKey: `field:${id}:${sorted.join(",")}`,
+          undo: () => saveFieldsRef.current(id, prev),
+          redo: () => saveFieldsRef.current(id, fields),
+        });
+      }
+
+      // Claim these keys for the duration: a live-refresh reconcile landing mid-write must keep
+      // the local (optimistic) value rather than re-seeding the card from the stale server row.
+      let held = heldFields.current.get(id);
+      if (!held) heldFields.current.set(id, (held = new Set()));
+      for (const k of keys) held.add(k);
+
+      try {
+        await pendingCreate.current.get(id);
+        const res = await fetch(`/api/nodes/${id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(fields),
+        });
+        if (!res.ok) throw new Error(`save failed (${res.status})`);
+      } catch {
+        // The write never landed (a 404 means it hit no row at all) — restore the card.
+        if (prev)
+          setNodes((nds) =>
+            nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...prev } } : n)),
+          );
+      } finally {
+        const s = heldFields.current.get(id);
+        if (s) {
+          for (const k of keys) s.delete(k);
+          if (!s.size) heldFields.current.delete(id);
+        }
+      }
+    },
+    [pushUndo],
+  );
 
   // Inline edit: update React Flow state optimistically; persist via the no-revalidate
   // route so the canvas never reflows mid-edit. categories feed the inline picker.
@@ -579,20 +752,43 @@ export function MapClient({
     setPanelTab("details"); // node-click always lands on Details, never lingers on Comments
   }, []);
 
-  const removeNode = useCallback(async (id: string) => {
-    // Optimistic removal + awaited tab-pinned DELETE; if the write fails, the card comes
-    // back. (Cascaded children are reconciled by the caller's refresh / the next re-sync.)
-    const snapshot = nodesRef.current.find((n) => n.id === id) ?? null;
-    setNodes((nds) => nds.filter((n) => n.id !== id));
-    setSelectedId((s) => (s === id ? null : s));
-    try {
-      const res = await fetch(`/api/nodes/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(`delete failed (${res.status})`);
-    } catch {
-      if (snapshot)
-        setNodes((nds) => (nds.some((n) => n.id === id) ? nds : [...nds, snapshot]));
-    }
+  // The ids a delete of `roots` takes with it: Node.parentId cascades on the server, so the local
+  // board has to drop the whole subtree. Filtering out just the named row is what left orphaned
+  // sub-tasks on the canvas until the next resync.
+  const cascadeIds = useCallback((roots: string[]): Set<string> => {
+    const ids = new Set(roots);
+    for (const d of collapsedDescendants(
+      nodesRef.current.map((n) => ({ id: n.id, parentId: n.data.parentId ?? null })),
+      ids,
+    ))
+      ids.add(d);
+    return ids;
   }, []);
+
+  // Delete a card. NOT undoable, deliberately: the server cascade takes the descendants, edges,
+  // attached files, bug flags and tags with it, and POST /api/nodes can restore none of those —
+  // a half-working undo here is worse than none, so nothing is pushed onto the stack.
+  const removeNode = useCallback(
+    async (id: string) => {
+      // Optimistic removal (the whole subtree) + awaited tab-pinned DELETE; if the write fails,
+      // the cards come back.
+      const gone = cascadeIds([id]);
+      const snapshot = nodesRef.current.filter((n) => gone.has(n.id));
+      setNodes((nds) => nds.filter((n) => !gone.has(n.id)));
+      setSelectedId((s) => (s && gone.has(s) ? null : s));
+      try {
+        const res = await fetch(`/api/nodes/${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(`delete failed (${res.status})`);
+      } catch {
+        if (snapshot.length)
+          setNodes((nds) => {
+            const have = new Set(nds.map((n) => n.id));
+            return [...nds, ...snapshot.filter((n) => !have.has(n.id))];
+          });
+      }
+    },
+    [cascadeIds],
+  );
 
   // Persist node fields through the SAME tab-pinned /api/nodes PATCH every inline card
   // edit uses: optimistic local update, awaited write, rollback to the pre-edit values if
@@ -609,6 +805,9 @@ export function MapClient({
     },
     [patch, writeFields],
   );
+  useEffect(() => {
+    saveFieldsRef.current = saveFields;
+  }, [saveFields]);
 
   // Accept an init/AI suggestion: flip source INIT→MANUAL so a future /beacon-init (which
   // wipes source="INIT" roadmap rows) keeps the card. The suggestion chip disappears
@@ -623,16 +822,25 @@ export function MapClient({
   // showing it. That round-trip wait is what made "+ Feature" feel laggy and tempted
   // impatient users into clicking again and creating duplicates. If the write fails we
   // roll the optimistic card back out. Shared by the "+ Feature" button and drag-to-drop.
-  const createNodeAt = useCallback(
-    async (
-      x: number,
-      y: number,
-      kind: "FEATURE" | "BUG" = "FEATURE",
+  //
+  // This half is the insert itself, keyed by a CALLER-SUPPLIED id so a redo re-creates the very
+  // same card (same id ⇒ the undo that follows still finds it, and nothing downstream re-keys).
+  const insertNode = useCallback(
+    async ({
+      id,
+      x,
+      y,
+      kind = "FEATURE",
       // Fields the card is born with (the columns board creates INTO a column). They ride the
       // CREATE itself — setting them with a follow-up PATCH is exactly the race above.
-      init: { cluster?: string | null; layer?: string | null; status?: string; priority?: number } = {},
-    ) => {
-      const id = createId();
+      init = {},
+    }: {
+      id: string;
+      x: number;
+      y: number;
+      kind?: "FEATURE" | "BUG";
+      init?: { cluster?: string | null; layer?: string | null; status?: string; priority?: number };
+    }): Promise<boolean> => {
       const status = init.status ?? (view === "ARCHITECTURE" ? "REBUILD" : "PENDING");
       const priority = init.priority ?? 2;
       const cluster = init.cluster ?? null;
@@ -674,6 +882,7 @@ export function MapClient({
             body: JSON.stringify({ id, view, kind, title, status, priority, cluster, layer, x, y }),
           });
           if (!res.ok) throw new Error("create failed");
+          return true;
         } catch {
           // The write never landed — undo the optimistic insert.
           setNodes((nds) => nds.filter((n) => n.id !== id));
@@ -684,17 +893,42 @@ export function MapClient({
           });
           setEditingTitleId((e) => (e === id ? null : e));
           setSelectedId((s) => (s === id ? null : s));
+          return false;
         }
       })();
       // Every field edit on this id queues behind the create until it settles.
-      pendingCreate.current.set(id, created);
+      pendingCreate.current.set(
+        id,
+        created.then(() => undefined),
+      );
       try {
-        await created;
+        return await created;
       } finally {
         pendingCreate.current.delete(id);
       }
     },
     [view],
+  );
+
+  // …and the public entry point, which mints the id and records the undo. Inverting a create is
+  // safe where inverting a DELETE is not: a card born this second has an empty cascade — no
+  // sub-tasks, edges, files, flags or tags to lose.
+  const createNodeAt = useCallback(
+    async (
+      x: number,
+      y: number,
+      kind: "FEATURE" | "BUG" = "FEATURE",
+      init: { cluster?: string | null; layer?: string | null; status?: string; priority?: number } = {},
+    ) => {
+      const id = createId();
+      if (!(await insertNode({ id, x, y, kind, init }))) return;
+      pushUndo({
+        label: kind === "BUG" ? "Add bug" : "Add card",
+        undo: () => removeNode(id),
+        redo: () => insertNode({ id, x, y, kind, init }).then(() => undefined),
+      });
+    },
+    [insertNode, pushUndo, removeNode],
   );
 
   // Drop the armed node where the canvas was clicked (screenToFlowPosition accounts for pan/zoom).
@@ -773,11 +1007,6 @@ export function MapClient({
     },
     [createNodeAt],
   );
-
-  // Distraction-free description editor: any card (or the detail panel) opens it via the context's
-  // openFocus; it commits the edited markdown back through the same patch path on close.
-  const [focusEdit, setFocusEdit] = useState<FocusEditPayload | null>(null);
-  const openFocus = useCallback((p: FocusEditPayload) => setFocusEdit(p), []);
 
   // ── Columns board bindings (see the `columns` prop) ────────────────────────────────────────
   // A drop / peek-panel edit takes the awaited, rolled-back save path — never the fire-and-forget
@@ -892,12 +1121,14 @@ export function MapClient({
       { viewportAspect: window.innerWidth / window.innerHeight },
     );
     setLanes(laid);
-    setNodes(
-      source.map((n) => {
-        const p = positions.get(n.id);
-        return p ? { ...n, position: p } : n;
-      }),
-    );
+    // Keep the object identity of every card the layout did NOT actually move — a resync on a
+    // grouped board would otherwise hand all ~200 cards fresh references and defeat the reconcile.
+    const next = source.map((n) => {
+      const p = positions.get(n.id);
+      return p && (p.x !== n.position.x || p.y !== n.position.y) ? { ...n, position: p } : n;
+    });
+    nodesRef.current = next;
+    setNodes(next);
     return positions;
   }, []);
 
@@ -911,12 +1142,38 @@ export function MapClient({
   }, [arrangedBy]);
   const derivedFitDone = useRef(false);
 
+  // THE one path that adopts a fresh server board — the SSR props (mount, router.refresh) and the
+  // granular refetch below both land here.
+  //
+  // It reconciles BY ID (see reconcileById) instead of swapping the array, so an unrelated change
+  // doesn't hand every card a new object, doesn't re-seed the description being typed, and doesn't
+  // touch selection / expansion / filters / viewport.
+  //
   // WHEN A GROUPING IS ACTIVE, CARD POSITIONS ARE DERIVED — never read from the DB. The stored x/y
   // drift the moment a card changes lane, which is why the board used to render the LABEL of a
-  // grouping over cards sitting at stale positions until you re-clicked the pill. So recompute the
-  // layout from every server payload, including the first paint. Runs AFTER the resync effect
-  // above (declaration order), so it lays out the nodes that effect just installed. Deliberately
-  // NOT persisted: a derived board can't go stale, and a page view shouldn't write.
+  // grouping over cards sitting at stale positions until you re-clicked the pill. So the merged
+  // board is re-laid-out here, on every payload including the first paint. Deliberately NOT
+  // persisted: a derived board can't go stale, and a page view shouldn't write.
+  const adoptBoard = useCallback(
+    (payload: MapNodePayload[], incomingNodes: Node<MapNodeData>[], incomingEdges: Edge[]) => {
+      setBoardPayload(payload);
+      const guards = reconcileGuards();
+      const merged = reconcileById(nodesRef.current, incomingNodes, guards);
+      const by = view === "ROADMAP" ? arrangedByRef.current : null;
+      if (by) {
+        relayout(merged, by);
+      } else {
+        setLanes(NO_LANES);
+        nodesRef.current = merged;
+        setNodes(merged);
+      }
+      setEdges((prev) => reconcileById(prev, incomingEdges));
+    },
+    [reconcileGuards, relayout, view],
+  );
+
+  // The props path: mount, and every router.refresh() that still happens (a change this canvas
+  // didn't claim, or an unattributable version bump).
   useEffect(() => {
     // Arm the one-shot on the FIRST run whether or not a grouping is active: a board that mounted
     // ungrouped, was then grouped and panned by the user, must not have its camera yanked to
@@ -924,20 +1181,53 @@ export function MapClient({
     // does the framing when the user asks for it.
     const firstDerive = !derivedFitDone.current;
     derivedFitDone.current = true;
-    const by = view === "ROADMAP" ? arrangedByRef.current : null;
-    if (!by) {
-      setLanes(NO_LANES);
-      return;
-    }
-    relayout(initialNodes, by);
+    // Syncing external (server) state into React Flow's local state is exactly what an effect is
+    // for — and the reconcile is what keeps the cascade to the rows that actually changed.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    adoptBoard(nodePayload, initialNodes, initialEdges);
     // The one-shot `fitView` prop framed the pre-layout positions; frame the derived board once.
-    if (!firstDerive) return;
+    if (!firstDerive || !(view === "ROADMAP" && arrangedByRef.current)) return;
     requestAnimationFrame(() =>
       requestAnimationFrame(() =>
         flowRef.current?.fitView({ padding: 0.15, minZoom: 0.38, maxZoom: 0.9, duration: 0 }),
       ),
     );
-  }, [initialNodes, view, relayout]);
+  }, [nodePayload, initialNodes, initialEdges, view, adoptBoard]);
+
+  // Granular live refresh. LiveRefresh OFFERS each attributed change to the page as a cancelable
+  // event; claiming it (preventDefault) suppresses the full router.refresh() FOR THE WHOLE PAGE.
+  // So we claim only a bundle this canvas can serve on its own — every named board is "roadmap".
+  //
+  // A "code"-only change DOES move roadmap card signals (the untested/auth badges), and we
+  // deliberately do NOT claim it: those same events are the only thing that updates the Files and
+  // Database boards, which have no listener and still depend on the full refresh. Letting a code
+  // bump fall through costs one RSC render on a rare event and keeps every board correct — the
+  // opposite trade of the roadmap edits the agent makes constantly.
+  useEffect(() => {
+    if (embedded || readOnly) return; // /plan + archived snapshots render a frozen payload
+    const onBoards = (e: Event) => {
+      const { boards } = (e as CustomEvent<BoardsChangedDetail>).detail;
+      if (!boards.length || !boards.every((b) => b === "roadmap")) return;
+      e.preventDefault();
+      void (async () => {
+        try {
+          const res = await fetch(`/api/board/roadmap?view=${view}`);
+          if (!res.ok) throw new Error(`board read failed (${res.status})`);
+          const board = (await res.json()) as { nodes: MapNodePayload[]; edges: MapEdgePayload[] };
+          adoptBoard(
+            board.nodes,
+            buildNodes(board.nodes),
+            buildEdges(board.nodes, board.edges, tableIdsRef.current),
+          );
+        } catch {
+          // We already suppressed the refresh, so honour the claim: fall back to it.
+          router.refresh();
+        }
+      })();
+    };
+    window.addEventListener(BOARDS_CHANGED_EVENT, onBoards);
+    return () => window.removeEventListener(BOARDS_CHANGED_EVENT, onBoards);
+  }, [embedded, readOnly, view, adoptBoard, router]);
 
   const [searchQuery, setSearchQuery] = useState("");
   // Semantic-zoom level, lifted out of the React Flow context by <LodReporter/> — drives
@@ -963,54 +1253,54 @@ export function MapClient({
   const [layerEmphasis, setLayerEmphasis] = useState<Layer | null>(null);
 
   const statusesPresent = useMemo(
-    () => Array.from(new Set(nodePayload.map((n) => n.status))),
-    [nodePayload],
+    () => Array.from(new Set(boardPayload.map((n) => n.status))),
+    [boardPayload],
   );
   const clustersPresent = useMemo(
     () =>
       Array.from(
-        new Set(nodePayload.map((n) => n.cluster).filter((c): c is string => !!c)),
+        new Set(boardPayload.map((n) => n.cluster).filter((c): c is string => !!c)),
       ).sort(),
-    [nodePayload],
+    [boardPayload],
   );
   const prioritiesPresent = useMemo(
-    () => Array.from(new Set(nodePayload.map((n) => n.priority))).sort((a, b) => a - b),
-    [nodePayload],
+    () => Array.from(new Set(boardPayload.map((n) => n.priority))).sort((a, b) => a - b),
+    [boardPayload],
   );
   // The Linear filter section only renders when at least one card on the board actually carries
   // externalMeta — a pure-Beacon board (or one not yet Linear-synced) never shows empty controls.
-  const hasLinearMeta = useMemo(() => nodePayload.some((n) => n.externalMeta), [nodePayload]);
+  const hasLinearMeta = useMemo(() => boardPayload.some((n) => n.externalMeta), [boardPayload]);
   const teamsPresent = useMemo(
     () =>
       Array.from(
-        new Set(nodePayload.map((n) => n.externalMeta?.team.name).filter((v): v is string => !!v)),
+        new Set(boardPayload.map((n) => n.externalMeta?.team.name).filter((v): v is string => !!v)),
       ).sort(),
-    [nodePayload],
+    [boardPayload],
   );
   const projectsPresent = useMemo(
     () =>
       Array.from(
         new Set(
-          nodePayload.map((n) => n.externalMeta?.project?.name).filter((v): v is string => !!v),
+          boardPayload.map((n) => n.externalMeta?.project?.name).filter((v): v is string => !!v),
         ),
       ).sort(),
-    [nodePayload],
+    [boardPayload],
   );
   const milestonesPresent = useMemo(
     () =>
       Array.from(
         new Set(
-          nodePayload.map((n) => n.externalMeta?.milestone?.name).filter((v): v is string => !!v),
+          boardPayload.map((n) => n.externalMeta?.milestone?.name).filter((v): v is string => !!v),
         ),
       ).sort(),
-    [nodePayload],
+    [boardPayload],
   );
   const statesPresent = useMemo(
     () =>
       Array.from(
-        new Set(nodePayload.map((n) => n.externalMeta?.state.name).filter((v): v is string => !!v)),
+        new Set(boardPayload.map((n) => n.externalMeta?.state.name).filter((v): v is string => !!v)),
       ).sort(),
-    [nodePayload],
+    [boardPayload],
   );
 
   const roadmapFilters: RoadmapFilters = useMemo(
@@ -1050,6 +1340,35 @@ export function MapClient({
     setLayerEmphasis(null);
   }, []);
 
+  // ── The board's view state as a URL ───────────────────────────────────────────────────────────
+  // One object over the seven filter Sets + the layer lens + the arrange dimension + hide-empty,
+  // so a filtered board is a link you can paste. Writes go through mergeFilterParams, which keeps
+  // `?ws=` and `?view=` intact — clobbering `ws` would swap which repo the board is showing.
+  const filterState = useMemo<BoardFilterState>(
+    () => ({ ...roadmapFilters, layerEmphasis, arrangedBy, hideEmpty: hideEmptyLanes }),
+    [roadmapFilters, layerEmphasis, arrangedBy, hideEmptyLanes],
+  );
+  const applyFilterSeed = useCallback((seed: BoardFilterState) => {
+    setStatusFilter(new Set(seed.status));
+    setClusterFilter(new Set(seed.cluster));
+    setPriorityFilter(new Set(seed.priority));
+    setTeamFilter(new Set(seed.team));
+    setProjectFilter(new Set(seed.project));
+    setMilestoneFilter(new Set(seed.milestone));
+    setStateFilter(new Set(seed.state));
+    setLayerEmphasis(seed.layerEmphasis);
+    setHideEmptyLanes(seed.hideEmpty);
+    // A URL with no `by` parses to null — adopting that would WIPE the server-provided
+    // initialArrangedBy and drop the board to freeform on every plain /map load. Only an explicit
+    // `by` seeds. The ref is written too: this runs in a LAYOUT effect, before the passive effect
+    // that derives the grouped layout reads it, so the URL's grouping is the one laid out.
+    if (seed.arrangedBy) {
+      arrangedByRef.current = seed.arrangedBy;
+      setArrangedBy(seed.arrangedBy);
+    }
+  }, []);
+  useUrlFilters(filterState, applyFilterSeed, { enabled: !embedded && !readOnly });
+
   // Collapse a feature to fold its sub-tasks behind it (parent stays, subtree hides). A view lens
   // like the filters — but it STICKS: persisted SERVER-SIDE (board-layout-state, per workspace+view)
   // so a fold survives a refresh AND killing/reopening the session (localStorage couldn't — its key
@@ -1079,19 +1398,19 @@ export function MapClient({
     [embedded, view],
   );
   // Direct-child count per node (drives whether a card shows the toggle + its N).
-  const childCountById = useMemo(() => childCounts(nodePayload), [nodePayload]);
+  const childCountById = useMemo(() => childCounts(boardPayload), [boardPayload]);
   // Done-sub-task count per parent — drives the Spine card's progress mini-bar (done / childCount).
   const childDoneById = useMemo(() => {
     const m = new Map<string, number>();
-    for (const n of nodePayload) {
+    for (const n of boardPayload) {
       if (n.parentId && n.status === "DONE") m.set(n.parentId, (m.get(n.parentId) ?? 0) + 1);
     }
     return m;
-  }, [nodePayload]);
+  }, [boardPayload]);
   // The subtree ids hidden by the current collapse set — folded into the `hidden` flag below.
   const collapseHiddenIds = useMemo(
-    () => collapsedDescendants(nodePayload, collapsedIds),
-    [nodePayload, collapsedIds],
+    () => collapsedDescendants(boardPayload, collapsedIds),
+    [boardPayload, collapsedIds],
   );
 
   // Only meaningful while the roadmap is grouped: which lane a card sits in (a sub-task rides its
@@ -1164,8 +1483,8 @@ export function MapClient({
   // Guided architecture tour (ARCHITECTURE view only): deterministic, domain-by-domain
   // walkthrough computed client-side from the components already in memory.
   const tourSteps = useMemo(
-    () => (view === "ARCHITECTURE" ? buildArchTour(nodePayload) : []),
-    [view, nodePayload],
+    () => (view === "ARCHITECTURE" ? buildArchTour(boardPayload) : []),
+    [view, boardPayload],
   );
   const focusTourStep = useCallback((step: { focusIds: string[] }) => {
     if (!flowRef.current) return;
@@ -1283,6 +1602,9 @@ export function MapClient({
     () => new Map(),
   );
   const tableIds = useMemo(() => new Set((tableNodes ?? []).map((t) => t.id)), [tableNodes]);
+  useEffect(() => {
+    tableIdsRef.current = tableIds;
+  }, [tableIds]);
 
   // Group-region containers (Gestalt common region). Roadmap: the LAYOUT's own lane rects, so the
   // boxes are uniform and non-overlapping no matter where the cards have drifted (a bounding box
@@ -1423,7 +1745,7 @@ export function MapClient({
 
   const annos = useMemo(() => {
     if (boardMode) {
-      const valid = new Set(nodePayload.map((n) => n.id));
+      const valid = new Set(boardPayload.map((n) => n.id));
       return stored
         .filter((r) => r.targetKind === "feature" && valid.has(r.targetId))
         .map((r, i) => ({
@@ -1438,7 +1760,7 @@ export function MapClient({
     const textById = new Map((annotations ?? []).map((a) => [a.id, a.comment]));
     return anchorAnnotations(annotations ?? [], {
       tables: [],
-      features: nodePayload.map((n) => ({ id: n.id, title: n.title })),
+      features: boardPayload.map((n) => ({ id: n.id, title: n.title })),
     }).map((a) => ({
       id: a.annotationId,
       n: a.n,
@@ -1447,7 +1769,7 @@ export function MapClient({
       x: null as number | null,
       y: null as number | null,
     }));
-  }, [boardMode, stored, annotations, nodePayload]);
+  }, [boardMode, stored, annotations, boardPayload]);
   const pinsByTarget = useMemo(() => {
     const m = new Map<string, { id: string; n: number; column: string | null }[]>();
     for (const a of annos) {
@@ -1463,7 +1785,7 @@ export function MapClient({
     async (excerpt: string) => {
       const hit = anchorAnnotations([{ id: "_", excerpt }], {
         tables: [],
-        features: nodePayload.map((n) => ({ id: n.id, title: n.title })),
+        features: boardPayload.map((n) => ({ id: n.id, title: n.title })),
       })[0];
       if (!hit) return;
       const res = await fetch("/api/board-annotations", {
@@ -1476,7 +1798,7 @@ export function MapClient({
         setStored((prev) => [...prev, row]);
       }
     },
-    [nodePayload],
+    [boardPayload],
   );
   const patchBoardAnno = useCallback(
     (id: string, fields: { body?: string; x?: number; y?: number }) => {
@@ -1661,6 +1983,37 @@ export function MapClient({
     [],
   );
 
+  // Re-create a link that was drawn and then undone (or deleted and then undone). Returns the
+  // NEW server id — createEdge mints a fresh row, so the caller has to re-target its entry.
+  const restoreEdge = useCallback(async (e: Edge): Promise<string | null> => {
+    const res = await fetch("/api/edges", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        fromId: e.source,
+        toId: e.target,
+        // buildEdges carries the real kind in `data` — without it every restored RELATES /
+        // REPLACES link would silently come back as the POST's DEPENDS default.
+        kind: (e.data as { kind?: string } | undefined)?.kind ?? "DEPENDS",
+        sourceHandle: e.sourceHandle ?? null,
+        targetHandle: e.targetHandle ?? null,
+        // "depends on" is a DEFAULT applied at build time, not a stored value — sending it back
+        // would promote it into a real, stored label on the row.
+        label: e.label === "depends on" ? null : ((e.label as string | undefined) ?? null),
+      }),
+    });
+    if (!res.ok) return null;
+    const row = (await res.json()) as { id: string };
+    setEdges((eds) => (eds.some((x) => x.id === row.id) ? eds : [...eds, { ...e, id: row.id }]));
+    return row.id;
+  }, []);
+
+  const dropEdge = useCallback(async (id: string) => {
+    setEdges((eds) => eds.filter((x) => x.id !== id));
+    setSelectedEdgeId((s) => (s === id ? null : s));
+    await fetch(`/api/edges/${id}`, { method: "DELETE" });
+  }, []);
+
   // Handle → handle drag between two existing nodes = a roadmap DEPENDS edge (amber dashed).
   const onConnect = useCallback(
     async (c: Connection) => {
@@ -1679,38 +2032,50 @@ export function MapClient({
       if (!res.ok) return;
       const e = (await res.json()) as { id: string; fromId: string; toId: string };
       const s = EDGE_STYLE.DEPENDS;
+      const added: Edge = {
+        id: e.id,
+        source: e.fromId,
+        // Anchor the line to the side the user actually dragged from / dropped on,
+        // so a side-to-side connect doesn't snap top↔top via React Flow's default.
+        sourceHandle: c.sourceHandle ?? undefined,
+        target: e.toId,
+        targetHandle: c.targetHandle ?? undefined,
+        label: "depends on",
+        type: "deletable",
+        data: { kind: "DEPENDS" },
+        markerEnd: { type: MarkerType.ArrowClosed, color: s.stroke },
+        style: { stroke: s.stroke, strokeDasharray: s.dash },
+      };
       setEdges((eds) => {
         if (eds.some((x) => x.id === e.id)) return eds; // idempotent (duplicate drag)
-        return [
-          ...eds,
-          {
-            id: e.id,
-            source: e.fromId,
-            // Anchor the line to the side the user actually dragged from / dropped on,
-            // so a side-to-side connect doesn't snap top↔top via React Flow's default.
-            sourceHandle: c.sourceHandle ?? undefined,
-            target: e.toId,
-            targetHandle: c.targetHandle ?? undefined,
-            label: "depends on",
-            type: "deletable",
-            markerEnd: { type: MarkerType.ArrowClosed, color: s.stroke },
-            style: { stroke: s.stroke, strokeDasharray: s.dash },
-          },
-        ];
+        return [...eds, added];
+      });
+      // A recreate mints a NEW id, so the entry tracks the live one across repeated undo/redo.
+      let live = e.id;
+      pushUndo({
+        label: "Add link",
+        undo: () => dropEdge(live),
+        redo: async () => {
+          const id = await restoreEdge(added);
+          if (id) live = id;
+        },
       });
     },
-    [],
+    [dropEdge, pushUndo, restoreEdge],
   );
 
   // Spawn a child sub-task under `parent` at (x, y). Used by both the drag-from-handle
   // gesture (onConnectEnd) and the bottom-dock "Sub-task" picker (onNodeClick when
   // pickingParent is true).
-  const createChildOf = useCallback(
-    async (parent: Node<MapNodeData>, x: number, y: number) => {
+  // The insert half, keyed by a CALLER-SUPPLIED id (the server used to mint it) so a redo
+  // re-creates the same child instead of a new one the undo entry can no longer find.
+  const insertChild = useCallback(
+    async (parent: Node<MapNodeData>, x: number, y: number, id: string): Promise<boolean> => {
       const res = await fetch("/api/nodes", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          id,
           view,
           title: "New node",
           parentId: parent.id,
@@ -1720,7 +2085,7 @@ export function MapClient({
           y,
         }),
       });
-      if (!res.ok) return;
+      if (!res.ok) return false;
       const n = await res.json();
       setNodes((nds) => [
         ...nds,
@@ -1761,8 +2126,24 @@ export function MapClient({
       setExpandedIds((prev) => new Set(prev).add(n.id));
       setEditingTitleId(n.id);
       setSelectedId(n.id);
+      return true;
     },
     [view],
+  );
+
+  // …and the public entry point, which mints the id and records the undo. Same reasoning as
+  // createNodeAt: a just-created card has an empty delete cascade, so the inverse is honest.
+  const createChildOf = useCallback(
+    async (parent: Node<MapNodeData>, x: number, y: number) => {
+      const id = createId();
+      if (!(await insertChild(parent, x, y, id))) return;
+      pushUndo({
+        label: "Add sub-task",
+        undo: () => removeNode(id),
+        redo: () => insertChild(parent, x, y, id).then(() => undefined),
+      });
+    },
+    [insertChild, pushUndo, removeNode],
   );
 
   // Handle → empty canvas drop = spawn a CHILD sub-task under the source. Figma-style
@@ -1797,11 +2178,11 @@ export function MapClient({
   const wantsPayload = panelOpen || columns;
   const livePayload = useMemo<MapNodePayload[]>(() => {
     if (!wantsPayload) return [];
-    const base = new Map(nodePayload.map((n) => [n.id, n]));
+    const base = new Map(boardPayload.map((n) => [n.id, n]));
     return nodes
       .filter((n) => n.type !== "annotation")
       .map((n) => toPayload(n, base.get(n.id)));
-  }, [wantsPayload, nodes, nodePayload]);
+  }, [wantsPayload, nodes, boardPayload]);
 
   const selected = useMemo(
     () => livePayload.find((n) => n.id === selectedId) ?? null,
@@ -1812,20 +2193,70 @@ export function MapClient({
   // the write goes out, so this is the only snapshot a failed write can restore.
   const dragStartPos = useRef(new Map<string, XYPosition>());
 
-  // Persist dragged cards. React Flow hands the drag handlers EVERY node that moved, so a
-  // multi-select drag commits as ONE batch through the endpoint Arrange already uses — saving
-  // just the grabbed card left its companions to snap back on the next server resync.
-  // Optimistic + rollback like saveFields: a failed write puts the cards back where they were,
-  // so the divergence shows up now instead of at some later refresh.
-  const persistPositions = useCallback(
-    async (moved: { id: string; x: number; y: number }[]) => {
-      if (!moved.length) return;
-      const before = new Map(dragStartPos.current);
+  // THE move-and-persist path: every batch position write on this board goes through here (a
+  // drag, the roadmap Arrange, the architecture Arrange). React Flow hands the drag handlers EVERY
+  // node that moved, so a multi-select drag commits as ONE batch — saving just the grabbed card
+  // left its companions to snap back on the next server resync. Optimistic + rollback like
+  // saveFields: a failed write puts the cards back where `before` had them, so the divergence
+  // shows up now instead of at some later refresh.
+  //
+  // `before` is the caller's pre-move snapshot — a drag passes dragStartPos, because React Flow
+  // has already moved the cards by the time this runs, so nothing else can reconstruct it.
+  //
+  // Self-reference for the undo/redo thunks, declared first so the callback can close over it
+  // (the stack's `applying` guard keeps that re-entry from recording anything).
+  const applyPositionsRef = useRef<
+    (
+      batch: { id: string; x: number; y: number }[],
+      before: ReadonlyMap<string, XYPosition>,
+      record?: boolean,
+    ) => Promise<void>
+  >(async () => {});
+  const applyPositions = useCallback(
+    async (
+      batch: { id: string; x: number; y: number }[],
+      before: ReadonlyMap<string, XYPosition>,
+      // Skipped for a GROUPED arrange: those positions are DERIVED, so restoring them without
+      // restoring the grouping would leave cards outside their lane boxes until the next resync
+      // re-derived them. Same reason a drag isn't persisted while laneMode is on.
+      record = true,
+    ) => {
+      if (!batch.length) return;
+      const move = (to: { id: string; x: number; y: number }[]) => {
+        const at = new Map(to.map((p) => [p.id, p]));
+        setNodes((nds) =>
+          nds.map((n) => {
+            const p = at.get(n.id);
+            return p && (p.x !== n.position.x || p.y !== n.position.y)
+              ? { ...n, position: { x: p.x, y: p.y } }
+              : n;
+          }),
+        );
+      };
+      move(batch);
+      if (record) {
+        const back = batch
+          .map(({ id }) => {
+            const p = before.get(id);
+            return p ? { id, x: p.x, y: p.y } : null;
+          })
+          .filter((p): p is { id: string; x: number; y: number } => p !== null);
+        const after = new Map(batch.map((p) => [p.id, { x: p.x, y: p.y }]));
+        pushUndo({
+          label: batch.length === 1 ? "Move card" : `Move ${batch.length} cards`,
+          // No coalesce key — each drag is its own step.
+          undo: () => applyPositionsRef.current(back, after),
+          redo: () => applyPositionsRef.current(batch, before),
+        });
+      }
+      // The server still reports the OLD x/y until this lands; a reconcile in that window must
+      // keep the local position rather than snapping the cards back.
+      for (const { id } of batch) heldPositions.current.add(id);
       try {
         const res = await fetch("/api/nodes/positions", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ batch: moved }),
+          body: JSON.stringify({ batch }),
         });
         if (!res.ok) throw new Error(`position save failed (${res.status})`);
       } catch {
@@ -1835,10 +2266,15 @@ export function MapClient({
             return p ? { ...n, position: p } : n;
           }),
         );
+      } finally {
+        for (const { id } of batch) heldPositions.current.delete(id);
       }
     },
-    [],
+    [pushUndo],
   );
+  useEffect(() => {
+    applyPositionsRef.current = applyPositions;
+  }, [applyPositions]);
 
   // Center + select a card. Reads the live node so the camera uses the measured/current
   // position, not a stale payload. Shared by search and "Work on next".
@@ -1862,14 +2298,12 @@ export function MapClient({
   // group buttons — picking a dimension IS the action, there's no separate Arrange button.
   const arrange = useCallback(
     (by: RoadmapGroupBy) => {
+    const before = new Map(nodes.map((n) => [n.id, n.position]));
     const pos = relayout(nodes, by);
     const batch = Array.from(pos, ([id, p]) => ({ id, x: p.x, y: p.y }));
-    if (batch.length)
-      void fetch("/api/nodes/positions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ batch }),
-      });
+    // record:false — see applyPositions. Undoing a Group-by would have to restore the GROUPING,
+    // not just the coordinates, or the lanes and the cards disagree until the next resync.
+    void applyPositions(batch, before, false);
     setArrangedBy(by);
     // Remember the chosen dimension per-workspace so the next load lanes by it.
     void fetch("/api/board-layout", {
@@ -1881,7 +2315,7 @@ export function MapClient({
       flowRef.current?.fitView({ duration: 600, padding: 0.2, ease: easeSpringGlide }),
     );
     },
-    [nodes, relayout],
+    [nodes, relayout, applyPositions],
   );
 
   // Back to FREEFORM. A grouped board derives its positions, so nothing on screen has been written
@@ -1906,6 +2340,93 @@ export function MapClient({
     setLanes(NO_LANES);
     setCollapsedLanes(new Set());
   }, [nodes]);
+
+  // ── Saved views ───────────────────────────────────────────────────────────────────────────────
+  // Named snapshots of how this board is being looked at. The menu owns its own CRUD round-trips;
+  // all this side does is hand it the live state (as ARRAYS — the store is JSON) and apply one.
+  const savedViewBoard: SavedViewBoard = view === "ROADMAP" ? "roadmap" : "architecture";
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const currentSavedView = useMemo<SavedViewState>(
+    () => ({
+      filters: {
+        status: [...statusFilter],
+        cluster: [...clusterFilter],
+        priority: [...priorityFilter],
+        team: [...teamFilter],
+        project: [...projectFilter],
+        milestone: [...milestoneFilter],
+        state: [...stateFilter],
+      },
+      layerEmphasis,
+      arrangedBy,
+      hideEmpty: hideEmptyLanes,
+      collapsed: [...collapsedLanes],
+      groupBy: null, // the Columns board's dimension; this canvas has none
+    }),
+    [
+      statusFilter,
+      clusterFilter,
+      priorityFilter,
+      teamFilter,
+      projectFilter,
+      milestoneFilter,
+      stateFilter,
+      layerEmphasis,
+      arrangedBy,
+      hideEmptyLanes,
+      collapsedLanes,
+    ],
+  );
+  const applySavedView = useCallback(
+    (v: SavedView) => {
+      const s = v.state;
+      setStatusFilter(new Set(s.filters.status));
+      setClusterFilter(new Set(s.filters.cluster));
+      setPriorityFilter(new Set(s.filters.priority));
+      setTeamFilter(new Set(s.filters.team));
+      setProjectFilter(new Set(s.filters.project));
+      setMilestoneFilter(new Set(s.filters.milestone));
+      setStateFilter(new Set(s.filters.state));
+      setLayerEmphasis(s.layerEmphasis);
+      setHideEmptyLanes(s.hideEmpty);
+      setCollapsedLanes(new Set(s.collapsed));
+      // Route the grouping through the two paths that already own it, so the cards actually move
+      // (and the choice persists) instead of the pill claiming a layout the board never ran.
+      if (s.arrangedBy !== arrangedBy) {
+        if (s.arrangedBy) arrange(s.arrangedBy);
+        else if (view === "ROADMAP") ungroup();
+      }
+      setActiveViewId(v.id);
+    },
+    [arrange, arrangedBy, ungroup, view],
+  );
+  const applySavedViewRef = useRef(applySavedView);
+  useEffect(() => {
+    applySavedViewRef.current = applySavedView;
+  }, [applySavedView]);
+
+  // Open the board with its DEFAULT view, once. PRECEDENCE: an explicit URL filter WINS over the
+  // default view — a pasted ?status=…&by=… link must show exactly what it says, so the default is
+  // skipped entirely whenever the URL already carries board params. (useUrlFilters seeds from the
+  // URL in a LAYOUT effect, i.e. strictly before this passive effect runs, so reading the URL
+  // here sees the same thing it did.)
+  const defaultViewDone = useRef(false);
+  useEffect(() => {
+    if (defaultViewDone.current || embedded || readOnly) return;
+    defaultViewDone.current = true;
+    if (serializeFilters(readUrlFilters()).toString()) return;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/saved-views?board=${savedViewBoard}`);
+        if (!res.ok) return;
+        const views = (await res.json()) as SavedView[];
+        const def = views.find((v) => v.isDefault);
+        if (def) applySavedViewRef.current(def);
+      } catch {
+        // No default view is the normal case; a failed read just opens the board unfiltered.
+      }
+    })();
+  }, [embedded, readOnly, savedViewBoard]);
 
   // Auto re-arrange when a card's value for the CURRENT group-by dimension changes — e.g. marking
   // a task Done while grouped by status should move it into the Done lane immediately, without the
@@ -1954,23 +2475,17 @@ export function MapClient({
       // Size the board to THIS screen — wider viewport lays out wider (less vertical scroll).
       { viewportAspect: window.innerWidth / window.innerHeight },
     );
-    setNodes((nds) =>
-      nds.map((n) => {
-        const p = pos.get(n.id);
-        return p ? { ...n, position: p } : n;
-      }),
+    // Freeform board — the positions are real and the user's, so this move goes through the same
+    // helper a drag does and is undoable with it.
+    const before = new Map(real.map((n) => [n.id, n.position]));
+    void applyPositions(
+      Array.from(pos, ([id, p]) => ({ id, x: p.x, y: p.y })),
+      before,
     );
-    const batch = Array.from(pos, ([id, p]) => ({ id, x: p.x, y: p.y }));
-    if (batch.length)
-      void fetch("/api/nodes/positions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ batch }),
-      });
     requestAnimationFrame(() =>
       flowRef.current?.fitView({ duration: 600, padding: 0.2, ease: easeSpringGlide }),
     );
-  }, [nodes, edgePayload]);
+  }, [nodes, edgePayload, applyPositions]);
 
   // The capped, ranked list drives the results popover. (The full match set that drives the
   // canvas spotlight is `searchMatchIds`, computed earlier so displayNodes can read it.)
@@ -2068,14 +2583,30 @@ export function MapClient({
           for (const e of removed) {
             if (e.id.startsWith("c-")) continue;
             void fetch(`/api/edges/${e.id}`, { method: "DELETE" });
+            // A link IS invertible (unlike a node): recreating it loses nothing but the row id.
+            let live = e.id;
+            setSelectedEdgeId((s) => (s === e.id ? null : s));
+            pushUndo({
+              label: "Delete link",
+              undo: async () => {
+                const id = await restoreEdge(e);
+                if (id) live = id;
+              },
+              redo: () => dropEdge(live),
+            });
           }
         }}
         onNodesDelete={(removed) => {
-          for (const n of removed) {
-            if (n.id.startsWith("anno-")) continue; // removed via the Comments panel instead
-            void fetch(`/api/nodes/${n.id}`, { method: "DELETE" });
-            setSelectedId((s) => (s === n.id ? null : s));
-          }
+          // Not undoable, same as the card's own trash button — the server cascade takes
+          // descendants, edges, files, bug flags and tags, and none of that can be restored.
+          const roots = removed.filter((n) => !n.id.startsWith("anno-")).map((n) => n.id);
+          if (!roots.length) return; // annotations are removed via the Comments panel instead
+          for (const id of roots) void fetch(`/api/nodes/${id}`, { method: "DELETE" });
+          // React Flow removed only the selected rows; the cascade's descendants have to go too,
+          // or orphaned sub-tasks stay on the canvas until the next resync.
+          const gone = cascadeIds(roots);
+          setNodes((nds) => nds.filter((n) => !gone.has(n.id)));
+          setSelectedId((s) => (s && gone.has(s) ? null : s));
         }}
         onNodeClick={(e, node) => {
           if (placing) {
@@ -2154,7 +2685,7 @@ export function MapClient({
               moved.push({ id: n.id, x: n.position.x, y: n.position.y });
             }
           }
-          void persistPositions(moved);
+          void applyPositions(moved, dragStartPos.current);
         }}
         deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
         colorMode={colorMode}
@@ -2612,6 +3143,13 @@ export function MapClient({
               </button>
             )}
           </CanvasPopover>
+
+          <SavedViewsMenu
+            board={savedViewBoard}
+            current={currentSavedView}
+            onApply={applySavedView}
+            activeViewId={activeViewId}
+          />
 
           {!panelOpen && (
             <button

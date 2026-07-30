@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { layoutRoadmapLanes, roadmapLaneKey, statusLaneKey } from "@/lib/roadmap-layout";
 import { computeGroupRegions } from "@/lib/group-regions";
+import { reconcileById } from "@/components/graph/map-client";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const src = (p: string) => readFileSync(resolve(ROOT, p), "utf8");
@@ -25,7 +26,7 @@ describe("card create — atomic, and follow-up writes queue behind it", () => {
 
   it("holds the in-flight create per id and awaits it before writing fields", () => {
     expect(MAP_CLIENT).toContain("const pendingCreate = useRef(new Map<string, Promise<void>>())");
-    expect(MAP_CLIENT).toContain("pendingCreate.current.set(id, created)");
+    expect(MAP_CLIENT).toContain("pendingCreate.current.set(\n        id,\n        created.then(() => undefined),\n      )");
     expect(MAP_CLIENT).toContain("pendingCreate.current.delete(id)");
     expect(MAP_CLIENT).toContain("await pendingCreate.current.get(id)");
   });
@@ -52,20 +53,24 @@ describe("detail panel — reads live canvas state, not the SSR prop", () => {
 });
 
 describe("grouped roadmap — positions are derived, on load and on every resync", () => {
-  it("re-runs the layout from the incoming server nodes when a grouping is active", () => {
-    expect(MAP_CLIENT).toContain("relayout(initialNodes, by)");
+  // The derive now runs on the RECONCILED board (adoptBoard), not on the raw server array — that
+  // is what lets a grouped board keep its card object identities across a resync.
+  it("re-runs the layout from the reconciled server nodes when a grouping is active", () => {
+    expect(MAP_CLIENT).toContain("const merged = reconcileById(nodesRef.current, incomingNodes, guards);");
+    expect(MAP_CLIENT).toContain("relayout(merged, by)");
     // The derive path must NOT write positions back — a grouped board recomputes every load.
-    const derive = MAP_CLIENT.slice(
-      MAP_CLIENT.indexOf("const by = view === \"ROADMAP\" ? arrangedByRef.current : null;"),
-    ).slice(0, 900);
+    const derive = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const adoptBoard = useCallback")).slice(0, 900);
     expect(derive).not.toContain("/api/nodes/positions");
     expect(derive).not.toContain("/api/board-layout");
   });
 
   it("keeps the explicit pill arrange persisting", () => {
-    const arrange = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const arrange = useCallback"));
-    expect(arrange.slice(0, 900)).toContain("/api/nodes/positions");
-    expect(arrange.slice(0, 900)).toContain('body: JSON.stringify({ board: "roadmap", arrangedBy: by })');
+    const arrange = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const arrange = useCallback")).slice(0, 900);
+    // …through the one move-and-persist helper both a drag and an Arrange now share.
+    expect(arrange).toContain("void applyPositions(batch, before, false);");
+    expect(arrange).toContain('body: JSON.stringify({ board: "roadmap", arrangedBy: by })');
+    const apply = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const applyPositions = useCallback")).slice(0, 2600);
+    expect(apply).toContain("/api/nodes/positions");
   });
 
   // A derived layout and a persisted drag are mutually exclusive: the derive pass recomputed every
@@ -97,8 +102,9 @@ describe("grouped roadmap — positions are derived, on load and on every resync
   it("arms the derived fit on the first run, grouped or not", () => {
     const derive = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const firstDerive = !derivedFitDone.current;"));
     expect(derive.slice(0, 200)).toContain("derivedFitDone.current = true;");
+    // The flag is set BEFORE the "is a grouping active?" question is ever asked.
     expect(derive.indexOf("derivedFitDone.current = true;")).toBeLessThan(
-      derive.indexOf("if (!by) {"),
+      derive.indexOf('arrangedByRef.current)'),
     );
   });
 });
@@ -205,6 +211,306 @@ describe("columns view — mounted as a /map view", () => {
     expect(shell).toContain('const ORDER: ShellView[] = ["ROADMAP", "COLUMNS", "ARCHITECTURE", "DATABASE"]');
     expect(shell).toContain("COLUMNS: columns,");
     expect(src("app/map/page.tsx")).not.toContain('if (view === "COLUMNS")');
+  });
+});
+
+// ── reconcileById ─────────────────────────────────────────────────────────────────────────────
+// The load-bearing piece of the granular refresh, and the one part of map-client that IS pure —
+// so it gets real unit tests, not source assertions.
+describe("reconcileById", () => {
+  type N = {
+    id: string;
+    position: { x: number; y: number };
+    data: Record<string, unknown>;
+    selected?: boolean;
+    measured?: { width: number; height: number };
+  };
+  const card = (id: string, over: Partial<N> = {}): N => ({
+    id,
+    position: { x: 0, y: 0 },
+    data: { title: id, plain: null, status: "PENDING", signals: { untested: 0 } },
+    ...over,
+  });
+  // A server payload is always a FRESH object graph — never the same references as local state.
+  const fresh = (n: N): N => JSON.parse(JSON.stringify(n)) as N;
+
+  it("keeps the previous object for every deep-equal row", () => {
+    const prev = [card("a"), card("b"), card("c")];
+    const out = reconcileById(prev, prev.map(fresh));
+    expect(out).toHaveLength(3);
+    out.forEach((n, i) => expect(n).toBe(prev[i]));
+  });
+
+  it("replaces only the row that actually changed", () => {
+    const prev = [card("a"), card("b")];
+    const next = prev.map(fresh);
+    next[1].data.status = "DONE";
+    const out = reconcileById(prev, next);
+    expect(out[0]).toBe(prev[0]);
+    expect(out[1]).not.toBe(prev[1]);
+    expect(out[1].data.status).toBe("DONE");
+  });
+
+  it("notices a change nested inside data", () => {
+    const prev = [card("a")];
+    const next = prev.map(fresh);
+    (next[0].data.signals as { untested: number }).untested = 3;
+    expect(reconcileById(prev, next)[0]).not.toBe(prev[0]);
+  });
+
+  it("carries local React Flow fields (selection, measurements) across a real change", () => {
+    const prev = [card("a", { selected: true, measured: { width: 256, height: 96 } })];
+    const next = [card("a")];
+    next[0].data.title = "renamed";
+    const [out] = reconcileById(prev, next);
+    expect(out.selected).toBe(true);
+    expect(out.measured).toEqual({ width: 256, height: 96 });
+    expect(out.data.title).toBe("renamed");
+  });
+
+  it("holds the fields the user is editing — the server value does NOT land", () => {
+    const prev = [card("a", { data: { title: "A", plain: "half-typed sen" } })];
+    const next = [card("a", { data: { title: "A", plain: "stale server text" } })];
+    const [out] = reconcileById(prev, next, {
+      holdFields: new Map([["a", new Set(["plain"])]]),
+    });
+    expect(out.data.plain).toBe("half-typed sen");
+    // …and a row where only the held field differs is unchanged, so it keeps its identity.
+    expect(out).toBe(prev[0]);
+  });
+
+  it("holds only the named fields, and only for the named node", () => {
+    const prev = [card("a", { data: { plain: "mine", status: "PENDING" } }), card("b", { data: { plain: "mine" } })];
+    const next = [
+      card("a", { data: { plain: "theirs", status: "DONE" } }),
+      card("b", { data: { plain: "theirs" } }),
+    ];
+    const out = reconcileById(prev, next, { holdFields: new Map([["a", new Set(["plain"])]]) });
+    expect(out[0].data).toEqual({ plain: "mine", status: "DONE" });
+    expect(out[1].data).toEqual({ plain: "theirs" });
+  });
+
+  it("never invents a held key the local row doesn't have", () => {
+    const prev = [card("a", { data: { title: "A" } })];
+    const next = [card("a", { data: { title: "A", plain: "from server" } })];
+    const [out] = reconcileById(prev, next, { holdFields: new Map([["a", new Set(["plain"])]]) });
+    expect(out.data.plain).toBe("from server");
+  });
+
+  it("keeps the local position while a position write is in flight", () => {
+    const prev = [card("a", { position: { x: 500, y: 700 } })];
+    const next = [card("a", { position: { x: 0, y: 0 } })];
+    expect(reconcileById(prev, next, { holdPositions: new Set(["a"]) })[0].position).toEqual({
+      x: 500,
+      y: 700,
+    });
+    expect(reconcileById(prev, next)[0].position).toEqual({ x: 0, y: 0 });
+  });
+
+  it("keeps an optimistic create the payload hasn't caught up with, and drops real deletions", () => {
+    const prev = [card("a"), card("new")];
+    const out = reconcileById(prev, [fresh(prev[0])], { pending: new Set(["new"]) });
+    expect(out.map((n) => n.id)).toEqual(["a", "new"]);
+    expect(reconcileById(prev, [fresh(prev[0])]).map((n) => n.id)).toEqual(["a"]);
+  });
+
+  it("adopts brand-new server rows and follows the payload's order", () => {
+    const prev = [card("b")];
+    const out = reconcileById(prev, [card("a"), fresh(prev[0])]);
+    expect(out.map((n) => n.id)).toEqual(["a", "b"]);
+    expect(out[1]).toBe(prev[0]);
+  });
+
+  it("works on edges too (no position, no data)", () => {
+    const prev = [{ id: "e1", source: "a", target: "b", selected: true }];
+    const out = reconcileById(prev, [{ id: "e1", source: "a", target: "b" }]);
+    expect(out[0]).toBe(prev[0]);
+  });
+});
+
+describe("granular live refresh — the canvas claims only what it can serve", () => {
+  it("listens for the cancelable boards event and refetches the board JSON", () => {
+    expect(MAP_CLIENT).toContain("window.addEventListener(BOARDS_CHANGED_EVENT, onBoards)");
+    expect(MAP_CLIENT).toContain("window.removeEventListener(BOARDS_CHANGED_EVENT, onBoards)");
+    expect(MAP_CLIENT).toContain("await fetch(`/api/board/roadmap?view=${view}`)");
+  });
+
+  // preventDefault suppresses the refresh for the WHOLE page, so a bundle naming "db" or "code"
+  // must fall through — the Database and Files boards have no listener of their own.
+  it("claims a bundle only when every board in it is the roadmap", () => {
+    expect(MAP_CLIENT).toContain('if (!boards.length || !boards.every((b) => b === "roadmap")) return;');
+    const claim = MAP_CLIENT.indexOf("e.preventDefault();");
+    expect(claim).toBeGreaterThan(MAP_CLIENT.indexOf('boards.every((b) => b === "roadmap")'));
+    // …and a claim it couldn't honour still gets the user a fresh board.
+    expect(MAP_CLIENT).toContain("router.refresh();");
+  });
+
+  it("never fires on a frozen board (/plan review, archived history)", () => {
+    const listener = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const onBoards = (e: Event)") - 300);
+    expect(listener.slice(0, 400)).toContain("if (embedded || readOnly) return;");
+  });
+
+  // The whole point: the props path and the refetch path share ONE reconciling adopt, so a full
+  // router.refresh() no longer swaps every node object either.
+  it("routes the props path through the same reconcile, not a full-array swap", () => {
+    expect(MAP_CLIENT).toContain("adoptBoard(nodePayload, initialNodes, initialEdges)");
+    // …and the payload-derived memos (filter chips, sub-task counts, the collapse tree) read the
+    // board rows adoptBoard installed, not the SSR prop a claimed refresh never updates.
+    expect(MAP_CLIENT).toContain("setBoardPayload(payload);");
+    expect(MAP_CLIENT).toContain("const childCountById = useMemo(() => childCounts(boardPayload), [boardPayload]);");
+    expect(MAP_CLIENT).not.toContain("useEffect(() => setNodes(initialNodes), [initialNodes])");
+    expect(MAP_CLIENT).not.toContain("useEffect(() => setEdges(initialEdges), [initialEdges])");
+    expect(MAP_CLIENT).toContain("setEdges((prev) => reconcileById(prev, incomingEdges))");
+  });
+
+  it("feeds the reconcile the in-flight writes and the text being edited", () => {
+    const guards = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const reconcileGuards = useCallback")).slice(0, 900);
+    expect(guards).toContain('hold(editingRef.current.plain, "plain")');
+    expect(guards).toContain('hold(editingRef.current.title, "title")');
+    expect(guards).toContain("pending: new Set(pendingCreate.current.keys())");
+    expect(guards).toContain("holdPositions: new Set(heldPositions.current)");
+    // Both halves of the claim are actually maintained at the write sites.
+    expect(MAP_CLIENT).toContain("for (const k of keys) held.add(k);");
+    expect(MAP_CLIENT).toContain("for (const { id } of batch) heldPositions.current.add(id);");
+    expect(MAP_CLIENT).toContain("for (const { id } of batch) heldPositions.current.delete(id);");
+  });
+
+  it("keeps card identity through the grouped relayout too", () => {
+    const relayout = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const relayout = useCallback")).slice(0, 1600);
+    expect(relayout).toContain("p && (p.x !== n.position.x || p.y !== n.position.y) ? { ...n, position: p } : n");
+  });
+});
+
+describe("undo — recorded where the pre-state lives, and only where it inverts", () => {
+  it("is created once, and stands down on frozen boards / while the focus editor has the keys", () => {
+    expect(MAP_CLIENT).toContain("const undo = useUndo(!readOnly && !embedded && !focusEdit);");
+    expect(MAP_CLIENT.match(/useUndo\(/g)?.length).toBe(1); // exactly one stack for the board
+  });
+
+  // ONE push covers every field writer (inline card edit, detail panel, columns board).
+  it("records field edits inside the single writer, next to the snapshot", () => {
+    const write = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const writeFields = useCallback")).slice(0, 2600);
+    expect(write).toContain("if (prev && !(\"source\" in fields)) {");
+    expect(write).toContain("coalesceKey: `field:${id}:${sorted.join(\",\")}`");
+    expect(write).toContain("undo: () => saveFieldsRef.current(id, prev)");
+    // …and nowhere else: no per-call-site push in saveFields / patch / changeField.
+    const save = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const saveFields = useCallback")).slice(0, 400);
+    expect(save).not.toContain("pushUndo");
+  });
+
+  it("re-creates a card with the SAME id on redo", () => {
+    expect(MAP_CLIENT).toContain("redo: () => insertNode({ id, x, y, kind, init }).then(() => undefined)");
+    expect(MAP_CLIENT).toContain("redo: () => insertChild(parent, x, y, id).then(() => undefined)");
+    // createChildOf used to let the server mint the id — it must now send a client one.
+    const child = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const insertChild = useCallback")).slice(0, 700);
+    expect(child).toContain("body: JSON.stringify({\n          id,");
+  });
+
+  // Node.parentId cascades to descendants, edges, files, bug flags and tags; POST /api/nodes can
+  // restore none of them, so a delete records NOTHING rather than a lie.
+  it("pushes nothing for a delete, on either path", () => {
+    const remove = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const removeNode = useCallback")).slice(0, 900);
+    expect(remove).not.toContain("pushUndo");
+    const del = MAP_CLIENT.slice(MAP_CLIENT.indexOf("onNodesDelete={(removed)")).slice(0, 900);
+    expect(del).not.toContain("pushUndo");
+  });
+
+  it("drops the whole cascade locally instead of leaving orphaned sub-tasks on the board", () => {
+    expect(MAP_CLIENT).toContain("const cascadeIds = useCallback");
+    expect(MAP_CLIENT).toContain("const gone = cascadeIds([id]);");
+    expect(MAP_CLIENT).toContain("const gone = cascadeIds(roots);");
+    expect(MAP_CLIENT).toContain("setNodes((nds) => nds.filter((n) => !gone.has(n.id)));");
+    expect(MAP_CLIENT).not.toContain("setNodes((nds) => nds.filter((n) => n.id !== id));\n    setSelectedId");
+  });
+
+  // An edge IS invertible — but only once buildEdges stops dropping the kind, or a restored
+  // RELATES/REPLACES link silently comes back as the POST's DEPENDS default.
+  it("carries the edge kind on the React Flow object so a restore keeps it", () => {
+    expect(MAP_CLIENT).toContain("data: { kind: e.kind },");
+    expect(MAP_CLIENT).toContain('data: { kind: "DEPENDS" },');
+    expect(MAP_CLIENT).toContain('kind: (e.data as { kind?: string } | undefined)?.kind ?? "DEPENDS"');
+  });
+
+  it('never writes back the build-time "depends on" default as a stored label', () => {
+    expect(MAP_CLIENT).toContain(
+      'label: e.label === "depends on" ? null : ((e.label as string | undefined) ?? null)',
+    );
+  });
+
+  it("re-targets the edge entry when a restore mints a new id, and clears a stale selection", () => {
+    expect(MAP_CLIENT.match(/let live = e\.id;/g)?.length).toBe(2); // onConnect + onEdgesDelete
+    expect(MAP_CLIENT).toContain("if (id) live = id;");
+    expect(MAP_CLIENT).toContain("setSelectedEdgeId((s) => (s === e.id ? null : s));");
+    expect(MAP_CLIENT).toContain("setSelectedEdgeId((s) => (s === id ? null : s));");
+  });
+
+  it("gives a drag its own step and leaves a derived Arrange out of the stack", () => {
+    const apply = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const applyPositions = useCallback")).slice(0, 2600);
+    expect(apply).toContain('label: batch.length === 1 ? "Move card" : `Move ${batch.length} cards`');
+    expect(apply).not.toContain("coalesceKey");
+    expect(MAP_CLIENT).toContain("void applyPositions(moved, dragStartPos.current);");
+    // A grouped board's positions are DERIVED — restoring them without the grouping would leave
+    // the cards outside their lane boxes until the next resync re-derived them.
+    expect(MAP_CLIENT).toContain("void applyPositions(batch, before, false);");
+  });
+});
+
+describe("URL filters + saved views", () => {
+  it("builds one filter state and syncs it only where the URL is the board's own", () => {
+    expect(MAP_CLIENT).toContain(
+      "() => ({ ...roadmapFilters, layerEmphasis, arrangedBy, hideEmpty: hideEmptyLanes })",
+    );
+    expect(MAP_CLIENT).toContain(
+      "useUrlFilters(filterState, applyFilterSeed, { enabled: !embedded && !readOnly });",
+    );
+    // Seeding happens through the hook's apply callback — never a useState initializer, which
+    // would render a filtered client tree against the unfiltered server one.
+    expect(MAP_CLIENT).not.toContain("useState(() => readUrlFilters");
+    expect(MAP_CLIENT).not.toContain("useState(readUrlFilters");
+  });
+
+  it("does not let a URL without `by` wipe the server-provided arrange", () => {
+    const seed = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const applyFilterSeed = useCallback")).slice(0, 1600);
+    expect(seed).toContain("if (seed.arrangedBy) {");
+    expect(seed).toContain("arrangedByRef.current = seed.arrangedBy;");
+    expect(seed).not.toContain("setArrangedBy(seed.arrangedBy);\n    setHideEmpty");
+  });
+
+  it("mounts the saved-views menu in the icon rail with array-shaped state", () => {
+    expect(MAP_CLIENT).toContain("<SavedViewsMenu");
+    expect(MAP_CLIENT).toContain("board={savedViewBoard}");
+    expect(MAP_CLIENT).toContain("current={currentSavedView}");
+    expect(MAP_CLIENT).toContain("onApply={applySavedView}");
+    expect(MAP_CLIENT).toContain("activeViewId={activeViewId}");
+    // Sets↔arrays at the boundary.
+    expect(MAP_CLIENT).toContain("status: [...statusFilter],");
+    expect(MAP_CLIENT).toContain("collapsed: [...collapsedLanes],");
+    // …and it sits next to Filters, not somewhere else on the canvas.
+    const rail = MAP_CLIENT.slice(MAP_CLIENT.indexOf('title="Filters"'));
+    expect(rail.indexOf("<SavedViewsMenu")).toBeLessThan(rail.indexOf("Show panel"));
+  });
+
+  it("restores filters, arrange, hide-empty and folded lanes on apply", () => {
+    const apply = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const applySavedView = useCallback")).slice(0, 1600);
+    for (const line of [
+      "setStatusFilter(new Set(s.filters.status));",
+      "setLayerEmphasis(s.layerEmphasis);",
+      "setHideEmptyLanes(s.hideEmpty);",
+      "setCollapsedLanes(new Set(s.collapsed));",
+    ])
+      expect(apply).toContain(line);
+    // The grouping goes through the two paths that already own it, so the cards really move.
+    expect(apply).toContain("if (s.arrangedBy) arrange(s.arrangedBy);");
+    expect(apply).toContain("else if (view === \"ROADMAP\") ungroup();");
+  });
+
+  it("applies a default view on mount, but an explicit URL filter wins", () => {
+    const def = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const defaultViewDone = useRef(false)")).slice(0, 1200);
+    expect(def).toContain("if (serializeFilters(readUrlFilters()).toString()) return;");
+    expect(def).toContain("const def = views.find((v) => v.isDefault);");
+    expect(def.indexOf("serializeFilters(readUrlFilters())")).toBeLessThan(
+      def.indexOf("/api/saved-views?board="),
+    );
   });
 });
 
