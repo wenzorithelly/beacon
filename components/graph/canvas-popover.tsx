@@ -87,19 +87,27 @@ export function CanvasPopover({
         }, 1500);
       }
     };
+    // Escape closes the popover and NOTHING ELSE. This is the innermost surface on the canvas, so
+    // it runs in the CAPTURE phase (before every bubble-phase window listener) and CLAIMS the key
+    // with preventDefault; the board keybindings stand down on `defaultPrevented`, so pressing
+    // Escape with the Filters popover open no longer also clears the selection and the isolate
+    // lens. `defaultPrevented` is checked first for the same reason, in case something nearer
+    // still (a dialog) already took it.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeRef.current(); // Escape always closes immediately
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      closeRef.current();
     };
     // Capture phase: React Flow's d3-zoom calls stopImmediatePropagation() on the board's
     // mousedown during bubbling, so a bubble-phase window listener never sees clicks on the
     // canvas — the popover wouldn't dismiss when you click the board. Capture fires before
     // React Flow can stop the event.
     window.addEventListener("mousedown", onDown, true);
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
     return () => {
       clearTimer();
       window.removeEventListener("mousedown", onDown, true);
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
     };
   }, [open, outsideClicksToClose]);
   return (

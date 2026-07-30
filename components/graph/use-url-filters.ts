@@ -23,7 +23,13 @@ export function readUrlFilters(): BoardFilterState {
 
 export interface UrlFilterOptions {
   /** False = do nothing at all (embedded /plan boards, shared snapshots, archived history —
-   *  anywhere the URL isn't the board's own). Default true. */
+   *  anywhere the URL isn't the board's own). Default true.
+   *
+   *  The /map shell keeps hidden tabs MOUNTED, so this is also how a parked board stops writing:
+   *  the query string is ONE slot describing the tab `?view=` names, and three boards sharing it
+   *  is what silently dropped one board's filters when another wrote its own. It is a dependency
+   *  of the write effect on purpose — flipping back to true re-writes the URL from the board that
+   *  is on screen again, so the link never describes a board you are not looking at. */
   enabled?: boolean;
   /** Wait this long after the last change before touching the URL, so chip-toggling doesn't
    *  thrash history. Default 250ms. */

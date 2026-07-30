@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
 } from "react";
 import { createId } from "@paralleldrive/cuid2";
 import {
@@ -34,13 +35,16 @@ import {
   Bug as BugIcon,
   Compass,
   EyeOff,
+  Focus,
   GitBranch,
   HelpCircle,
   LayoutGrid,
   PanelRight,
   Plus,
+  Redo2,
   SlidersHorizontal,
   Target,
+  Undo2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { BOARDS_CHANGED_EVENT, type BoardsChangedDetail } from "@/components/live-refresh";
@@ -394,6 +398,56 @@ export function laneFieldWrite(
   return (ROADMAP_STATUSES as readonly string[]).includes(key) ? { status: key } : null;
 }
 
+/**
+ * Would writing `fields` actually LAND this card in lane `key`? Re-keys the card as the write
+ * would leave it and asks the layout the same question it asks when it places the card.
+ *
+ * `laneFieldWrite` refuses a lane KEY Beacon doesn't own; this refuses a CARD the write can't
+ * move. A Linear issue's status lane is keyed by its workflow state ("In Review · ENG"), never by
+ * Node.status — so `status: DONE` re-keys to nothing, the card snaps back, and the roadmap, the
+ * work order and the next Linear reconcile are all told something Linear never agreed to. A
+ * dimension the write really owns (priority, theme — on a Linear card too) re-keys and passes.
+ * Pure — see tests/map-client-integration.test.ts.
+ */
+export function landsInLane(
+  by: RoadmapGroupBy,
+  lane: LaneKeyed,
+  fields: Record<string, unknown>,
+  key: string,
+): boolean {
+  return roadmapLaneKey(by, { ...lane, ...fields } as LaneKeyed) === key;
+}
+
+/**
+ * Is this board instance the one the user can actually SEE?
+ *
+ * <MapTabsShell/> lazy-mounts a tab and then KEEPS IT MOUNTED under `display:none`, so after two
+ * clicks there are three live MapClients — each of which used to register its own window keydown
+ * listeners, its own undo stack, its own URL writer and its own refetch. Pressing `s` advanced the
+ * status of two cards (one of them invisible), ⌘Z reverted an edit on a board you weren't looking
+ * at, and one agent edit fired three fetches of the same JSON.
+ *
+ * The question is asked of the DOM rather than of a shell context on purpose: `display:none`
+ * removes the element's box, so a board with no client rects is parked. Outside the shell — /plan,
+ * an archived snapshot, a shared /s board, the standalone Files board — the root always has a box,
+ * so this is true and every listener behaves exactly as it did before. Being merely scrolled
+ * off-screen is NOT hidden, which is why the rects (not the observer's own ratio) are the answer;
+ * the observer is only here to fire on the frame the shell flips a tab.
+ */
+function useVisibleBoard(ref: RefObject<HTMLElement | null>): boolean {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const read = () => setVisible(el.getClientRects().length > 0);
+    read();
+    const io = new IntersectionObserver(read);
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ref]);
+  return visible;
+}
+
 export interface MapClientHandle {
   /** Toggle the side panel. First open lands on Details; second click closes. */
   open: () => void;
@@ -503,6 +557,16 @@ export function MapClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workOrderKey]);
   const workOnNextId = workOrder[0] ?? null;
+
+  // ── THE gate: only the visible board owns anything global ─────────────────────────────────────
+  // One boolean, applied in four places (the undo stack, the board keys, the URL sync and the
+  // live-refresh listener) — see useVisibleBoard for why hidden-but-mounted boards exist at all.
+  // What stays PER-BOARD: the undo stack (each board inverts its own edits — ⌘Z on the roadmap
+  // must not revert something you did on the architecture map) and the filter state (React state,
+  // preserved across a tab switch). What is SHARED: the query string, which is the page's, not a
+  // board's — so it is written by the ACTIVE board only and always describes the tab `?view=` names.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const activeBoard = useVisibleBoard(rootRef);
 
   const initialNodes = useMemo(() => buildNodes(nodePayload), [nodePayload]);
   const initialEdges = useMemo(
@@ -663,9 +727,10 @@ export function MapClient({
   const openFocus = useCallback((p: FocusEditPayload) => setFocusEdit(p), []);
 
   // Board undo/redo (⌘Z / ⌘⇧Z). Created ONCE; every mutation site records its own inverse. Off on
-  // read-only + embedded boards (nothing there is the user's to undo) and while the focus editor
-  // owns the keyboard.
-  const undo = useUndo(!readOnly && !embedded && !focusEdit);
+  // read-only + embedded boards (nothing there is the user's to undo), while the focus editor owns
+  // the keyboard, and on a board parked behind another tab — three mounted boards each held a
+  // private stack and each bound ⌘Z, so one press reverted an edit on every one of them.
+  const undo = useUndo(!readOnly && !embedded && !focusEdit && activeBoard);
   // `push` is stable across stack changes (see use-undo), so mutation callbacks can depend on it.
   const pushUndo = undo.push;
 
@@ -676,14 +741,23 @@ export function MapClient({
   const heldFields = useRef(new Map<string, Set<string>>());
   // Node ids whose position write is in flight — the server still reports the OLD x/y.
   const heldPositions = useRef(new Set<string>());
+  // The detail panel's INLINE description editor (detail-sidebar), registered while it is open.
+  // It keeps its text in local state and re-seeds from `node.plain`, so it needs the same hold the
+  // focus modal gets — without it, an agent write landing mid-paragraph re-seeded the editor and
+  // the unsaved text was gone.
+  const [descEditingId, setDescEditingId] = useState<string | null>(null);
   // Mirrored so `reconcileGuards` can stay a stable callback.
   const editingRef = useRef<{ plain: string | null; title: string | null }>({
     plain: null,
     title: null,
   });
   useEffect(() => {
-    editingRef.current = { plain: focusEdit?.id ?? null, title: editingTitleId };
-  }, [focusEdit, editingTitleId]);
+    // `title` covers the ONE window in which a title can be clobbered: a just-created card, whose
+    // server row still says "New node" while its autofocused input is being typed into. An
+    // existing card's title input never re-seeds from `data.title` (node-card seeds it once at
+    // mount), so there is nothing for a resync to overwrite there.
+    editingRef.current = { plain: focusEdit?.id ?? descEditingId, title: editingTitleId };
+  }, [focusEdit, descEditingId, editingTitleId]);
 
   // What a reconcile must leave alone, sampled at the moment it runs.
   const reconcileGuards = useCallback((): ReconcileGuards => {
@@ -996,12 +1070,17 @@ export function MapClient({
       init: { cluster?: string | null; layer?: string | null; status?: string; priority?: number } = {},
     ) => {
       const id = createId();
-      if (!(await insertNode({ id, x, y, kind, init }))) return;
+      // Recorded BEFORE the POST is awaited. Every field write pushes SYNCHRONOUSLY (writeFields),
+      // so waiting for the create put the "Add card" entry ON TOP of a title typed while the
+      // create was still in flight — widest on the session's first create, while Next is compiling
+      // /api/nodes — and ⌘Z deleted the whole card instead of reverting the title. If the create
+      // fails the entry is inert: its undo deletes a card the rollback already removed.
       pushUndo({
         label: kind === "BUG" ? "Add bug" : "Add card",
         undo: () => removeNode(id),
         redo: () => insertNode({ id, x, y, kind, init }).then(() => undefined),
       });
+      await insertNode({ id, x, y, kind, init });
     },
     [insertNode, pushUndo, removeNode],
   );
@@ -1278,31 +1357,56 @@ export function MapClient({
   // Database boards, which have no listener and still depend on the full refresh. Letting a code
   // bump fall through costs one RSC render on a rare event and keeps every board correct — the
   // opposite trade of the roadmap edits the agent makes constantly.
+  //
+  // ORDERING: two bumps a second apart start two fetches, and the last RESPONSE to arrive used to
+  // win — a v10 body landing after v11's put the stale board back for good (LiveRefresh's lastV is
+  // already 11, so no later frame corrects it). Each request takes a generation and only the
+  // newest one is allowed to adopt.
+  const fetchGen = useRef(0);
+  // A change that arrived while this board was parked behind another tab. Serving it then would be
+  // a third concurrent fetch of JSON nobody can see; dropping it would leave the board stale
+  // forever, since the visible board already claimed the event and suppressed the page refresh.
+  const missedChange = useRef(false);
+  const refetchBoard = useCallback(async () => {
+    const gen = ++fetchGen.current;
+    try {
+      const res = await fetch(`/api/board/roadmap?view=${view}`);
+      if (!res.ok) throw new Error(`board read failed (${res.status})`);
+      const board = (await res.json()) as { nodes: MapNodePayload[]; edges: MapEdgePayload[] };
+      if (gen !== fetchGen.current) return; // a newer refetch already landed — this body is stale
+      adoptBoard(
+        board.nodes,
+        buildNodes(board.nodes),
+        buildEdges(board.nodes, board.edges, tableIdsRef.current),
+      );
+    } catch {
+      // We already suppressed the refresh, so honour the claim: fall back to it.
+      if (gen === fetchGen.current) router.refresh();
+    }
+  }, [view, adoptBoard, router]);
+
   useEffect(() => {
     if (embedded || readOnly) return; // /plan + archived snapshots render a frozen payload
     const onBoards = (e: Event) => {
       const { boards } = (e as CustomEvent<BoardsChangedDetail>).detail;
       if (!boards.length || !boards.every((b) => b === "roadmap")) return;
       e.preventDefault();
-      void (async () => {
-        try {
-          const res = await fetch(`/api/board/roadmap?view=${view}`);
-          if (!res.ok) throw new Error(`board read failed (${res.status})`);
-          const board = (await res.json()) as { nodes: MapNodePayload[]; edges: MapEdgePayload[] };
-          adoptBoard(
-            board.nodes,
-            buildNodes(board.nodes),
-            buildEdges(board.nodes, board.edges, tableIdsRef.current),
-          );
-        } catch {
-          // We already suppressed the refresh, so honour the claim: fall back to it.
-          router.refresh();
-        }
-      })();
+      if (!activeBoard) {
+        missedChange.current = true;
+        return;
+      }
+      void refetchBoard();
     };
     window.addEventListener(BOARDS_CHANGED_EVENT, onBoards);
     return () => window.removeEventListener(BOARDS_CHANGED_EVENT, onBoards);
-  }, [embedded, readOnly, view, adoptBoard, router]);
+  }, [embedded, readOnly, activeBoard, refetchBoard]);
+
+  // …and catch up the moment this tab is shown again.
+  useEffect(() => {
+    if (!activeBoard || !missedChange.current) return;
+    missedChange.current = false;
+    void refetchBoard();
+  }, [activeBoard, refetchBoard]);
 
   const [searchQuery, setSearchQuery] = useState("");
   // Semantic-zoom level, lifted out of the React Flow context by <LodReporter/> — drives
@@ -1445,7 +1549,14 @@ export function MapClient({
       setArrangedBy(seed.arrangedBy);
     }
   }, []);
-  useUrlFilters(filterState, applyFilterSeed, { enabled: !embedded && !readOnly });
+  // The query string is the PAGE's, not a board's: only the visible board reads or writes it, so
+  // it always describes the tab `?view=` names. Three boards writing one slot is what silently
+  // dropped the architecture filter when you switched to the roadmap and touched Group-by. The
+  // Columns board opts out entirely — it renders neither the filters nor the lanes these params
+  // encode, so its stale copy of `by=` had no business being written back over the roadmap's.
+  useUrlFilters(filterState, applyFilterSeed, {
+    enabled: !embedded && !readOnly && !columns && activeBoard,
+  });
 
   // Collapse a feature to fold its sub-tasks behind it (parent stays, subtree hides). A view lens
   // like the filters — but it STICKS: persisted SERVER-SIDE (board-layout-state, per workspace+view)
@@ -1769,6 +1880,13 @@ export function MapClient({
   // Lane lenses only make sense where the boxes ARE lanes: the architecture board's regions are
   // bounding boxes around cards this component doesn't fold away, so it gets no collapse control.
   const laneMode = view === "ROADMAP" && !!arrangedBy;
+  // How many lanes "Hide empty" would actually fold away. A toggle that does nothing visible when
+  // every lane has cards is indistinguishable from a broken one, so the pill carries the number
+  // and goes disabled at zero instead of silently no-oping.
+  const emptyLaneCount = useMemo(
+    () => (laneMode ? regions.filter((r) => r.count === 0).length : 0),
+    [laneMode, regions],
+  );
 
   // The lane boxes a card can be DROPPED into, in the exact geometry the user sees (regions are
   // the padded rects GroupRegions draws). A folded lane is not a target — the card would vanish
@@ -1784,6 +1902,15 @@ export function MapClient({
   );
   // The lane currently under the pointer during a drag — drawn as a highlight ring.
   const [dropLane, setDropLane] = useState<string | null>(null);
+  // A drop the board REFUSED (see landsInLane), shown in the bottom dock: the card snapping back
+  // with nothing said reads as "the drag didn't register", which is how a write that can never
+  // move the card got mistaken for one that did.
+  const [laneNotice, setLaneNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!laneNotice) return;
+    const t = setTimeout(() => setLaneNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [laneNotice]);
 
   const displayEdges = useMemo(() => {
     // Tour spotlight: while a step frames a domain, only edges within it stay bright.
@@ -2614,9 +2741,12 @@ export function MapClient({
   }, [nodes, searchQuery, passes, searchActive]);
 
   // ── Keyboard + command palette ────────────────────────────────────────────────────────────────
-  // Only on the live standalone roadmap: /plan and archived snapshots must not grab ⌘K or mutate
-  // cards from a stray keystroke, and the palette's board commands (Group by …) are roadmap-only.
-  const boardKeysMounted = !embedded && !readOnly && view === "ROADMAP";
+  // Only on the live standalone roadmap CANVAS, and only while it is the board on screen: /plan and
+  // archived snapshots must not grab ⌘K or mutate cards from a stray keystroke, the palette's board
+  // commands (Group by …) are roadmap-only, and the Columns board — same `view`, same component,
+  // its own selection — used to bind the very same keys, so one `s` advanced the status of two
+  // different cards, one of them on a tab you couldn't see.
+  const boardKeysMounted = !embedded && !readOnly && !columns && view === "ROADMAP" && activeBoard;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
 
@@ -2670,8 +2800,11 @@ export function MapClient({
 
   useBoardKeys({
     // Anything that owns the keyboard stands the board keys down: the palette, the focus editor,
-    // and the two armed placement modes (whose own Esc handler would otherwise double-fire).
-    enabled: boardKeysMounted && !paletteOpen && !focusEdit && !placing && !pickingParent,
+    // the guided tour (its own ←/→/Esc handler would otherwise double-fire on Escape) and the two
+    // armed placement modes (same reason). Popovers claim Escape through `defaultPrevented`
+    // instead — see matchBoardKey — because they open and close far too often to re-render on.
+    enabled:
+      boardKeysMounted && !paletteOpen && !focusEdit && !placing && !pickingParent && !tour.active,
     orderedIds,
     selectedId,
     onSelect: useCallback(
@@ -2801,7 +2934,7 @@ export function MapClient({
   // top band next to the floating nav, exactly where the canvas puts its own.
   if (columns) {
     return (
-      <div className="canvas-dots relative h-screen w-full">
+      <div ref={rootRef} className="canvas-dots relative h-screen w-full">
         <div className="glass absolute right-3 top-3 z-30 rounded-full px-1 py-0.5">
           <CanvasTabs active="COLUMNS" tabs={BOARD_TABS} />
         </div>
@@ -2823,6 +2956,7 @@ export function MapClient({
   return (
     <NodeEditContext.Provider value={editApi}>
     <div
+      ref={rootRef}
       className={cn(
         "canvas-dots relative w-full",
         embedded ? "h-full" : "h-screen",
@@ -2955,6 +3089,7 @@ export function MapClient({
         }}
         onNodeDragStart={(_, __, dragged) => {
           dragStartPos.current = new Map(dragged.map((n) => [n.id, n.position]));
+          setLaneNotice(null); // a new attempt supersedes the last refusal
         }}
         onNodeDrag={(e) => {
           // Light up the lane the pointer is over so the drop target is visible before release.
@@ -3008,6 +3143,17 @@ export function MapClient({
             // promise the layout can't keep — the card would snap straight back.
             if (!n || n.data.parentId) continue;
             if (roadmapLaneKey(arrangedBy, laneInput(n.data)) === key) continue; // already there
+            // Would this write actually LAND the card in that lane? For a Linear issue under
+            // group-by-status the answer is no: its lane is keyed by the workflow STATE, so
+            // `status: DONE` moves nothing — the card snaps back looking like the drag was
+            // ignored, while the board, the work order and the next Linear reconcile all start
+            // believing a status Linear never agreed to. Refuse it, and say so.
+            if (!landsInLane(arrangedBy, laneInput(n.data), fields, key)) {
+              setLaneNotice(
+                `“${n.data.title}” is synced from Linear — move it in Linear, or group by theme or priority.`,
+              );
+              continue;
+            }
             void saveFields(n.id, fields); // awaited + rolled back + undoable, like every write
           }
         }}
@@ -3234,9 +3380,16 @@ export function MapClient({
               {" "}{view === "ARCHITECTURE" ? "sub-component" : "sub-task"} · Esc to cancel
             </div>
           )}
+          {/* A refused lane drop (a Linear card's status lane isn't ours to write). */}
+          {laneNotice && (
+            <div className="glass max-w-md rounded-full px-3 py-1 text-center text-[11px] text-amber-200/90">
+              {laneNotice}
+            </div>
+          )}
           {/* Isolate hides most of the board, so it must say so — an unexplained near-empty
-              canvas reads as data loss. */}
-          {isolateId && (
+              canvas reads as data loss. And it must be reachable with a mouse: the `\` key was
+              the ONLY way to turn it on, so a pointer user could never get here at all. */}
+          {isolateId ? (
             <button
               type="button"
               onClick={() => setIsolateId(null)}
@@ -3245,6 +3398,19 @@ export function MapClient({
               Showing dependencies only ·{" "}
               <span className="font-mono text-foreground">\</span> or Esc to show all
             </button>
+          ) : (
+            selectedId && (
+              <button
+                type="button"
+                onClick={toggleIsolate}
+                title="Hide everything except this card and what it links to"
+                className="glass flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Focus className="size-3" />
+                Isolate dependencies ·{" "}
+                <span className="font-mono text-foreground">\</span>
+              </button>
+            )
           )}
           {view === "ARCHITECTURE" && (
             <div className="glass flex items-center rounded-full p-0.5">
@@ -3305,23 +3471,61 @@ export function MapClient({
                   <button
                     type="button"
                     aria-pressed={hideEmptyLanes}
+                    disabled={emptyLaneCount === 0 && !hideEmptyLanes}
                     onClick={() => setHideEmptyLanes((v) => !v)}
-                    title="Hide lanes with no cards"
+                    title={
+                      emptyLaneCount === 0
+                        ? "Every lane has cards — nothing to hide"
+                        : `Hide ${emptyLaneCount} lane${emptyLaneCount === 1 ? "" : "s"} with no cards`
+                    }
                     className={cn(
                       "flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium transition-colors",
                       hideEmptyLanes
                         ? "bg-[var(--ink-active)] text-foreground"
                         : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
+                      "disabled:pointer-events-none disabled:opacity-40",
                     )}
                   >
                     <EyeOff className="size-3" />
                     Hide empty
+                    {/* The count IS the feedback: at 0 the toggle is inert and says so. */}
+                    {emptyLaneCount > 0 && (
+                      <span className="font-mono text-[10px] opacity-70">{emptyLaneCount}</span>
+                    )}
                   </button>
                 </>
               )}
             </div>
           )}
           <div className="glass flex items-center gap-1 rounded-full p-1">
+            {/* Undo/redo had NO pointer affordance at all — ⌘Z was the entire interface, and it
+                wasn't even in the shortcut sheet. The label is the pending action's own. */}
+            {!readOnly && (
+              <>
+                <button
+                  type="button"
+                  onClick={undo.undo}
+                  disabled={!undo.canUndo}
+                  title={undo.undoLabel ? `Undo: ${undo.undoLabel} (⌘Z)` : "Nothing to undo"}
+                  className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+                >
+                  <Undo2 className="size-3.5" />
+                  <span className="hidden max-w-32 truncate lg:inline">
+                    {undo.undoLabel ?? "Undo"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={undo.redo}
+                  disabled={!undo.canRedo}
+                  title={undo.redoLabel ? `Redo: ${undo.redoLabel} (⌘⇧Z)` : "Nothing to redo"}
+                  className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+                >
+                  <Redo2 className="size-3.5" />
+                </button>
+                <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
+              </>
+            )}
             <button
               onPointerDown={(e) => beginCreateDrag(e, "FEATURE")}
               title={
@@ -3599,6 +3803,9 @@ export function MapClient({
           activeTab={panelTab}
           onTabChange={setPanelTab}
           onAddComment={effectiveAddComment}
+          // Its inline description editor is a second `plain` editor with the same re-seed
+          // problem the focus modal has — so it claims the same reconcile hold.
+          onEditingDescription={setDescEditingId}
           topOffset={embedded ? 64 : undefined}
         />
       )}

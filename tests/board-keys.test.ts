@@ -1,10 +1,16 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   isTypingTarget,
   matchBoardKey,
   stepSelection,
   BOARD_KEY_HELP,
 } from "@/components/graph/use-board-keys";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const src = (p: string) => readFileSync(resolve(ROOT, p), "utf8");
 
 // The board keybindings are a pure predicate (event-ish → action) plus a pure selection
 // walker, so the whole key contract is testable without a DOM. The hook itself is a thin
@@ -69,9 +75,39 @@ describe("matchBoardKey", () => {
     expect(matchBoardKey({ key: "k", metaKey: true, target: el("DIV", true) })).toBeNull();
   });
 
-  it("documents every key it claims", () => {
+  it("documents every key it claims — and the undo pair the board also answers", () => {
     const claimed = BOARD_KEY_HELP.map((h) => h.keys).join(" ");
-    for (const k of ["j", "k", "s", "p", "c", "l", "\\", "?", "Esc"]) expect(claimed).toContain(k);
+    for (const k of ["j", "k", "s", "p", "c", "l", "\\", "?", "Esc", "⌘Z", "⌘⇧Z"])
+      expect(claimed).toContain(k);
+  });
+
+  // These bindings are the OUTERMOST keyboard layer. One Escape used to close the Filters popover
+  // AND clear the selection AND drop the isolate lens, because both listeners sit on `window` and
+  // neither knew about the other.
+  it("yields every key an inner surface has already claimed", () => {
+    expect(matchBoardKey({ key: "Escape", defaultPrevented: true })).toBeNull();
+    expect(matchBoardKey({ key: "j", defaultPrevented: true })).toBeNull();
+    expect(matchBoardKey({ key: "k", metaKey: true, defaultPrevented: true })).toBeNull();
+    expect(matchBoardKey({ key: "Escape" })).toBe("clear"); // …and still acts when nobody did
+  });
+});
+
+// The other half of that contract: the innermost surface has to run FIRST and actually claim the
+// key, or `defaultPrevented` is never set and the outer layer fires anyway.
+describe("Escape resolves to exactly one action", () => {
+  it("lets the canvas popover claim it in the capture phase", () => {
+    const POPOVER = src("components/graph/canvas-popover.tsx");
+    expect(POPOVER).toContain('if (e.key !== "Escape" || e.defaultPrevented) return;');
+    expect(POPOVER).toContain("e.preventDefault();");
+    // Capture: window-bubble listeners (the board keys) fire after this, and see the claim.
+    expect(POPOVER).toContain('window.addEventListener("keydown", onKey, true);');
+    expect(POPOVER).toContain('window.removeEventListener("keydown", onKey, true);');
+  });
+
+  it("stands the board keys down entirely while the guided tour owns them", () => {
+    // The tour's own Escape handler is a plain bubble listener registered when it starts, so
+    // ordering can't be relied on — the board yields for the whole tour instead.
+    expect(src("components/graph/map-client.tsx")).toContain("&& !tour.active,");
   });
 });
 

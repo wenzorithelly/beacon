@@ -82,6 +82,7 @@ export function DetailSidebar({
   activeTab,
   onTabChange,
   onAddComment,
+  onEditingDescription,
   topOffset,
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
@@ -95,6 +96,11 @@ export function DetailSidebar({
   /** On /plan: leave a comment anchored to the selected node (excerpt = its title). When set, a
       comment button shows in the panel header. */
   onAddComment?: (excerpt: string) => void;
+  /** Called with a node id while THIS panel's inline description editor is open, and with null
+      when it closes. The board registers it as a reconcile hold: the editor keeps its text in
+      local state and re-seeds it from `node.plain`, so a live-refresh landing mid-paragraph
+      would otherwise re-seed the editor and wipe what the user is typing. */
+  onEditingDescription?: (id: string | null) => void;
   /** Top inset of the panel (overrides the default flush top) — used in /plan to clear
       the floating Plan pill. */
   topOffset?: number;
@@ -140,6 +146,7 @@ export function DetailSidebar({
               view={view}
               parentTitle={parentTitle}
               showBreadcrumb={tabbed}
+              onEditingDescription={onEditingDescription}
             />
           ) : (
             <Overview view={view} nodes={allNodes} />
@@ -176,11 +183,13 @@ function NodeDetail({
   view,
   parentTitle,
   showBreadcrumb,
+  onEditingDescription,
 }: {
   node: MapNodePayload;
   view: "ROADMAP" | "ARCHITECTURE";
   parentTitle: string | null;
   showBreadcrumb: boolean;
+  onEditingDescription?: (id: string | null) => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -193,6 +202,15 @@ function NodeDetail({
   const [plain, setPlain] = useState(node.plain ?? "");
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setPlain(node.plain ?? ""), [node.id, node.plain]);
+  // …and THAT re-seed is exactly why the board has to know this editor is open: while it is, the
+  // paragraph being typed is the user's, not the server's. Registering the hold suppresses the
+  // `plain` field for this node in the next reconcile, so an agent's `beacon_feature done` write
+  // landing mid-sentence can no longer re-seed the editor out from under the typing.
+  useEffect(() => {
+    if (!editingDesc || !onEditingDescription) return;
+    onEditingDescription(node.id);
+    return () => onEditingDescription(null);
+  }, [editingDesc, node.id, onEditingDescription]);
   // All mutations go through the NodeEditContext (tab-pinned /api/nodes routes with
   // optimistic update + rollback) — NEVER server actions, which pin by the browser-wide
   // beacon_ws cookie and write to the wrong workspace in a tab pinned via ?ws.

@@ -5,8 +5,9 @@ import { fileURLToPath } from "node:url";
 
 import { layoutRoadmapLanes, roadmapLaneKey, statusLaneKey } from "@/lib/roadmap-layout";
 import { computeGroupRegions } from "@/lib/group-regions";
-import { laneAt, laneFieldWrite, reconcileById } from "@/components/graph/map-client";
+import { landsInLane, laneAt, laneFieldWrite, reconcileById } from "@/components/graph/map-client";
 import { orderBoardIds } from "@/lib/board-commands";
+import { BOARD_KEY_HELP } from "@/components/graph/use-board-keys";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const src = (p: string) => readFileSync(resolve(ROOT, p), "utf8");
@@ -159,6 +160,15 @@ describe("lane regions — drawn from the layout, not from where cards drifted",
     expect(MAP_CLIENT).toContain("onToggleCollapse={laneMode ? toggleLane : undefined}");
     expect(MAP_CLIENT).toContain("hideEmpty={laneMode && hideEmptyLanes}");
     expect(MAP_CLIENT).not.toContain("wipCaps");
+  });
+
+  // "Hide empty does nothing": with no empty lane there is nothing to hide, and the toggle said so
+  // in no way at all. It now carries the count and goes inert at zero.
+  it("tells the user what hide-empty would actually fold away", () => {
+    expect(MAP_CLIENT).toContain("const emptyLaneCount = useMemo(");
+    expect(MAP_CLIENT).toContain("regions.filter((r) => r.count === 0).length");
+    expect(MAP_CLIENT).toContain("disabled={emptyLaneCount === 0 && !hideEmptyLanes}");
+    expect(MAP_CLIENT).toContain("Every lane has cards — nothing to hide");
   });
 });
 
@@ -373,6 +383,19 @@ describe("granular live refresh — the canvas claims only what it can serve", (
     expect(MAP_CLIENT).toContain("setEdges((prev) => reconcileById(prev, incomingEdges))");
   });
 
+  // BOTH description editors have to claim the hold. The detail panel's inline one keeps its text
+  // in local state and re-seeds from `node.plain`, so an agent write landing mid-paragraph used to
+  // re-seed it and wipe what was being typed — the exact bug the resync guards exist to prevent.
+  it("holds the description for the detail panel's inline editor too, not just the focus modal", () => {
+    expect(MAP_CLIENT).toContain("const [descEditingId, setDescEditingId] = useState<string | null>(null);");
+    expect(MAP_CLIENT).toContain("editingRef.current = { plain: focusEdit?.id ?? descEditingId, title: editingTitleId };");
+    expect(MAP_CLIENT).toContain("onEditingDescription={setDescEditingId}");
+    const SIDEBAR = src("components/graph/detail-sidebar.tsx");
+    expect(SIDEBAR).toContain("if (!editingDesc || !onEditingDescription) return;");
+    expect(SIDEBAR).toContain("onEditingDescription(node.id);");
+    expect(SIDEBAR).toContain("return () => onEditingDescription(null);");
+  });
+
   it("feeds the reconcile the in-flight writes and the text being edited", () => {
     const guards = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const reconcileGuards = useCallback")).slice(0, 900);
     expect(guards).toContain('hold(editingRef.current.plain, "plain")');
@@ -389,12 +412,88 @@ describe("granular live refresh — the canvas claims only what it can serve", (
     const relayout = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const relayout = useCallback")).slice(0, 1600);
     expect(relayout).toContain("p && (p.x !== n.position.x || p.y !== n.position.y) ? { ...n, position: p } : n");
   });
+
+  // Two bumps a second apart start two fetches; the last RESPONSE to arrive won, so a v10 body
+  // landing after v11's put the stale board back for good (LiveRefresh's lastV is already 11, so
+  // nothing later corrects it).
+  it("lets only the newest refetch adopt", () => {
+    const refetch = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const refetchBoard = useCallback")).slice(0, 1200);
+    expect(refetch).toContain("const gen = ++fetchGen.current;");
+    expect(refetch).toContain("if (gen !== fetchGen.current) return;");
+    expect(refetch).toContain("if (gen === fetchGen.current) router.refresh();");
+    // The adopt is guarded, not the fetch: an abandoned response must change nothing.
+    expect(refetch.indexOf("if (gen !== fetchGen.current) return;")).toBeLessThan(
+      refetch.indexOf("adoptBoard("),
+    );
+  });
+});
+
+// ── The one gate ──────────────────────────────────────────────────────────────────────────────
+// <MapTabsShell/> keeps every visited tab MOUNTED under display:none, so two or three live
+// MapClients each registered their own window listeners. One boolean — "am I the board on screen?"
+// — gates all four of them.
+describe("hidden boards own nothing global", () => {
+  it("asks the DOM, so a board with no shell around it is always active", () => {
+    expect(MAP_CLIENT).toContain("function useVisibleBoard(");
+    // display:none removes the box; being scrolled off-screen does not.
+    expect(MAP_CLIENT).toContain("setVisible(el.getClientRects().length > 0)");
+    expect(MAP_CLIENT).toContain("const [visible, setVisible] = useState(true);");
+    expect(MAP_CLIENT).toContain('typeof IntersectionObserver === "undefined"');
+    // The gate is read from the DOM, never from the tab-switch context — /plan, an archived
+    // snapshot and a shared /s board have no shell to ask.
+    expect(MAP_CLIENT).not.toContain("useTabSwitch");
+    expect(MAP_CLIENT).toContain("const activeBoard = useVisibleBoard(rootRef);");
+    // …and the ref is actually attached, on BOTH roots this component can return.
+    expect(MAP_CLIENT.match(/ref=\{rootRef\}/g)?.length).toBe(2);
+  });
+
+  it("applies it to every global listener the board registers", () => {
+    for (const site of [
+      "const undo = useUndo(!readOnly && !embedded && !focusEdit && activeBoard);", // ⌘Z
+      'const boardKeysMounted = !embedded && !readOnly && !columns && view === "ROADMAP" && activeBoard;', // j k s p c l \ ?
+      "enabled: !embedded && !readOnly && !columns && activeBoard,", // the query string
+      "if (!activeBoard) {", // the live-refresh refetch
+    ])
+      expect(MAP_CLIENT).toContain(site);
+  });
+
+  // A parked board that simply ignored the event would stay stale forever: the visible board
+  // already claimed it, so the page-wide router.refresh() never runs either.
+  it("catches a parked board up the moment it is shown again", () => {
+    expect(MAP_CLIENT).toContain("missedChange.current = true;");
+    const catchUp = MAP_CLIENT.slice(MAP_CLIENT.indexOf("if (!activeBoard || !missedChange.current) return;")).slice(0, 200);
+    expect(catchUp).toContain("missedChange.current = false;");
+    expect(catchUp).toContain("void refetchBoard();");
+  });
 });
 
 describe("undo — recorded where the pre-state lives, and only where it inverts", () => {
   it("is created once, and stands down on frozen boards / while the focus editor has the keys", () => {
-    expect(MAP_CLIENT).toContain("const undo = useUndo(!readOnly && !embedded && !focusEdit);");
+    expect(MAP_CLIENT).toContain(
+      "const undo = useUndo(!readOnly && !embedded && !focusEdit && activeBoard);",
+    );
     expect(MAP_CLIENT.match(/useUndo\(/g)?.length).toBe(1); // exactly one stack for the board
+  });
+
+  // A create's POST is awaited; a field write pushes synchronously. Recording the create AFTER the
+  // await put "Add card" on top of a title typed while the create was still in flight, so ⌘Z
+  // deleted the card instead of reverting the title.
+  it("records a create BEFORE awaiting its POST, so the stack keeps user order", () => {
+    const create = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const createNodeAt = useCallback")).slice(0, 1400);
+    expect(create).toContain("await insertNode({ id, x, y, kind, init });");
+    expect(create).not.toContain("if (!(await insertNode({ id, x, y, kind, init }))) return;");
+    expect(create.indexOf("pushUndo({")).toBeLessThan(create.indexOf("await insertNode("));
+  });
+
+  // Undo was reachable ONLY by ⌘Z: no button, no toast, and not even a line in the help sheet.
+  it("has a pointer affordance carrying the pending action's label", () => {
+    expect(MAP_CLIENT).toContain("onClick={undo.undo}");
+    expect(MAP_CLIENT).toContain("onClick={undo.redo}");
+    expect(MAP_CLIENT).toContain("disabled={!undo.canUndo}");
+    expect(MAP_CLIENT).toContain("disabled={!undo.canRedo}");
+    expect(MAP_CLIENT).toContain("{undo.undoLabel ?? \"Undo\"}");
+    expect(BOARD_KEY_HELP.map((k) => k.keys)).toContain("⌘Z");
+    expect(BOARD_KEY_HELP.map((k) => k.keys)).toContain("⌘⇧Z");
   });
 
   // ONE push covers every field writer (inline card edit, detail panel, columns board).
@@ -470,8 +569,11 @@ describe("URL filters + saved views", () => {
     expect(MAP_CLIENT).toContain(
       "() => ({ ...roadmapFilters, layerEmphasis, arrangedBy, hideEmpty: hideEmptyLanes })",
     );
+    // …which now also means: only the board on SCREEN. Three mounted boards sharing one query
+    // string is what dropped the architecture filter the moment the roadmap wrote `by=`, and the
+    // Columns board (no filters, no lanes) writes nothing at all.
     expect(MAP_CLIENT).toContain(
-      "useUrlFilters(filterState, applyFilterSeed, { enabled: !embedded && !readOnly });",
+      "enabled: !embedded && !readOnly && !columns && activeBoard,",
     );
     // Seeding happens through the hook's apply callback — never a useState initializer, which
     // would render a filtered client tree against the unfiltered server one.
@@ -582,6 +684,34 @@ describe("laneFieldWrite — the inverse of roadmapLaneKey", () => {
   });
 });
 
+// laneFieldWrite refuses a lane KEY Beacon doesn't own; this refuses a CARD the write can't move.
+describe("landsInLane — a write that cannot re-lane the card is not a write", () => {
+  const beacon = { cluster: "AUTH", status: "IN_PROGRESS", priority: 1, stateName: null, teamKey: null };
+  // Same card, synced from Linear: its status lane is keyed by the WORKFLOW STATE.
+  const linear = { ...beacon, stateName: "In Review", teamKey: "ENG" };
+
+  it("accepts a status drop on a native card", () => {
+    expect(roadmapLaneKey("status", beacon)).toBe("IN_PROGRESS");
+    expect(landsInLane("status", beacon, { status: "DONE" }, "DONE")).toBe(true);
+  });
+
+  // The reported bug: `status: DONE` is persisted, the card visibly snaps back to "In Review · ENG"
+  // (so the drag reads as ignored), and beacon_map, the work order and the Linear reconcile all
+  // start believing a status Linear never agreed to.
+  it("refuses a status drop on a Linear card — the lane key never moves", () => {
+    expect(roadmapLaneKey("status", linear)).toBe("In Review · ENG");
+    expect(laneFieldWrite("status", "DONE")).toEqual({ status: "DONE" }); // the KEY is fine…
+    expect(landsInLane("status", linear, { status: "DONE" }, "DONE")).toBe(false); // …the CARD is not
+  });
+
+  // …but the dimensions Beacon really does own still work on a Linear card.
+  it("allows priority and theme drops on a Linear card", () => {
+    expect(landsInLane("priority", linear, { priority: 0 }, "0")).toBe(true);
+    expect(landsInLane("cluster", linear, { cluster: "DATA" }, "DATA")).toBe(true);
+    expect(landsInLane("cluster", linear, { cluster: null }, "—")).toBe(true);
+  });
+});
+
 describe("lane drop — writes the field, never a coordinate", () => {
   it("hit-tests the DROP POINT against the lane rects the user can actually see", () => {
     // The rects are the drawn regions (padded, header included) minus the ones nothing can be
@@ -600,6 +730,17 @@ describe("lane drop — writes the field, never a coordinate", () => {
     expect(DRAG_STOP).toContain("if (!n || n.data.parentId) continue;");
     // The write path is saveFields ONLY — no second fetch smuggled into the drop.
     expect(DRAG_STOP).not.toContain("fetch(");
+  });
+
+  it("refuses a card the write cannot move, and says so instead of no-oping", () => {
+    expect(DRAG_STOP).toContain("if (!landsInLane(arrangedBy, laneInput(n.data), fields, key)) {");
+    expect(DRAG_STOP).toContain("setLaneNotice(");
+    expect(DRAG_STOP.indexOf("setLaneNotice(")).toBeLessThan(
+      DRAG_STOP.indexOf("void saveFields(n.id, fields);"),
+    );
+    // …and the notice is actually rendered, not just stored.
+    expect(MAP_CLIENT).toContain("{laneNotice && (");
+    expect(MAP_CLIENT).toContain("setLaneNotice(null); // a new attempt supersedes the last refusal");
   });
 
   it("shows the lane under the pointer while dragging", () => {
@@ -621,7 +762,7 @@ describe("lane drop — writes the field, never a coordinate", () => {
 describe("command palette + keybindings", () => {
   it("mounts the palette only on the live standalone roadmap, and never binds ⌘K twice", () => {
     expect(MAP_CLIENT).toContain(
-      'const boardKeysMounted = !embedded && !readOnly && view === "ROADMAP";',
+      'const boardKeysMounted = !embedded && !readOnly && !columns && view === "ROADMAP" && activeBoard;',
     );
     expect(MAP_CLIENT).toContain("<CommandPalette");
     expect(MAP_CLIENT).toContain("onOpenChange={setPaletteOpen}");
@@ -631,7 +772,7 @@ describe("command palette + keybindings", () => {
 
   it("stands the single-key shortcuts down whenever something else owns the keyboard", () => {
     expect(MAP_CLIENT).toContain(
-      "enabled: boardKeysMounted && !paletteOpen && !focusEdit && !placing && !pickingParent,",
+      "boardKeysMounted && !paletteOpen && !focusEdit && !placing && !pickingParent && !tour.active,",
     );
   });
 
@@ -762,6 +903,15 @@ describe("dependency isolate", () => {
     expect(clear).toContain("setIsolateId(null);");
     expect(MAP_CLIENT.match(/setIsolateId\(\(s\) => \(s && gone\.has\(s\) \? null : s\)\)/g)?.length).toBe(2);
     expect(MAP_CLIENT).toContain("Showing dependencies only");
+  });
+
+  // `\` was the ONLY way to turn it ON — the off-switch had a button, the on-switch didn't, so a
+  // pointer user could never reach the lens at all.
+  it("can be turned on with a mouse, from the selected card's own dock", () => {
+    expect(MAP_CLIENT).toContain("onClick={toggleIsolate}");
+    expect(MAP_CLIENT).toContain("Isolate dependencies ·");
+    const dock = MAP_CLIENT.slice(MAP_CLIENT.indexOf("{isolateId ? ("), MAP_CLIENT.indexOf("{view === \"ARCHITECTURE\" && ("));
+    expect(dock).toContain("selectedId && ("); // offered only when there is something to isolate
   });
 });
 

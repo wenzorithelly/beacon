@@ -23,7 +23,9 @@ export type BoardKeyAction =
   | "palette"
   | "clear";
 
-/** Keys → what they do, for the "?" help sheet and so tests can assert nothing is undocumented. */
+/** Keys → what they do, for the "?" help sheet and so tests can assert nothing is undocumented.
+ *  ⌘Z/⌘⇧Z belong to use-undo, not to this hook — they are listed because the help sheet is the
+ *  board's ONLY keyboard reference, and an undocumented undo may as well not exist. */
 export const BOARD_KEY_HELP: { keys: string; label: string }[] = [
   { keys: "j / k", label: "Next / previous card" },
   { keys: "s", label: "Set status" },
@@ -31,6 +33,8 @@ export const BOARD_KEY_HELP: { keys: string; label: string }[] = [
   { keys: "l", label: "Set category" },
   { keys: "c", label: "New card" },
   { keys: "\\", label: "Isolate dependencies" },
+  { keys: "⌘Z", label: "Undo" },
+  { keys: "⌘⇧Z", label: "Redo" },
   { keys: "⌘K", label: "Command palette" },
   { keys: "?", label: "This help" },
   { keys: "Esc", label: "Clear selection" },
@@ -69,10 +73,22 @@ export interface BoardKeyEvent {
   altKey?: boolean;
   shiftKey?: boolean;
   target?: EventTarget | null;
+  /** Already claimed by something layered over the board. */
+  defaultPrevented?: boolean;
 }
 
-/** Which board action (if any) a keystroke means. Null while typing or for unclaimed keys. */
+/**
+ * Which board action (if any) a keystroke means. Null while typing, for unclaimed keys, and for
+ * an event something INNER already claimed.
+ *
+ * `defaultPrevented` is the repo-wide stand-down signal (node-card's card-Escape reads it too):
+ * these bindings are the OUTERMOST keyboard layer, so anything nearer the user — a popover
+ * closing on Escape, the focus modal committing — claims the key first and this yields. Without
+ * it, one Escape closed the Filters popover AND cleared the selection AND dropped the isolate
+ * lens, because both listeners sit on `window` and neither knew about the other.
+ */
 export function matchBoardKey(e: BoardKeyEvent): BoardKeyAction | null {
+  if (e.defaultPrevented) return null;
   if (isTypingTarget(e.target ?? null)) return null;
   if (e.metaKey || e.ctrlKey) return e.key.toLowerCase() === "k" && !e.altKey ? "palette" : null;
   if (e.altKey) return null;
@@ -102,7 +118,9 @@ export function stepSelection(
 export interface BoardKeysOptions {
   /**
    * Pass false whenever something else owns the keyboard — the command palette, the focus
-   * modal, any open dialog. Defaults to true.
+   * modal, the guided tour, any open dialog — or whenever THIS board is not the one on screen
+   * (the /map shell keeps hidden tabs mounted, and a hidden board must not answer keys).
+   * Defaults to true.
    */
   enabled?: boolean;
   /**
