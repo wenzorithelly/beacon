@@ -451,10 +451,18 @@ export function landsInLane(
  * off-screen is NOT hidden, which is why the rects (not the observer's own ratio) are the answer;
  * the observer is only here to fire on the frame the shell flips a tab.
  *
- * A CALLBACK ref (React 19 returns its cleanup), not an object ref + effect: the roadmap swaps its
- * whole root element when the layout toggles (canvas ⇄ columns), and an effect keyed on the stable
- * ref object would keep observing the DETACHED node — which reports zero rects, so the board the
- * user is looking at would park itself and never come back.
+ * It must answer for the WHOLE MapClient, not for whichever half of the roadmap is painted. The
+ * root it is attached to sits ABOVE the canvas ⇄ columns switch and is always laid out, so the
+ * Columns layout — which hides the canvas subtree with `display:none` — keeps its rects and keeps
+ * ⌘Z, ⌘B, the board keys and the URL sync. Only the shell parking this board behind another
+ * dataset tab removes the box. Attach it to either half and the Columns layout would read as
+ * "gone" the moment the canvas was hidden.
+ *
+ * A CALLBACK ref (React 19 returns its cleanup), not an object ref + effect: the root used to be
+ * swapped by the layout toggle, and an effect keyed on the stable ref object would keep observing
+ * the DETACHED node. The root no longer swaps, so the two are equivalent today — the callback ref
+ * stays because it is strictly the cheaper of the two (no second pass, cleanup handled by React)
+ * and it cannot go stale if the tree above it changes again.
  */
 function useVisibleBoard(): [(el: HTMLElement | null) => void, boolean] {
   const [visible, setVisible] = useState(true);
@@ -648,6 +656,23 @@ export function MapClient({
   // how the same board came to bind ⌘Z, j/k and the query string twice.
   const [layout, setLayout] = useState<RoadmapLayout>(initialLayout);
   const columns = view === "ROADMAP" && !embedded && layout === "columns";
+  // The columns branch used to `return` early, which UNMOUNTED React Flow: flipping back remounted
+  // every card, re-measured them, re-ran the derive-on-mount lane layout and re-fit the viewport —
+  // so canvas→columns was instant and columns→canvas was not, and your pan/zoom was thrown away on
+  // arrival. The CANVAS half now stays mounted and is hidden with `display:none` instead, the same
+  // trick <MapTabsShell/> uses to keep a parked dataset tab's React Flow viewport alive.
+  //
+  // Only the canvas half. The columns half still mounts and unmounts with the layout, because it
+  // is cheap (a bucketed list — that direction was never the slow one) and because a mounted-but-
+  // hidden ColumnsView would keep its ↑/↓/Enter/Escape window listener bound over the canvas. Same
+  // reason the canvas half's own globally-bound and body-PORTALLED children (⌘K, "/" search, the
+  // share dialog, the card detail) are still gated on `!columns` below: `display:none` hides a
+  // box, it does not unbind a listener or reach into a portal.
+  //
+  // Lazily, like the shell: the canvas mounts on first use while VISIBLE, so React Flow's one-shot
+  // fitView frames a real box and never a 0×0 one, and stays mounted from then on.
+  const [canvasMounted, setCanvasMounted] = useState(!columns);
+  if (!columns && !canvasMounted) setCanvasMounted(true);
   // Remember the choice for the workspace AND for this tab's URL, so a refresh, a shared link and
   // the next `beacon` all come back to the layout you were last using.
   const changeLayout = useCallback(
@@ -3046,50 +3071,55 @@ export function MapClient({
     });
   }
 
-  // The COLUMNS LAYOUT: the same roadmap, the same mutation paths and the same grouping, bucketed
-  // instead of positioned. It carries the identical top-right chrome as the canvas — the layout
-  // toggle plus the dataset tabs, with ROADMAP still the active tab, because you have not left the
-  // roadmap.
-  if (columns) {
-    return (
-      // The provider comes along: the card detail is the SAME component both layouts open, and it
-      // writes through this context (never a prop callback of its own).
-      <NodeEditContext.Provider value={editApi}>
-      <div ref={rootRef} className="canvas-dots relative h-screen w-full">
-        {/* `board-chrome` (globals.css) carries the SAME inset React Flow's `<Panel>` gives the
-            canvas branch, including the desktop shell's 6px override — hardcoding `top-3 right-3`
-            here is what made the tabs jump when flipping layouts. */}
-        <div className="board-chrome absolute right-0 top-0 z-30 flex items-center gap-2">
-          <LayoutToggle value={layout} onChange={changeLayout} />
-          <div className="glass rounded-full px-1 py-0.5">
-            <CanvasTabs active="ROADMAP" tabs={BOARD_TABS} />
-          </div>
-        </div>
-        <ColumnsView
-          nodes={livePayload}
-          edges={edgePayload}
-          groupBy={columnsGroupBy}
-          onGroupBy={changeColumnsGroupBy}
-          readOnly={readOnly}
-          onChangeField={changeField}
-          onAddCard={addCardInColumn}
-          onEditingDescription={setDescEditingId}
-          className="pt-14"
-        />
-        <FocusEditorModal payload={focusEdit} onDismiss={() => setFocusEdit(null)} />
-      </div>
-      </NodeEditContext.Provider>
-    );
-  }
-
   return (
+    // The provider wraps BOTH layouts: the card detail is the SAME component either one opens, and
+    // it writes through this context (never a prop callback of its own).
     <NodeEditContext.Provider value={editApi}>
+    {/* THE stable root. `rootRef` lives here and nowhere else, so `useVisibleBoard` answers "is
+        this MapClient on screen at all" — a question the layout flip must not change. Hiding the
+        canvas half below leaves this element's box exactly where it was, so ⌘Z, ⌘B, the board keys
+        and the URL sync keep working in the Columns layout; only the shell parking the whole board
+        behind another dataset tab takes its box away. */}
+    <div ref={rootRef} className={cn("relative w-full", embedded ? "h-full" : "h-screen")}>
+      {/* The COLUMNS LAYOUT: the same roadmap, the same mutation paths and the same grouping,
+          bucketed instead of positioned. It carries the identical top-right chrome as the canvas —
+          the layout toggle plus the dataset tabs, with ROADMAP still the active tab, because you
+          have not left the roadmap. */}
+      {columns && (
+        <div className="canvas-dots relative h-screen w-full">
+          {/* `board-chrome` (globals.css) carries the SAME inset React Flow's `<Panel>` gives the
+              canvas branch, including the desktop shell's 6px override — hardcoding `top-3 right-3`
+              here is what made the tabs jump when flipping layouts. */}
+          <div className="board-chrome absolute right-0 top-0 z-30 flex items-center gap-2">
+            <LayoutToggle value={layout} onChange={changeLayout} />
+            <div className="glass rounded-full px-1 py-0.5">
+              <CanvasTabs active="ROADMAP" tabs={BOARD_TABS} />
+            </div>
+          </div>
+          <ColumnsView
+            nodes={livePayload}
+            edges={edgePayload}
+            groupBy={columnsGroupBy}
+            onGroupBy={changeColumnsGroupBy}
+            readOnly={readOnly}
+            onChangeField={changeField}
+            onAddCard={addCardInColumn}
+            onEditingDescription={setDescEditingId}
+            className="pt-14"
+          />
+        </div>
+      )}
+
+      {canvasMounted && (
     <div
-      ref={rootRef}
       className={cn(
         "canvas-dots relative w-full",
         embedded ? "h-full" : "h-screen",
         panning && "rf-panning",
+        // display:none, NOT an unmount. React Flow's resize handler bails on an invisible pane
+        // (`checkVisibility()`), so the store keeps its width/height, its viewport and its culled
+        // node set while parked — the board comes back exactly as you left it.
+        columns && "hidden",
       )}
     >
       <ReactFlow
@@ -3706,25 +3736,29 @@ export function MapClient({
           position="top-right"
           className={cn("!mt-14 flex items-center gap-1", embedded && "hidden")}
         >
-          <CanvasSearch
-            query={searchQuery}
-            onQuery={setSearchQuery}
-            hits={searchHitList}
-            placeholder="Find a feature…"
-            onPick={(id) => {
-              setSearchQuery("");
-              jumpTo(id);
-            }}
-            onZoomToMatches={() => {
-              if (!searchMatchIds?.size) return;
-              flowRef.current?.fitView({
-                nodes: [...searchMatchIds].map((id) => ({ id })),
-                duration: 600,
-                padding: 0.2,
-                ease: easeSpringGlide,
-              });
-            }}
-          />
+          {/* `!columns` because it binds "/" and ⌘F on the WINDOW: left mounted behind the hidden
+              canvas it would swallow both keys in the Columns layout and show nothing. */}
+          {!columns && (
+            <CanvasSearch
+              query={searchQuery}
+              onQuery={setSearchQuery}
+              hits={searchHitList}
+              placeholder="Find a feature…"
+              onPick={(id) => {
+                setSearchQuery("");
+                jumpTo(id);
+              }}
+              onZoomToMatches={() => {
+                if (!searchMatchIds?.size) return;
+                flowRef.current?.fitView({
+                  nodes: [...searchMatchIds].map((id) => ({ id })),
+                  duration: 600,
+                  padding: 0.2,
+                  ease: easeSpringGlide,
+                });
+              }}
+            />
+          )}
 
           {view === "ROADMAP" && workOnNextId && (
             <button
@@ -3737,7 +3771,9 @@ export function MapClient({
             </button>
           )}
 
-          <ShareBoardButton defaultSelection={view} />
+          {/* Unmounted in the Columns layout for the same reason as the card detail above: its
+              dialog portals to the body, so hiding the canvas half would leave it on screen. */}
+          {!columns && <ShareBoardButton defaultSelection={view} />}
 
           <CanvasPopover
             title="Filters"
@@ -3874,8 +3910,12 @@ export function MapClient({
           docked, so no chrome has to move out of its way. The EMBEDDED boards (/plan review, plan
           history, /learn, shared boards) keep the right-docked panel: each of them is one half of
           a split screen, a full-viewport modal would cover the other half, and the dock is also
-          where /plan's Comments tab and the nothing-selected Overview live. */}
+          where /plan's Comments tab and the nothing-selected Overview live.
+          `!columns` because this one PORTALS to the body — `display:none` on the canvas half
+          cannot hide it, so it would float over the Columns board (which opens the very same
+          modal itself). Unmounting it there is what the early return used to do. */}
       {panelOpen &&
+        !columns &&
         (embedded ? (
           <DetailSidebar
             view={view}
@@ -3913,8 +3953,6 @@ export function MapClient({
             onClose={() => setPanelOpen(false)}
           />
         ) : null)}
-
-      <FocusEditorModal payload={focusEdit} onDismiss={() => setFocusEdit(null)} />
 
       {/* ⌘K. It owns its own open state and its own ⌘K binding; all the board does is hand it the
           command list and stand its single-key shortcuts down while it is open. */}
@@ -3954,6 +3992,12 @@ export function MapClient({
           onGoto={tour.goto}
         />
       )}
+    </div>
+      )}
+
+      {/* Outside both halves: ONE instance, shared. Both layouts open the focus editor, and it is
+          a plain `fixed` overlay (no portal), so it belongs to the stable root. */}
+      <FocusEditorModal payload={focusEdit} onDismiss={() => setFocusEdit(null)} />
     </div>
     </NodeEditContext.Provider>
   );

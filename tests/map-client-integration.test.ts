@@ -518,14 +518,19 @@ describe("hidden boards own nothing global", () => {
     // snapshot and a shared /s board have no shell to ask.
     expect(MAP_CLIENT).not.toContain("useTabSwitch");
     expect(MAP_CLIENT).toContain("const [rootRef, activeBoard] = useVisibleBoard();");
-    // …and the ref is actually attached, on BOTH roots this component can return.
-    expect(MAP_CLIENT.match(/ref=\{rootRef\}/g)?.length).toBe(2);
+    // …and the ref is attached ONCE, to the single root that sits above the canvas ⇄ columns
+    // switch. Attached to either half instead, the Columns layout would read as "this board is
+    // gone" the moment the canvas subtree was hidden — and ⌘Z, ⌘B and the board keys would die.
+    expect(MAP_CLIENT.match(/ref=\{rootRef\}/g)?.length).toBe(1);
+    expect(MAP_CLIENT).toContain(
+      '<div ref={rootRef} className={cn("relative w-full", embedded ? "h-full" : "h-screen")}>',
+    );
   });
 
-  // A CALLBACK ref, not an object ref + effect: flipping canvas ⇄ columns swaps the root element,
-  // and an effect keyed on the stable ref object would keep observing the DETACHED node — which
-  // reports zero rects, so the board you are looking at would park itself and never come back.
-  it("re-observes when the roadmap swaps its root element", () => {
+  // Still a CALLBACK ref (React 19 returns its cleanup) rather than an object ref + effect: the
+  // two are equivalent now that the root is stable, and the callback is the cheaper one — no
+  // second pass, and it cannot go stale if the tree above it is restructured again.
+  it("observes through a callback ref, never a stored .current", () => {
     const hook = MAP_CLIENT.slice(MAP_CLIENT.indexOf("function useVisibleBoard(")).slice(0, 600);
     expect(hook).toContain("const attach = useCallback((el: HTMLElement | null) => {");
     expect(hook).toContain("return () => io.disconnect();");
@@ -1045,6 +1050,61 @@ describe("canvas tabs — one shared strip, no per-board copies", () => {
 // the canvas via React Flow's `<Panel>` (library margin 15px, overridden to 6px under the desktop
 // shell), Columns via a plain absolute div. When the columns side hardcoded `top-3 right-3` (12px)
 // the chrome visibly jumped every time you flipped layouts — 3px in a browser, 6px in the shell.
+// Flipping Columns -> Canvas used to remount React Flow from scratch — every card, every
+// measurement, the derive-on-mount lane layout and a fresh fitView — because the columns branch
+// was an early `if (columns) return`. Canvas -> Columns mounted a cheap bucketed list, so the trip
+// back was the only slow one, and it threw the user's pan/zoom away on arrival. Both halves are
+// mounted now and the flip is a `display` toggle, the same trick <MapTabsShell/> uses for the
+// dataset tabs.
+describe("the layout flip hides a subtree, it does not unmount one", () => {
+  it("has no early return for the columns layout", () => {
+    expect(MAP_CLIENT).not.toMatch(/if \(columns\)\s*\{?\s*\n?\s*return/);
+    // One `return` in MapClient's body, one root — not a branch per layout.
+    const body = MAP_CLIENT.slice(MAP_CLIENT.indexOf("export function MapClient({"));
+    expect(body.match(/^  return \(/gm)?.length).toBe(1);
+  });
+
+  it("renders both halves from one root and hides the canvas with display", () => {
+    expect(MAP_CLIENT).toContain("{canvasMounted && (");
+    expect(MAP_CLIENT).toContain('columns && "hidden",');
+    // Both halves live under the single return, neither behind a branch that returns early.
+    const body = MAP_CLIENT.slice(MAP_CLIENT.lastIndexOf("\n  return ("));
+    expect(body).toContain("<ReactFlow");
+    expect(body).toContain("<ColumnsView");
+  });
+
+  // Lazy-mount, like the shell's: the canvas mounts on FIRST use, while it is visible, so React
+  // Flow's one-shot fitView frames a real box instead of a 0×0 one — and stays mounted after.
+  it("mounts the canvas on first use and never drops it again", () => {
+    expect(MAP_CLIENT).toContain("const [canvasMounted, setCanvasMounted] = useState(!columns);");
+    expect(MAP_CLIENT).toContain("if (!columns && !canvasMounted) setCanvasMounted(true);");
+    expect(MAP_CLIENT).not.toContain("setCanvasMounted(false)");
+  });
+
+  // `display:none` hides a box. It does not unbind a window listener and it does not reach into a
+  // portal — so every child of the hidden canvas that does either is still gated on `!columns`,
+  // which is what the early return used to do for free.
+  it("still unmounts the canvas children that bind globally or portal to the body", () => {
+    expect(MAP_CLIENT).toContain("{panelOpen &&\n        !columns &&"); // portalled card detail
+    expect(MAP_CLIENT).toContain("{!columns && <ShareBoardButton defaultSelection={view} />}");
+    expect(MAP_CLIENT).toContain("{!columns && (\n            <CanvasSearch"); // binds "/" and ⌘F
+    // ⌘K's palette is a portalled dialog too — its existing gate already carries `!columns`.
+    expect(MAP_CLIENT).toContain("const boardKeysMounted = !embedded && !readOnly && !columns");
+    // …and the focus editor is ONE shared instance on the stable root, not one per half.
+    expect(MAP_CLIENT.match(/<FocusEditorModal payload=\{focusEdit\}/g)?.length).toBe(1);
+  });
+
+  // The columns half is still mounted only while it is showing: it is cheap to build (that
+  // direction was never the slow one) and a hidden one would keep its ↑/↓/Enter/Escape window
+  // listener bound over the canvas.
+  it("keeps the columns half conditional", () => {
+    expect(MAP_CLIENT).toContain("{columns && (");
+    expect(src("components/columns/columns-view.tsx")).toContain(
+      'window.addEventListener("keydown", onKey);',
+    );
+  });
+});
+
 describe("board chrome sits at the same inset in both roadmap layouts", () => {
   const CSS = src("app/globals.css");
 
