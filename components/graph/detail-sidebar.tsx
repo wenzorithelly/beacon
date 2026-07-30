@@ -400,48 +400,28 @@ export function NodeDetail({
             </div>
           )}
 
-          {/* ── Description — the document. No eyebrow and no focus-mode button: Linear's issue
-              body starts straight under the title, and writing happens in place via the selection
-              bubble, so a second full-screen editor was one surface too many. ── */}
+          {/* ── Description — the document. ONE always-mounted editor, never a read-only render
+              swapped for an editable one on click. That swap is what made the caret jump: the
+              editable render adds a toolbar above the prose, shifting every line down, so the
+              click point no longer named the word you clicked — and no amount of coordinate
+              mapping fixes a layout that moves underneath you. Same element throughout means the
+              browser places the caret natively, exactly where you click. ── */}
           <div>
-            {/* Flush to the top only while EDITING, where the docked toolbar is the thing that
-                should sit under the header. Reading needs air. */}
-            <div className={cn("max-w-[72ch]", editingDesc && !readOnly ? "pt-0" : "pt-3")}>
-              {editingDesc && !readOnly ? (
+            <div className={cn("max-w-[72ch]", readOnly ? "pt-3" : "pt-0")}>
+              {plain.trim() || !readOnly ? (
                 <RichNodeEditor
-                  key="edit"
                   value={plain}
                   onChange={setPlain}
-                  onBlur={commitDesc}
-                  autoFocus
+                  onFocus={() => setEditingDesc(true)}
+                  onBlur={() => {
+                    setEditingDesc(false);
+                    commitDesc();
+                  }}
+                  editable={!readOnly}
                   roomy
                 />
-              ) : plain.trim() ? (
-                <div
-                  role={readOnly ? undefined : "button"}
-                  tabIndex={readOnly ? undefined : 0}
-                  title={readOnly ? undefined : "Click to edit"}
-                  onClick={() => !readOnly && setEditingDesc(true)}
-                  onKeyDown={(e) => {
-                    if (!readOnly && e.key === "Enter") setEditingDesc(true);
-                  }}
-                  className={cn(
-                    "-mx-1.5 rounded-md px-1.5 py-1 transition-colors",
-                    !readOnly && "cursor-text",
-                  )}
-                >
-                  <RichNodeEditor key="view" value={plain} onChange={() => {}} editable={false} roomy />
-                </div>
-              ) : readOnly ? (
-                <p className="text-[15px] text-muted-foreground">No description yet.</p>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => setEditingDesc(true)}
-                  className="-mx-1.5 w-full rounded-md px-1.5 py-1 text-left text-xs text-muted-foreground/60 transition-colors hover:bg-[var(--ink-hover)] hover:text-muted-foreground"
-                >
-                  Add a description…
-                </button>
+                <p className="text-[15px] text-muted-foreground">No description yet.</p>
               )}
             </div>
           </div>

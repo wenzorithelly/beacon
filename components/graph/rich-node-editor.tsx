@@ -21,11 +21,11 @@ export function RichNodeEditor({
   value,
   onChange,
   onBlur,
+  onFocus,
   autoFocus,
   compact,
   bare,
   roomy,
-  caretAt,
   className,
   placeholder = "Description (markdown)… type @ to mention a file, feature, table…",
   editable = true,
@@ -33,6 +33,7 @@ export function RichNodeEditor({
   value: string;
   onChange: (markdown: string) => void;
   onBlur?: () => void;
+  onFocus?: () => void;
   autoFocus?: boolean;
   compact?: boolean;
   /** Drop the inset surface (background + padding) and size the text up — used by the focus modal,
@@ -42,11 +43,6 @@ export function RichNodeEditor({
       contrast on a ~72ch measure, real heading hierarchy, and NO inset box in either state, so
       clicking into it to edit doesn't reflow the prose. The canvas card keeps the compact scale. */
   roomy?: boolean;
-  /** Viewport coords of the click that opened this editor. Click-to-edit swaps a read-only render
-   *  for a live one; without this the caret lands wherever `autofocus` says (the end), so clicking
-   *  a word mid-paragraph jumped you to the bottom of the description. Both renders occupy the
-   *  same box at the same type scale, so the click point maps straight through. */
-  caretAt?: { x: number; y: number } | null;
   className?: string;
   placeholder?: string;
   // When false (read-only boards: shared view, archived plan history, the expanded card's
@@ -62,8 +58,7 @@ export function RichNodeEditor({
     ],
     content: value ? (markdownToEditorDoc(value) as object) : undefined,
     immediatelyRender: false, // required under Next SSR
-    // With caretAt the caret is placed from the click below — don't jump to the end first.
-    autofocus: autoFocus && !caretAt ? "end" : false,
+    autofocus: autoFocus ? "end" : false,
     editorProps: {
       attributes: {
         // nodrag/nopan: typing + selecting must not pan/drag the React Flow canvas.
@@ -72,19 +67,8 @@ export function RichNodeEditor({
     },
     onUpdate: ({ editor }) => onChange(docToMarkdown(editor.getJSON())),
     onBlur: () => onBlur?.(),
+    onFocus: () => onFocus?.(),
   });
-
-  // Place the caret where the user actually clicked (once, per editor instance).
-  useEffect(() => {
-    if (!editor || !caretAt) return;
-    const at = editor.view.posAtCoords({ left: caretAt.x, top: caretAt.y });
-    editor
-      .chain()
-      .focus()
-      .setTextSelection(at?.pos ?? editor.state.doc.content.size)
-      .run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor]);
 
   // Keep the editor's editable flag in sync if it ever flips after mount.
   useEffect(() => {
@@ -112,7 +96,7 @@ export function RichNodeEditor({
       {editable && (
         <div
           className={cn(
-            "nodrag nopan flex shrink-0 items-center gap-0.5 border-b border-border pb-1",
+            "nodrag nopan flex shrink-0 items-center gap-0.5 pb-1",
             roomy ? "mb-2" : "rounded-t",
           )}
         >

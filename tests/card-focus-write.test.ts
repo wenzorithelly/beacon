@@ -55,6 +55,11 @@ describe("formatting controls are a docked bar, shown only while editable", () =
     // The prose scrolls in its own bounded box instead, so the bar stays put with nothing behind.
     expect(editor).not.toContain("sticky top-0");
     expect(editor).toContain('roomy && editable && "max-h-[52vh] overflow-y-auto"');
+    // One always-mounted editor — the read-only/editable swap is what made the caret jump.
+    const sidebar = read("components/graph/detail-sidebar.tsx");
+    expect(sidebar).not.toContain('key="edit"');
+    expect(sidebar).not.toContain('key="view"');
+    expect(sidebar).toContain("onFocus={() => setEditingDesc(true)}");
   });
 
   it("keeps the shared ToolbarButton (aria-label + aria-pressed come from it)", () => {
