@@ -35,16 +35,14 @@ export interface ColumnsViewProps {
   /** View-internal edges; only `kind: "DEPENDS"` matters here. */
   edges: MapEdgePayload[];
   /** Gates the "Layer" grouping option, mirroring node-card's LayerSelect. */
-  hasFrontend?: boolean;
+  hasFrontend: boolean;
   /** Persist a field change (drag between columns, peek-panel status/priority). Take the awaited,
    *  optimistic-and-rolled-back save path — this view never fetches. */
   onChangeField: (nodeId: string, field: GroupField, value: string | number | null) => void;
-  /** Create a card already carrying the target column's value. The "+ Add" foot renders only
-   *  when this is provided. */
-  onAddCard?: (field: GroupField, value: string | number | null) => void;
-  /** Open the real description editor for a card. The peek panel's click-to-write affordance
-   *  renders only when this is provided; the panel itself is read-only. */
-  onEditDescription?: (nodeId: string) => void;
+  /** Create a card already carrying the target column's value ("+ Add" column foot). */
+  onAddCard: (field: GroupField, value: string | number | null) => void;
+  /** Open the real description editor for a card — the peek panel itself is read-only. */
+  onEditDescription: (nodeId: string) => void;
   readOnly?: boolean;
   className?: string;
 }
@@ -52,7 +50,7 @@ export interface ColumnsViewProps {
 export function ColumnsView({
   nodes,
   edges,
-  hasFrontend = false,
+  hasFrontend,
   onChangeField,
   onAddCard,
   onEditDescription,
@@ -79,7 +77,9 @@ export function ColumnsView({
   );
   const deps = useMemo(() => dependencyGraph(nodes, edges), [nodes, edges]);
 
-  // Sub-task rollup: direct children per parent, and how many of them are done.
+  // Sub-task rollup: direct children per parent, and how many of them are done. Children get no
+  // card of their own (buildColumns keeps top-level only) — this progress bar IS how they show up,
+  // so it must be computed over the FULL node list, not the columns.
   const children = useMemo(() => {
     const m = new Map<string, { total: number; done: number }>();
     for (const n of nodes) {
@@ -314,7 +314,7 @@ export function ColumnsView({
                 })}
               </ul>
 
-              {!readOnly && onAddCard && (
+              {!readOnly && (
                 <button
                   type="button"
                   onClick={() => onAddCard(GROUP_FIELD[groupBy], col.value)}

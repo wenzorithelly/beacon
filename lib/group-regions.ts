@@ -27,8 +27,8 @@ export interface Region {
  *  independent of where its cards have since been dragged. */
 export interface LaneRect {
   key: string;
-  /** Header text; defaults to the key. */
-  label?: string;
+  /** Header text (status → "In progress", priority → "P0", cluster → itself). */
+  label: string;
   x: number;
   y: number;
   w: number;
@@ -58,7 +58,7 @@ export function computeGroupRegions(items: RegionInput[], opts: RegionOptions = 
     for (const it of items) counts.set(it.group, (counts.get(it.group) ?? 0) + 1);
     return opts.lanes.map((l) => ({
       key: l.key,
-      label: l.label ?? l.key,
+      label: l.label,
       x: l.x - pad,
       y: l.y - pad - header,
       w: l.w + pad * 2,

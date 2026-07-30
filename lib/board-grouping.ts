@@ -32,11 +32,11 @@ export const GROUP_LABEL: Record<GroupBy, string> = {
   layer: "Layer",
 };
 
-// Copies, not imports: node-card.tsx owns the originals (STATUS_STRIPE, and the module-private
-// PRIORITY_HUE / PRIORITIES labels) but it is a "use client" React module that pulls in React
-// Flow + Motion — importing it here would drag all of that into this pure, DOM-free module and
-// its bun test. Keep the two in step by hand; they are 10 lines and change ~never.
-const STATUS_DOT: Record<string, string> = {
+// The board's shared color/label tables live HERE, in the pure module, and the React cards
+// (node-card.tsx, column-card.tsx, peek-panel.tsx, detail-sidebar.tsx) import them — the reverse
+// direction would drag React Flow + Motion into this DOM-free module and its bun test.
+// STATUS_DOT is the roadmap subset; node-card's STATUS_STRIPE adds the architecture dispositions.
+export const STATUS_DOT: Record<string, string> = {
   DONE: "#34d399",
   IN_PROGRESS: "#38bdf8",
   PENDING: "#fbbf24",
@@ -52,6 +52,8 @@ const NEUTRAL_DOT = "#71717a";
 /** The subset of a roadmap node this module needs — MapNodePayload satisfies it. */
 export interface GroupableNode {
   id: string;
+  /** Non-null on a sub-task. Sub-tasks get no column of their own (see buildColumns). */
+  parentId: string | null;
   status: string;
   priority: number;
   cluster: string | null;
@@ -138,7 +140,12 @@ function fixedKeys(by: GroupBy): readonly string[] {
 
 /** Group nodes into render-time columns. Fixed columns first (in their canonical order), then any
  *  key the data introduced (sorted), then the unset column last — so an off-list value degrades
- *  into its own column instead of dropping the card. */
+ *  into its own column instead of dropping the card.
+ *
+ *  TOP-LEVEL CARDS ONLY: a sub-task never gets a card of its own here (same as Linear/GitHub
+ *  Projects sub-issues, and same as the canvas, which nests them under their parent). The parent
+ *  card's sub-task progress bar carries the children, so nothing is lost — and column counts read
+ *  as "features in this column", not "features plus their checklists". */
 export function buildColumns<T extends GroupableNode>(
   nodes: readonly T[],
   by: GroupBy,
@@ -146,7 +153,7 @@ export function buildColumns<T extends GroupableNode>(
 ): BoardColumn<T>[] {
   const buckets = new Map<string, T[]>();
   // Priority asc, incoming (createdAt) order as the stable tie-break.
-  const ordered = nodes.map((n, i) => ({ n, i }));
+  const ordered = nodes.filter((n) => !n.parentId).map((n, i) => ({ n, i }));
   ordered.sort((a, b) => a.n.priority - b.n.priority || a.i - b.i);
   for (const { n } of ordered) {
     const k = groupKey(n, by);
@@ -170,20 +177,28 @@ export function buildColumns<T extends GroupableNode>(
   return opts.hideEmpty ? columns.filter((c) => c.cards.length > 0) : columns;
 }
 
+// A dependency you no longer wait on. Same set as lib/work-next.ts — a CANCELLED dependency is
+// satisfied there, so treating it as blocking here would show a BLOCKED chip on the very card the
+// work order ranks #1.
+const SATISFIED = new Set(["DONE", "CANCELLED"]);
+
+/** Does a dependency in this status still hold you up? The one place that rule is spelled out. */
+export const isBlocking = (status: string): boolean => !SATISFIED.has(status);
+
 export interface DependencyGraph {
   /** id → ids it depends on (the DEPENDS edge's `toId`s). */
   blockedBy: Record<string, string[]>;
   /** id → ids that depend on it. */
   blocks: Record<string, string[]>;
-  /** ids with at least one dependency that is not DONE. */
+  /** ids with at least one dependency that is neither DONE nor CANCELLED. */
   blocked: Set<string>;
 }
 
 /** BLOCKED is COMPUTED, never stored: a card is blocked when it has a DEPENDS edge to a node
- *  that is not DONE. Deliberately single-hop — a done dependency satisfies you even if IT is
- *  blocked further up the chain, which is exactly the "what is actually startable right now"
- *  read the board is for. Edges that aren't DEPENDS, point at themselves, or reference a node
- *  outside `nodes` are ignored. */
+ *  that is neither DONE nor CANCELLED. Deliberately single-hop — a satisfied dependency clears
+ *  you even if IT is blocked further up the chain, which is exactly the "what is actually
+ *  startable right now" read the board is for. Edges that aren't DEPENDS, point at themselves, or
+ *  reference a node outside `nodes` are ignored. */
 export function dependencyGraph(
   nodes: readonly GroupableNode[],
   edges: readonly GroupableEdge[],
@@ -200,7 +215,7 @@ export function dependencyGraph(
     if (deps.includes(e.toId)) continue; // de-dupe repeated edges
     deps.push(e.toId);
     (blocks[e.toId] ??= []).push(e.fromId);
-    if (status.get(e.toId) !== "DONE") blocked.add(e.fromId);
+    if (isBlocking(status.get(e.toId)!)) blocked.add(e.fromId);
   }
   return { blockedBy, blocks, blocked };
 }

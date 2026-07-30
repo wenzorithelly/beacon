@@ -16,22 +16,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PRIORITY_HUE, PRIORITY_LABELS, type GroupField } from "@/lib/board-grouping";
+import {
+  PRIORITY_HUE,
+  PRIORITY_LABELS,
+  STATUS_DOT,
+  isBlocking,
+  type GroupField,
+} from "@/lib/board-grouping";
 import { ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
 import { LAYER_META, normalizeLayer } from "@/lib/layer";
 import { cn } from "@/lib/utils";
 import type { MapNodePayload } from "@/components/graph/types";
-
-// Node status → dot color. Mirrors STATUS_STRIPE in components/graph/node-card.tsx (which is
-// exported, but importing it here would pull the React Flow node module into this panel).
-const STATUS_DOT: Record<string, string> = {
-  DONE: "#34d399",
-  IN_PROGRESS: "#38bdf8",
-  PENDING: "#fbbf24",
-  BLOCKED: "#fb923c",
-  CANCELLED: "#71717a",
-  DEPRIORITIZED: "#52525b",
-};
 
 function Dot({ color }: { color: string }) {
   return <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: color }} />;
@@ -70,7 +65,7 @@ export interface PeekPanelProps {
   onChangeField: (nodeId: string, field: GroupField, value: string | number | null) => void;
   onJump: (nodeId: string) => void;
   /** Opens the real (rich) description editor — the panel itself renders read-only. */
-  onEditDescription?: (nodeId: string) => void;
+  onEditDescription: (nodeId: string) => void;
   onClose: () => void;
 }
 
@@ -102,7 +97,7 @@ export function PeekPanel({
         {blocked && (
           <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium text-orange-700 dark:text-orange-300">
             <Lock className="size-3" />
-            Blocked — {deps.filter((n) => n.status !== "DONE").length} dependency(ies) not done
+            Blocked — {deps.filter((n) => isBlocking(n.status)).length} dependency(ies) not done
           </p>
         )}
 
@@ -204,7 +199,7 @@ export function PeekPanel({
           ) : (
             <p className="px-1.5 text-xs text-muted-foreground">No description yet.</p>
           )}
-          {!readOnly && onEditDescription && (
+          {!readOnly && (
             <button
               type="button"
               onClick={() => onEditDescription(node.id)}

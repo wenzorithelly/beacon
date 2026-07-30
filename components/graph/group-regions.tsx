@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 // At far zoom (lod="far") the cards inside are invisible specks, so each region flips to an
 // OPAQUE summary block — group name + count at display size. Zoomed out you read structure.
 //
-// The lane-density props (wipCaps / collapsed / onToggleCollapse / hideEmpty) are all OPTIONAL and
+// The lane-density props (collapsed / onToggleCollapse / hideEmpty) are all OPTIONAL and
 // PRESENTATIONAL — state and callbacks come from the board. Omit them and this renders exactly
 // what it always did.
 
@@ -30,7 +30,6 @@ export function GroupRegions({
   regions,
   tone = "neutral",
   lod = "full",
-  wipCaps,
   collapsed,
   onToggleCollapse,
   hideEmpty = false,
@@ -38,8 +37,6 @@ export function GroupRegions({
   regions: Region[];
   tone?: "category" | "neutral";
   lod?: Lod;
-  /** Work-in-progress cap per lane key — the header reads "3/5" and turns amber over the cap. */
-  wipCaps?: Readonly<Record<string, number>>;
   /** Lane keys to render as a compact summary strip instead of a full box. The CARDS inside are
    *  the board's business — this only collapses the container. */
   collapsed?: ReadonlySet<string>;
@@ -62,8 +59,6 @@ export function GroupRegions({
         const isCollapsed = collapsed?.has(r.key) ?? false;
         // Collapsed wins over the far-zoom summary: there's nothing inside left to summarize.
         const far = lod === "far" && !isCollapsed;
-        const cap = wipCaps?.[r.key];
-        const over = cap !== undefined && r.count > cap;
         return (
           <div
             key={r.key}
@@ -106,15 +101,7 @@ export function GroupRegions({
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/80">
                   {r.label}
                 </span>
-                <span
-                  className={cn(
-                    "text-[10px] tabular-nums",
-                    over ? "font-semibold text-amber-600 dark:text-amber-400" : "text-muted-foreground/50",
-                  )}
-                  title={cap === undefined ? undefined : `${r.count} of ${cap} allowed in progress`}
-                >
-                  {cap === undefined ? r.count : `${r.count}/${cap}`}
-                </span>
+                <span className="text-[10px] tabular-nums text-muted-foreground/50">{r.count}</span>
                 {isCollapsed && (
                   <span className="text-[10px] text-muted-foreground/50">collapsed</span>
                 )}

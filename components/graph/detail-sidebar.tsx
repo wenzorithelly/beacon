@@ -38,7 +38,8 @@ import {
   clusterLabel,
 } from "@/lib/constants";
 import { categoryColorClass } from "@/lib/category-color";
-import { PRIORITIES, STATUS_STRIPE } from "@/components/graph/node-card";
+import { PRIORITY_LABELS } from "@/lib/board-grouping";
+import { STATUS_STRIPE } from "@/components/graph/node-card";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -296,13 +297,13 @@ function NodeDetail({
             >
               <SelectTrigger className={QUIET_TRIGGER} disabled={pending}>
                 <SelectValue>
-                  {(v: string) => PRIORITIES.find((p) => String(p.v) === v)?.l ?? v}
+                  {(v: string) => PRIORITY_LABELS[Number(v)] ?? v}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent alignItemWithTrigger={false}>
-                {PRIORITIES.map((p) => (
-                  <SelectItem key={p.v} value={String(p.v)}>
-                    {p.l}
+                {PRIORITY_LABELS.map((l, v) => (
+                  <SelectItem key={v} value={String(v)}>
+                    {l}
                   </SelectItem>
                 ))}
               </SelectContent>
