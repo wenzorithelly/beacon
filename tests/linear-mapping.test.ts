@@ -6,7 +6,9 @@ import {
   linearPriorityToBeacon,
   linearStateToStatus,
   parseExternalMeta,
+  resolveWorkflowState,
 } from "@/lib/linear/mapping";
+import type { LinearWorkflowState } from "@/lib/linear/types";
 import type { LinearIssue } from "@/lib/linear/types";
 
 const issue = (over: Partial<LinearIssue> = {}): LinearIssue => ({
@@ -172,5 +174,46 @@ describe("parseExternalMeta", () => {
   });
   it("returns null for malformed JSON rather than throwing", () => {
     expect(parseExternalMeta("{not json")).toBeNull();
+  });
+});
+
+// Which state the Status picker shows as selected. Four branches, and the middle one exists
+// because rows written before the state id was stored carry name/color/type only: resolving those
+// to a synthesized id of "" left the Select matching no item, so the menu opened with nothing
+// checked even though the trigger read correctly.
+describe("resolveWorkflowState", () => {
+  const STATES: LinearWorkflowState[] = [
+    { id: "s-todo", name: "Todo", color: "#e2e2e2", type: "unstarted", position: 0 },
+    { id: "s-started", name: "In Progress", color: "#f2c94c", type: "started", position: 1 },
+    { id: "s-review", name: "In Review", color: "#0f783c", type: "started", position: 2 },
+  ];
+
+  it("matches the stored id — the exact state, not merely one of its type", () => {
+    const s = resolveWorkflowState({ id: "s-review", name: "In Review" }, STATES, "IN_PROGRESS");
+    expect(s?.id).toBe("s-review");
+  });
+
+  it("falls back to the NAME for a legacy row that stored no id", () => {
+    const s = resolveWorkflowState(
+      { name: "In Review", color: "#0f783c", type: "started" },
+      STATES,
+      "IN_PROGRESS",
+    );
+    expect(s?.id).toBe("s-review"); // a real id the picker can select, not ""
+  });
+
+  it("still displays a state from another team, absent from this vocabulary", () => {
+    const s = resolveWorkflowState({ name: "Shipping", color: "#abc", type: "started" }, STATES, "IN_PROGRESS");
+    expect(s).toEqual({ id: "", name: "Shipping", color: "#abc", type: "started", position: 0 });
+  });
+
+  it("maps a card that never carried a state through the write-back rule", () => {
+    expect(resolveWorkflowState(null, STATES, "IN_PROGRESS")?.id).toBe("s-started");
+    expect(resolveWorkflowState(null, STATES, "BLOCKED")?.id).toBe("s-started");
+    expect(resolveWorkflowState(null, STATES, "PENDING")?.id).toBe("s-todo");
+  });
+
+  it("resolves to nothing without a vocabulary, so the picker keeps Beacon's statuses", () => {
+    expect(resolveWorkflowState(null, [], "IN_PROGRESS")).toBeNull();
   });
 });

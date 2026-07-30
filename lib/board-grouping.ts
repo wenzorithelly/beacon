@@ -94,9 +94,13 @@ export type StatusVocabulary = readonly LinearWorkflowState[];
 export function groupKey(n: GroupableNode, by: GroupBy, states?: StatusVocabulary): string {
   switch (by) {
     case "status": {
+      // The vocabulary guard comes FIRST. Keying a Linear card by its state name without one
+      // scatters it into an ad-hoc extra column beside Beacon's fixed six — which is reachable on
+      // the very first render, before useLinearStates resolves, and permanently whenever Linear is
+      // disconnected or the fetch fails. Fall back wholesale, never half-and-half.
+      if (!states?.length) return n.status;
       const name = n.externalMeta?.state?.name?.trim();
       if (name) return name;
-      if (!states?.length) return n.status;
       // No Linear state of its own → the column its Beacon status maps onto, through the SAME
       // rule write-back uses. Reusing stateMapFromStates (rather than a second find-by-type) is
       // what puts BLOCKED in the team's started column instead of stranding it in a "BLOCKED" one

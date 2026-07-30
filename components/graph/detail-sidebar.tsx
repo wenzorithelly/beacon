@@ -60,7 +60,7 @@ import {
 import { NodeFormDialog } from "@/components/graph/node-form-dialog";
 import { useNodeEdit } from "@/components/graph/node-edit-context";
 import { LAYER_META, normalizeLayer } from "@/lib/layer";
-import { linearStateToStatus } from "@/lib/linear/mapping";
+import { resolveWorkflowState } from "@/lib/linear/mapping";
 import { useLinearStates } from "@/lib/use-linear-states";
 import { cn } from "@/lib/utils";
 import type { MapNodePayload } from "@/components/graph/types";
@@ -339,11 +339,7 @@ export function NodeDetail({
   // set — several states share a type, so re-deriving from node.status would rewrite the choice);
   // fall back to mapping the Beacon status onto the vocabulary for a card that has never carried one.
   const stored = node.externalMeta?.state ?? null;
-  const currentState =
-    linearStates.find((s) => s.id === stored?.id) ??
-    (stored?.name ? { id: stored.id ?? "", name: stored.name, color: stored.color, type: stored.type, position: 0 } : null) ??
-    linearStates.find((s) => linearStateToStatus(s.type) === node.status) ??
-    null;
+  const currentState = resolveWorkflowState(stored, linearStates, node.status);
 
   const saveLinearState = async (stateId: string) => {
     await fetch("/api/linear/status", {

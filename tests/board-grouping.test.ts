@@ -332,4 +332,17 @@ describe("buildColumns — status with a Linear vocabulary", () => {
     expect(keysOf(cols)).toEqual([...ROADMAP_STATUSES]);
     expect(cols.every((c) => c.stateId === undefined)).toBe(true);
   });
+
+  it("falls back WHOLESALE — a Linear card does not key by state name without a vocabulary", () => {
+    // Reachable on the first render, before the vocabulary fetch resolves, and permanently when
+    // Linear is disconnected. Keying by name there scattered Linear cards into ad-hoc extra
+    // columns beside Beacon's fixed six — the board would show 8 columns, then re-file itself.
+    const cards = [linear("l", { name: "In Review", type: "started" }, { status: "IN_PROGRESS" }), node("n")];
+    for (const states of [undefined, []]) {
+      const cols = buildColumns(cards, "status", states);
+      expect(keysOf(cols)).toEqual([...ROADMAP_STATUSES]);
+      expect(idsIn(cols, "IN_PROGRESS")).toEqual(["l"]);
+      expect(keysOf(cols)).not.toContain("In Review");
+    }
+  });
 });

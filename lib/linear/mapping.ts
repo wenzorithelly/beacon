@@ -45,6 +45,40 @@ export function stateMapFromStates(states: LinearWorkflowState[]): Partial<Recor
   return map;
 }
 
+/**
+ * Which workflow state a card is showing, for the Status picker. Resolution order matters:
+ *
+ *  1. the stored state's id, matched against the vocabulary — the exact state, normal case;
+ *  2. the stored state's NAME — rows written before the id was stored carry name/color/type only.
+ *     Without this they resolve to a synthesized state whose id is "", the Select's value matches
+ *     no item, and the menu opens with nothing selected;
+ *  3. the stored state as-is — another team's state, not in this vocabulary, still displayable;
+ *  4. the vocabulary state the card's Beacon status maps onto — a card that never carried one.
+ */
+export function resolveWorkflowState(
+  stored: { id?: string; name?: string; color?: string; type?: string } | null | undefined,
+  states: readonly LinearWorkflowState[],
+  status: string,
+): LinearWorkflowState | null {
+  if (stored?.id) {
+    const byId = states.find((s) => s.id === stored.id);
+    if (byId) return byId;
+  }
+  if (stored?.name) {
+    const byName = states.find((s) => s.name === stored.name);
+    if (byName) return byName;
+    return {
+      id: stored.id ?? "",
+      name: stored.name,
+      color: stored.color ?? "#71717a",
+      type: stored.type ?? "",
+      position: 0,
+    };
+  }
+  const id = stateMapFromStates([...states])[status as NodeStatus];
+  return states.find((s) => s.id === id) ?? null;
+}
+
 // Linear priority 0=None,1=Urgent,2=High,3=Medium,4=Low → Beacon 0=P0..3=P3 (None → P2).
 const LINEAR_TO_BEACON_PRIORITY: Record<number, number> = { 1: 0, 2: 1, 3: 2, 4: 3, 0: 2 };
 
