@@ -309,7 +309,26 @@ export function SettingsModal({
                 )}
               </header>
             )}
-            <div className="space-y-4 px-5 py-5 sm:px-7 sm:py-6">{current?.content}</div>
+            {/* EVERY section mounts; only the current one is shown.
+                The rail's whole point is that a row states its own value without you opening it —
+                but those values are published BY the cards (section-summary.tsx), so rendering only
+                the active section meant a row could never show a value until you'd already clicked
+                it, which is the exact question the rail exists to answer. Hiding instead of
+                unmounting also keeps a section's scroll position and any in-progress edit across a
+                rail switch.
+                Affordable precisely because nothing expensive lives here any more: these cards read
+                localStorage or hit a local route once on mount. The one card that cost a live
+                network round trip (AI usage) moved to the desktop shell's own Settings window. Do
+                not add a card here that fetches something costly without revisiting this. */}
+            {sections.map((s) => (
+              <div
+                key={s.id}
+                hidden={s.id !== current?.id}
+                className="space-y-4 px-5 py-5 sm:px-7 sm:py-6"
+              >
+                {s.content}
+              </div>
+            ))}
           </div>
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>

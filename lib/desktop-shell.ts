@@ -35,11 +35,32 @@
 //
 // Client-safe: no node imports, no react — usable from any client component's effect.
 
+// Type-only (erased at build): the appearance vocabulary has ONE definition, in lib/appearance.ts,
+// and this bridge re-exports it rather than restating the unions. No runtime edge, so no cycle with
+// appearance.ts's own report call below.
+import type { Surface, Theme } from "@/lib/appearance";
+
 /** Keys for shell-mirrored surfaces. Add new surfaces here so both repos share one vocabulary. */
 export const SHELL_SURFACE = {
   planHeader: "plan-header",
   learnHeader: "learn-header",
+  appearance: "appearance",
 } as const;
+
+/** Theme + surface, mirrored so the shell's own Settings window can draw them (beacon-desktop
+ * settings/settings-panel.cts, Appearance section). The first APP-level key on this bridge rather
+ * than a page-level one: it is reported from the app shell (components/theme/appearance-sync.tsx),
+ * so it is live on every route, not just /settings.
+ *
+ * Why it crosses at all: under the shell these two preferences theme the WHOLE app — the chrome bar,
+ * the terminal panes, the artifact rail and the file peek all follow the resolved value — while the
+ * shell's chrome hides this app's own top nav, so /settings (where appearance-card.tsx lives) is not
+ * reachable there. The preferences still belong here, where a browser can honour them; only the
+ * control moves. Actions the shell sends back: `theme:<light|dark|auto>`, `surface:<glass|tinted|solid>`. */
+export interface AppearanceState {
+  theme: Theme;
+  surface: Surface;
+}
 
 /** The /plan header state the shell's chrome bar renders (beacon-desktop chrome.cts). Page-level
  * only, by design: which view toggle is active. Selection-level info (a past plan's verdict badge)

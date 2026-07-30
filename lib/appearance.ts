@@ -5,6 +5,8 @@
 // `auto` following the OS live. This module is pure + client-safe (no react, no node:fs) so both
 // the server layout (for THEME_SCRIPT) and client components can import it.
 
+import { reportShellState, SHELL_SURFACE } from "@/lib/desktop-shell";
+
 export type Theme = "light" | "dark" | "auto";
 export type Surface = "glass" | "tinted" | "solid";
 
@@ -84,6 +86,14 @@ export function applyAppearance(theme: Theme, surface: Surface): void {
   el.dataset.surface = surface;
 }
 
+// Tell the desktop shell the preference pair changed, from the two places that can change it —
+// so its Settings window (which draws these same two controls, see lib/desktop-shell.ts
+// AppearanceState) never shows a stale selection, whichever side made the change. No-op in a
+// browser, and no-op on the server (reportShellState checks for the shell attribute itself).
+function reportAppearance(): void {
+  reportShellState(SHELL_SURFACE.appearance, { theme: getTheme(), surface: getSurface() });
+}
+
 export function setTheme(theme: Theme): void {
   try {
     localStorage.setItem(THEME_KEY, theme);
@@ -91,6 +101,7 @@ export function setTheme(theme: Theme): void {
     /* private-mode / disabled storage — still apply in-memory below */
   }
   applyAppearance(theme, getSurface());
+  reportAppearance();
 }
 
 export function setSurface(surface: Surface): void {
@@ -100,4 +111,5 @@ export function setSurface(surface: Surface): void {
     /* ignore */
   }
   applyAppearance(getTheme(), surface);
+  reportAppearance();
 }
