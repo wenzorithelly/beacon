@@ -4,16 +4,16 @@ import { readSavedViewsRaw, writeSavedViewsRaw } from "@/lib/board-layout-state"
 import { NODE_LAYER } from "@/lib/schemas";
 
 // Saved views: a NAMED snapshot of how a board is being looked at — the seven filter Sets +
-// layer emphasis, the arrange dimension, hide-empty, the folded lanes, and (Columns board) its
-// group-by. Per workspace, per board; one of them can be the board's default (what it opens
-// with). Pure presentation state, so it rides in the existing board-layout-state.json rather
-// than a Drizzle table — no migration, no schema, and it disappears with the workspace.
+// layer emphasis, the arrange dimension and the folded lanes. Per workspace, per board; one of
+// them can be the board's default (what it opens with). Pure presentation state, so it rides in
+// the existing board-layout-state.json rather than a Drizzle table — no migration, no schema,
+// and it disappears with the workspace.
 //
 // Everything here is synchronous read-modify-write over that one file (see the accessors in
 // lib/board-layout-state), which is why a "cap" is cheap to enforce and a concurrent write
 // can't tear.
 
-export const SAVED_VIEW_BOARDS = ["roadmap", "architecture", "db", "columns"] as const;
+export const SAVED_VIEW_BOARDS = ["roadmap", "architecture", "db"] as const;
 export type SavedViewBoard = (typeof SAVED_VIEW_BOARDS)[number];
 
 export const MAX_SAVED_VIEWS = 50;
@@ -40,8 +40,8 @@ const nameSchema = z
   .min(1, "a view needs a name")
   .max(MAX_VIEW_NAME_LENGTH, `a view name must be ${MAX_VIEW_NAME_LENGTH} characters or fewer`);
 
-// Every field defaults, so a board only sends the dimensions it actually has (the Columns board
-// has no `arrangedBy`; the roadmap has no `groupBy`) and still stores a complete, applyable view.
+// Every field defaults, so a board only sends the dimensions it actually has and still stores a
+// complete, applyable view.
 const stateSchema = z.object({
   filters: z
     .object({
@@ -65,10 +65,7 @@ const stateSchema = z.object({
   layerEmphasis: NODE_LAYER.nullable().default(null),
   // Mirrors RoadmapGroupBy (lib/roadmap-layout) — the dimension the board was arranged by.
   arrangedBy: z.enum(["cluster", "status", "priority"]).nullable().default(null),
-  hideEmpty: z.boolean().default(false),
   collapsed: z.array(z.string()).default([]),
-  // Columns board only: which dimension its columns are grouped by.
-  groupBy: z.string().trim().min(1).max(40).nullable().default(null),
 });
 
 const savedViewSchema = z.object({
@@ -167,9 +164,6 @@ export function updateSavedView(id: string, patch: SavedViewPatch): SavedView | 
   writeSavedViewsRaw(list);
   return next;
 }
-
-export const renameSavedView = (id: string, name: string): SavedView | null =>
-  updateSavedView(id, { name });
 
 /** False when the id doesn't exist — the route 404s rather than reporting a phantom delete. */
 export function deleteSavedView(id: string): boolean {

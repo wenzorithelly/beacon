@@ -52,12 +52,12 @@ describe("matchBoardKey", () => {
     expect(matchBoardKey({ key: "J" })).toBe("next");
   });
 
-  it("maps ⌘K and Ctrl-K to the palette", () => {
-    expect(matchBoardKey({ key: "k", metaKey: true })).toBe("palette");
-    expect(matchBoardKey({ key: "k", ctrlKey: true })).toBe("palette");
-  });
-
-  it("ignores every other modified key so browser/app shortcuts survive", () => {
+  // Every modified key belongs to another owner — ⌘K to <CommandPalette/> (which binds it itself,
+  // so answering it here toggled the dialog twice per press), ⌘Z to use-undo, ⌘B to the layout
+  // toggle, ⌘S/⌘P to the browser.
+  it("claims no modified key at all", () => {
+    expect(matchBoardKey({ key: "k", metaKey: true })).toBeNull(); // the palette's own
+    expect(matchBoardKey({ key: "k", ctrlKey: true })).toBeNull();
     expect(matchBoardKey({ key: "s", metaKey: true })).toBeNull(); // save
     expect(matchBoardKey({ key: "p", ctrlKey: true })).toBeNull(); // print
     expect(matchBoardKey({ key: "j", altKey: true })).toBeNull();

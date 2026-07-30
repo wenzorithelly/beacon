@@ -19,9 +19,8 @@ import { cn } from "@/lib/utils";
 // At far zoom (lod="far") the cards inside are invisible specks, so each region flips to an
 // OPAQUE summary block — group name + count at display size. Zoomed out you read structure.
 //
-// The lane-density props (collapsed / onToggleCollapse / hideEmpty) are all OPTIONAL and
-// PRESENTATIONAL — state and callbacks come from the board. Omit them and this renders exactly
-// what it always did.
+// The lane-density props (collapsed / onToggleCollapse) are both OPTIONAL and PRESENTATIONAL —
+// state and callbacks come from the board. Omit them and this renders exactly what it always did.
 
 /** Flow-space height of a lane rendered collapsed: the header strip, nothing else. */
 const COLLAPSED_H = 34;
@@ -32,7 +31,6 @@ export function GroupRegions({
   lod = "full",
   collapsed,
   onToggleCollapse,
-  hideEmpty = false,
 }: {
   regions: Region[];
   tone?: "category" | "neutral";
@@ -42,20 +40,17 @@ export function GroupRegions({
   collapsed?: ReadonlySet<string>;
   /** Absent → no collapse control is rendered at all. */
   onToggleCollapse?: (key: string, next: boolean) => void;
-  /** Drop lanes with no cards left in them instead of drawing an empty box. */
-  hideEmpty?: boolean;
 }) {
   // Counter-scale the far-zoom summary text so it reads at a constant SCREEN size — the flow
   // space shrinks with zoom, the words shouldn't. (Subscribing to zoom only matters while the
   // user is actively zooming; the component is tiny.)
   const zoom = useStore((s) => s.transform[2]);
-  const shown = hideEmpty ? regions.filter((r) => r.count > 0) : regions;
-  if (shown.length === 0) return null;
+  if (regions.length === 0) return null;
   const labelPx = Math.min(150, 26 / Math.max(zoom, 0.05));
   const countPx = Math.min(80, 13 / Math.max(zoom, 0.05));
   return (
     <ViewportPortal>
-      {shown.map((r) => {
+      {regions.map((r) => {
         const isCollapsed = collapsed?.has(r.key) ?? false;
         // Collapsed wins over the far-zoom summary: there's nothing inside left to summarize.
         const far = lod === "far" && !isCollapsed;

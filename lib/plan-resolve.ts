@@ -13,6 +13,9 @@ import {
 import { clearFeatureDraft, getFeatureDraft, type FeatureGraph } from "@/lib/feature-design";
 import { archivePlan } from "@/lib/plan-history";
 import { placeInGroup } from "@/lib/node-placement";
+import { readBoardLayout } from "@/lib/board-layout-state";
+import { parseExternalMeta } from "@/lib/linear/mapping";
+import { roadmapLaneKey } from "@/lib/roadmap-layout";
 import { synthesizePlanMarkdown } from "@/lib/plan-markdown";
 import { extractBeaconBlock } from "@/lib/plan-block";
 import { clearPlanMeta, readPlanMeta } from "@/lib/plan-meta";
@@ -130,7 +133,14 @@ export async function approvePlan(opts?: { doc?: DraftDoc | null }): Promise<{
     .update(node)
     .set({ source: "MANUAL", planId })
     .where(and(eq(node.source, "DRAFT"), eq(node.view, "ROADMAP")))
-    .returning({ id: node.id, title: node.title, cluster: node.cluster });
+    .returning({
+      id: node.id,
+      title: node.title,
+      cluster: node.cluster,
+      status: node.status,
+      priority: node.priority,
+      externalMeta: node.externalMeta,
+    });
   const featuresApproved = { count: promoted.length };
 
   // The draft block was parked BELOW the board while under review; once approved, each feature
@@ -138,15 +148,43 @@ export async function approvePlan(opts?: { doc?: DraftDoc | null }): Promise<{
   if (promoted.length) {
     const all = await db.query.node.findMany({
       where: (t, { eq }) => eq(t.view, "ROADMAP"),
-      columns: { id: true, parentId: true, cluster: true, x: true, y: true },
+      columns: {
+        id: true,
+        parentId: true,
+        cluster: true,
+        status: true,
+        priority: true,
+        externalMeta: true,
+        x: true,
+        y: true,
+      },
     });
     const promotedIds = new Set(promoted.map((p) => p.id));
-    const groupKey = (c: string | null) => (c ?? "").trim() || "—";
+    // The lane a card belongs to on the board AS IT IS CURRENTLY ARRANGED — the same rule
+    // lib/map-ops uses when it places a new card. This used to hardcode the theme cluster, so an
+    // approved plan's features landed in the wrong lane on a status- or priority-grouped board.
+    // The key itself is `roadmapLaneKey`, never a local copy.
+    const by = readBoardLayout("roadmap").arrangedBy;
+    const groupKey = (n: {
+      cluster: string | null;
+      status: string;
+      priority: number;
+      externalMeta: string | null;
+    }) => {
+      const meta = parseExternalMeta(n.externalMeta);
+      return roadmapLaneKey(by === "status" || by === "priority" ? by : "cluster", {
+        cluster: n.cluster,
+        status: n.status,
+        priority: n.priority,
+        stateName: meta?.state?.name ?? null,
+        teamKey: meta?.team?.key ?? null,
+      });
+    };
     const occupied = all
       .filter((n) => !promotedIds.has(n.id))
-      .map((n) => ({ x: n.x, y: n.y, group: groupKey(n.cluster), top: !n.parentId }));
+      .map((n) => ({ x: n.x, y: n.y, group: groupKey(n), top: !n.parentId }));
     for (const p of promoted) {
-      const key = groupKey(p.cluster);
+      const key = groupKey(p);
       const pos = placeInGroup(
         occupied.filter((o) => o.top && o.group === key),
         occupied,

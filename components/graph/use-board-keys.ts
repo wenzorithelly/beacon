@@ -6,7 +6,8 @@ import { useEffect } from "react";
 // selection walk is a pure function, so the whole contract is testable without a DOM; the
 // hook is just a window listener around them.
 //
-// KEYS CLAIMED BY THIS HOOK — j k s p c l \ ? Escape, plus ⌘K/Ctrl-K.
+// KEYS CLAIMED BY THIS HOOK — j k s p c l \ ? Escape. Nothing modified: ⌘K, ⌘Z and ⌘B have their
+// own owners (the command palette, use-undo, map-client's layout toggle).
 // `components/graph/canvas-search.tsx` currently opens the search popover on ANY printable
 // key, so every letter here also opens search until that handler is narrowed (see the note
 // in the integration report: search should move to "/" or ⌘F).
@@ -20,13 +21,12 @@ export type BoardKeyAction =
   | "category"
   | "isolate"
   | "help"
-  | "palette"
   | "clear";
 
 /** Keys → what they do, for the "?" help sheet and so tests can assert nothing is undocumented.
- *  ⌘Z/⌘⇧Z (use-undo) and ⌘B (map-client's layout toggle) belong to other owners — they are listed
- *  because the help sheet is the board's ONLY keyboard reference, and an undocumented shortcut may
- *  as well not exist. */
+ *  ⌘Z/⌘⇧Z (use-undo), ⌘B (map-client's layout toggle) and ⌘K (the command palette) belong to other
+ *  owners — they are listed because the help sheet is the board's ONLY keyboard reference, and an
+ *  undocumented shortcut may as well not exist. */
 export const BOARD_KEY_HELP: { keys: string; label: string }[] = [
   { keys: "j / k", label: "Next / previous card" },
   { keys: "s", label: "Set status" },
@@ -92,7 +92,9 @@ export interface BoardKeyEvent {
 export function matchBoardKey(e: BoardKeyEvent): BoardKeyAction | null {
   if (e.defaultPrevented) return null;
   if (isTypingTarget(e.target ?? null)) return null;
-  if (e.metaKey || e.ctrlKey) return e.key.toLowerCase() === "k" && !e.altKey ? "palette" : null;
+  // Every modified key belongs to someone else: ⌘K to <CommandPalette/> (which binds it itself),
+  // ⌘Z/⌘⇧Z to use-undo, ⌘B to the layout toggle, ⌘S/⌘P to the browser.
+  if (e.metaKey || e.ctrlKey) return null;
   if (e.altKey) return null;
   if (e.key === "Escape") return "clear";
   if (e.key === "?") return "help";
@@ -140,8 +142,6 @@ export interface BoardKeysOptions {
   onCreate?: () => void;
   onIsolate?: () => void;
   onHelp?: () => void;
-  /** Omit when a <CommandPalette/> is mounted — it binds ⌘K itself. */
-  onPalette?: () => void;
   onClear?: () => void;
 }
 
@@ -157,7 +157,6 @@ export function useBoardKeys(opts: BoardKeysOptions): void {
     onCreate,
     onIsolate,
     onHelp,
-    onPalette,
     onClear,
   } = opts;
 
@@ -180,7 +179,6 @@ export function useBoardKeys(opts: BoardKeysOptions): void {
         create: onCreate,
         isolate: onIsolate,
         help: onHelp,
-        palette: onPalette,
         clear: onClear,
       }[action];
       if (!handler) return; // unwired — leave the key to whoever else wants it
@@ -200,7 +198,6 @@ export function useBoardKeys(opts: BoardKeysOptions): void {
     onCreate,
     onIsolate,
     onHelp,
-    onPalette,
     onClear,
   ]);
 }

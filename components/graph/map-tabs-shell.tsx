@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useState, type ReactNode } from "react";
-import { SHELL_VIEWS, TabSwitchContext, type ShellView } from "./tab-switch-context";
+import {
+  SHELL_VIEWS,
+  SHELL_VIEW_ORDER,
+  TabSwitchContext,
+  type ShellView,
+} from "./tab-switch-context";
 
 // Client shell that hosts the three bounded boards (Roadmap / Architecture / Database) so
 // switching between them is INSTANT — no server round-trip, no canvas remount, no fitView
@@ -11,7 +16,6 @@ import { SHELL_VIEWS, TabSwitchContext, type ShellView } from "./tab-switch-cont
 // survives the switch. The URL is kept in sync via history.replaceState — a refresh or a shared
 // link still lands on the right tab — WITHOUT triggering a Next navigation (router.replace would
 // re-run the server component and defeat the whole point).
-const ORDER: ShellView[] = ["ROADMAP", "ARCHITECTURE", "DATABASE"];
 
 export function MapTabsShell({
   initialView,
@@ -48,8 +52,8 @@ export function MapTabsShell({
   };
 
   return (
-    <TabSwitchContext.Provider value={{ views: SHELL_VIEWS, switchTo }}>
-      {ORDER.map((v) =>
+    <TabSwitchContext.Provider value={{ views: SHELL_VIEWS, active: view, switchTo }}>
+      {SHELL_VIEW_ORDER.map((v) =>
         mounted.has(v) ? (
           // `contents` keeps the active board laid out exactly as if it were the page's direct
           // child (no extra box); `hidden` (display:none) parks the inactive ones at zero size

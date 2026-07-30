@@ -1,44 +1,57 @@
 import { describe, expect, it } from "bun:test";
 import {
-  GROUP_FIELD,
+  GROUP_BYS,
+  UNSET_KEY,
   buildColumns,
   columnValue,
   dependencyGraph,
   groupKey,
   type GroupableNode,
 } from "@/lib/board-grouping";
+import { roadmapLaneKey } from "@/lib/roadmap-layout";
 
 // The columns board computes its layout at RENDER time from these functions — nothing here
 // reads or writes an x/y, which is the whole point of the view. See components/columns/.
 
 function node(id: string, over: Partial<GroupableNode> = {}): GroupableNode {
-  return { id, parentId: null, status: "PENDING", priority: 2, cluster: null, layer: null, ...over };
+  return { id, parentId: null, status: "PENDING", priority: 2, cluster: null, ...over };
 }
 
 const NODES: GroupableNode[] = [
-  node("a", { status: "IN_PROGRESS", priority: 0, cluster: "AUTH", layer: "frontend" }),
-  node("b", { status: "PENDING", priority: 1, cluster: "AUTH", layer: "backend" }),
-  node("c", { status: "DONE", priority: 3, cluster: "DATA", layer: "fullstack" }),
-  node("d", { status: "PENDING", priority: 1, cluster: null, layer: null }),
+  node("a", { status: "IN_PROGRESS", priority: 0, cluster: "AUTH" }),
+  node("b", { status: "PENDING", priority: 1, cluster: "AUTH" }),
+  node("c", { status: "DONE", priority: 3, cluster: "DATA" }),
+  node("d", { status: "PENDING", priority: 1, cluster: null }),
 ];
 
 const keysOf = (cols: { key: string }[]) => cols.map((c) => c.key);
 const idsIn = (cols: { key: string; cards: GroupableNode[] }[], key: string) =>
   cols.find((c) => c.key === key)?.cards.map((n) => n.id) ?? [];
+/** Hide-empty is the COLUMNS COMPONENT's own local lens, not a buildColumns option. */
+const nonEmpty = <T extends { cards: unknown[] }>(cols: T[]) => cols.filter((c) => c.cards.length);
 
 describe("groupKey", () => {
-  it("reads the value of each dimension, normalizing layer aliases", () => {
-    const n = node("x", { status: "DONE", priority: 0, cluster: " AUTH ", layer: "FE" });
+  it("reads the value of each dimension", () => {
+    const n = node("x", { status: "DONE", priority: 0, cluster: " AUTH " });
     expect(groupKey(n, "status")).toBe("DONE");
     expect(groupKey(n, "priority")).toBe("0");
-    expect(groupKey(n, "category")).toBe("AUTH");
-    expect(groupKey(n, "layer")).toBe("frontend");
+    expect(groupKey(n, "cluster")).toBe("AUTH");
   });
 
-  it("maps an unset category/layer to the empty key", () => {
-    const n = node("x", { cluster: "   ", layer: "nonsense" });
-    expect(groupKey(n, "category")).toBe("");
-    expect(groupKey(n, "layer")).toBe("");
+  // ONE vocabulary with the canvas lanes: the dimensions carry the SAME names (the Node column
+  // each one writes — `cluster`, never a second word for it), and the unset bucket has ONE key
+  // instead of "" here and "—" there.
+  it("names its dimensions and its unset bucket exactly as the canvas lanes do", () => {
+    expect([...GROUP_BYS].sort()).toEqual(["cluster", "priority", "status"]);
+    const n = node("x", { cluster: "   " });
+    expect(groupKey(n, "cluster")).toBe(UNSET_KEY);
+    expect(groupKey(n, "cluster")).toBe(
+      roadmapLaneKey("cluster", { ...n, stateName: null, teamKey: null }),
+    );
+    expect(groupKey(n, "priority")).toBe(
+      roadmapLaneKey("priority", { ...n, stateName: null, teamKey: null }),
+    );
+    expect(columnValue("cluster", UNSET_KEY)).toBeNull();
   });
 });
 
@@ -58,15 +71,8 @@ describe("buildColumns — status", () => {
     expect(idsIn(cols, "BLOCKED")).toEqual([]);
   });
 
-  it("drops empty columns when asked", () => {
-    const cols = buildColumns(NODES, "status", { hideEmpty: true });
-    expect(keysOf(cols)).toEqual(["PENDING", "IN_PROGRESS", "DONE"]);
-  });
-
   it("appends a column for an off-list status rather than losing the card", () => {
-    const cols = buildColumns([...NODES, node("z", { status: "KEEP" })], "status", {
-      hideEmpty: true,
-    });
+    const cols = nonEmpty(buildColumns([...NODES, node("z", { status: "KEEP" })], "status"));
     expect(keysOf(cols)).toEqual(["PENDING", "IN_PROGRESS", "DONE", "KEEP"]);
   });
 
@@ -90,39 +96,27 @@ describe("buildColumns — priority", () => {
   it("carries a NUMBER as the drop value (Node.priority is numeric)", () => {
     const cols = buildColumns(NODES, "priority");
     expect(cols.map((c) => c.value)).toEqual([0, 1, 2, 3]);
-    expect(GROUP_FIELD.priority).toBe("priority");
   });
 });
 
-describe("buildColumns — category", () => {
+describe("buildColumns — cluster (the category dimension)", () => {
   it("derives columns from the data (categories are free-form), sorted, unset last", () => {
-    const cols = buildColumns(NODES, "category");
-    expect(keysOf(cols)).toEqual(["AUTH", "DATA", ""]);
+    const cols = buildColumns(NODES, "cluster");
+    expect(keysOf(cols)).toEqual(["AUTH", "DATA", UNSET_KEY]);
     expect(idsIn(cols, "AUTH")).toEqual(["a", "b"]);
-    expect(idsIn(cols, "")).toEqual(["d"]);
+    expect(idsIn(cols, UNSET_KEY)).toEqual(["d"]);
     expect(cols[2].label).toBe("No category");
     expect(cols[2].value).toBeNull();
   });
 
-  it("writes Node.cluster, not a field named 'category'", () => {
-    expect(GROUP_FIELD.category).toBe("cluster");
-    expect(columnValue("category", "AUTH")).toBe("AUTH");
-    expect(columnValue("category", "")).toBeNull();
+  it("writes the free-text value, and clears the field from the unset column", () => {
+    expect(columnValue("cluster", "AUTH")).toBe("AUTH");
+    expect(columnValue("cluster", UNSET_KEY)).toBeNull();
   });
 
   it("has no unset column when every card is categorized", () => {
-    const cols = buildColumns(NODES.slice(0, 3), "category");
+    const cols = buildColumns(NODES.slice(0, 3), "cluster");
     expect(keysOf(cols)).toEqual(["AUTH", "DATA"]);
-  });
-});
-
-describe("buildColumns — layer", () => {
-  it("offers the three layers plus an unset column", () => {
-    const cols = buildColumns(NODES, "layer");
-    expect(keysOf(cols)).toEqual(["frontend", "backend", "fullstack", ""]);
-    expect(idsIn(cols, "frontend")).toEqual(["a"]);
-    expect(idsIn(cols, "")).toEqual(["d"]);
-    expect(cols[3].label).toBe("No layer");
   });
 });
 
@@ -133,13 +127,12 @@ describe("buildColumns — card order", () => {
       node("early-p3", { priority: 3 }),
       node("mid-p0", { priority: 0 }),
     ];
-    const cols = buildColumns(cards, "status", { hideEmpty: true });
+    const cols = nonEmpty(buildColumns(cards, "status"));
     expect(cols[0].cards.map((n) => n.id)).toEqual(["late-p0", "mid-p0", "early-p3"]);
   });
 
-  it("returns an empty column list for no nodes when hiding empties", () => {
-    expect(buildColumns([], "category", { hideEmpty: true })).toEqual([]);
-    expect(buildColumns([], "category")).toEqual([]);
+  it("returns an empty column list for no nodes on a data-derived dimension", () => {
+    expect(buildColumns([], "cluster")).toEqual([]);
   });
 });
 
@@ -154,25 +147,23 @@ describe("buildColumns — sub-tasks", () => {
   ];
 
   it("gives a sub-task no card of its own, in any dimension", () => {
-    for (const by of ["status", "priority", "category", "layer"] as const) {
+    for (const by of GROUP_BYS) {
       const ids = buildColumns(withKids, by).flatMap((c) => c.cards.map((n) => n.id));
       expect(ids.sort()).toEqual(["other", "parent"]);
     }
   });
 
   it("counts only top-level cards per column (a child never inflates its own category)", () => {
-    const cols = buildColumns(withKids, "category", { hideEmpty: true });
+    const cols = nonEmpty(buildColumns(withKids, "cluster"));
     expect(keysOf(cols)).toEqual(["AUTH", "DATA"]);
     expect(idsIn(cols, "AUTH")).toEqual(["parent"]);
     expect(idsIn(cols, "DATA")).toEqual(["other"]); // kid-2 is DATA but stays off the board
     expect(cols.map((c) => c.cards.length)).toEqual([1, 1]);
   });
 
-  it("hides a column that only sub-tasks would have filled", () => {
-    const cols = buildColumns(
-      [node("p"), node("k", { parentId: "p", status: "DONE" })],
-      "status",
-      { hideEmpty: true },
+  it("leaves empty a column that only sub-tasks would have filled", () => {
+    const cols = nonEmpty(
+      buildColumns([node("p"), node("k", { parentId: "p", status: "DONE" })], "status"),
     );
     expect(keysOf(cols)).toEqual(["PENDING"]);
   });

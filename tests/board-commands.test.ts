@@ -152,14 +152,12 @@ describe("buildCommands — board actions", () => {
     expect(cleared).toEqual([1]);
   });
 
-  it("offers the optional lens toggles only when the caller wires them", () => {
-    expect(ids(buildCommands(ctx()))).not.toContain("board:hide-empty");
+  it("offers the optional lens toggle only when the caller wires it", () => {
     expect(ids(buildCommands(ctx()))).not.toContain("board:isolate");
-    const cmds = buildCommands(
-      ctx({ hideEmpty: true, toggleHideEmpty: () => {}, toggleIsolate: () => {} }),
-    );
-    expect(find(cmds, "board:hide-empty").label).toBe("Show empty lanes");
-    expect(ids(cmds)).toContain("board:isolate");
+    expect(ids(buildCommands(ctx({ toggleIsolate: () => {} })))).toContain("board:isolate");
+    // Hide-empty is the COLUMNS layout's own local lens — the canvas draws every lane because an
+    // empty one is a drop target, so the palette must not offer it at all.
+    expect(ids(buildCommands(ctx({ toggleIsolate: () => {} })))).not.toContain("board:hide-empty");
   });
 });
 

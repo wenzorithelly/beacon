@@ -7,17 +7,18 @@ import { createContext, useContext } from "react";
 // bounded by curated planning-entity counts, so cheap to hold in memory at once).
 // Tabs for views NOT in `views` (Files, whose code-graph scales with repo size) fall back to a
 // normal <Link> so that heavy data is only fetched when the tab is actually opened.
-export type ShellView = "ROADMAP" | "ARCHITECTURE" | "DATABASE";
+/** The shell's boards, in tab-strip order — the ONE list; the Set below is derived from it. */
+export const SHELL_VIEW_ORDER = ["ROADMAP", "ARCHITECTURE", "DATABASE"] as const;
+export type ShellView = (typeof SHELL_VIEW_ORDER)[number];
 
-export const SHELL_VIEWS: ReadonlySet<string> = new Set<ShellView>([
-  "ROADMAP",
-  "ARCHITECTURE",
-  "DATABASE",
-]);
+export const SHELL_VIEWS: ReadonlySet<string> = new Set<string>(SHELL_VIEW_ORDER);
 
 export interface TabSwitch {
   /** Views this shell can switch to client-side; any other tab navigates normally. */
   views: ReadonlySet<string>;
+  /** The board on screen. The others stay mounted under `display:none`, so each one reads this
+   *  to know whether it owns the keyboard, the query string and the delete key. */
+  active: ShellView;
   switchTo: (view: ShellView) => void;
 }
 

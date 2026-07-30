@@ -18,7 +18,6 @@ const full: BoardFilterState = {
   state: new Set(["In Review"]),
   layerEmphasis: "frontend",
   arrangedBy: "status",
-  hideEmpty: true,
 };
 
 const qs = (s: BoardFilterState) => serializeFilters(s).toString();
@@ -36,7 +35,6 @@ function normalize(s: BoardFilterState) {
     state: [...s.state].sort(),
     layerEmphasis: s.layerEmphasis,
     arrangedBy: s.arrangedBy,
-    hideEmpty: s.hideEmpty,
   };
 }
 
@@ -53,7 +51,7 @@ describe("serializeFilters", () => {
     expect(qs(full)).toBe(
       "status=DONE&status=IN_PROGRESS&cat=Billing&p=0&p=2&team=Terra+Nova" +
         "&project=Shimizu+PWA&milestone=Beta+launch&state=In+Review" +
-        "&layer=frontend&by=status&noempty=1",
+        "&layer=frontend&by=status",
     );
   });
 
@@ -72,8 +70,8 @@ describe("serializeFilters", () => {
     expect(parseFilters(serializeFilters(s)).cluster).toEqual(new Set(["Auth, SSO", "Data"]));
   });
 
-  it("omits hideEmpty when false and arrangedBy/layerEmphasis when null", () => {
-    expect(qs({ ...EMPTY_BOARD_FILTERS, hideEmpty: false, arrangedBy: null, layerEmphasis: null })).toBe("");
+  it("omits arrangedBy and layerEmphasis when null", () => {
+    expect(qs({ ...EMPTY_BOARD_FILTERS, arrangedBy: null, layerEmphasis: null })).toBe("");
   });
 });
 
@@ -115,11 +113,11 @@ describe("parseFilters", () => {
     expect(parseFilters("by=vibes").arrangedBy).toBe(null);
   });
 
-  it("treats only noempty=1 as true", () => {
-    expect(parseFilters("noempty=1").hideEmpty).toBe(true);
-    expect(parseFilters("noempty=0").hideEmpty).toBe(false);
-    expect(parseFilters("noempty=yes").hideEmpty).toBe(false);
-    expect(parseFilters("").hideEmpty).toBe(false);
+  // The hide-empty lens is the COLUMNS layout's own local state, so the board's URL never
+  // carried it: an old ?noempty=1 link is just another unknown key.
+  it("no longer encodes a hide-empty lens", () => {
+    expect(FILTER_PARAM_KEYS).not.toContain("noempty");
+    expect(normalize(parseFilters("noempty=1"))).toEqual(normalize(EMPTY_BOARD_FILTERS));
   });
 
   it("dedupes repeated identical values", () => {
@@ -139,7 +137,7 @@ describe("mergeFilterParams", () => {
   });
 
   it("strips stale filter keys when the filter clears", () => {
-    const current = new URLSearchParams("ws=abc&status=DONE&cat=Billing&noempty=1");
+    const current = new URLSearchParams("ws=abc&status=DONE&cat=Billing&by=status");
     expect(mergeFilterParams(current, EMPTY_BOARD_FILTERS).toString()).toBe("ws=abc");
   });
 

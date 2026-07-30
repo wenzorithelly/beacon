@@ -20,18 +20,16 @@ import type { RoadmapGroupBy } from "@/lib/roadmap-layout";
 
 /** Everything on the board that is a VIEW choice rather than data: the seven filter
  *  dimensions (from lib/map-filters — same sets the predicate consumes), plus the layer
- *  lens, the group-by dimension and the hide-empty-lanes toggle. */
+ *  lens and the group-by dimension. */
 export interface BoardFilterState extends RoadmapFilters {
   layerEmphasis: Layer | null;
   arrangedBy: RoadmapGroupBy | null;
-  hideEmpty: boolean;
 }
 
 export const EMPTY_BOARD_FILTERS: BoardFilterState = {
   ...EMPTY_ROADMAP_FILTERS,
   layerEmphasis: null,
   arrangedBy: null,
-  hideEmpty: false,
 };
 
 // Canonical key order. Also the exact set mergeFilterParams strips before rewriting, so adding
@@ -46,7 +44,6 @@ export const FILTER_PARAM_KEYS = [
   "state",
   "layer",
   "by",
-  "noempty",
 ] as const;
 
 // Which BoardFilterState Set backs each string-valued param, in canonical order.
@@ -71,7 +68,6 @@ export function serializeFilters(state: BoardFilterState): URLSearchParams {
   }
   if (state.layerEmphasis) out.append("layer", state.layerEmphasis);
   if (state.arrangedBy) out.append("by", state.arrangedBy);
-  if (state.hideEmpty) out.append("noempty", "1");
   return out;
 }
 
@@ -99,7 +95,6 @@ export function parseFilters(input: URLSearchParams | string): BoardFilterState 
     state: new Set(p.getAll("state")),
     layerEmphasis: normalizeLayer(p.get("layer")),
     arrangedBy: GROUP_BY.includes(by as RoadmapGroupBy) ? (by as RoadmapGroupBy) : null,
-    hideEmpty: p.get("noempty") === "1",
   };
 }
 

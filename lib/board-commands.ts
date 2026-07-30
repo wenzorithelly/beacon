@@ -43,8 +43,6 @@ export interface BoardCommandContext {
   /** The dimension the board is laid out by right now (null = freeform). */
   arrangedBy: RoadmapGroupBy | null;
   hasActiveFilters: boolean;
-  /** Current state of the optional hide-empty-lanes lens; only read when the toggle is wired. */
-  hideEmpty?: boolean;
 
   jumpTo: (id: string) => void;
   setStatus: (id: string, status: string) => void;
@@ -58,7 +56,6 @@ export interface BoardCommandContext {
   createBug: () => void;
   /** Optional — each of these commands is omitted when the caller does not wire it. */
   createSubtask?: (parentId: string) => void;
-  toggleHideEmpty?: () => void;
   toggleIsolate?: () => void;
 }
 
@@ -207,16 +204,6 @@ export function buildCommands(ctx: BoardCommandContext): BoardCommand[] {
     keywords: ["tidy", "layout", "lanes"],
     run: () => ctx.groupBy(ctx.arrangedBy ?? "status"),
   });
-  if (ctx.toggleHideEmpty) {
-    const toggle = ctx.toggleHideEmpty;
-    out.push({
-      id: "board:hide-empty",
-      label: ctx.hideEmpty ? "Show empty lanes" : "Hide empty lanes",
-      group: "board",
-      keywords: ["lanes", "groups"],
-      run: () => toggle(),
-    });
-  }
   if (ctx.toggleIsolate) {
     const toggle = ctx.toggleIsolate;
     out.push({

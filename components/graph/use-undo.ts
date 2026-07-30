@@ -11,7 +11,6 @@ export interface UseUndo {
   push: (entry: UndoEntry) => void;
   undo: () => void;
   redo: () => void;
-  clear: () => void;
   canUndo: boolean;
   canRedo: boolean;
   undoLabel: string | null;
@@ -42,7 +41,6 @@ export function useUndo(enabled: boolean): UseUndo {
   const undo = useCallback(() => void stack.undo(), [stack]);
   const redo = useCallback(() => void stack.redo(), [stack]);
   const push = useCallback((e: UndoEntry) => stack.push(e), [stack]);
-  const clear = useCallback(() => stack.clear(), [stack]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -65,7 +63,6 @@ export function useUndo(enabled: boolean): UseUndo {
     push,
     undo,
     redo,
-    clear,
     canUndo: stack.canUndo,
     canRedo: stack.canRedo,
     undoLabel: stack.undoLabel,

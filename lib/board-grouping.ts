@@ -10,27 +10,25 @@
 
 import { ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
 import { categoryHex } from "@/lib/category-color";
-import { LAYERS, LAYER_COLORS, LAYER_META, normalizeLayer } from "@/lib/layer";
 
-export const GROUP_BYS = ["status", "priority", "category", "layer"] as const;
+// The dimensions a board can be split by. Deliberately the SAME names and the SAME set as the
+// canvas lanes' `RoadmapGroupBy` (lib/roadmap-layout) — Columns and the canvas are two drawings of
+// ONE grouping, so `arrangedBy` feeds both directly with no translation table in between. They are
+// the Node columns a drop writes, which is why the category dimension is spelled `cluster`; the
+// user-facing word stays "Category" (GROUP_LABEL).
+export const GROUP_BYS = ["status", "priority", "cluster"] as const;
 export type GroupBy = (typeof GROUP_BYS)[number];
-
-/** The Node column each dimension writes on drop. `cluster` IS the category field. */
-export const GROUP_FIELD = {
-  status: "status",
-  priority: "priority",
-  category: "cluster",
-  layer: "layer",
-} as const satisfies Record<GroupBy, string>;
-
-export type GroupField = (typeof GROUP_FIELD)[GroupBy];
 
 export const GROUP_LABEL: Record<GroupBy, string> = {
   status: "Status",
   priority: "Priority",
-  category: "Category",
-  layer: "Layer",
+  cluster: "Category",
 };
+
+/** The key of the "no value" bucket. Same spelling `roadmapLaneKey` gives an uncategorized card,
+ *  so the canvas lane and this column name one bucket one way; `columnValue` maps it back to null
+ *  exactly as `laneFieldWrite` does. */
+export const UNSET_KEY = "—";
 
 // The board's shared color/label tables live HERE, in the pure module, and the React cards
 // (node-card.tsx, column-card.tsx, peek-panel.tsx, detail-sidebar.tsx) import them — the reverse
@@ -57,7 +55,6 @@ export interface GroupableNode {
   status: string;
   priority: number;
   cluster: string | null;
-  layer: string | null;
 }
 
 export interface GroupableEdge {
@@ -67,9 +64,9 @@ export interface GroupableEdge {
 }
 
 export interface BoardColumn<T extends GroupableNode = GroupableNode> {
-  /** Stable identity for React keys + drop targets. "" is the unset column. */
+  /** Stable identity for React keys + drop targets. UNSET_KEY is the unset column. */
   key: string;
-  /** What a drop writes into GROUP_FIELD[by]; null clears the field. */
+  /** What a drop writes into the `by` column; null clears the field. */
   value: string | number | null;
   label: string;
   /** Header dot color. */
@@ -77,24 +74,22 @@ export interface BoardColumn<T extends GroupableNode = GroupableNode> {
   cards: T[];
 }
 
-/** Which column a node belongs to, as a stable string key ("" = unset). */
+/** Which column a node belongs to, as a stable string key (UNSET_KEY = unset). */
 export function groupKey(n: GroupableNode, by: GroupBy): string {
   switch (by) {
     case "status":
       return n.status;
     case "priority":
       return String(n.priority);
-    case "category":
-      return (n.cluster ?? "").trim();
-    case "layer":
-      return normalizeLayer(n.layer) ?? "";
+    case "cluster":
+      return (n.cluster ?? "").trim() || UNSET_KEY;
   }
 }
 
-/** The value a drop on this column writes into GROUP_FIELD[by]. */
+/** The value a drop on this column writes into Node[by]. */
 export function columnValue(by: GroupBy, key: string): string | number | null {
   if (by === "priority") return Number(key);
-  return key === "" ? null : key;
+  return key === UNSET_KEY ? null : key;
 }
 
 function columnLabel(by: GroupBy, key: string): string {
@@ -103,10 +98,8 @@ function columnLabel(by: GroupBy, key: string): string {
       return STATUS_META[key]?.label ?? key;
     case "priority":
       return PRIORITY_LABELS[Number(key)] ?? `P${key}`;
-    case "category":
-      return key || "No category";
-    case "layer":
-      return key ? (LAYER_META[key as keyof typeof LAYER_META]?.label ?? key) : "No layer";
+    case "cluster":
+      return key === UNSET_KEY ? "No category" : key;
   }
 }
 
@@ -116,10 +109,8 @@ function columnColor(by: GroupBy, key: string): string {
       return STATUS_DOT[key] ?? NEUTRAL_DOT;
     case "priority":
       return PRIORITY_HUE[Number(key)] ?? NEUTRAL_DOT;
-    case "category":
-      return key ? categoryHex(key) : NEUTRAL_DOT;
-    case "layer":
-      return LAYER_COLORS[key as keyof typeof LAYER_COLORS] ?? NEUTRAL_DOT;
+    case "cluster":
+      return key === UNSET_KEY ? NEUTRAL_DOT : categoryHex(key);
   }
 }
 
@@ -131,9 +122,7 @@ function fixedKeys(by: GroupBy): readonly string[] {
       return ROADMAP_STATUSES;
     case "priority":
       return ["0", "1", "2", "3"];
-    case "layer":
-      return LAYERS;
-    case "category":
+    case "cluster":
       return [];
   }
 }
@@ -149,7 +138,6 @@ function fixedKeys(by: GroupBy): readonly string[] {
 export function buildColumns<T extends GroupableNode>(
   nodes: readonly T[],
   by: GroupBy,
-  opts: { hideEmpty?: boolean } = {},
 ): BoardColumn<T>[] {
   const buckets = new Map<string, T[]>();
   // Priority asc, incoming (createdAt) order as the stable tie-break.
@@ -163,18 +151,17 @@ export function buildColumns<T extends GroupableNode>(
   }
 
   const fixed = fixedKeys(by);
-  const extras = [...buckets.keys()].filter((k) => k !== "" && !fixed.includes(k)).sort();
+  const extras = [...buckets.keys()].filter((k) => k !== UNSET_KEY && !fixed.includes(k)).sort();
   const keys = [...fixed, ...extras];
-  if (buckets.has("")) keys.push("");
+  if (buckets.has(UNSET_KEY)) keys.push(UNSET_KEY);
 
-  const columns = keys.map((key) => ({
+  return keys.map((key) => ({
     key,
     value: columnValue(by, key),
     label: columnLabel(by, key),
     color: columnColor(by, key),
     cards: buckets.get(key) ?? [],
   }));
-  return opts.hideEmpty ? columns.filter((c) => c.cards.length > 0) : columns;
 }
 
 // A dependency you no longer wait on. Same set as lib/work-next.ts — a CANCELLED dependency is

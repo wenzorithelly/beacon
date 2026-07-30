@@ -17,7 +17,6 @@ const {
   deleteSavedView,
   getDefaultSavedView,
   listSavedViews,
-  renameSavedView,
   updateSavedView,
 } = await import("@/lib/saved-views");
 const { readBoardLayout, writeBoardLayout } = await import("@/lib/board-layout-state");
@@ -37,9 +36,7 @@ const state = (over: Record<string, unknown> = {}) => ({
   },
   layerEmphasis: "frontend",
   arrangedBy: "cluster",
-  hideEmpty: true,
   collapsed: ["node-a"],
-  groupBy: null,
   ...over,
 });
 
@@ -67,7 +64,7 @@ describe("saved views store", () => {
     expect(view.isDefault).toBe(false);
     expect(view.createdAt).toBe(view.updatedAt);
     expect(view.state.filters.priority).toEqual([0, 1]);
-    expect(view.state.hideEmpty).toBe(true);
+    expect(view.state.collapsed).toEqual(["node-a"]);
 
     expect(listSavedViews()).toEqual([view]);
     // Persisted in the shared board-layout-state file, not a second store.
@@ -76,11 +73,7 @@ describe("saved views store", () => {
   });
 
   it("fills in the fields a board didn't send", () => {
-    const view = createSavedView({
-      board: "columns",
-      name: "Columns default",
-      state: { groupBy: "status" },
-    });
+    const view = createSavedView({ board: "db", name: "Bare", state: {} });
     expect(view.state).toEqual({
       filters: {
         status: [],
@@ -93,10 +86,15 @@ describe("saved views store", () => {
       },
       layerEmphasis: null,
       arrangedBy: null,
-      hideEmpty: false,
       collapsed: [],
-      groupBy: "status",
     });
+  });
+
+  // Columns is a LAYOUT of the roadmap, not a board — it saves through "roadmap" like the canvas.
+  it("knows only the three real boards", () => {
+    expect(() => createSavedView({ board: "columns", name: "X", state: {} })).toThrow(
+      SavedViewError,
+    );
   });
 
   it("lists per board", () => {
@@ -146,25 +144,23 @@ describe("saved views store", () => {
   it("updates the stored state and renames, and returns null for an unknown id", () => {
     const view = createSavedView({ board: "roadmap", name: "Old", state: state() });
 
-    const renamed = renameSavedView(view.id, "New");
-    expect(renamed?.name).toBe("New");
+    expect(updateSavedView(view.id, { name: "New" })?.name).toBe("New");
 
-    const updated = updateSavedView(view.id, { state: state({ hideEmpty: false, collapsed: [] }) });
-    expect(updated?.state.hideEmpty).toBe(false);
+    const updated = updateSavedView(view.id, { state: state({ collapsed: [] }) });
+    expect(updated?.state.collapsed).toEqual([]);
     expect(updated?.name).toBe("New"); // a state write never clobbers the name
     expect(updated?.createdAt).toBe(view.createdAt);
     expect(listSavedViews()).toHaveLength(1);
 
     expect(updateSavedView("does-not-exist", { name: "Ghost" })).toBeNull();
-    expect(renameSavedView("does-not-exist", "Ghost")).toBeNull();
   });
 
   it("rejects renaming onto another view's name but allows a no-op rename", () => {
     const a = createSavedView({ board: "roadmap", name: "A", state: state() });
     createSavedView({ board: "roadmap", name: "B", state: state() });
-    expect(() => renameSavedView(a.id, "B")).toThrow(SavedViewError);
-    expect(() => renameSavedView(a.id, "A")).not.toThrow();
-    expect(() => renameSavedView(a.id, "")).toThrow(SavedViewError);
+    expect(() => updateSavedView(a.id, { name: "B" })).toThrow(SavedViewError);
+    expect(() => updateSavedView(a.id, { name: "A" })).not.toThrow();
+    expect(() => updateSavedView(a.id, { name: "" })).toThrow(SavedViewError);
   });
 
   it("deletes, and reports a missing id instead of silently succeeding", () => {

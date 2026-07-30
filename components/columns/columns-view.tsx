@@ -7,14 +7,12 @@ import { CardDetailModal } from "@/components/columns/peek-panel";
 import { TabBtn } from "@/components/ui/tab-button";
 import {
   GROUP_BYS,
-  GROUP_FIELD,
   GROUP_LABEL,
   buildColumns,
   dependencyGraph,
   groupKey,
   type BoardColumn,
   type GroupBy,
-  type GroupField,
 } from "@/lib/board-grouping";
 import { cn } from "@/lib/utils";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
@@ -22,8 +20,8 @@ import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
 // The COLUMNS (kanban) board — a second view over the same roadmap data as the /map canvas.
 //
 // Its defining property: layout is computed at render time and stored NOWHERE. No x/y is read,
-// no x/y is written; dragging a card between columns writes the GROUPED FIELD (status / priority
-// / cluster / layer) through the `onChangeField` callback. That's what makes this view unable to
+// no x/y is written; dragging a card between columns writes the GROUPED FIELD (status / priority /
+// cluster — the dimension name IS the Node column) through `onChangeField`. That's what makes it
 // go stale. All the grouping + blocked logic is pure and lives in lib/board-grouping.ts.
 //
 // Design ruling (owner): dependencies are shown by the board SPOTLIGHT and by the detail modal's
@@ -48,9 +46,9 @@ export interface ColumnsViewProps {
   /** Persist a field change (a drag between columns). Take the awaited, optimistic-and-rolled-back
    *  save path — this view never fetches. The detail modal writes through the same NodeEditContext
    *  the canvas uses, so its property edits don't come back through here. */
-  onChangeField: (nodeId: string, field: GroupField, value: string | number | null) => void;
+  onChangeField: (nodeId: string, field: GroupBy, value: string | number | null) => void;
   /** Create a card already carrying the target column's value ("+ Add" column foot). */
-  onAddCard: (field: GroupField, value: string | number | null) => void;
+  onAddCard: (field: GroupBy, value: string | number | null) => void;
   /** Registers the board's reconcile hold while the modal's inline description editor is open. */
   onEditingDescription?: (id: string | null) => void;
   readOnly?: boolean;
@@ -77,10 +75,6 @@ export function ColumnsView({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
-
-  // Only the dimensions the canvas can lane by too — the grouping is shared, so a Columns-only
-  // dimension would be a pill that silently un-shares the two layouts.
-  const options = useMemo(() => GROUP_BYS.filter((g) => g !== "layer"), []);
 
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   // Build EVERY column, then filter — the count of what "Hide empty" would remove is what makes
@@ -184,7 +178,7 @@ export function ColumnsView({
     if (!id || readOnly) return;
     const n = byId.get(id);
     if (!n || groupKey(n, groupBy) === col.key) return; // same column — nothing to write
-    onChangeField(id, GROUP_FIELD[groupBy], col.value);
+    onChangeField(id, groupBy, col.value);
   };
 
   const spotlightFor = (id: string): Spotlight => {
@@ -218,7 +212,7 @@ export function ColumnsView({
             aria-label="Group cards by"
             className="flex items-center gap-0.5 rounded-full border border-border p-0.5"
           >
-            {options.map((g) => (
+            {GROUP_BYS.map((g) => (
               <TabBtn key={g} pill active={groupBy === g} onClick={() => onGroupBy(g)}>
                 {GROUP_LABEL[g]}
               </TabBtn>
@@ -405,7 +399,7 @@ export function ColumnsView({
               {!readOnly && (
                 <button
                   type="button"
-                  onClick={() => onAddCard(GROUP_FIELD[groupBy], col.value)}
+                  onClick={() => onAddCard(groupBy, col.value)}
                   aria-label={`Add a card to ${col.label}`}
                   className="m-1.5 flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-active)] hover:text-foreground"
                 >

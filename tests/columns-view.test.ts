@@ -31,9 +31,12 @@ describe("columns view — stores no layout", () => {
     }
   });
 
+  // The dimension name IS the Node column it writes (status / priority / cluster), so there is no
+  // dimension→field lookup table left to get out of step with the canvas.
   it("writes the grouped FIELD on drop, not a coordinate", () => {
     const body = src("components/columns/columns-view.tsx");
-    expect(body).toContain("onChangeField(id, GROUP_FIELD[groupBy], col.value)");
+    expect(body).toContain("onChangeField(id, groupBy, col.value)");
+    expect(body).not.toContain("GROUP_FIELD");
   });
 });
 
@@ -141,8 +144,10 @@ describe("columns view — hide-empty is this layout's own, not shared board sta
     expect(body()).toContain("groupBy,");
     expect(body()).toContain("onGroupBy,");
     expect(body()).toContain("onClick={() => onGroupBy(g)}");
-    // Only dimensions the canvas can lane by too — a columns-only pill would un-share the two.
-    expect(body()).toContain('GROUP_BYS.filter((g) => g !== "layer")');
+    // GROUP_BYS IS the canvas's dimension set (same names, same three), so the pill list is that
+    // constant verbatim — no filter, and no columns-only dimension to un-share the two layouts.
+    expect(body()).toContain("{GROUP_BYS.map((g) => (");
+    expect(body()).not.toContain('g !== "layer"');
   });
 
   it("counts the empty columns and shows the count", () => {
