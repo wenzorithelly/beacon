@@ -350,7 +350,7 @@ export function NodeDetail({
         )}
       >
         {/* ── LEFT — the reading column: what you actually read, in a reading gutter ── */}
-        <div className={cn("min-w-0 flex-1 px-5 pb-3 pt-0", !stacked && "md:min-h-0 md:overflow-y-auto")}>
+        <div className={cn("min-w-0 flex-1 px-5 pb-3 pt-3", !stacked && "md:min-h-0 md:overflow-y-auto")}>
           {showBreadcrumb && (
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <Breadcrumb node={node} view={view} />
@@ -407,7 +407,7 @@ export function NodeDetail({
               mapping fixes a layout that moves underneath you. Same element throughout means the
               browser places the caret natively, exactly where you click. ── */}
           <div>
-            <div className="max-w-[72ch] pt-3">
+            <div className="max-w-[72ch]">
               {plain.trim() || !readOnly ? (
                 <RichNodeEditor
                   value={plain}

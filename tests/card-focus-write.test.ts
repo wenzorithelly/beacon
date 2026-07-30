@@ -70,8 +70,11 @@ describe("the description toolbar", () => {
     expect(sidebar).not.toContain('key="edit"');
     expect(sidebar).not.toContain('key="view"');
     expect(sidebar).toContain("onFocus={() => setEditingDesc(true)}");
-    // and the description keeps its air under the title
-    expect(sidebar).toContain('className="max-w-[72ch] pt-3"');
+    // The reading gap lives on the SCROLL CONTAINER, never on the sticky bar's parent: a sticky
+    // child cannot rise above its containing block's content box, so padding there becomes a
+    // permanent band where scrolled prose shows above the bar.
+    expect(sidebar).toContain('className="max-w-[72ch]"');
+    expect(sidebar).toContain('"min-w-0 flex-1 px-5 pb-3 pt-3"');
   });
 
   it("keeps the shared ToolbarButton (aria-label + aria-pressed come from it)", () => {
