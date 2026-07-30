@@ -51,7 +51,9 @@ describe("formatting controls are a docked bar, shown only while editable", () =
 
   it("docks the toolbar above the content, gated on editable", () => {
     expect(editor).toMatch(/\{editable && \([\s\S]{0,600}<Toolbar/);
-    expect(editor).toContain("sticky top-0");
+    // NOT sticky: prose scrolling behind a pinned bar showed through above and below it.
+    expect(editor).not.toContain("sticky top-0");
+    expect(editor).toContain("border-b border-border");
   });
 
   it("keeps the shared ToolbarButton (aria-label + aria-pressed come from it)", () => {

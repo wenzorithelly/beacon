@@ -196,14 +196,12 @@ export function EditableTitle({
   node,
   className,
   field = "title",
-  placeholder,
 }: {
   node: MapNodePayload;
   className?: string;
   /** `role` is the one-line summary under the title. It had NO inline control anywhere — its only
    *  editor was the Edit dialog, and removing that dialog left a writable field with no writer. */
   field?: "title" | "role";
-  placeholder?: string;
 }) {
   const { saveFields, readOnly } = useNodeEdit();
   const [editing, setEditing] = useState(false);
@@ -263,9 +261,7 @@ export function EditableTitle({
         className,
       )}
     >
-      {stored || (
-        <span className="text-muted-foreground/50">{placeholder ?? "Empty"}</span>
-      )}
+      {stored}
     </span>
   );
 }
@@ -363,12 +359,13 @@ export function NodeDetail({
           {showTitle && (
             <h2 className="text-base font-semibold leading-snug">
               <EditableTitle node={node} />
-              <EditableTitle
-                node={node}
-                field="role"
-                placeholder="Add a one-line summary"
-                className="mt-0.5 block text-xs font-normal text-muted-foreground"
-              />
+              {node.role ? (
+                <EditableTitle
+                  node={node}
+                  field="role"
+                  className="mt-0.5 block text-xs font-normal text-muted-foreground"
+                />
+              ) : null}
             </h2>
           )}
 

@@ -83,17 +83,17 @@ export function RichNodeEditor({
   if (!editor) return null;
   return (
     <div className="flex flex-col">
-      {/* The toolbar is DOCKED, not selection-triggered. A selection bubble costs a gesture
-          before every format and covers the words you're editing (owner call). The original
-          "toolbar pollutes the card" problem is solved a different way now: cards render their
-          description read-only, so an editable editor only ever exists while you're deliberately
-          writing — and then the controls should just be there. Sticky, so it survives scrolling
-          a long description. */}
+      {/* The toolbar is DOCKED, not selection-triggered: a selection bubble costs a gesture before
+          every format and covers the words you're editing (owner call). It is deliberately NOT
+          sticky. Sticky looked right in a static mockup and was wrong in use — prose scrolling
+          underneath showed through above and below the bar, which reads as a stray gap no amount
+          of margin-tuning can remove. Inline, the bar occupies exactly its own height and nothing
+          can pass behind it. Markdown shortcuts cover formatting once it scrolls away. */}
       {editable && (
         <div
           className={cn(
-            "nodrag nopan sticky top-0 z-10 flex items-center gap-0.5 border-b border-border bg-[var(--popover)] pb-1 pt-0",
-            roomy ? "mb-0" : "rounded-t",
+            "nodrag nopan flex items-center gap-0.5 border-b border-border pb-1",
+            roomy ? "mb-2" : "rounded-t",
           )}
         >
           <Toolbar editor={editor} compact={compact} />
