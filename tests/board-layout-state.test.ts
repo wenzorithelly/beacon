@@ -7,7 +7,7 @@ import { describe, expect, it } from "bun:test";
 const DATA_DIR = mkdtempSync(join(tmpdir(), "beacon-board-layout-"));
 process.env.BEACON_DATA_DIR = DATA_DIR;
 
-const { readBoardLayout, writeBoardLayout, BOARD_ALGO_VERSIONS } = await import(
+const { readBoardLayout, readRoadmapLayout, writeBoardLayout, BOARD_ALGO_VERSIONS } = await import(
   "@/lib/board-layout-state"
 );
 
@@ -42,6 +42,33 @@ describe("board layout state", () => {
     // A later arrangedBy write leaves the fold in place.
     writeBoardLayout("roadmap", { arrangedBy: "status" });
     expect(readBoardLayout("roadmap").collapsed).toEqual(["a", "b"]);
+  });
+
+  // Regression coverage for the roadmap Canvas/Columns toggle: app/map/page.tsx now seeds
+  // MapClient's initialLayout from readRoadmapLayout() alone (no `?layout=` URL fallback — see
+  // tests/map-client-integration.test.ts), so this disk round-trip IS the whole persistence
+  // contract. Defaults to canvas, and holds per workspace across process-local reads exactly like
+  // arrangedBy/collapsed below.
+  it("readRoadmapLayout defaults to canvas and round-trips columns/canvas", () => {
+    expect(readRoadmapLayout()).toBe("canvas");
+    writeBoardLayout("roadmap", { layout: "columns" });
+    expect(readRoadmapLayout()).toBe("columns");
+    writeBoardLayout("roadmap", { layout: "canvas" });
+    expect(readRoadmapLayout()).toBe("canvas");
+  });
+
+  it("persists layout without clobbering arrangedBy/collapsed (and vice-versa)", () => {
+    writeBoardLayout("roadmap", { arrangedBy: "cluster", collapsed: ["x"] });
+    writeBoardLayout("roadmap", { layout: "columns" });
+    expect(readBoardLayout("roadmap")).toEqual({
+      sig: "grouped-1",
+      arrangedBy: "cluster",
+      collapsed: ["x"],
+    });
+    expect(readRoadmapLayout()).toBe("columns");
+    // A later arrangedBy/collapsed write leaves the layout choice in place.
+    writeBoardLayout("roadmap", { arrangedBy: "priority" });
+    expect(readRoadmapLayout()).toBe("columns");
   });
 
   it("migrates the legacy roadmap-layout-sig.json once", () => {

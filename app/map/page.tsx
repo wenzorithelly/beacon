@@ -3,7 +3,7 @@ import { readDbBoard, readRoadmapBoard } from "@/lib/board-readers";
 import { ensureBoardArranged } from "@/lib/map-ops";
 import { resolveClassificationRoots, resolveHasFrontend } from "@/lib/project-meta";
 import { ensureDbBoardArranged } from "@/lib/board-arrange";
-import { readBoardLayout, readRoadmapLayout, type RoadmapLayout } from "@/lib/board-layout-state";
+import { readBoardLayout, readRoadmapLayout } from "@/lib/board-layout-state";
 import type { RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { MapClient } from "@/components/graph/map-client";
 import { MapTabsShell } from "@/components/graph/map-tabs-shell";
@@ -23,12 +23,16 @@ export const dynamic = "force-dynamic";
 export default async function MapPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string; ws?: string; layout?: string }>;
+  searchParams: Promise<{ view?: string; ws?: string }>;
 }) {
   const sp = await searchParams;
-  // `?view=` names a DATASET. Columns is not one — it is a rendering of the roadmap, carried by
-  // `?layout=`. The legacy `?view=COLUMNS` links (bookmarks, the old tab strip) still resolve:
-  // they land on the roadmap in its columns layout instead of 404ing or on a blank board.
+  // `?view=` names a DATASET. Columns is not one — it is a rendering of the roadmap. Which
+  // rendering is NEVER read from the URL (see readRoadmapLayout below): a `?layout=` param would
+  // outlive the click that set it — a bookmark, the desktop shell restoring its last URL, a stale
+  // nav-intent — and then permanently outrank whatever the workspace's stored preference became
+  // afterward. The old `?view=COLUMNS` link name falls through to plain ROADMAP the same way any
+  // other unrecognized `?view=` does — it still lands on a real board, just in this workspace's
+  // actual last-chosen layout instead of one forced by the link.
   const view =
     sp.view === "ARCHITECTURE"
       ? "ARCHITECTURE"
@@ -37,15 +41,6 @@ export default async function MapPage({
         : sp.view === "DATABASE"
           ? "DATABASE"
           : "ROADMAP";
-  // An explicit `?layout=` wins (a pasted link must show what it says), then the legacy view name;
-  // otherwise fall through to whatever this workspace last chose (resolved below, once the
-  // workspace is pinned — readRoadmapLayout reads that workspace's data dir).
-  const urlLayout: RoadmapLayout | null =
-    sp.layout === "columns" || sp.layout === "canvas"
-      ? sp.layout
-      : sp.view === "COLUMNS"
-        ? "columns"
-        : null;
 
   // Pin the render to THIS tab's workspace: the per-tab `?ws=` param wins (so a /map tab keeps
   // showing its repo even after opening another repo flips the browser-wide beacon_ws cookie),
@@ -175,8 +170,9 @@ export default async function MapPage({
             initialCollapsed={roadmapCollapsed}
             hasFrontend={hasFrontend}
             // Canvas or columns — ONE MapClient renders both, so the two never disagree about
-            // grouping, selection or which of them owns the keyboard.
-            initialLayout={urlLayout ?? readRoadmapLayout()}
+            // grouping, selection or which of them owns the keyboard. Disk only (this workspace's
+            // last choice) — never the URL; see the `view` comment above for why.
+            initialLayout={readRoadmapLayout()}
           />
         }
         architecture={

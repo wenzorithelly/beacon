@@ -294,28 +294,46 @@ describe("columns is a layout of the roadmap, not a tab", () => {
     expect(MAP_CLIENT).not.toContain("changeColumnsGroupBy");
   });
 
-  it("has its own toggle bound to ⌘B, persisted per workspace and in the URL", () => {
+  it("has its own toggle bound to ⌘B, persisted per workspace with no URL echo", () => {
     expect(MAP_CLIENT).toContain("function LayoutToggle(");
     expect(MAP_CLIENT).toContain('aria-label="Roadmap layout"');
     expect(MAP_CLIENT).toContain("<LayoutToggle value={layout} onChange={changeLayout} />");
     expect(BOARD_KEY_HELP.map((k) => k.keys)).toContain("⌘B");
-    const flip = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const changeLayout = useCallback")).slice(0, 1300);
-    expect(flip).toContain('url.searchParams.set("layout", "columns")');
+    const flip = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const changeLayout = useCallback")).slice(0, 700);
     expect(flip).toContain('body: JSON.stringify({ board: "roadmap", layout: next })');
-    // …and a legacy ?view=COLUMNS link is retired on the first flip, or it would drag the columns
-    // layout back on the next reload.
-    expect(flip).toContain('if (url.searchParams.get("view") === "COLUMNS") url.searchParams.set("view", "ROADMAP");');
+    // Regression guard: a `?layout=` (or retired `?view=`) written into the tab's own address bar
+    // is exactly what let a stale/reopened URL permanently outrank the workspace's stored choice —
+    // the bug this persistence is meant to fix. Disk-only now, like `arrangedBy` / `collapsed`.
+    expect(flip).not.toContain("url.searchParams");
+    expect(flip).not.toContain("history.replaceState");
     expect(MAP_CLIENT).toContain('changeLayout(layout === "canvas" ? "columns" : "canvas")');
   });
 
-  // `?view=COLUMNS` stopped being a view; the old links must still land somewhere real.
-  it("routes on ?layout=, and old ?view=COLUMNS links still open the columns layout", () => {
+  // The choice must survive a reload, a dataset-tab switch, and a fresh/reopened navigation to
+  // /map — which only holds if the server NEVER lets an incoming `?layout=`/`?view=` win over the
+  // workspace's stored preference (see lib/board-layout-state.ts's readRoadmapLayout).
+  it("seeds the roadmap layout from disk only — never from the URL", () => {
     const page = src("app/map/page.tsx");
-    expect(page).toContain("searchParams: Promise<{ view?: string; ws?: string; layout?: string }>");
-    expect(page).not.toContain('? "COLUMNS"');
-    expect(page).toContain('sp.layout === "columns" || sp.layout === "canvas"');
-    expect(page).toContain('sp.view === "COLUMNS"');
-    expect(page).toContain("initialLayout={urlLayout ?? readRoadmapLayout()}");
+    expect(page).toContain("searchParams: Promise<{ view?: string; ws?: string }>");
+    expect(page).not.toContain("urlLayout");
+    expect(page).not.toContain("sp.layout");
+    expect(page).toContain("initialLayout={readRoadmapLayout()}");
+  });
+
+  // Regression: the disk round-trip alone isn't the whole contract. The desktop shell brings
+  // Beacon back via a nav-intent (router.push, a SOFT navigation) to a tab that is ALREADY
+  // mounted — not a hard reload — so page.tsx re-reads the stored layout fresh, but useState's
+  // initializer only ever fires at first mount. Without a resync, a layout persisted in an
+  // earlier visit is correct on disk and forgotten on screen the next time the shell reuses the
+  // tab. Guarded against stomping our own in-flight write (a race with an unrelated refresh).
+  it("re-seeds layout from a fresh initialLayout prop instead of only at first mount", () => {
+    expect(MAP_CLIENT).toContain("const layoutWriteInFlight = useRef(false);");
+    expect(MAP_CLIENT).toContain(
+      "useEffect(() => {\n    if (layoutWriteInFlight.current) return;\n    setLayout(initialLayout);\n  }, [initialLayout]);",
+    );
+    const flip = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const changeLayout = useCallback")).slice(0, 700);
+    expect(flip).toContain("layoutWriteInFlight.current = true;");
+    expect(flip).toContain("layoutWriteInFlight.current = false;");
   });
 });
 

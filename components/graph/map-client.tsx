@@ -569,8 +569,8 @@ export function MapClient({
   // the banding group the layout used, so the card joins that labeled region box.
   tableNodes?: { id: string; x: number; y: number; group?: string; data: LessonTableData }[];
   // Which rendering of the ROADMAP to open with (standalone /map only) — the positioned canvas, or
-  // the columns layout over the very same nodes/edges/grouping. Seeded from `?layout=` or the
-  // workspace's last choice; ⌘B and the LayoutToggle flip it from here on.
+  // the columns layout over the very same nodes/edges/grouping. Seeded from the workspace's last
+  // choice (disk only, no URL — see changeLayout); ⌘B and the LayoutToggle flip it from here on.
   initialLayout?: RoadmapLayout;
 }) {
   // 1-based work-order rank per feature id (#1, #2, …); #1 also drives the jump button.
@@ -606,6 +606,21 @@ export function MapClient({
   // ONE instance renders both. It used to be two mounted <MapClient view="ROADMAP"/>s — which is
   // how the same board came to bind ⌘Z, j/k and the query string twice.
   const [layout, setLayout] = useState<RoadmapLayout>(initialLayout);
+  // True while OUR OWN write is in flight — guards the resync effect below from stomping an
+  // optimistic flip with the stale value an unrelated re-render just read off disk (suspect: a
+  // router.refresh() from an unrelated board change landing mid-POST).
+  const layoutWriteInFlight = useRef(false);
+  // Re-seed `layout` whenever the SERVER hands us a fresh `initialLayout`. useState's initializer
+  // only ever runs at the FIRST mount — but this board deliberately stays mounted across
+  // re-renders (see the display:none trick below), and the desktop shell reuses an already-open
+  // tab via a nav-intent (`router.push`, a SOFT navigation) rather than a hard reload whenever it
+  // brings Beacon back. That re-runs app/map/page.tsx and reads the workspace's stored layout
+  // fresh, but without this effect the mounted MapClient never sees it — a layout persisted in an
+  // earlier visit stays correct on disk and forgotten on screen forever, until a real remount.
+  useEffect(() => {
+    if (layoutWriteInFlight.current) return;
+    setLayout(initialLayout);
+  }, [initialLayout]);
   const columns = view === "ROADMAP" && !embedded && layout === "columns";
   // The columns branch used to `return` early, which UNMOUNTED React Flow: flipping back remounted
   // every card, re-measured them, re-ran the derive-on-mount lane layout and re-fit the viewport —
@@ -624,28 +639,25 @@ export function MapClient({
   // fitView frames a real box and never a 0×0 one, and stays mounted from then on.
   const [canvasMounted, setCanvasMounted] = useState(!columns);
   if (!columns && !canvasMounted) setCanvasMounted(true);
-  // Remember the choice for the workspace AND for this tab's URL, so a refresh, a shared link and
-  // the next `beacon` all come back to the layout you were last using.
+  // Remember the choice per workspace — disk only, deliberately no URL echo. A `?layout=` param
+  // written into the tab's address bar would outlive the click that set it (a bookmark, the
+  // desktop shell restoring its last URL, a stale nav-intent) and then silently outrank whatever
+  // the user picked afterward — in ANY tab, forever, since app/map/page.tsx would keep honoring
+  // it over the stored preference. Same disk-only shape as `arrangedBy` / `collapsed` above.
   const changeLayout = useCallback(
     (next: RoadmapLayout) => {
       setLayout(next);
       if (embedded || readOnly) return;
-      try {
-        const url = new URL(window.location.href);
-        if (next === "columns") url.searchParams.set("layout", "columns");
-        else url.searchParams.delete("layout");
-        // A legacy `?view=COLUMNS` link still resolves to this layout server-side, so it would
-        // out-live the flip and pull columns back on the next reload. Retire it on first touch.
-        if (url.searchParams.get("view") === "COLUMNS") url.searchParams.set("view", "ROADMAP");
-        window.history.replaceState(window.history.state, "", url);
-      } catch {
-        /* URL sync is best-effort; the layout still flips if it fails. */
-      }
+      layoutWriteInFlight.current = true;
       void fetch("/api/board-layout", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ board: "roadmap", layout: next }),
-      }).catch(() => {});
+      })
+        .catch(() => {})
+        .finally(() => {
+          layoutWriteInFlight.current = false;
+        });
     },
     [embedded, readOnly],
   );
