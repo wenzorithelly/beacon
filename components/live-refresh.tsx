@@ -7,13 +7,41 @@ import { currentTabWs } from "@/lib/tab-ws";
 import { currentTabId } from "@/lib/tab-id";
 import { isDesktopShell } from "@/lib/desktop-shell";
 
-// Subscribes to the per-workspace sync SSE stream and reacts to each `{ v, nav }` message: a new
-// nav-intent (written by the `beacon` CLI when it reuses this tab instead of opening a new one)
-// → navigate here; a version bump (the intel daemon ingested new code-derived data) → refresh
-// the open canvas in place. The EventSource carries this tab's `?ws=` so it keeps streaming its
-// own workspace even after the browser-wide beacon_ws cookie drifts to another repo. The decision
-// logic lives in the pure, unit-tested decideNav reducer; state resets on every (re)connection
-// so a reconnect re-primes and never replays the last nav-intent.
+/**
+ * Fired on `window` when a version bump was attributable to specific boards (see
+ * lib/board-revision.ts). `detail.boards` holds the board keys that changed — "roadmap", "db",
+ * "code".
+ *
+ * The event is CANCELABLE and that is the whole contract: a surface that reconciles a board
+ * itself calls `preventDefault()` to claim the change; if nobody claims it, LiveRefresh falls
+ * back to the `router.refresh()` it has always done. So every page that doesn't listen (/plan,
+ * /learn, /settings…) keeps refreshing exactly as before, and a canvas that DOES listen stops
+ * paying for a full server-component re-render on unrelated changes.
+ *
+ *   useEffect(() => {
+ *     const onBoards = (e: Event) => {
+ *       const { boards } = (e as CustomEvent<BoardsChangedDetail>).detail;
+ *       if (!boards.includes("roadmap")) return;
+ *       e.preventDefault();              // claim it — suppresses the full refresh
+ *       void refetchAndReconcileById();
+ *     };
+ *     window.addEventListener(BOARDS_CHANGED_EVENT, onBoards);
+ *     return () => window.removeEventListener(BOARDS_CHANGED_EVENT, onBoards);
+ *   }, []);
+ */
+export const BOARDS_CHANGED_EVENT = "beacon:boards-changed";
+export interface BoardsChangedDetail {
+  boards: string[];
+}
+
+// Subscribes to the per-workspace sync SSE stream and reacts to each `{ v, nav, rev }` message: a
+// new nav-intent (written by the `beacon` CLI when it reuses this tab instead of opening a new
+// one) → navigate here; a version bump → either a targeted `beacon:boards-changed` event (when
+// `rev` pins down which boards moved) or, when it can't be attributed, the full refresh. The
+// EventSource carries this tab's `?ws=` so it keeps streaming its own workspace even after the
+// browser-wide beacon_ws cookie drifts to another repo. The decision logic lives in the pure,
+// unit-tested decideNav reducer; state resets on every (re)connection so a reconnect re-primes
+// and never replays the last nav-intent.
 export function LiveRefresh() {
   const router = useRouter();
   useEffect(() => {
@@ -40,6 +68,7 @@ export function LiveRefresh() {
       let msg: {
         v?: number;
         nav?: { seq?: number; path?: string; park?: boolean; excludeTab?: string };
+        rev?: Record<string, string>;
       };
       try {
         msg = JSON.parse(e.data);
@@ -54,10 +83,21 @@ export function LiveRefresh() {
         navPath: msg.nav?.path ?? "",
         navPark: msg.nav?.park ?? false,
         navExcludeTab: msg.nav?.excludeTab ?? "",
+        rev: msg.rev,
       });
       state = next;
       if (action.kind === "refresh") {
         router.refresh();
+      } else if (action.kind === "boards") {
+        // Offer the change to whoever renders those boards. Unclaimed → the old full refresh,
+        // so a page with no listener is unaffected by any of this.
+        const claimed = !window.dispatchEvent(
+          new CustomEvent<BoardsChangedDetail>(BOARDS_CHANGED_EVENT, {
+            detail: { boards: action.boards },
+            cancelable: true,
+          }),
+        );
+        if (!claimed) router.refresh();
       } else if (action.kind === "push" && action.path) {
         router.push(action.path);
         // Best-effort: ask the browser to surface this tab. Browsers usually ignore a
