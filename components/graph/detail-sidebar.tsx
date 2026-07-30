@@ -407,7 +407,7 @@ export function NodeDetail({
               mapping fixes a layout that moves underneath you. Same element throughout means the
               browser places the caret natively, exactly where you click. ── */}
           <div>
-            <div className={cn("max-w-[72ch]", readOnly ? "pt-3" : "pt-0")}>
+            <div className="max-w-[72ch] pt-3">
               {plain.trim() || !readOnly ? (
                 <RichNodeEditor
                   value={plain}

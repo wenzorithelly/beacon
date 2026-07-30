@@ -44,22 +44,34 @@ describe("the expanded card is read-only; writing hands off to the focus modal",
 // highlight is not good... not productive at all". The original "toolbar pollutes the card"
 // complaint is answered structurally instead — cards render their description read-only, so an
 // editable editor only exists while you are deliberately writing.
-describe("formatting controls are a docked bar, shown only while editable", () => {
-  it("does not use a selection bubble", () => {
+describe("the description toolbar", () => {
+  it("is docked, not a selection bubble", () => {
     expect(editor).not.toContain("BubbleMenu");
+    expect(editor).toMatch(/\{editable && focused && \([\s\S]{0,900}<Toolbar/);
   });
 
-  it("docks the toolbar above the content, gated on editable", () => {
-    expect(editor).toMatch(/\{editable && \([\s\S]{0,600}<Toolbar/);
-    // Deliberately NOT sticky — a floating bar let scrolled prose show above and below it.
-    // The prose scrolls in its own bounded box instead, so the bar stays put with nothing behind.
-    expect(editor).not.toContain("sticky top-0");
-    expect(editor).toContain('roomy && editable && "max-h-[52vh] overflow-y-auto"');
-    // One always-mounted editor — the read-only/editable swap is what made the caret jump.
+  it("appears only once the editor has focus", () => {
+    expect(editor).toContain("const [focused, setFocused] = useState(false)");
+    expect(editor).toContain("setFocused(true)");
+    expect(editor).toContain("setFocused(false)");
+  });
+
+  it("is sticky, opaque, gutter-bleeding and borderless — the anti-ghosting contract", () => {
+    const bar = editor.slice(editor.indexOf("{editable && focused"), editor.indexOf("<EditorContent"));
+    expect(bar).toContain("sticky top-0");
+    expect(bar).toContain("bg-[var(--popover)]"); // opaque: masks prose scrolling underneath
+    expect(bar).toContain("-mx-5 px-5"); // bleeds past the pane gutter, no sliver at the edges
+    expect(bar).toContain("py-2"); // tall enough to mask a full line
+    expect(bar).not.toContain("border-b");
+  });
+
+  it("uses ONE always-mounted editor so the caret lands where you click", () => {
     const sidebar = read("components/graph/detail-sidebar.tsx");
     expect(sidebar).not.toContain('key="edit"');
     expect(sidebar).not.toContain('key="view"');
     expect(sidebar).toContain("onFocus={() => setEditingDesc(true)}");
+    // and the description keeps its air under the title
+    expect(sidebar).toContain('className="max-w-[72ch] pt-3"');
   });
 
   it("keeps the shared ToolbarButton (aria-label + aria-pressed come from it)", () => {

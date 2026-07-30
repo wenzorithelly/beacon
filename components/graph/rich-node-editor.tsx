@@ -49,6 +49,10 @@ export function RichNodeEditor({
   // description) the editor renders its content but can't be typed into.
   editable?: boolean;
 }) {
+  // Toolbar shows only while the editor has focus. Safe now that the editor is always mounted:
+  // the caret is a DOM selection, so the bar appearing after your click shifts the layout but
+  // never moves the caret (the remount was what used to lose it).
+  const [focused, setFocused] = useState(false);
   const editor = useEditor({
     editable,
     extensions: [
@@ -66,8 +70,14 @@ export function RichNodeEditor({
       },
     },
     onUpdate: ({ editor }) => onChange(docToMarkdown(editor.getJSON())),
-    onBlur: () => onBlur?.(),
-    onFocus: () => onFocus?.(),
+    onBlur: () => {
+      setFocused(false);
+      onBlur?.();
+    },
+    onFocus: () => {
+      setFocused(true);
+      onFocus?.();
+    },
   });
 
   // Keep the editor's editable flag in sync if it ever flips after mount.
@@ -86,18 +96,22 @@ export function RichNodeEditor({
   if (!editor) return null;
   return (
     <div className="flex flex-col">
-      {/* Docked, not selection-triggered: a bubble costs a gesture before every format and covers
-          the words you're editing (owner call).
-          NOT sticky. Sticky kept letting prose show through above and below the bar — the bar
-          floats over a scroll container whose contents I could not reliably keep out from under
-          it, and every fix was another guess. Instead the PROSE owns a bounded scroll area and
-          the bar sits statically above it: the bar is always visible while editing (the point of
-          sticky) and nothing can ever pass behind it (the bug sticky kept reintroducing). */}
-      {editable && (
+      {/* Requirements this satisfies together — each one was broken by fixing another in turn:
+            · docked, not a selection bubble (a bubble costs a gesture and covers the words)
+            · only once you've clicked INTO the text, never while merely reading
+            · sticky, so it stays reachable down a long description
+            · no border under it
+            · no ghost band: it is OPAQUE, bleeds past the pane's px-5 reading gutter, and carries
+              enough vertical padding to fully mask a line passing underneath. Confined to the
+              text column with hairline padding, scrolled glyphs peeked around its edges and read
+              as a stray gap — that was never a margin problem.
+          Safe to mount on focus because the editor itself is never remounted: the caret is a DOM
+          selection, so the bar appearing shifts the layout without moving the caret. */}
+      {editable && focused && (
         <div
           className={cn(
-            "nodrag nopan flex shrink-0 items-center gap-0.5 pb-1",
-            roomy ? "mb-2" : "rounded-t",
+            "nodrag nopan sticky top-0 z-10 flex shrink-0 items-center gap-0.5 bg-[var(--popover)] py-2",
+            roomy && "-mx-5 px-5",
           )}
         >
           <Toolbar editor={editor} compact={compact} />
@@ -121,7 +135,6 @@ export function RichNodeEditor({
                 ? "min-h-[3.5rem] bg-[var(--ink-hover)] px-1.5 py-1 text-xs focus-within:bg-[var(--ink-active)]"
                 : "text-xs",
           compact && "max-h-[24rem] overflow-y-auto",
-          roomy && editable && "max-h-[52vh] overflow-y-auto",
         )}
       />
     </div>
