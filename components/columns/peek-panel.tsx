@@ -133,6 +133,14 @@ export function CardDetailModal({
           <DialogTitle className="mt-1 text-sm leading-snug font-semibold">
             <EditableTitle node={current} />
           </DialogTitle>
+          {/* The one-line summary. Its only editor used to be the Edit dialog; that dialog is
+              gone, so without this the field is writable by the agent and uneditable by you. */}
+          <EditableTitle
+            node={current}
+            field="role"
+            placeholder="Add a one-line summary"
+            className="mt-1 block text-xs font-normal text-muted-foreground"
+          />
           {atRoot && blocked && (
             <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium text-orange-700 dark:text-orange-300">
               <Lock className="size-3" />

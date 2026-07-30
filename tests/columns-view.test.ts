@@ -299,3 +299,27 @@ describe("columns view — accessible names on icon-only controls", () => {
     expect(body).toContain('e.key !== "ArrowUp" && e.key !== "ArrowDown"');
   });
 });
+
+// Removing the Edit dialog (modal-on-modal) left `role` — the one-line summary — writable by the
+// agent via PERSIST_FIELDS but with no editor anywhere in the UI. It now has an inline one.
+describe("role keeps an editing path after the Edit dialog was removed", () => {
+  it("renders an inline editor for role in both detail hosts", () => {
+    const sidebar = src("components/graph/detail-sidebar.tsx");
+    const modal = src("components/columns/peek-panel.tsx");
+    expect(sidebar).toContain('field?: "title" | "role"');
+    expect(sidebar).toMatch(/field="role"/);
+    expect(modal).toMatch(/field="role"/);
+  });
+
+  it("clears role to null when emptied, but never blanks a required title", () => {
+    const sidebar = src("components/graph/detail-sidebar.tsx");
+    expect(sidebar).toContain("saveFields(node.id, { role: v || null })");
+    expect(sidebar).toContain("else setValue(node.title)");
+  });
+
+  it("no longer offers an edit-mode NodeFormDialog (create-only, for sub-nodes)", () => {
+    const sidebar = src("components/graph/detail-sidebar.tsx");
+    expect(sidebar).not.toContain('mode="edit"');
+    expect(sidebar).toContain('mode="create"');
+  });
+});

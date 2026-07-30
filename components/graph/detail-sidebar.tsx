@@ -192,18 +192,36 @@ export function Breadcrumb({ node, view }: { node: MapNodePayload; view: string 
 /** The card title, click-to-edit — Linear style: no separate edit dialog, the text itself becomes
  *  the field. Shared by the modal's DialogTitle and this file's own `showTitle` heading, so there
  *  is exactly one editable-title implementation for both card-detail hosts. */
-export function EditableTitle({ node, className }: { node: MapNodePayload; className?: string }) {
+export function EditableTitle({
+  node,
+  className,
+  field = "title",
+  placeholder,
+}: {
+  node: MapNodePayload;
+  className?: string;
+  /** `role` is the one-line summary under the title. It had NO inline control anywhere — its only
+   *  editor was the Edit dialog, and removing that dialog left a writable field with no writer. */
+  field?: "title" | "role";
+  placeholder?: string;
+}) {
   const { saveFields, readOnly } = useNodeEdit();
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(node.title);
+  const stored = (field === "title" ? node.title : node.role) ?? "";
+  const [value, setValue] = useState(stored);
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setValue(node.title), [node.id, node.title]);
+  useEffect(() => setValue(stored), [node.id, stored]);
 
   const commit = () => {
     setEditing(false);
     const v = value.trim();
-    if (v && v !== node.title) void saveFields(node.id, { title: v });
-    else setValue(node.title);
+    // A title is required, so an empty one reverts; role is optional and clears to null.
+    if (field === "title") {
+      if (v && v !== node.title) void saveFields(node.id, { title: v });
+      else setValue(node.title);
+      return;
+    }
+    if (v !== (node.role ?? "")) void saveFields(node.id, { role: v || null });
   };
 
   if (editing && !readOnly) {
@@ -219,7 +237,7 @@ export function EditableTitle({ node, className }: { node: MapNodePayload; class
             e.preventDefault();
             e.currentTarget.blur();
           } else if (e.key === "Escape") {
-            setValue(node.title);
+            setValue(stored);
             setEditing(false);
           }
         }}
@@ -245,7 +263,9 @@ export function EditableTitle({ node, className }: { node: MapNodePayload; class
         className,
       )}
     >
-      {node.title}
+      {stored || (
+        <span className="text-muted-foreground/50">{placeholder ?? "Empty"}</span>
+      )}
     </span>
   );
 }
@@ -343,6 +363,12 @@ export function NodeDetail({
           {showTitle && (
             <h2 className="text-base font-semibold leading-snug">
               <EditableTitle node={node} />
+              <EditableTitle
+                node={node}
+                field="role"
+                placeholder="Add a one-line summary"
+                className="mt-0.5 block text-xs font-normal text-muted-foreground"
+              />
             </h2>
           )}
 
@@ -381,7 +407,9 @@ export function NodeDetail({
               body starts straight under the title, and writing happens in place via the selection
               bubble, so a second full-screen editor was one surface too many. ── */}
           <div>
-            <div className="max-w-[72ch]">
+            {/* Flush to the top only while EDITING, where the docked toolbar is the thing that
+                should sit under the header. Reading needs air. */}
+            <div className={cn("max-w-[72ch]", editingDesc && !readOnly ? "pt-0" : "pt-3")}>
               {editingDesc && !readOnly ? (
                 <RichNodeEditor
                   key="edit"

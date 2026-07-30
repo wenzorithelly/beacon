@@ -92,7 +92,7 @@ export function RichNodeEditor({
       {editable && (
         <div
           className={cn(
-            "nodrag nopan sticky top-0 z-10 flex items-center gap-0.5 border-b border-border bg-[var(--popover)] pb-1 pt-1",
+            "nodrag nopan sticky top-0 z-10 flex items-center gap-0.5 border-b border-border bg-[var(--popover)] pb-1 pt-0",
             roomy ? "mb-0" : "rounded-t",
           )}
         >
