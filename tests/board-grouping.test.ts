@@ -9,6 +9,7 @@ import {
   type GroupableNode,
 } from "@/lib/board-grouping";
 import { roadmapLaneKey } from "@/lib/roadmap-layout";
+import { ROADMAP_STATUSES } from "@/lib/constants";
 
 // The columns board computes its layout at RENDER time from these functions — nothing here
 // reads or writes an x/y, which is the whole point of the view. See components/columns/.
@@ -252,5 +253,66 @@ describe("dependencyGraph", () => {
     const g = dependencyGraph(nodes, []);
     expect(g.blocked.size).toBe(0);
     expect(Object.keys(g.blockedBy)).toEqual([]);
+  });
+});
+
+// Once Linear is connected the workspace speaks ONE status vocabulary: the team's real workflow
+// states. The columns board must show THOSE, not Beacon's five — the reported gap was "the status
+// are not being transmitted to the columns".
+describe("buildColumns — status with a Linear vocabulary", () => {
+  const STATES = [
+    { id: "s-backlog", name: "Backlog", color: "#bec2c8", type: "backlog", position: 0 },
+    { id: "s-todo", name: "Todo", color: "#e2e2e2", type: "unstarted", position: 1 },
+    { id: "s-started", name: "In Progress", color: "#f2c94c", type: "started", position: 2 },
+    { id: "s-review", name: "In Review", color: "#0f783c", type: "started", position: 3 },
+    { id: "s-done", name: "Done", color: "#5e6ad2", type: "completed", position: 4 },
+  ];
+  const linear = (id: string, state: { name: string; type: string }, over = {}) =>
+    node(id, { ...over, externalMeta: { state } } as Parameters<typeof node>[1]);
+
+  it("uses the team's states as the columns, in Linear's order — Beacon's five never appear", () => {
+    const cols = buildColumns([node("a")], "status", STATES);
+    expect(keysOf(cols)).toEqual(["Backlog", "Todo", "In Progress", "In Review", "Done"]);
+    expect(cols.map((c) => c.label)).toEqual(["Backlog", "Todo", "In Progress", "In Review", "Done"]);
+  });
+
+  it("files a Linear card by ITS OWN state, so two started states stay apart", () => {
+    const cols = buildColumns(
+      [
+        linear("in-prog", { name: "In Progress", type: "started" }),
+        linear("in-rev", { name: "In Review", type: "started" }),
+      ],
+      "status",
+      STATES,
+    );
+    expect(idsIn(cols, "In Progress")).toEqual(["in-prog"]);
+    expect(idsIn(cols, "In Review")).toEqual(["in-rev"]);
+  });
+
+  it("files a Beacon-native card into the vocabulary column its status maps onto", () => {
+    // No externalMeta at all — it still belongs on the one set of columns, not a Beacon-status one.
+    const cols = buildColumns([node("native", { status: "IN_PROGRESS" })], "status", STATES);
+    expect(idsIn(cols, "In Progress")).toEqual(["native"]);
+    expect(keysOf(cols)).not.toContain("IN_PROGRESS");
+  });
+
+  it("carries the state's own color and a stateId a drop can write", () => {
+    const cols = buildColumns([], "status", STATES);
+    const review = cols.find((c) => c.key === "In Review")!;
+    expect(review.color).toBe("#0f783c");
+    expect(review.stateId).toBe("s-review");
+  });
+
+  it("gives a card from ANOTHER team's state its own column rather than dropping it", () => {
+    const cols = buildColumns([linear("x", { name: "Shipping", type: "started" })], "status", STATES);
+    expect(keysOf(cols)).toContain("Shipping");
+    expect(idsIn(cols, "Shipping")).toEqual(["x"]);
+    expect(cols.find((c) => c.key === "Shipping")!.stateId).toBeUndefined(); // not droppable-as-state
+  });
+
+  it("falls back to Beacon's statuses with no vocabulary (Linear not connected)", () => {
+    const cols = buildColumns([node("a")], "status", []);
+    expect(keysOf(cols)).toEqual([...ROADMAP_STATUSES]);
+    expect(cols.every((c) => c.stateId === undefined)).toBe(true);
   });
 });

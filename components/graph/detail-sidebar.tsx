@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Boxes,
@@ -61,48 +61,11 @@ import { NodeFormDialog } from "@/components/graph/node-form-dialog";
 import { useNodeEdit } from "@/components/graph/node-edit-context";
 import { LAYER_META, normalizeLayer } from "@/lib/layer";
 import { linearStateToStatus } from "@/lib/linear/mapping";
+import { useLinearStates } from "@/lib/use-linear-states";
 import { cn } from "@/lib/utils";
 import type { MapNodePayload } from "@/components/graph/types";
-import type { LinearWorkflowState } from "@/lib/linear/types";
 import type { ReactNode } from "react";
 
-// The workspace's Linear status vocabulary — one unchanging list per team, read by every card that
-// mounts a Status picker. Modelled as an external store rather than per-component state: opening
-// ten cards must not mean ten round-trips, and a plain useState+useEffect would setState
-// synchronously on a cache hit (a cascading render the compiler rightly rejects).
-const NO_STATES: LinearWorkflowState[] = []; // stable identity — getSnapshot must not allocate
-const STATES_CACHE = new Map<string, LinearWorkflowState[]>();
-const STATES_INFLIGHT = new Map<string, Promise<void>>();
-const STATES_LISTENERS = new Set<() => void>();
-
-function loadLinearStates(key: string, teamId: string | undefined): void {
-  if (STATES_CACHE.has(key) || STATES_INFLIGHT.has(key)) return;
-  const p = fetch(`/api/linear/status${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ""}`)
-    .then((r) => (r.ok ? r.json() : { states: [] }))
-    .then((d: { states?: LinearWorkflowState[] }) => {
-      STATES_CACHE.set(key, d.states?.length ? d.states : NO_STATES);
-      for (const l of STATES_LISTENERS) l();
-    })
-    // A failed lookup must not wedge the picker: nothing is cached, so the next card retries, and
-    // the empty list falls back to Beacon's own statuses meanwhile.
-    .catch(() => {})
-    .finally(() => STATES_INFLIGHT.delete(key));
-  STATES_INFLIGHT.set(key, p);
-}
-
-function useLinearStates(teamId: string | undefined): LinearWorkflowState[] {
-  const key = teamId ?? "";
-  const states = useSyncExternalStore(
-    (cb) => {
-      STATES_LISTENERS.add(cb);
-      return () => STATES_LISTENERS.delete(cb);
-    },
-    () => STATES_CACHE.get(key) ?? NO_STATES,
-    () => NO_STATES, // server render: no vocabulary, Beacon's statuses
-  );
-  useEffect(() => loadLinearStates(key, teamId), [key, teamId]);
-  return states;
-}
 
 export type SidebarTab = PanelTab;
 

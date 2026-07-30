@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Check, MessageSquarePlus, Trash2, Send, Strikethrough, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clampToViewport } from "@/lib/popover-position";
+import { findExcerptSpan } from "@/lib/excerpt-match";
 import { currentPlanWs, wsHeaders } from "@/components/plan/use-plan-ws";
 import type { TextAnnotation } from "@/lib/annotations";
 import {
@@ -56,8 +57,9 @@ function findFirstTextRange(root: HTMLElement, query: string): Range | null {
     nodes.push({ node: n, start: full.length });
     full += n.nodeValue ?? "";
   }
-  const idx = full.indexOf(query);
-  if (idx < 0) return null;
+  const span = findExcerptSpan(full, query);
+  if (!span) return null;
+  const idx = span.start;
   const locate = (pos: number) => {
     for (let i = nodes.length - 1; i >= 0; i--) {
       if (nodes[i].start <= pos) return { node: nodes[i].node, offset: pos - nodes[i].start };
@@ -65,7 +67,7 @@ function findFirstTextRange(root: HTMLElement, query: string): Range | null {
     return null;
   };
   const s = locate(idx);
-  const e = locate(idx + query.length);
+  const e = locate(span.end);
   if (!s || !e) return null;
   const range = document.createRange();
   range.setStart(s.node, s.offset);
@@ -493,9 +495,14 @@ export function AnnotationPanel({
 
       {/* `shell:pt-3` (not pt-0): no floating in-page nav to clear under the desktop shell, but the
           markdown's H1 sat flush against the chrome bar — see plan-toc.tsx for the same reasoning. */}
+      {/* overflow-x-hidden is NOT redundant next to overflow-y-auto: CSS promotes the other axis
+          from `visible` to `auto`, so a y-only scroller silently gains a horizontal scrollbar the
+          moment anything inside is a pixel too wide. Prose here wraps ([overflow-wrap:anywhere]),
+          and the blocks that legitimately need width — code fences, tables — carry their own
+          overflow-x-auto, so nothing is lost by clipping at this level. */}
       <div
         ref={docRef}
-        className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-16 text-[15px] leading-[1.6] selection:bg-[var(--accent-2,#ff7a45)]/30 shell:pt-3"
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 pb-5 pt-16 text-[15px] leading-[1.6] selection:bg-[var(--accent-2,#ff7a45)]/30 shell:pt-3"
       >
         <RenderedMarkdown
           markdown={markdown}

@@ -1280,6 +1280,19 @@ export function MapClient({
     },
     [saveFields],
   );
+  /** Drop onto a Linear workflow-state column. Goes through the status route, not saveFields: the
+   *  Beacon status is DERIVED from the state's type there, and a Linear-sourced card also pushes
+   *  the new state to its issue. Refresh after, so the card re-renders under its new column. */
+  const changeStatusState = useCallback(
+    (nodeId: string, stateId: string) => {
+      void fetch("/api/linear/status", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nodeId, stateId }),
+      }).then(() => router.refresh());
+    },
+    [router],
+  );
   const addCardInColumn = useCallback(
     (field: GroupBy, value: string | number | null) => {
       const init =
@@ -3050,6 +3063,7 @@ export function MapClient({
             onGroupBy={arrange}
             readOnly={readOnly}
             onChangeField={changeField}
+            onChangeStatusState={changeStatusState}
             onAddCard={addCardInColumn}
             onEditingDescription={setDescEditingId}
             className="pt-[var(--board-row2)]"

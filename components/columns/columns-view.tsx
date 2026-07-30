@@ -14,6 +14,7 @@ import {
   type BoardColumn,
   type GroupBy,
 } from "@/lib/board-grouping";
+import { useLinearStates } from "@/lib/use-linear-states";
 import { cn } from "@/lib/utils";
 import type { MapEdgePayload, MapNodePayload } from "@/components/graph/types";
 
@@ -47,6 +48,10 @@ export interface ColumnsViewProps {
    *  save path — this view never fetches. The detail modal writes through the same NodeEditContext
    *  the canvas uses, so its property edits don't come back through here. */
   onChangeField: (nodeId: string, field: GroupBy, value: string | number | null) => void;
+  /** Drop onto a Linear workflow-state column. Separate from onChangeField because it writes a
+   *  STATE, not a Beacon status: the card's own status is derived from the state's type, and a
+   *  Linear-sourced card also pushes the change to the issue. */
+  onChangeStatusState?: (nodeId: string, stateId: string) => void;
   /** Create a card already carrying the target column's value ("+ Add" column foot). */
   onAddCard: (field: GroupBy, value: string | number | null) => void;
   /** Registers the board's reconcile hold while the modal's inline description editor is open. */
@@ -61,11 +66,16 @@ export function ColumnsView({
   groupBy,
   onGroupBy,
   onChangeField,
+  onChangeStatusState,
   onAddCard,
   onEditingDescription,
   readOnly = false,
   className,
 }: ColumnsViewProps) {
+  // The workspace's status vocabulary. When Linear is connected the STATUS columns are the team's
+  // own workflow states (Backlog / Todo / In Progress / In Review / …), in Linear's order — the
+  // same buckets the canvas lanes use, so flipping layout doesn't re-file anything.
+  const linearStates = useLinearStates();
   // Hide-empty stays LOCAL and columns-only: an empty column here is a full-height shelf, while on
   // the canvas an empty lane is the only drop target for that status.
   const [hideEmpty, setHideEmpty] = useState(false);
@@ -84,7 +94,10 @@ export function ColumnsView({
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   // Build EVERY column, then filter — the count of what "Hide empty" would remove is what makes
   // the toggle legible (a switch that can silently do nothing reads as broken).
-  const allColumns = useMemo(() => buildColumns(nodes, groupBy), [nodes, groupBy]);
+  const allColumns = useMemo(
+    () => buildColumns(nodes, groupBy, linearStates),
+    [nodes, groupBy, linearStates],
+  );
   const emptyCount = allColumns.filter((c) => c.cards.length === 0).length;
   const columns = hideEmpty ? allColumns.filter((c) => c.cards.length > 0) : allColumns;
   const cardCount = allColumns.reduce((sum, c) => sum + c.cards.length, 0);
@@ -136,13 +149,13 @@ export function ColumnsView({
     (id: string) => {
       const n = byId.get(id);
       if (!n) return;
-      const key = groupKey(n, groupBy);
+      const key = groupKey(n, groupBy, linearStates);
       setCollapsed((c) => (c.has(key) ? new Set([...c].filter((k) => k !== key)) : c));
       setSelectedId(id);
       setDetailOpen(false);
       requestAnimationFrame(() => reveal(id));
     },
-    [byId, groupBy, reveal],
+    [byId, groupBy, linearStates, reveal],
   );
 
   // Keyboard: Escape clears the spotlight (the modal owns its own Escape); Enter opens the detail
@@ -191,8 +204,10 @@ export function ColumnsView({
     setDragOverKey(null);
     if (!id || readOnly) return;
     const n = byId.get(id);
-    if (!n || groupKey(n, groupBy) === col.key) return; // same column — nothing to write
-    onChangeField(id, groupBy, col.value);
+    if (!n || groupKey(n, groupBy, linearStates) === col.key) return; // same column — nothing to write
+    // A workflow-state column writes the STATE; everything else writes the grouped field directly.
+    if (col.stateId && onChangeStatusState) onChangeStatusState(id, col.stateId);
+    else onChangeField(id, groupBy, col.value);
   };
 
   const spotlightFor = (id: string): Spotlight => {

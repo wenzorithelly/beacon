@@ -10,6 +10,8 @@
 
 import { ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
 import { categoryHex } from "@/lib/category-color";
+import { linearStateToStatus } from "@/lib/linear/mapping";
+import type { LinearWorkflowState } from "@/lib/linear/types";
 
 // The dimensions a board can be split by. Deliberately the SAME names and the SAME set as the
 // canvas lanes' `RoadmapGroupBy` (lib/roadmap-layout) — Columns and the canvas are two drawings of
@@ -52,6 +54,9 @@ export interface GroupableNode {
   id: string;
   /** Non-null on a sub-task — the card renders its parent's title above its own. */
   parentId: string | null;
+  /** The Linear workflow state the card is in, when it has one. Structural on purpose — it's the
+   *  slice of ExternalMeta the status grouping needs, so MapNodePayload satisfies it as-is. */
+  externalMeta?: { state?: { name?: string; type?: string } | null } | null;
   status: string;
   priority: number;
   cluster: string | null;
@@ -71,14 +76,30 @@ export interface BoardColumn<T extends GroupableNode = GroupableNode> {
   label: string;
   /** Header dot color. */
   color: string;
+  /** Set on a Linear workflow-state column: a drop writes THIS state, not a Beacon status. */
+  stateId?: string;
   cards: T[];
 }
 
-/** Which column a node belongs to, as a stable string key (UNSET_KEY = unset). */
-export function groupKey(n: GroupableNode, by: GroupBy): string {
+/** The workspace's status vocabulary — the Linear team's real workflow states, in Linear's order.
+ *  Empty (or absent) means no Linear integration, and the board falls back to Beacon's own five. */
+export type StatusVocabulary = readonly LinearWorkflowState[];
+
+/** Which column a node belongs to, as a stable string key (UNSET_KEY = unset).
+ *
+ *  With a vocabulary, the status dimension is keyed by the workflow-state NAME rather than by
+ *  Beacon's internal status — the same thing the canvas lanes do (statusLaneKey), so a card sits in
+ *  the same bucket on both surfaces. Keyed by name, not id, because a Beacon-native card has no
+ *  state id but still belongs in a named column: one board, one set of columns. */
+export function groupKey(n: GroupableNode, by: GroupBy, states?: StatusVocabulary): string {
   switch (by) {
-    case "status":
-      return n.status;
+    case "status": {
+      const name = n.externalMeta?.state?.name?.trim();
+      if (name) return name;
+      if (!states?.length) return n.status;
+      // No Linear state of its own → the vocabulary column its Beacon status maps onto.
+      return states.find((s) => linearStateToStatus(s.type) === n.status)?.name ?? n.status;
+    }
     case "priority":
       return String(n.priority);
     case "cluster":
@@ -95,6 +116,8 @@ export function columnValue(by: GroupBy, key: string): string | number | null {
 function columnLabel(by: GroupBy, key: string): string {
   switch (by) {
     case "status":
+      // A vocabulary column's key IS its Linear name, and no Beacon status is spelled that way —
+      // so the lookup misses and the name falls through unchanged.
       return STATUS_META[key]?.label ?? key;
     case "priority":
       return PRIORITY_LABELS[Number(key)] ?? `P${key}`;
@@ -103,10 +126,10 @@ function columnLabel(by: GroupBy, key: string): string {
   }
 }
 
-function columnColor(by: GroupBy, key: string): string {
+function columnColor(by: GroupBy, key: string, states?: StatusVocabulary): string {
   switch (by) {
     case "status":
-      return STATUS_DOT[key] ?? NEUTRAL_DOT;
+      return states?.find((s) => s.name === key)?.color ?? STATUS_DOT[key] ?? NEUTRAL_DOT;
     case "priority":
       return PRIORITY_HUE[Number(key)] ?? NEUTRAL_DOT;
     case "cluster":
@@ -115,11 +138,15 @@ function columnColor(by: GroupBy, key: string): string {
 }
 
 /** The fixed columns a dimension always offers, regardless of what's on the board. Category is
- *  free-form, so it has none — its columns come entirely from the data. */
-function fixedKeys(by: GroupBy): readonly string[] {
+ *  free-form, so it has none — its columns come entirely from the data.
+ *
+ *  With a vocabulary the status columns ARE the team's workflow states, in Linear's own order —
+ *  Beacon's five never appear. A card carrying some other team's state still gets a column, because
+ *  buildColumns appends whatever keys the data introduced. */
+function fixedKeys(by: GroupBy, states?: StatusVocabulary): readonly string[] {
   switch (by) {
     case "status":
-      return ROADMAP_STATUSES;
+      return states?.length ? states.map((s) => s.name) : ROADMAP_STATUSES;
     case "priority":
       return ["0", "1", "2", "3"];
     case "cluster":
@@ -138,28 +165,32 @@ function fixedKeys(by: GroupBy): readonly string[] {
 export function buildColumns<T extends GroupableNode>(
   nodes: readonly T[],
   by: GroupBy,
+  states?: StatusVocabulary,
 ): BoardColumn<T>[] {
   const buckets = new Map<string, T[]>();
   // Priority asc, incoming (createdAt) order as the stable tie-break.
   const ordered = nodes.map((n, i) => ({ n, i }));
   ordered.sort((a, b) => a.n.priority - b.n.priority || a.i - b.i);
   for (const { n } of ordered) {
-    const k = groupKey(n, by);
+    const k = groupKey(n, by, states);
     const bucket = buckets.get(k);
     if (bucket) bucket.push(n);
     else buckets.set(k, [n]);
   }
 
-  const fixed = fixedKeys(by);
+  const fixed = fixedKeys(by, states);
   const extras = [...buckets.keys()].filter((k) => k !== UNSET_KEY && !fixed.includes(k)).sort();
   const keys = [...fixed, ...extras];
   if (buckets.has(UNSET_KEY)) keys.push(UNSET_KEY);
 
+  const stateByName = new Map((states ?? []).map((s) => [s.name, s]));
   return keys.map((key) => ({
     key,
     value: columnValue(by, key),
     label: columnLabel(by, key),
-    color: columnColor(by, key),
+    color: columnColor(by, key, states),
+    // Only a column backed by a real workflow state can be dropped onto as a state write.
+    ...(by === "status" && stateByName.has(key) ? { stateId: stateByName.get(key)!.id } : {}),
     cards: buckets.get(key) ?? [],
   }));
 }
