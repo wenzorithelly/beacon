@@ -12,7 +12,7 @@ import {
 // reads or writes an x/y, which is the whole point of the view. See components/columns/.
 
 function node(id: string, over: Partial<GroupableNode> = {}): GroupableNode {
-  return { id, status: "PENDING", priority: 2, cluster: null, layer: null, ...over };
+  return { id, parentId: null, status: "PENDING", priority: 2, cluster: null, layer: null, ...over };
 }
 
 const NODES: GroupableNode[] = [
@@ -143,6 +143,41 @@ describe("buildColumns — card order", () => {
   });
 });
 
+describe("buildColumns — sub-tasks", () => {
+  // A column board shows TOP-LEVEL cards only (Linear/GitHub Projects treat sub-issues the same,
+  // and the canvas nests them under their parent). The parent's sub-task progress bar carries them.
+  const withKids = [
+    node("parent", { status: "IN_PROGRESS", cluster: "AUTH", priority: 0 }),
+    node("kid-1", { parentId: "parent", status: "DONE", cluster: "AUTH", priority: 0 }),
+    node("kid-2", { parentId: "parent", status: "PENDING", cluster: "DATA", priority: 1 }),
+    node("other", { status: "PENDING", cluster: "DATA", priority: 1 }),
+  ];
+
+  it("gives a sub-task no card of its own, in any dimension", () => {
+    for (const by of ["status", "priority", "category", "layer"] as const) {
+      const ids = buildColumns(withKids, by).flatMap((c) => c.cards.map((n) => n.id));
+      expect(ids.sort()).toEqual(["other", "parent"]);
+    }
+  });
+
+  it("counts only top-level cards per column (a child never inflates its own category)", () => {
+    const cols = buildColumns(withKids, "category", { hideEmpty: true });
+    expect(keysOf(cols)).toEqual(["AUTH", "DATA"]);
+    expect(idsIn(cols, "AUTH")).toEqual(["parent"]);
+    expect(idsIn(cols, "DATA")).toEqual(["other"]); // kid-2 is DATA but stays off the board
+    expect(cols.map((c) => c.cards.length)).toEqual([1, 1]);
+  });
+
+  it("hides a column that only sub-tasks would have filled", () => {
+    const cols = buildColumns(
+      [node("p"), node("k", { parentId: "p", status: "DONE" })],
+      "status",
+      { hideEmpty: true },
+    );
+    expect(keysOf(cols)).toEqual(["PENDING"]);
+  });
+});
+
 describe("dependencyGraph", () => {
   const nodes = [
     node("a", { status: "PENDING" }),
@@ -165,6 +200,25 @@ describe("dependencyGraph", () => {
 
   it("does NOT block a card whose only dependency is DONE", () => {
     expect(dependencyGraph(nodes, edges).blocked.has("a")).toBe(false);
+  });
+
+  it("does NOT block a card whose only dependency was CANCELLED", () => {
+    // Same rule as lib/work-next.ts (DONE *or* CANCELLED satisfies). Diverging here put a BLOCKED
+    // chip on the exact card the canvas ranked #1 in the work order.
+    const g = dependencyGraph(
+      [node("x"), node("dead", { status: "CANCELLED" })],
+      [{ fromId: "x", toId: "dead", kind: "DEPENDS" }],
+    );
+    expect(g.blocked.has("x")).toBe(false);
+    expect(g.blockedBy.x).toEqual(["dead"]); // still LISTED as a dependency, just not blocking
+  });
+
+  it("still resolves dependencies on sub-tasks, which carry no column of their own", () => {
+    const g = dependencyGraph(
+      [node("top"), node("kid", { parentId: "top-2", status: "PENDING" })],
+      [{ fromId: "top", toId: "kid", kind: "DEPENDS" }],
+    );
+    expect(g.blocked.has("top")).toBe(true);
   });
 
   it("is single-hop: a satisfied dependency that is itself blocked does not propagate", () => {

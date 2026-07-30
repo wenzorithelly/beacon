@@ -90,6 +90,18 @@ describe("Escape on the card", () => {
     expect(esc).toMatch(/INPUT|TEXTAREA|isContentEditable/);
   });
 
+  it("stands down once something layered over the board already handled the key", () => {
+    // The focus modal's capture-phase listener commits + dismisses and preventDefaults, but does
+    // NOT stopPropagation — the same keypress reaches this wrapper. On a READ-ONLY board the modal
+    // isn't autofocused, so the target is the card's description DIV and the INPUT/TEXTAREA guard
+    // misses it: without the defaultPrevented check one Escape closed the modal AND collapsed the
+    // card under it.
+    expect(esc).toContain("e.defaultPrevented");
+    const onKey = modal.slice(modal.indexOf("const onKey"), modal.indexOf("document.addEventListener"));
+    expect(onKey).toContain("e.preventDefault()");
+    expect(onKey).not.toContain("stopPropagation"); // the assumption the guard rests on
+  });
+
   it("listens on the React Flow node wrapper — the element that actually holds focus", () => {
     expect(esc).toMatch(/\.closest<[^>]+>\("\.react-flow__node"\)/);
     expect(esc).toContain('addEventListener("keydown", onCardEscape)');

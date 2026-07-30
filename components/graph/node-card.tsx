@@ -64,6 +64,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PRIORITY_HUE, PRIORITY_LABELS } from "@/lib/board-grouping";
 import { STATUS_META } from "@/lib/constants";
 import { LAYER_META, normalizeLayer } from "@/lib/layer";
 import { categoryColorClass, categoryHex } from "@/lib/category-color";
@@ -133,18 +134,6 @@ export type MapNodeData = {
 };
 
 export type MapNode = Node<MapNodeData>;
-
-// Exported: the detail sidebar renders the same labels in its Priority property row.
-export const PRIORITIES = [
-  { v: 0, l: "P0 · critical" },
-  { v: 1, l: "P1 · high" },
-  { v: 2, l: "P2 · medium" },
-  { v: 3, l: "P3 · low" },
-];
-
-// Per-priority hue for the spine bar. P0 critical red, P1 the brand orange, P2 amber,
-// P3 neutral grey — the same warm→cool ramp the card borders use.
-const PRIORITY_HUE = ["#ff3860", "#ff7a45", "#fbbf24", "#a1a1aa"] as const;
 
 // A distinct icon per architecture domain so the board doesn't read as a wall of identical
 // cubes. Keyword-matched first; anything unmatched falls to a stable hashed pick from a small
@@ -269,7 +258,7 @@ function PrioritySpine({ priority, rank }: { priority: number; rank: number | un
   return (
     <div
       className="flex w-5 shrink-0 flex-col items-center gap-1 self-stretch border-r border-border py-1.5"
-      title={PRIORITIES[priority]?.l ?? "priority"}
+      title={PRIORITY_LABELS[priority] ?? "priority"}
     >
       {rank != null && (
         <span
@@ -584,8 +573,14 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
   // than this card's root, because that wrapper is what actually holds focus once you click a
   // card — a handler on the root would only fire when focus already sits on one of its controls.
   // Skipped while a field / the rich editor has focus (those revert their own edit) and while the
-  // card is collapsed, so Escape falls through to React Flow's own "deselect node". The focus
-  // modal (document capture) and the bug-flag popover (stops its own keys) still win.
+  // card is collapsed, so Escape falls through to React Flow's own "deselect node" (which does
+  // NOT preventDefault). The bug-flag popover stops its own keys.
+  //
+  // `defaultPrevented` is the stand-down signal for anything layered OVER the board: the focus
+  // modal's capture-phase listener commits + dismisses and calls preventDefault, and the SAME
+  // event then reaches this wrapper. On a read-only board the modal isn't autofocused, so focus
+  // stays on the card's description DIV and the INPUT/TEXTAREA guard above misses it — without
+  // this one keypress would both close the modal AND collapse the card under it.
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const host = expanded
@@ -594,7 +589,13 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
     if (!host) return;
     const onCardEscape = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (e.key !== "Escape" || t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
+      if (
+        e.key !== "Escape" ||
+        e.defaultPrevented ||
+        t.tagName === "INPUT" ||
+        t.tagName === "TEXTAREA" ||
+        t.isContentEditable
+      )
         return;
       e.stopPropagation();
       toggleExpand(id);
@@ -917,13 +918,13 @@ export const NodeCard = memo(function NodeCard({ id, data, dragging }: NodeProps
             >
               <SelectTrigger className={cn(noDrag, "!h-6 gap-1 rounded border-border !px-1.5 !py-0 text-[10px] [&_svg]:size-3")}>
                 <SelectValue>
-                  {(v: string) => PRIORITIES.find((p) => String(p.v) === v)?.l ?? v}
+                  {(v: string) => PRIORITY_LABELS[Number(v)] ?? v}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent alignItemWithTrigger={false}>
-                {PRIORITIES.map((p) => (
-                  <SelectItem key={p.v} value={String(p.v)}>
-                    {p.l}
+                {PRIORITY_LABELS.map((l, v) => (
+                  <SelectItem key={v} value={String(v)}>
+                    {l}
                   </SelectItem>
                 ))}
               </SelectContent>
