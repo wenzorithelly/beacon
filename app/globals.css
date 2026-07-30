@@ -384,6 +384,18 @@ html[data-shell="desktop"] .board-chrome {
   margin: 6px;
 }
 
+/* The board's SECOND chrome row — the canvas tools that stack under the tab strip, and the Columns
+   layout's header that clears it — is offset from the surface's own top edge (`mt-14`/`pt-14`), NOT
+   from the strip. So it does NOT follow the inset override above: the strip moves up 9px inside the
+   shell and the row below it stays at 56px, opening a 22px hole where the browser has 13px (owner
+   report, 2026-07-30). One token both rows read, so the two insets can never drift apart again. */
+:root {
+  --board-row2: 3.5rem; /* 56px = 15px inset + 34px tab strip + 7px */
+}
+html[data-shell="desktop"] {
+  --board-row2: 47px; /*  6px inset + 34px tab strip + 7px */
+}
+
 /* ── Touch devices: drop live backdrop blur ───────────────────────────────────────────
    iOS Safari re-rasterizes `backdrop-filter` on EVERY frame during pan/zoom — on the shared
    board canvas that turned panning/zooming on iPhone into a nightmare (dozens of blurred

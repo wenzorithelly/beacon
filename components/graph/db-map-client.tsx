@@ -1512,7 +1512,7 @@ export function DbMapClient({
           )}
 
           {/* View tabs — anchored to the RIGHT edge (was top-center) so they can't drift into the
-              left-pinned top nav; the canvas tools stack directly below them (`!mt-14`). Both shift
+              left-pinned top nav; the canvas tools stack directly below them (`--board-row2`). Both shift
               left with the same `!mr-[352px]` when the detail sidebar opens so it never covers them. */}
           {!embedded && (
             <Panel
@@ -1529,7 +1529,7 @@ export function DbMapClient({
           <Panel
             position="top-right"
             className={cn(
-              "!mt-14 flex items-center gap-1 transition-[margin] duration-200",
+              "!mt-[var(--board-row2)] flex items-center gap-1 transition-[margin] duration-200",
               panelOpen && "!mr-[352px]",
               embedded && "hidden",
             )}

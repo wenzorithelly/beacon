@@ -3052,7 +3052,7 @@ export function MapClient({
             onChangeField={changeField}
             onAddCard={addCardInColumn}
             onEditingDescription={setDescEditingId}
-            className="pt-14"
+            className="pt-[var(--board-row2)]"
           />
         </div>
       )}
@@ -3674,7 +3674,7 @@ export function MapClient({
         )}
 
         {/* View tabs — anchored to the RIGHT edge (was top-center) so they can't drift into the
-            left-pinned top nav; the canvas tools stack directly below them (`!mt-14`). Nothing
+            left-pinned top nav; the canvas tools stack directly below them (`--board-row2`). Nothing
             docks over them any more — the card detail is a centered modal here, so the right
             margin they used to shift by (and the button that opened the dock) are gone.
             The roadmap's layout toggle rides alongside in its OWN pill — same band, separate
@@ -3690,7 +3690,7 @@ export function MapClient({
 
         <Panel
           position="top-right"
-          className={cn("!mt-14 flex items-center gap-1", embedded && "hidden")}
+          className={cn("!mt-[var(--board-row2)] flex items-center gap-1", embedded && "hidden")}
         >
           {/* `!columns` because it binds "/" and ⌘F on the WINDOW: left mounted behind the hidden
               canvas it would swallow both keys in the Columns layout and show nothing. */}

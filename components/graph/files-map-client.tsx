@@ -963,7 +963,7 @@ export function FilesMapClient({
         )}
 
         {/* View tabs — anchored to the RIGHT edge (was top-center) so they can't drift into the
-            left-pinned top nav. The search/stats row (`!mt-14`) and the legend (`!mt-24`) stack
+            left-pinned top nav. The search/stats row (`--board-row2`) and the legend (`!mt-24`) stack
             below; all three shift left together when the file detail panel opens. */}
         <Panel
           position="top-right"
@@ -1016,7 +1016,7 @@ export function FilesMapClient({
         <Panel
           position="top-right"
           className={cn(
-            "!mt-14 flex items-center gap-2 transition-[margin] duration-200",
+            "!mt-[var(--board-row2)] flex items-center gap-2 transition-[margin] duration-200",
             panelOpen && "!mr-[300px]",
           )}
         >
