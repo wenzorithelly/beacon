@@ -25,6 +25,7 @@ export function RichNodeEditor({
   compact,
   bare,
   roomy,
+  caretAt,
   className,
   placeholder = "Description (markdown)… type @ to mention a file, feature, table…",
   editable = true,
@@ -41,6 +42,11 @@ export function RichNodeEditor({
       contrast on a ~72ch measure, real heading hierarchy, and NO inset box in either state, so
       clicking into it to edit doesn't reflow the prose. The canvas card keeps the compact scale. */
   roomy?: boolean;
+  /** Viewport coords of the click that opened this editor. Click-to-edit swaps a read-only render
+   *  for a live one; without this the caret lands wherever `autofocus` says (the end), so clicking
+   *  a word mid-paragraph jumped you to the bottom of the description. Both renders occupy the
+   *  same box at the same type scale, so the click point maps straight through. */
+  caretAt?: { x: number; y: number } | null;
   className?: string;
   placeholder?: string;
   // When false (read-only boards: shared view, archived plan history, the expanded card's
@@ -56,7 +62,8 @@ export function RichNodeEditor({
     ],
     content: value ? (markdownToEditorDoc(value) as object) : undefined,
     immediatelyRender: false, // required under Next SSR
-    autofocus: autoFocus ? "end" : false,
+    // With caretAt the caret is placed from the click below — don't jump to the end first.
+    autofocus: autoFocus && !caretAt ? "end" : false,
     editorProps: {
       attributes: {
         // nodrag/nopan: typing + selecting must not pan/drag the React Flow canvas.
@@ -66,6 +73,18 @@ export function RichNodeEditor({
     onUpdate: ({ editor }) => onChange(docToMarkdown(editor.getJSON())),
     onBlur: () => onBlur?.(),
   });
+
+  // Place the caret where the user actually clicked (once, per editor instance).
+  useEffect(() => {
+    if (!editor || !caretAt) return;
+    const at = editor.view.posAtCoords({ left: caretAt.x, top: caretAt.y });
+    editor
+      .chain()
+      .focus()
+      .setTextSelection(at?.pos ?? editor.state.doc.content.size)
+      .run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   // Keep the editor's editable flag in sync if it ever flips after mount.
   useEffect(() => {
@@ -83,16 +102,17 @@ export function RichNodeEditor({
   if (!editor) return null;
   return (
     <div className="flex flex-col">
-      {/* The toolbar is DOCKED, not selection-triggered: a selection bubble costs a gesture before
-          every format and covers the words you're editing (owner call). It is deliberately NOT
-          sticky. Sticky looked right in a static mockup and was wrong in use — prose scrolling
-          underneath showed through above and below the bar, which reads as a stray gap no amount
-          of margin-tuning can remove. Inline, the bar occupies exactly its own height and nothing
-          can pass behind it. Markdown shortcuts cover formatting once it scrolls away. */}
+      {/* Docked, not selection-triggered: a bubble costs a gesture before every format and covers
+          the words you're editing (owner call).
+          NOT sticky. Sticky kept letting prose show through above and below the bar — the bar
+          floats over a scroll container whose contents I could not reliably keep out from under
+          it, and every fix was another guess. Instead the PROSE owns a bounded scroll area and
+          the bar sits statically above it: the bar is always visible while editing (the point of
+          sticky) and nothing can ever pass behind it (the bug sticky kept reintroducing). */}
       {editable && (
         <div
           className={cn(
-            "nodrag nopan flex items-center gap-0.5 border-b border-border pb-1",
+            "nodrag nopan flex shrink-0 items-center gap-0.5 border-b border-border pb-1",
             roomy ? "mb-2" : "rounded-t",
           )}
         >
@@ -117,6 +137,7 @@ export function RichNodeEditor({
                 ? "min-h-[3.5rem] bg-[var(--ink-hover)] px-1.5 py-1 text-xs focus-within:bg-[var(--ink-active)]"
                 : "text-xs",
           compact && "max-h-[24rem] overflow-y-auto",
+          roomy && editable && "max-h-[52vh] overflow-y-auto",
         )}
       />
     </div>
