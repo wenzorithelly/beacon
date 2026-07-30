@@ -561,6 +561,10 @@ html[data-shell="desktop"] .board-chrome {
 .node-roomy .node-prose {
   max-width: 72ch;
 }
+/* Flush under the docked toolbar — the bar's own border is the separator. */
+.node-roomy .node-prose > *:first-child {
+  margin-top: 0;
+}
 .node-roomy .node-prose > * + * {
   margin-top: 0.95rem;
 }

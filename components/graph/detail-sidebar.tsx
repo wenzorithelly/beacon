@@ -334,7 +334,7 @@ export function NodeDetail({
         )}
       >
         {/* ── LEFT — the reading column: what you actually read, in a reading gutter ── */}
-        <div className={cn("min-w-0 flex-1 px-5 pb-3 pt-1", !stacked && "md:min-h-0 md:overflow-y-auto")}>
+        <div className={cn("min-w-0 flex-1 px-5 pb-3 pt-0", !stacked && "md:min-h-0 md:overflow-y-auto")}>
           {showBreadcrumb && (
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <Breadcrumb node={node} view={view} />
