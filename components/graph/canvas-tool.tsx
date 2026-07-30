@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { SelectionMode } from "@xyflow/react";
 import { Hand, MousePointer2 } from "lucide-react";
+import { isTypingTarget } from "./use-board-keys";
 import { cn } from "@/lib/utils";
 
 // Desktop-app style cursor tool for every canvas. "pan" (the hand) grabs and drags the board;
@@ -25,8 +26,7 @@ export function useCanvasTool(initial: CanvasTool = "pan") {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const el = e.target as HTMLElement | null;
-      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      if (isTypingTarget(e.target)) return;
       if (e.key === "v" || e.key === "V") setTool("select");
       else if (e.key === "h" || e.key === "H") setTool("pan");
     };

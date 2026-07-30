@@ -6,8 +6,9 @@
 // the palette and the board agree on what "best match" means.
 
 import { searchHits } from "@/lib/canvas-search";
+import { PRIORITY_LABELS } from "@/lib/board-grouping";
 import { ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
-import type { RoadmapGroupBy } from "@/lib/roadmap-layout";
+import { ROADMAP_COL_W, type RoadmapGroupBy } from "@/lib/roadmap-layout";
 
 export type CommandGroup = "navigation" | "card" | "board" | "create";
 
@@ -61,8 +62,6 @@ export interface BoardCommandContext {
   toggleIsolate?: () => void;
 }
 
-export const PRIORITY_LABELS = ["P0 · Critical", "P1 · High", "P2 · Medium", "P3 · Low"];
-
 const GROUP_BY_LABELS: Record<RoadmapGroupBy, string> = {
   cluster: "Theme",
   status: "Status",
@@ -71,6 +70,49 @@ const GROUP_BY_LABELS: Record<RoadmapGroupBy, string> = {
 
 const statusLabel = (s: string) => STATUS_META[s]?.label ?? s;
 const priorityLabel = (p: number) => PRIORITY_LABELS[p] ?? `P${p}`;
+
+/** A card as the display order sees it: where it sits, and which lane owns it (grouped board). */
+export interface BoardOrderNode {
+  id: string;
+  x: number;
+  y: number;
+  lane?: string | null;
+}
+
+/**
+ * THE board's display order — what `j`/`k` walks and the order the palette lists cards in.
+ *
+ * Grouped: lanes in the order the layout emitted them, then column-by-column down each lane. The
+ * layout masonry-packs features into columns of `ROADMAP_COL_W` from the lane's own origin, so x
+ * is quantized RELATIVE TO THAT ORIGIN — which also keeps a sub-task, indented inside its parent's
+ * column, adjacent to its parent instead of after the whole column.
+ * Ungrouped: plain reading order, top-to-bottom then left-to-right. Ties break on id so the walk
+ * is stable across re-renders.
+ */
+export function orderBoardIds(
+  nodes: readonly BoardOrderNode[],
+  /** The lanes the layout emitted, in layout order (`RoadmapLane` satisfies this). */
+  lanes?: readonly { key: string; x: number }[],
+): string[] {
+  const rank = new Map((lanes ?? []).map((l, i) => [l.key, i]));
+  const originX = new Map((lanes ?? []).map((l) => [l.key, l.x]));
+  const cmp = (a: BoardOrderNode, b: BoardOrderNode): number => {
+    if (lanes) {
+      // A card whose lane the layout didn't emit sorts after every real lane rather than first.
+      const la = rank.get(a.lane ?? "") ?? rank.size;
+      const lb = rank.get(b.lane ?? "") ?? rank.size;
+      if (la !== lb) return la - lb;
+      const col = (n: BoardOrderNode) =>
+        Math.round((n.x - (originX.get(n.lane ?? "") ?? 0)) / ROADMAP_COL_W);
+      const ca = col(a);
+      const cb = col(b);
+      if (ca !== cb) return ca - cb;
+      return a.y - b.y || (a.id < b.id ? -1 : 1);
+    }
+    return a.y - b.y || a.x - b.x || (a.id < b.id ? -1 : 1);
+  };
+  return [...nodes].sort(cmp).map((n) => n.id);
+}
 
 /** Build the full command list for the board's current state. Order is the display order. */
 export function buildCommands(ctx: BoardCommandContext): BoardCommand[] {

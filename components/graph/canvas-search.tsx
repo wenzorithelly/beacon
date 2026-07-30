@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CanvasPopover } from "./canvas-popover";
+import { isTypingTarget } from "./use-board-keys";
 import type { SearchHit } from "@/lib/canvas-search";
 
 // Shared search popover for every canvas tab. Presentational only: the matching + ranking
@@ -11,15 +12,6 @@ import type { SearchHit } from "@/lib/canvas-search";
 // Typing drives the live spotlight on the canvas behind the popover; Enter zooms to all
 // matches; clicking a row flies to that node. Closing the popover clears the query so the
 // spotlight is never left dimming the canvas with no visible search box.
-
-// True when the user is typing somewhere we must not hijack (an input, textarea, select, or
-// any contentEditable surface like the Notes editor).
-function isTypingTarget(el: EventTarget | null): boolean {
-  const node = el as HTMLElement | null;
-  if (!node || !node.tagName) return false;
-  const tag = node.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || node.isContentEditable;
-}
 
 export function CanvasSearch({
   query,
@@ -43,23 +35,23 @@ export function CanvasSearch({
     onQuery(""); // closing releases the spotlight + empties the box
   };
 
-  // Type-to-search: start typing anywhere on the canvas (when NOT focused in another text
-  // field) to open the search and seed the query with that character.
+  // "/" or ⌘F opens the search. This used to open on ANY printable key and preventDefault it,
+  // which swallowed every single-key board shortcut (j k s p c l \ ?) — both listeners are on
+  // `window`, so each letter fired the board action AND opened search seeded with that letter.
+  // Two explicit keys, no seeding: the box opens empty and focused (autoFocus on the input).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (open) return; // already searching — let the focused input handle keys
-      if (e.metaKey || e.ctrlKey || e.altKey) return; // shortcuts, not search
-      if (e.key.length !== 1 || e.key === " ") return; // single printable char, not space
+      if (e.altKey) return;
+      const findChord = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f";
+      if (!findChord && (e.key !== "/" || e.metaKey || e.ctrlKey)) return;
       if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
-      // Stop the browser from ALSO typing this char into the input we're about to focus —
-      // otherwise the seed below + the native insert duplicate the first letter ("a" → "aa").
-      e.preventDefault();
+      e.preventDefault(); // "/" must not reach the page; ⌘F must not open the browser's find bar
       setOpen(true);
-      onQuery(e.key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onQuery]);
+  }, [open]);
 
   return (
     <CanvasPopover
@@ -73,7 +65,7 @@ export function CanvasSearch({
         <button
           type="button"
           onClick={toggle}
-          title="Search this canvas"
+          title="Search this canvas (/)"
           className={cn(
             "glass flex size-8 items-center justify-center rounded-lg transition-colors",
             open || query.trim()

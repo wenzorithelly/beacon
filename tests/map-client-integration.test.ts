@@ -5,11 +5,17 @@ import { fileURLToPath } from "node:url";
 
 import { layoutRoadmapLanes, roadmapLaneKey, statusLaneKey } from "@/lib/roadmap-layout";
 import { computeGroupRegions } from "@/lib/group-regions";
-import { reconcileById } from "@/components/graph/map-client";
+import { laneAt, laneFieldWrite, reconcileById } from "@/components/graph/map-client";
+import { orderBoardIds } from "@/lib/board-commands";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const src = (p: string) => readFileSync(resolve(ROOT, p), "utf8");
 const MAP_CLIENT = src("components/graph/map-client.tsx");
+/** The whole onNodeDragStop handler, bounded by the prop that follows it. */
+const DRAG_STOP = MAP_CLIENT.slice(
+  MAP_CLIENT.indexOf("onNodeDragStop={(e, __, dragged)"),
+  MAP_CLIENT.indexOf("deleteKeyCode={readOnly"),
+);
 
 // map-client.tsx is the canvas trunk: it can't be mounted in bun test (React Flow needs a DOM),
 // so the wiring contracts it owns are guarded at the source level — same approach as
@@ -73,11 +79,15 @@ describe("grouped roadmap — positions are derived, on load and on every resync
     expect(apply).toContain("/api/nodes/positions");
   });
 
-  // A derived layout and a persisted drag are mutually exclusive: the derive pass recomputed every
-  // card from the server payload on each resync, so a drag was visibly undone by the next refresh
-  // AND the row it wrote was never read again. Cards are locked while a grouping owns the layout.
-  it("locks card positions while a grouping owns them", () => {
-    expect(MAP_CLIENT).toContain("const base = laneMode ? { ...n, draggable: false } : n;");
+  // A derived layout and a persisted drag are still mutually exclusive — but the CARDS ARE NO
+  // LONGER LOCKED. Dragging on a grouped board now means "drop me in that lane" (see the lane-drop
+  // block below): the gesture is allowed, the coordinate is snapped back, and only the lane's
+  // FIELD is written. What must never happen is a position write.
+  it("leaves cards draggable under a grouping, without pinning them to the drop point", () => {
+    expect(MAP_CLIENT).not.toContain("const base = laneMode ? { ...n, draggable: false } : n;");
+    expect(MAP_CLIENT).not.toContain("draggable: false");
+    // Every dragged card goes back to where the drag started; the layout keeps owning positions.
+    expect(DRAG_STOP).toContain("const p = dragStartPos.current.get(n.id);");
   });
 
   it("never persists a card position the derive pass would overwrite", () => {
@@ -511,6 +521,271 @@ describe("URL filters + saved views", () => {
     expect(def.indexOf("serializeFilters(readUrlFilters())")).toBeLessThan(
       def.indexOf("/api/saved-views?board="),
     );
+  });
+});
+
+// ── Lane drops ────────────────────────────────────────────────────────────────────────────────
+// Grouped lanes used to be one-way decoration: editing a card's status re-laned it, but dragging
+// the card into another lane did nothing. The two halves are the hit-test and the inverse of
+// `roadmapLaneKey` — both pure, both real unit tests.
+describe("laneAt", () => {
+  const rects = [
+    { key: "PENDING", x: 0, y: 0, w: 300, h: 200 },
+    { key: "DONE", x: 400, y: 0, w: 300, h: 200 },
+  ];
+
+  it("finds the lane containing the point, edges included", () => {
+    expect(laneAt({ x: 10, y: 10 }, rects)).toBe("PENDING");
+    expect(laneAt({ x: 500, y: 199 }, rects)).toBe("DONE");
+    expect(laneAt({ x: 0, y: 0 }, rects)).toBe("PENDING");
+    expect(laneAt({ x: 300, y: 200 }, rects)).toBe("PENDING");
+  });
+
+  it("returns null in the gaps, outside, and with no lanes at all", () => {
+    expect(laneAt({ x: 350, y: 100 }, rects)).toBeNull(); // between two lanes
+    expect(laneAt({ x: 100, y: 400 }, rects)).toBeNull(); // below everything
+    expect(laneAt({ x: -1, y: 10 }, rects)).toBeNull();
+    expect(laneAt({ x: 10, y: 10 }, [])).toBeNull();
+  });
+});
+
+describe("laneFieldWrite — the inverse of roadmapLaneKey", () => {
+  it("round-trips every dimension: the key a card produces writes that card's own value back", () => {
+    const card = { cluster: "AUTH", status: "IN_PROGRESS", priority: 1, stateName: null, teamKey: null };
+    expect(laneFieldWrite("status", roadmapLaneKey("status", card))).toEqual({
+      status: "IN_PROGRESS",
+    });
+    expect(laneFieldWrite("priority", roadmapLaneKey("priority", card))).toEqual({ priority: 1 });
+    expect(laneFieldWrite("cluster", roadmapLaneKey("cluster", card))).toEqual({ cluster: "AUTH" });
+  });
+
+  it("clears the category when dropped in the unset lane", () => {
+    const none = { cluster: null, status: "PENDING", priority: 2, stateName: null, teamKey: null };
+    expect(roadmapLaneKey("cluster", none)).toBe("—");
+    expect(laneFieldWrite("cluster", "—")).toEqual({ cluster: null });
+  });
+
+  // A group-by-status lane can be keyed by a LINEAR workflow state ("In Review · ENG"), which is
+  // not a Beacon status. Writing it would put garbage in Node.status, so the drop is refused.
+  it("refuses a lane whose key is not a status we own", () => {
+    const linear = {
+      cluster: null,
+      status: "IN_PROGRESS",
+      priority: 0,
+      stateName: "In Review",
+      teamKey: "ENG",
+    };
+    expect(roadmapLaneKey("status", linear)).toBe("In Review · ENG");
+    expect(laneFieldWrite("status", "In Review · ENG")).toBeNull();
+    expect(laneFieldWrite("priority", "P1")).toBeNull(); // labels are not keys
+    expect(laneFieldWrite("priority", "9")).toBeNull();
+  });
+});
+
+describe("lane drop — writes the field, never a coordinate", () => {
+  it("hit-tests the DROP POINT against the lane rects the user can actually see", () => {
+    // The rects are the drawn regions (padded, header included) minus the ones nothing can be
+    // dropped into: a folded lane would swallow the card, a hidden empty lane isn't there.
+    expect(MAP_CLIENT).toContain("const dropRects = useMemo<DropRect[]>(");
+    expect(MAP_CLIENT).toContain("!collapsedLanes.has(r.key) && !(hideEmptyLanes && r.count === 0)");
+    expect(DRAG_STOP).toContain("laneAt(flowRef.current.screenToFlowPosition(eventPoint(e)), dropRects)");
+  });
+
+  it("routes the write through saveFields, and skips the no-ops", () => {
+    expect(DRAG_STOP).toContain("const fields = laneFieldWrite(arrangedBy, key);");
+    expect(DRAG_STOP).toContain("if (!fields) return;");
+    expect(DRAG_STOP).toContain("void saveFields(n.id, fields);");
+    // Already in that lane, or a sub-task (which the layout stacks under its parent) → no write.
+    expect(DRAG_STOP).toContain("if (roadmapLaneKey(arrangedBy, laneInput(n.data)) === key) continue;");
+    expect(DRAG_STOP).toContain("if (!n || n.data.parentId) continue;");
+    // The write path is saveFields ONLY — no second fetch smuggled into the drop.
+    expect(DRAG_STOP).not.toContain("fetch(");
+  });
+
+  it("shows the lane under the pointer while dragging", () => {
+    expect(MAP_CLIENT).toContain("setDropLane(laneAt(p, dropRects));");
+    expect(MAP_CLIENT).toContain("const r = dropRects.find((d) => d.key === dropLane);");
+    expect(DRAG_STOP).toContain("setDropLane(null);");
+  });
+
+  // The card only reaches its new lane because the field write re-triggers the regroup effect —
+  // the same path a status edit from the detail panel takes. If that effect stopped watching the
+  // grouped value, a drop would write the field and leave the card where it was dropped.
+  it("relies on the regroup effect to re-derive the layout after the write", () => {
+    const regroup = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const prevGroupValues = useRef")).slice(0, 900);
+    expect(regroup).toContain("if (regrouped) arrange(arrangedBy);");
+    expect(MAP_CLIENT).toContain("const groupValues = useMemo(");
+  });
+});
+
+describe("command palette + keybindings", () => {
+  it("mounts the palette only on the live standalone roadmap, and never binds ⌘K twice", () => {
+    expect(MAP_CLIENT).toContain(
+      'const boardKeysMounted = !embedded && !readOnly && view === "ROADMAP";',
+    );
+    expect(MAP_CLIENT).toContain("<CommandPalette");
+    expect(MAP_CLIENT).toContain("onOpenChange={setPaletteOpen}");
+    // The palette owns ⌘K itself — wiring onPalette as well would toggle it twice per press.
+    expect(MAP_CLIENT).not.toContain("onPalette:");
+  });
+
+  it("stands the single-key shortcuts down whenever something else owns the keyboard", () => {
+    expect(MAP_CLIENT).toContain(
+      "enabled: boardKeysMounted && !paletteOpen && !focusEdit && !placing && !pickingParent,",
+    );
+  });
+
+  it("walks the board's real display order, not node-array order", () => {
+    expect(MAP_CLIENT).toContain("const orderedIds = useMemo(");
+    expect(MAP_CLIENT).toContain("laneMode ? lanes : undefined,");
+    expect(MAP_CLIENT).toContain("lane: laneOf(n, byId)");
+    expect(MAP_CLIENT).toContain("orderedIds,\n    selectedId,"); // fed to the key hook
+  });
+
+  it("wires every optional command callback — an omitted one silently drops commands", () => {
+    const cmds = MAP_CLIENT.slice(MAP_CLIENT.indexOf("return buildCommands({")).slice(0, 2000);
+    for (const key of [
+      "jumpTo:",
+      "setStatus:",
+      "setPriority:",
+      "setCategory:",
+      "setKind:",
+      "removeNode:",
+      "groupBy:",
+      "clearFilters,",
+      "createFeature:",
+      "createBug:",
+      "createSubtask:",
+      "toggleHideEmpty:",
+      "toggleIsolate,",
+    ])
+      expect(cmds).toContain(key);
+    // Only built while the palette is open — ~1200 command objects per drag frame otherwise.
+    expect(MAP_CLIENT).toContain("if (!paletteOpen) return [];");
+  });
+
+  it('answers "?" with the shortcut reference inside the existing Legend popover', () => {
+    expect(MAP_CLIENT).toContain("onHelp: useCallback(() => setLegendOpen((v) => !v), []),");
+    expect(MAP_CLIENT).toContain("open={legendOpen}");
+    expect(MAP_CLIENT).toContain("{BOARD_KEY_HELP.map((k) => (");
+    // …and no second overlay competing with it.
+    expect(MAP_CLIENT).not.toContain("ShortcutsOverlay");
+  });
+});
+
+// The collision that made every board shortcut unusable: canvas-search opened on ANY printable
+// key and preventDefault()ed it, so `j`/`k`/`s`/… fired the board action AND opened search.
+describe("canvas search no longer swallows the alphabet", () => {
+  const SEARCH = src("components/graph/canvas-search.tsx");
+
+  it("binds only / and ⌘F, and seeds nothing", () => {
+    expect(SEARCH).toContain('const findChord = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f"');
+    expect(SEARCH).toContain('if (!findChord && (e.key !== "/" || e.metaKey || e.ctrlKey)) return;');
+    expect(SEARCH).not.toContain("if (e.key.length !== 1");
+    expect(SEARCH).not.toContain("onQuery(e.key)");
+  });
+
+  it("imports the shared is-typing guard instead of keeping a private copy", () => {
+    for (const f of ["components/graph/canvas-search.tsx", "components/graph/canvas-tool.tsx"]) {
+      const s = src(f);
+      expect(s).toContain('import { isTypingTarget } from "./use-board-keys"');
+      expect(s).not.toContain("function isTypingTarget");
+    }
+  });
+});
+
+describe("orderBoardIds", () => {
+  it("follows lane order first, then column, then row", () => {
+    const nodes = [
+      { id: "done-1", x: 1000, y: 0, lane: "DONE" },
+      { id: "pend-c2", x: 320, y: 0, lane: "PENDING" },
+      { id: "pend-c1-b", x: 0, y: 150, lane: "PENDING" },
+      { id: "pend-c1-a", x: 0, y: 0, lane: "PENDING" },
+    ];
+    expect(orderBoardIds(nodes, [{ key: "PENDING", x: 0 }, { key: "DONE", x: 1000 }])).toEqual([
+      "pend-c1-a",
+      "pend-c1-b",
+      "pend-c2",
+      "done-1",
+    ]);
+  });
+
+  // Columns are measured from the LANE'S OWN origin, which the band flow puts at an arbitrary x.
+  // Quantizing absolute x instead would drop a sub-task into the next column whenever the origin
+  // happened to land near a column boundary.
+  it("keeps a sub-task next to its parent despite the indent, at any lane origin", () => {
+    const lanes = [{ key: "A", x: 140 }];
+    const nodes = [
+      { id: "kid", x: 140 + 24, y: 90, lane: "A" }, // indented inside the parent's column
+      { id: "parent", x: 140, y: 0, lane: "A" },
+      { id: "col2", x: 140 + 320, y: 0, lane: "A" },
+    ];
+    expect(orderBoardIds(nodes, lanes)).toEqual(["parent", "kid", "col2"]);
+  });
+
+  it("falls back to plain reading order when the board is freeform", () => {
+    const nodes = [
+      { id: "c", x: 0, y: 500 },
+      { id: "b", x: 400, y: 0 },
+      { id: "a", x: 0, y: 0 },
+    ];
+    expect(orderBoardIds(nodes)).toEqual(["a", "b", "c"]);
+  });
+
+  it("is stable for identical positions and sorts unknown lanes last", () => {
+    expect(orderBoardIds([{ id: "b", x: 0, y: 0 }, { id: "a", x: 0, y: 0 }])).toEqual(["a", "b"]);
+    expect(
+      orderBoardIds(
+        [{ id: "ghost", x: 0, y: 0, lane: "GONE" }, { id: "real", x: 0, y: 0, lane: "A" }],
+        [{ key: "A", x: 0 }],
+      ),
+    ).toEqual(["real", "ghost"]);
+  });
+});
+
+describe("dependency isolate", () => {
+  it("hides through the SAME `hidden` flag the filters use, not a parallel system", () => {
+    expect(MAP_CLIENT).toContain("(isolateIds ? !isolateIds.has(n.id) : false),");
+    // …and reuses the closure that already drives the click spotlight.
+    expect(MAP_CLIENT).toContain("isolateId ? neighborIds(isolateId, edges) : null");
+    // Computed off the RAW edges: `hidden` is upstream of visibleEdges, so reading those here
+    // would be circular.
+    expect(MAP_CLIENT).not.toContain("neighborIds(isolateId, visibleEdges)");
+  });
+
+  it("toggles on the selected card and is reachable from every exit", () => {
+    expect(MAP_CLIENT).toContain("setIsolateId((cur) => (cur ? null : selectedId))");
+    expect(MAP_CLIENT).toContain("onIsolate: toggleIsolate,");
+    // Escape, "clear filters", and deleting the isolated card all release it — a board left
+    // hiding 90% of its cards with no visible cause reads as data loss.
+    const clear = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const clearFilters = useCallback")).slice(0, 500);
+    expect(clear).toContain("setIsolateId(null);");
+    expect(MAP_CLIENT.match(/setIsolateId\(\(s\) => \(s && gone\.has\(s\) \? null : s\)\)/g)?.length).toBe(2);
+    expect(MAP_CLIENT).toContain("Showing dependencies only");
+  });
+});
+
+describe("viewport culling", () => {
+  it("is on", () => {
+    expect(MAP_CLIENT).toContain("onlyRenderVisibleElements");
+  });
+
+  // Culling unmounts off-screen cards, so a card panned back into view REMOUNTS and would replay
+  // its board-load entrance flash forever. The flash is scoped to the load window instead.
+  it("stops emitting the arrive flash once the entrance window is over", () => {
+    expect(MAP_CLIENT).toContain("const [arriving, setArriving] = useState(true);");
+    expect(MAP_CLIENT).toContain(
+      "if (arriving)\n        base = { ...base, data: { ...base.data, arriveDelayMs: arriveDelayById.get(n.id) ?? 0 } };",
+    );
+  });
+});
+
+describe("group-by pills carry the same a11y as the Columns dimension picker", () => {
+  it("is a labeled group of pressed/unpressed toggles", () => {
+    expect(MAP_CLIENT).toContain('<div role="group" aria-label="Group cards by"');
+    expect(MAP_CLIENT).toContain("aria-pressed={arrangedBy === null}");
+    expect(MAP_CLIENT).toContain("aria-pressed={arrangedBy === o.value}");
+    expect(src("components/columns/columns-view.tsx")).toContain('aria-label="Group cards by"');
   });
 });
 

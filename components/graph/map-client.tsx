@@ -18,6 +18,7 @@ import {
   MiniMap,
   Panel,
   ReactFlow,
+  ViewportPortal,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -64,6 +65,10 @@ import { BOARD_TABS, CanvasTabs } from "@/components/graph/canvas-tabs";
 import { ColumnsView } from "@/components/columns/columns-view";
 import type { GroupField } from "@/lib/board-grouping";
 import { CanvasSearch } from "@/components/graph/canvas-search";
+import { CommandPalette } from "@/components/graph/command-palette";
+import { BulkEditBar } from "@/components/graph/bulk-edit-bar";
+import { BOARD_KEY_HELP, useBoardKeys } from "@/components/graph/use-board-keys";
+import { buildCommands, orderBoardIds, type BoardCommand } from "@/lib/board-commands";
 import { ShareBoardButton } from "@/components/share/share-dialog";
 import {
   matchesQuery,
@@ -336,6 +341,59 @@ export function reconcileById<T extends { id: string; position?: XYPosition; dat
   return out;
 }
 
+/** Client-space pointer position of a drag event, mouse or touch. */
+const eventPoint = (e: MouseEvent | TouchEvent): { x: number; y: number } => {
+  const t = (e as TouchEvent).changedTouches?.[0];
+  return {
+    x: t?.clientX ?? (e as MouseEvent).clientX,
+    y: t?.clientY ?? (e as MouseEvent).clientY,
+  };
+};
+
+/** A rectangle a drop can land in — the lane boxes GroupRegions draws. `Region` satisfies it. */
+export interface DropRect {
+  key: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * The lane whose rect contains `point`, or null. The layout flows lane blocks into bands with
+ * gaps wider than the region padding, so the rects never overlap and the first hit is the only
+ * hit. Pure — see tests/map-client-integration.test.ts.
+ */
+export function laneAt(point: XYPosition, rects: readonly DropRect[]): string | null {
+  for (const r of rects) {
+    if (point.x >= r.x && point.x <= r.x + r.w && point.y >= r.y && point.y <= r.y + r.h) {
+      return r.key;
+    }
+  }
+  return null;
+}
+
+/**
+ * What dropping a card into lane `key` writes, given the dimension the board is grouped by —
+ * the inverse of `roadmapLaneKey`, so a drop is symmetric with "edit the field and watch the card
+ * re-lane itself".
+ *
+ * null means the lane owns no writable field: a group-by-status lane keyed by a LINEAR workflow
+ * state ("In Review · ENG") is not a Beacon status, and Beacon does not own Linear's state
+ * machine — refusing the write beats silently mangling `status`.
+ */
+export function laneFieldWrite(
+  by: RoadmapGroupBy,
+  key: string,
+): Record<string, unknown> | null {
+  if (by === "priority") {
+    const p = Number(key);
+    return Number.isInteger(p) && p >= 0 && p <= 3 ? { priority: p } : null;
+  }
+  if (by === "cluster") return { cluster: key === "—" ? null : key };
+  return (ROADMAP_STATUSES as readonly string[]).includes(key) ? { status: key } : null;
+}
+
 export interface MapClientHandle {
   /** Toggle the side panel. First open lands on Details; second click closes. */
   open: () => void;
@@ -465,6 +523,16 @@ export function MapClient({
     return m;
   });
 
+  // …and the window during which that flash is attached at all. `onlyRenderVisibleElements`
+  // unmounts off-screen cards, so a card panned back into view REMOUNTS — leaving the arrive
+  // class on forever would replay the entrance flash every time you scrolled past a card. The
+  // cascade is capped at 480ms; after this the class is simply not emitted.
+  const [arriving, setArriving] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setArriving(false), 1200);
+    return () => clearTimeout(t);
+  }, []);
+
   const [nodes, setNodes] = useState<Node<MapNodeData>[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
   // The server ROWS the board is currently showing. Seeded from the prop and replaced by
@@ -478,6 +546,11 @@ export function MapClient({
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   // Hovering a card reveals its dependency edges (+ labels) without a click.
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // Dependency isolate ("\"): the card whose 1-hop closure is the only thing left on the board.
+  // A lens like the filters — it HIDES, through the same `hidden` flag — so it clears with them,
+  // with Escape, and when its own card is deleted. Declared up here because the delete paths
+  // (far above the filter block) have to reset it.
+  const [isolateId, setIsolateId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelTab, setPanelTab] = useState<"details" | "comments">("details");
   // Desktop-style cursor tool: hand (pan the board) vs pointer (rubber-band multi-select + move many).
@@ -776,6 +849,8 @@ export function MapClient({
       const snapshot = nodesRef.current.filter((n) => gone.has(n.id));
       setNodes((nds) => nds.filter((n) => !gone.has(n.id)));
       setSelectedId((s) => (s && gone.has(s) ? null : s));
+      // Isolating a card that no longer exists would hide the entire board.
+      setIsolateId((s) => (s && gone.has(s) ? null : s));
       try {
         const res = await fetch(`/api/nodes/${id}`, { method: "DELETE" });
         if (!res.ok) throw new Error(`delete failed (${res.status})`);
@@ -1338,6 +1413,9 @@ export function MapClient({
     setMilestoneFilter(new Set());
     setStateFilter(new Set());
     setLayerEmphasis(null);
+    // Isolate hides cards exactly like a filter does — leaving it on after "clear filters" would
+    // leave the board looking filtered with nothing left to clear.
+    setIsolateId(null);
   }, []);
 
   // ── The board's view state as a URL ───────────────────────────────────────────────────────────
@@ -1433,13 +1511,27 @@ export function MapClient({
     );
   }, [nodes, collapsedLanes, view, arrangedBy, laneOf]);
 
+  // Dependency isolate (the `\` key): while a card is isolated, everything outside its 1-hop
+  // dependency closure is HIDDEN — the same `hidden` flag the filters use, not a parallel
+  // visibility system, and the same `neighborIds` closure that already drives the click
+  // spotlight. Computed off the raw edges (not visibleEdges) because `hidden` is downstream of
+  // this: reading the filtered edges here would close the loop.
+  const isolateIds = useMemo(
+    () => (isolateId ? neighborIds(isolateId, edges) : null),
+    [isolateId, edges],
+  );
+
   const visibleNodes = useMemo(
     () =>
       nodes.map((n) => ({
         ...n,
-        hidden: !passes(n.data) || collapseHiddenIds.has(n.id) || laneHiddenIds.has(n.id),
+        hidden:
+          !passes(n.data) ||
+          collapseHiddenIds.has(n.id) ||
+          laneHiddenIds.has(n.id) ||
+          (isolateIds ? !isolateIds.has(n.id) : false),
       })),
-    [nodes, passes, collapseHiddenIds, laneHiddenIds],
+    [nodes, passes, collapseHiddenIds, laneHiddenIds, isolateIds],
   );
   const hiddenIds = useMemo(
     () => new Set(visibleNodes.filter((n) => n.hidden).map((n) => n.id)),
@@ -1551,7 +1643,8 @@ export function MapClient({
       // which sits BEHIND this card's own opaque background and would never be visible. A node
       // absent from the rank map (created after mount, e.g. "+ Feature") defaults to 0 — an
       // un-staggered flash, since a brand-new DOM node plays its entrance regardless.
-      base = { ...base, data: { ...base.data, arriveDelayMs: arriveDelayById.get(n.id) ?? 0 } };
+      if (arriving)
+        base = { ...base, data: { ...base.data, arriveDelayMs: arriveDelayById.get(n.id) ?? 0 } };
       if (base.hidden) return base;
       // Layer emphasis is the BASELINE lens: search/click focus takes over while active.
       if (!effectiveFocusIds) {
@@ -1587,7 +1680,7 @@ export function MapClient({
         },
       };
     });
-  }, [visibleNodes, effectiveFocusIds, spotlightIds, workOrderRank, expandedIds, layerDimIds, childCountById, childDoneById, collapsedIds, toggleCollapse, arriveDelayById]);
+  }, [visibleNodes, effectiveFocusIds, spotlightIds, workOrderRank, expandedIds, layerDimIds, childCountById, childDoneById, collapsedIds, toggleCollapse, arriveDelayById, arriving]);
 
   // React Flow keeps appended lesson table cards `visibility: hidden` until their measured
   // dimensions are applied back — capture them here (see annoMeasured below for the full story).
@@ -1676,6 +1769,21 @@ export function MapClient({
   // Lane lenses only make sense where the boxes ARE lanes: the architecture board's regions are
   // bounding boxes around cards this component doesn't fold away, so it gets no collapse control.
   const laneMode = view === "ROADMAP" && !!arrangedBy;
+
+  // The lane boxes a card can be DROPPED into, in the exact geometry the user sees (regions are
+  // the padded rects GroupRegions draws). A folded lane is not a target — the card would vanish
+  // into the fold — and neither is a hidden empty one.
+  const dropRects = useMemo<DropRect[]>(
+    () =>
+      laneMode && !readOnly
+        ? regions.filter(
+            (r) => !collapsedLanes.has(r.key) && !(hideEmptyLanes && r.count === 0),
+          )
+        : [],
+    [laneMode, readOnly, regions, collapsedLanes, hideEmptyLanes],
+  );
+  // The lane currently under the pointer during a drag — drawn as a highlight ring.
+  const [dropLane, setDropLane] = useState<string | null>(null);
 
   const displayEdges = useMemo(() => {
     // Tour spotlight: while a step frames a domain, only edges within it stay bright.
@@ -1863,16 +1971,16 @@ export function MapClient({
       ];
     });
     const withPins = displayNodes.map((n) => {
-      // While a grouping owns the layout, card positions are DERIVED from it on every resync — a
-      // free drag would be silently undone by the next refresh and the position it wrote never read
-      // again. So the cards are pinned to their lane slot; "Group by · None" returns the board to
-      // freeform, where a drag is yours and is persisted. Annotation cards are unaffected (they
-      // live in their own store and are never derived).
-      const base = laneMode ? { ...n, draggable: false } : n;
+      // While a grouping owns the layout, card positions are DERIVED from it on every resync — so
+      // a drag on a grouped board never PERSISTS a coordinate (onNodeDragStop skips the batch and
+      // snaps the card back). Dragging itself stays enabled, because that gesture now means
+      // something else there: drop a card in another lane and that lane's FIELD is written, which
+      // is what re-lanes it. "Group by · None" returns the board to freeform, where a drag is
+      // yours and the position sticks. Annotation cards are unaffected (their own store).
       const pins = pinsByTarget.get(n.id);
-      if (!pins && !effectiveAddComment) return base;
+      if (!pins && !effectiveAddComment) return n;
       return {
-        ...base,
+        ...n,
         data: {
           ...n.data,
           pins,
@@ -1912,7 +2020,6 @@ export function MapClient({
     patchBoardAnno,
     removeBoardAnno,
     annoMeasured,
-    laneMode,
     tableNodes,
     tableMeasured,
     tableDragged,
@@ -2277,8 +2384,10 @@ export function MapClient({
   }, [applyPositions]);
 
   // Center + select a card. Reads the live node so the camera uses the measured/current
-  // position, not a stale payload. Shared by search and "Work on next".
-  const jumpTo = useCallback((id: string) => {
+  // position, not a stale payload. Shared by search, "Work on next", the palette and j/k —
+  // which passes the CURRENT zoom and a short duration, because a keyboard walk that re-zoomed
+  // and spring-glided for 600ms per keystroke would fight the user holding the key down.
+  const jumpTo = useCallback((id: string, opts?: { zoom?: number; duration?: number }) => {
     setSelectedId(id);
     setSelectedEdgeId(null);
     const n = flowRef.current?.getNode(id);
@@ -2286,8 +2395,8 @@ export function MapClient({
     const w = n.measured?.width ?? 128;
     const h = n.measured?.height ?? 48;
     flowRef.current.setCenter(n.position.x + w / 2, n.position.y + h / 2, {
-      zoom: 1.2,
-      duration: 600,
+      zoom: opts?.zoom ?? 1.2,
+      duration: opts?.duration ?? 600,
       ease: easeSpringGlide,
     });
   }, []);
@@ -2504,6 +2613,181 @@ export function MapClient({
     );
   }, [nodes, searchQuery, passes, searchActive]);
 
+  // ── Keyboard + command palette ────────────────────────────────────────────────────────────────
+  // Only on the live standalone roadmap: /plan and archived snapshots must not grab ⌘K or mutate
+  // cards from a stray keystroke, and the palette's board commands (Group by …) are roadmap-only.
+  const boardKeysMounted = !embedded && !readOnly && view === "ROADMAP";
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
+
+  // THE board's display order, for j/k and for the palette's card list: lane order, then within
+  // the lane. Derived from the same lane keys the regions use, so the walk follows what's on
+  // screen instead of node-array order.
+  const orderedIds = useMemo(() => {
+    const byId = new Map(displayNodes.map((n) => [n.id, n]));
+    return orderBoardIds(
+      displayNodes
+        .filter((n) => !n.hidden)
+        .map((n) => ({ id: n.id, x: n.position.x, y: n.position.y, lane: laneOf(n, byId) })),
+      laneMode ? lanes : undefined,
+    );
+  }, [displayNodes, laneMode, lanes, laneOf]);
+
+  const createAtCenter = useCallback(
+    (kind: "FEATURE" | "BUG") => {
+      const inst = flowRef.current;
+      if (!inst) return;
+      const p = inst.screenToFlowPosition({
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      });
+      void createNodeAt(p.x, p.y, kind);
+    },
+    [createNodeAt],
+  );
+  const toggleIsolate = useCallback(
+    () => setIsolateId((cur) => (cur ? null : selectedId)),
+    [selectedId],
+  );
+  // s / p / l advance the selected card one value along that dimension. One saveFields write, so
+  // ⌘Z reverses it like any other edit — the reason a destructive-looking key is acceptable here.
+  const cycleField = useCallback(
+    (dim: "status" | "priority" | "cluster") => {
+      const n = selectedId ? nodesRef.current.find((x) => x.id === selectedId) : undefined;
+      if (!n) return;
+      if (dim === "priority") {
+        void saveFields(n.id, { priority: (n.data.priority + 1) % 4 });
+      } else if (dim === "status") {
+        const all: readonly string[] = view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES;
+        void saveFields(n.id, { status: all[(all.indexOf(n.data.status) + 1) % all.length] });
+      } else {
+        const all: (string | null)[] = [...categories, null];
+        void saveFields(n.id, { cluster: all[(all.indexOf(n.data.cluster) + 1) % all.length] });
+      }
+    },
+    [selectedId, saveFields, view, categories],
+  );
+
+  useBoardKeys({
+    // Anything that owns the keyboard stands the board keys down: the palette, the focus editor,
+    // and the two armed placement modes (whose own Esc handler would otherwise double-fire).
+    enabled: boardKeysMounted && !paletteOpen && !focusEdit && !placing && !pickingParent,
+    orderedIds,
+    selectedId,
+    onSelect: useCallback(
+      (id: string) => jumpTo(id, { zoom: flowRef.current?.getZoom(), duration: 200 }),
+      [jumpTo],
+    ),
+    onStatus: useCallback(() => cycleField("status"), [cycleField]),
+    onPriority: useCallback(() => cycleField("priority"), [cycleField]),
+    onCategory: useCallback(() => cycleField("cluster"), [cycleField]),
+    onCreate: useCallback(() => createAtCenter("FEATURE"), [createAtCenter]),
+    onIsolate: toggleIsolate,
+    onHelp: useCallback(() => setLegendOpen((v) => !v), []),
+    // onPalette is deliberately unwired — <CommandPalette/> binds ⌘K itself, and doing both
+    // would toggle it twice per press (open then immediately closed).
+    onClear: useCallback(() => {
+      setSelectedId(null);
+      setSelectedEdgeId(null);
+      setIsolateId(null);
+    }, []),
+  });
+
+  // Built only while the palette is open: every card contributes a command object, and rebuilding
+  // ~1200 of them on each drag frame for a dialog nobody has opened is pure waste.
+  const commands = useMemo<BoardCommand[]>(() => {
+    if (!paletteOpen) return [];
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    // Every mutation path on this board reads a ref by design (nodesRef for the rollback
+    // snapshot, flowRef for the camera), and buildCommands is pure: it only STORES these
+    // callbacks in each command's `run` thunk. Nothing here is invoked during render.
+    // eslint-disable-next-line react-hooks/refs
+    return buildCommands({
+      nodes: orderedIds.flatMap((id) => {
+        const n = byId.get(id);
+        return n
+          ? [
+              {
+                id,
+                title: n.data.title,
+                status: n.data.status,
+                priority: n.data.priority,
+                cluster: n.data.cluster,
+                kind: n.data.kind ?? "FEATURE",
+              },
+            ]
+          : [];
+      }),
+      selectedId,
+      categories,
+      arrangedBy,
+      hasActiveFilters: activeFilterCount > 0 || !!isolateId,
+      hideEmpty: hideEmptyLanes,
+      jumpTo: (id) => jumpTo(id),
+      setStatus: (id, status) => void saveFields(id, { status }),
+      setPriority: (id, priority) => void saveFields(id, { priority }),
+      setCategory: (id, cluster) => void saveFields(id, { cluster }),
+      setKind: (id, kind) => void saveFields(id, { kind }),
+      removeNode: (id) => void removeNode(id),
+      groupBy: arrange,
+      clearFilters,
+      createFeature: () => createAtCenter("FEATURE"),
+      createBug: () => createAtCenter("BUG"),
+      createSubtask: (parentId) => {
+        const p = byId.get(parentId);
+        if (p && !p.data.isChild) void createChildOf(p, p.position.x + 300, p.position.y + 60);
+      },
+      toggleHideEmpty: () => setHideEmptyLanes((v) => !v),
+      toggleIsolate,
+    });
+  }, [
+    paletteOpen,
+    nodes,
+    orderedIds,
+    selectedId,
+    categories,
+    arrangedBy,
+    activeFilterCount,
+    isolateId,
+    hideEmptyLanes,
+    jumpTo,
+    saveFields,
+    removeNode,
+    arrange,
+    clearFilters,
+    createAtCenter,
+    createChildOf,
+    toggleIsolate,
+  ]);
+
+  // ── Multi-select ──────────────────────────────────────────────────────────────────────────────
+  // 2+ selected cards get the bulk bar, anchored above the selection's bounding box. One card
+  // keeps the detail panel; zero keeps the board clean.
+  const bulkSelection = useMemo(() => {
+    if (readOnly) return null;
+    const sel = displayNodes.filter((n) => n.selected && !n.hidden);
+    if (sel.length < 2) return null;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    for (const n of sel) {
+      const w = n.measured?.width ?? (n.data.isChild ? 224 : 256);
+      minX = Math.min(minX, n.position.x);
+      maxX = Math.max(maxX, n.position.x + w);
+      minY = Math.min(minY, n.position.y);
+    }
+    return {
+      nodes: sel.map((n) => ({
+        id: n.id,
+        status: n.data.status,
+        priority: n.data.priority,
+        cluster: n.data.cluster,
+        layer: n.data.layer ?? null,
+      })),
+      anchor: { x: (minX + maxX) / 2, y: minY },
+    };
+  }, [displayNodes, readOnly]);
+
   function toggleIn<T>(s: T, set: React.Dispatch<React.SetStateAction<Set<T>>>) {
     set((prev) => {
       const next = new Set(prev);
@@ -2607,6 +2891,7 @@ export function MapClient({
           const gone = cascadeIds(roots);
           setNodes((nds) => nds.filter((n) => !gone.has(n.id)));
           setSelectedId((s) => (s && gone.has(s) ? null : s));
+          setIsolateId((s) => (s && gone.has(s) ? null : s));
         }}
         onNodeClick={(e, node) => {
           if (placing) {
@@ -2671,7 +2956,14 @@ export function MapClient({
         onNodeDragStart={(_, __, dragged) => {
           dragStartPos.current = new Map(dragged.map((n) => [n.id, n.position]));
         }}
-        onNodeDragStop={(_, __, dragged) => {
+        onNodeDrag={(e) => {
+          // Light up the lane the pointer is over so the drop target is visible before release.
+          if (!dropRects.length || !flowRef.current) return;
+          const p = flowRef.current.screenToFlowPosition(eventPoint(e));
+          setDropLane(laneAt(p, dropRects));
+        }}
+        onNodeDragStop={(e, __, dragged) => {
+          setDropLane(null);
           // `dragged` is every node the drag moved, not just the one under the cursor. Annotations
           // live in their own store and cards in the batch endpoint, so a mixed selection splits.
           const moved: { id: string; x: number; y: number }[] = [];
@@ -2686,9 +2978,46 @@ export function MapClient({
             }
           }
           void applyPositions(moved, dragStartPos.current);
+          // An archived grouped board keeps the old contract: a drag declutters LOCALLY and
+          // writes nothing at all — so it is not snapped back either.
+          if (!laneMode || readOnly) return;
+
+          // ── Lane drop ────────────────────────────────────────────────────────────────────
+          // On a grouped board the drag means "put this card in that lane", never "leave it at
+          // these coordinates". So: put every dragged card back where it started (the layout owns
+          // positions here), then write the dropped-on lane's FIELD. The regroup effect below
+          // watches each card's value for the active dimension and re-runs the layout, which is
+          // what actually slides the card into its new lane — the same path a status edit takes.
+          setNodes((nds) =>
+            nds.map((n) => {
+              const p = dragStartPos.current.get(n.id);
+              return p && (p.x !== n.position.x || p.y !== n.position.y)
+                ? { ...n, position: p }
+                : n;
+            }),
+          );
+          if (!arrangedBy || !flowRef.current) return;
+          const key = laneAt(flowRef.current.screenToFlowPosition(eventPoint(e)), dropRects);
+          if (!key) return;
+          const fields = laneFieldWrite(arrangedBy, key);
+          if (!fields) return; // e.g. a Linear workflow-state lane — not ours to write
+          const byId = new Map(nodesRef.current.map((n) => [n.id, n]));
+          for (const d of dragged) {
+            const n = byId.get(d.id);
+            // Sub-tasks are laid out under their PARENT, so re-laning one individually is a
+            // promise the layout can't keep — the card would snap straight back.
+            if (!n || n.data.parentId) continue;
+            if (roadmapLaneKey(arrangedBy, laneInput(n.data)) === key) continue; // already there
+            void saveFields(n.id, fields); // awaited + rolled back + undoable, like every write
+          }
         }}
         deleteKeyCode={readOnly ? null : ["Backspace", "Delete"]}
         colorMode={colorMode}
+        // Mount only the cards/edges actually on screen. A node that has never rendered is
+        // force-rendered once (React Flow keys that off `internals.handleBounds`), so nothing can
+        // get stuck invisible for want of a measurement — and fitView, the minimap, the lane rects
+        // and jump-to all read the store, not the DOM, so none of them notice the culling.
+        onlyRenderVisibleElements
         // Cards land on the canvas dot grid; hold ⌥ to drop one anywhere (see useSnapToGrid).
         snapToGrid={snapToGrid}
         snapGrid={SNAP_GRID}
@@ -2714,6 +3043,28 @@ export function MapClient({
           onToggleCollapse={laneMode ? toggleLane : undefined}
           hideEmpty={laneMode && hideEmptyLanes}
         />
+        {/* Drop target: the lane under the pointer during a drag. Drawn here rather than in
+            GroupRegions because it is a transient drag affordance, not part of the region model. */}
+        {dropLane &&
+          (() => {
+            const r = dropRects.find((d) => d.key === dropLane);
+            return r ? (
+              <ViewportPortal>
+                <div
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    transform: `translate(${r.x}px, ${r.y}px)`,
+                    width: r.w,
+                    height: r.h,
+                    pointerEvents: "none",
+                    zIndex: 1,
+                  }}
+                  className="rounded-2xl border-2 border-[var(--accent-2,#ff7a45)]/70 bg-[var(--accent-2,#ff7a45)]/8"
+                />
+              </ViewportPortal>
+            ) : null;
+          })()}
         <LodReporter onLod={setLod} />
 
         <Controls
@@ -2729,11 +3080,15 @@ export function MapClient({
         <Panel position="bottom-right" style={{ marginBottom: 152 }}>
           <CanvasPopover
             title="Legend"
+            // Controlled so "?" can open it — the shortcut reference lives in here rather than
+            // in a second overlay that would say half the same things.
+            open={legendOpen}
+            onOpenChange={setLegendOpen}
             trigger={(open, toggle) => (
               <button
                 type="button"
                 onClick={toggle}
-                title="Legend"
+                title={boardKeysMounted ? "Legend & shortcuts (?)" : "Legend"}
                 className={cn(
                   "glass flex size-8 items-center justify-center rounded-lg transition-colors",
                   open ? "text-foreground" : "text-muted-foreground hover:text-foreground",
@@ -2809,9 +3164,53 @@ export function MapClient({
                 />
                 <span>depends on · drag between two {view === "ROADMAP" ? "cards" : "components"}</span>
               </li>
+              {boardKeysMounted && (
+                <>
+                  <li className="mt-2.5 border-t border-border pt-2 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                    Keyboard
+                  </li>
+                  {BOARD_KEY_HELP.map((k) => (
+                    <li key={k.keys} className="flex items-center gap-2">
+                      <kbd className="min-w-9 shrink-0 rounded border border-border bg-[var(--ink-hover)] px-1 py-0.5 text-center font-mono text-[9px] text-foreground">
+                        {k.keys}
+                      </kbd>
+                      <span>{k.label}</span>
+                    </li>
+                  ))}
+                  <li className="flex items-center gap-2">
+                    <kbd className="min-w-9 shrink-0 rounded border border-border bg-[var(--ink-hover)] px-1 py-0.5 text-center font-mono text-[9px] text-foreground">
+                      /
+                    </kbd>
+                    <span>Search this board</span>
+                  </li>
+                  <li className="pt-0.5 text-[10px] text-muted-foreground/60">
+                    s · p · l step the selected card forward one value.
+                  </li>
+                </>
+              )}
             </ul>
           </CanvasPopover>
         </Panel>
+        {bulkSelection && (
+          <ViewportPortal>
+            <BulkEditBar
+              nodes={bulkSelection.nodes}
+              anchor={bulkSelection.anchor}
+              statuses={view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES}
+              categories={categories}
+              hasFrontend={hasFrontend}
+              // One awaited, rolled-back write per card through the board's single writer — which
+              // is also where undo is recorded, so a bulk edit lands as one entry PER CARD.
+              onField={(field, value) => {
+                for (const n of bulkSelection.nodes) void saveFields(n.id, { [field]: value });
+              }}
+              onDelete={() => {
+                for (const n of bulkSelection.nodes) void removeNode(n.id);
+              }}
+            />
+          </ViewportPortal>
+        )}
+
         {(minimap ?? !embedded) && (
           <MiniMap
             pannable
@@ -2835,6 +3234,18 @@ export function MapClient({
               {" "}{view === "ARCHITECTURE" ? "sub-component" : "sub-task"} · Esc to cancel
             </div>
           )}
+          {/* Isolate hides most of the board, so it must say so — an unexplained near-empty
+              canvas reads as data loss. */}
+          {isolateId && (
+            <button
+              type="button"
+              onClick={() => setIsolateId(null)}
+              className="glass rounded-full px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Showing dependencies only ·{" "}
+              <span className="font-mono text-foreground">\</span> or Esc to show all
+            </button>
+          )}
           {view === "ARCHITECTURE" && (
             <div className="glass flex items-center rounded-full p-0.5">
               <button
@@ -2850,36 +3261,44 @@ export function MapClient({
           {view === "ROADMAP" && (
             <div className="glass flex items-center gap-1 rounded-full p-1">
               <span className="pl-2 pr-0.5 text-[11px] text-muted-foreground">Group by</span>
-              {/* The way OUT of a grouping. Without it a board that has ever been arranged (which
-                  is every board — the default arrange sets "cluster") can never reach freeform,
-                  where positions are the user's own and a drag sticks. */}
-              <button
-                onClick={ungroup}
-                title="Freeform — no lanes; drag cards anywhere and the positions stick"
-                className={cn(
-                  "h-7 rounded-full px-2.5 text-[11px] font-medium transition-colors",
-                  arrangedBy === null
-                    ? "bg-[var(--ink-active)] text-foreground"
-                    : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
-                )}
-              >
-                None
-              </button>
-              {GROUP_BY_OPTIONS.map((o) => (
+              {/* Same a11y contract as the Columns board's dimension picker: a named group of
+                  pressed/unpressed toggles, not four anonymous buttons. */}
+              <div role="group" aria-label="Group cards by" className="flex items-center gap-1">
+                {/* The way OUT of a grouping. Without it a board that has ever been arranged (which
+                    is every board — the default arrange sets "cluster") can never reach freeform,
+                    where positions are the user's own and a drag sticks. */}
                 <button
-                  key={o.value}
-                  onClick={() => arrange(o.value)}
-                  title={`Arrange features into lanes by ${o.label.toLowerCase()}`}
+                  type="button"
+                  aria-pressed={arrangedBy === null}
+                  onClick={ungroup}
+                  title="Freeform — no lanes; drag cards anywhere and the positions stick"
                   className={cn(
                     "h-7 rounded-full px-2.5 text-[11px] font-medium transition-colors",
-                    arrangedBy === o.value
+                    arrangedBy === null
                       ? "bg-[var(--ink-active)] text-foreground"
                       : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
                   )}
                 >
-                  {o.label}
+                  None
                 </button>
-              ))}
+                {GROUP_BY_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    aria-pressed={arrangedBy === o.value}
+                    onClick={() => arrange(o.value)}
+                    title={`Arrange features into lanes by ${o.label.toLowerCase()}`}
+                    className={cn(
+                      "h-7 rounded-full px-2.5 text-[11px] font-medium transition-colors",
+                      arrangedBy === o.value
+                        ? "bg-[var(--ink-active)] text-foreground"
+                        : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
+                    )}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
               {arrangedBy && (
                 <>
                   <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
@@ -3185,6 +3604,16 @@ export function MapClient({
       )}
 
       <FocusEditorModal payload={focusEdit} onDismiss={() => setFocusEdit(null)} />
+
+      {/* ⌘K. It owns its own open state and its own ⌘K binding; all the board does is hand it the
+          command list and stand its single-key shortcuts down while it is open. */}
+      {boardKeysMounted && (
+        <CommandPalette
+          commands={commands}
+          onOpenChange={setPaletteOpen}
+          placeholder="Search cards and commands…"
+        />
+      )}
 
       {/* In-app creation preview: a tiny feature card, not the operating system's dragged-file image. */}
       {(placing || pickingParent || draggingCreate) && ghostPos && (
