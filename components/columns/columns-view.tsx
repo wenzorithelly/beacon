@@ -219,13 +219,39 @@ export function ColumnsView({
             ))}
           </div>
         </div>
-        <p aria-live="polite" className="ml-auto shrink-0 text-[11px] text-muted-foreground">
-          <span className="tabular-nums">{cardCount}</span> cards in{" "}
-          <span className="tabular-nums">{columns.length}</span> columns
-          {hideEmpty && emptyCount > 0 && (
-            <span className="tabular-nums"> · {emptyCount} empty hidden</span>
-          )}
-        </p>
+        {/* One row, always. The spotlight readout REPLACES the counts here rather than adding a
+            second row — a bar that appears on selection pushed the whole board down every time
+            you clicked a card. */}
+        {selected ? (
+          <div
+            aria-live="polite"
+            className="ml-auto flex min-w-0 items-center gap-2 text-[11px]"
+          >
+            {/* No title here — the spotlighted card is already on screen and ringed. */}
+            <Target className="size-3 shrink-0 text-[var(--accent-2,#ff7a45)]" />
+            <span className="shrink-0 text-muted-foreground">
+              {blockerIds?.size || dependentIds?.size
+                ? `${blockerIds?.size ?? 0} blocking · ${dependentIds?.size ?? 0} waiting`
+                : "no dependencies"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setDetailOpen(true)}
+              className="shrink-0 rounded-full border border-border px-2 py-0.5 font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Open details
+            </button>
+          </div>
+        ) : (
+          <p aria-live="polite" className="ml-auto shrink-0 text-[11px] text-muted-foreground">
+            <span className="tabular-nums">{cardCount}</span> cards in{" "}
+            <span className="tabular-nums">{columns.length}</span> columns
+            {hideEmpty && emptyCount > 0 && (
+              <span className="tabular-nums"> · {emptyCount} empty hidden</span>
+            )}
+          </p>
+        )}
+        {!selected && (
         <button
           type="button"
           aria-pressed={hideEmpty}
@@ -251,27 +277,8 @@ export function ColumnsView({
             </span>
           )}
         </button>
+        )}
       </header>
-
-      {/* Spotlight bar — the dependency read, and the obvious way out of it. */}
-      {selected && (
-        <div className="mx-1.5 mb-1.5 flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-[var(--accent-2,#ff7a45)]/45 bg-[var(--accent-2,#ff7a45)]/10 px-2.5 py-1 text-[11px]">
-          <Target className="size-3 shrink-0 text-[var(--accent-2,#ff7a45)]" />
-          <span className="min-w-0 max-w-[40%] truncate font-medium">{selected.title}</span>
-          <span className="text-muted-foreground">
-            {blockerIds?.size || dependentIds?.size
-              ? `${blockerIds?.size ?? 0} blocking it · ${dependentIds?.size ?? 0} waiting on it`
-              : "no dependencies — nothing else is highlighted"}
-          </span>
-          <button
-            type="button"
-            onClick={() => setDetailOpen(true)}
-            className="ml-auto shrink-0 rounded-full border border-border px-2 py-0.5 font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Open details
-          </button>
-        </div>
-      )}
 
       {/* board */}
       {/* Clicking off a card clears the spotlight — no dedicated button. A card, and any control

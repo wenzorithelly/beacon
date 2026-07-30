@@ -339,3 +339,24 @@ describe("spotlight clears by clicking off a card", () => {
     expect(src("components/columns/column-card.tsx")).toContain("data-card");
   });
 });
+
+// Owner: a spotlight row that appears on selection "changes the height of the screen, which is
+// really strange" — and the title was already on screen, ringed. One fixed-height header row.
+describe("the spotlight readout lives in the existing header row", () => {
+  const view = () => src("components/columns/columns-view.tsx");
+
+  it("adds no second row", () => {
+    expect(view()).not.toContain("Spotlight bar —");
+    expect(view()).not.toContain("mx-1.5 mb-1.5 flex shrink-0 flex-wrap items-center");
+  });
+
+  it("replaces the counts in place rather than stacking", () => {
+    expect(view()).toContain("{selected ? (");
+    expect(view()).toContain("cards in");
+  });
+
+  it("does not repeat the spotlighted card's title", () => {
+    const head = view().slice(view().indexOf("<header"), view().indexOf("{/* board */}"));
+    expect(head).not.toContain("{selected.title}");
+  });
+});
