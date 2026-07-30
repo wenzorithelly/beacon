@@ -12,6 +12,7 @@ export interface LinearIssue {
   description?: string | null;
   updatedAt: number; // epoch-ms (client converts Linear's ISO string)
   priority: number; // Linear 0=None,1=Urgent,2=High,3=Medium,4=Low
+  stateId: string; // the workflow-state UUID — what the Status picker writes back
   stateType: string; // triage|backlog|unstarted|started|completed|canceled
   stateName: string; // real workflow-state name, e.g. "In Review" — persisted for display/filtering
   stateColor: string; // workflow-state color, e.g. "#0f783c"
@@ -56,6 +57,23 @@ export interface LinearConfig {
   lastSyncedAt?: string; // ISO of the last successful reconcile (UI only)
   /** Beacon status → Linear state UUID, per team (states are per-team; scope can span teams). */
   stateMapByTeam?: Record<string, Partial<Record<NodeStatus, string>>>;
+  /** The team whose workflow states are the workspace's status vocabulary (see pickPrimaryTeam). */
+  primaryTeamId?: string;
+  /** Every workflow state each team defines, in the team's own order — the list the Status picker
+   *  shows on a Linear card, so it offers "Backlog / Todo / In Progress / In Review / Done /
+   *  Canceled / Duplicate" (whatever the team actually named them) instead of Beacon's five. */
+  statesByTeam?: Record<string, LinearWorkflowState[]>;
+}
+
+/** One Linear workflow state, as the team defined it. */
+export interface LinearWorkflowState {
+  id: string;
+  name: string;
+  color: string;
+  /** triage|backlog|unstarted|started|completed|canceled — maps to a Beacon status. */
+  type: string;
+  /** Linear's own ordering within the team. */
+  position: number;
 }
 
 /** All readers go through this — never read `config.scope` / `config.scopes` directly. */

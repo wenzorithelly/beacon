@@ -6,12 +6,19 @@ import type { LinearIssue, NodeStatus } from "@/lib/linear/types";
 const STATE_TYPE_TO_STATUS: Record<string, NodeStatus> = {
   completed: "DONE",
   canceled: "CANCELLED",
+  // A real team's "Duplicate" state reports type `duplicate`, not `canceled`. Without this it fell
+  // through to the PENDING default, so a duplicate issue came back onto the board as work to do.
+  duplicate: "CANCELLED",
   started: "IN_PROGRESS",
   backlog: "PENDING",
   unstarted: "PENDING",
   triage: "PENDING",
 };
 
+/** Beacon's internal five, derived from Linear's state TYPE (never its name — teams name states
+ *  whatever they like, and the board shows those names verbatim). A type this table doesn't know
+ *  falls back to PENDING: "not finished" is the safe guess, and it keeps the card on the board
+ *  rather than dropping or completing it. */
 export function linearStateToStatus(stateType: string): NodeStatus {
   return STATE_TYPE_TO_STATUS[stateType] ?? "PENDING";
 }
@@ -48,7 +55,9 @@ export interface NodeFields {
  * later UI layer to render/filter by. Null-able members are OMITTED rather than stored as null so
  * the shape stays stable (no `project: null` noise on a teamless-project issue). */
 export interface ExternalMeta {
-  state: { name: string; color: string; type: string };
+  /** `id` is the workflow-state UUID — what the Status picker keys its selection on. Optional
+   *  because rows written before the picker existed carry only name/color/type. */
+  state: { id?: string; name: string; color: string; type: string };
   team: { id: string; key: string; name: string };
   project?: { id: string; name: string };
   milestone?: { id: string; name: string };
@@ -56,7 +65,7 @@ export interface ExternalMeta {
 
 export function buildExternalMeta(issue: LinearIssue): ExternalMeta {
   const meta: ExternalMeta = {
-    state: { name: issue.stateName, color: issue.stateColor, type: issue.stateType },
+    state: { id: issue.stateId, name: issue.stateName, color: issue.stateColor, type: issue.stateType },
     team: { id: issue.teamId, key: issue.teamKey, name: issue.teamName },
   };
   if (issue.projectId && issue.projectName) meta.project = { id: issue.projectId, name: issue.projectName };

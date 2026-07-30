@@ -2,7 +2,7 @@
 // only auth a localhost daemon can do (no OAuth callback). ponytail: the raw fetch wrapper is not
 // unit-tested (testing it would test the mock); the one non-trivial pure bit — flattenIssue — is
 // (tests/linear-client.test.ts).
-import type { LinearIssue, LinearScope, NodeStatus } from "@/lib/linear/types";
+import type { LinearIssue, LinearScope, LinearWorkflowState, NodeStatus } from "@/lib/linear/types";
 
 const ENDPOINT = "https://api.linear.app/graphql";
 
@@ -14,7 +14,7 @@ interface RawIssue {
   description: string | null;
   updatedAt: string; // ISO
   priority: number;
-  state: { name: string; color: string; type: string };
+  state: { id: string; name: string; color: string; type: string };
   labels: { nodes: { name: string }[] };
   parent: { id: string } | null;
   team: { id: string; key: string; name: string };
@@ -25,7 +25,7 @@ interface RawIssue {
 
 export const ISSUE_FIELDS = `
   id identifier url title description updatedAt priority
-  state { name color type }
+  state { id name color type }
   labels { nodes { name } }
   parent { id }
   team { id key name }
@@ -43,6 +43,7 @@ export function flattenIssue(raw: RawIssue): LinearIssue {
     description: raw.description,
     updatedAt: Date.parse(raw.updatedAt),
     priority: raw.priority,
+    stateId: raw.state.id,
     stateType: raw.state.type,
     stateName: raw.state.name,
     stateColor: raw.state.color,
@@ -148,20 +149,53 @@ export async function listScopes(apiKey: string): Promise<LinearScope[]> {
   ];
 }
 
-/** Map each Beacon status to a concrete Linear workflow-state UUID for a team (write-back needs it). */
-export async function resolveStateMap(
-  apiKey: string,
-  teamId: string,
-): Promise<Partial<Record<NodeStatus, string>>> {
-  const d = await gql<{ team: { states: { nodes: { id: string; type: string }[] } } }>(
+/** Every workflow state a team defines, in the team's own order. Two consumers: the Status picker
+ *  on a Linear card renders them verbatim, and `stateMapFromStates` collapses them into the
+ *  Beacon-status map the write-back path needs — ONE query serving both. */
+export async function fetchTeamStates(apiKey: string, teamId: string): Promise<LinearWorkflowState[]> {
+  const d = await gql<{
+    team: { states: { nodes: { id: string; name: string; color: string; type: string; position: number }[] } };
+  }>(
     apiKey,
-    `query($teamId: String!) { team(id: $teamId) { states { nodes { id type } } } }`,
+    `query($teamId: String!) { team(id: $teamId) { states { nodes { id name color type position } } } }`,
     { teamId },
   );
-  const first = (type: string) => d.team.states.nodes.find((s) => s.type === type)?.id;
+  return sortWorkflowStates(d.team.states.nodes);
+}
+
+// Linear's own menu groups states BY TYPE first, then by position within the type — `position` alone
+// is not the order the user sees. Observed on a real team: In Review sits at position 1002 yet
+// Linear lists it 4th, right after In Progress, because both are `started`.
+//
+// This table is ORDERING ONLY and deliberately NOT authoritative. State NAMES are whatever the
+// team invented and are never hardcoded anywhere — that is the entire point of the vocabulary.
+// TYPES come from Linear's own enum, but we don't assume this list is complete (`duplicate` was
+// found on a real team and isn't in the public docs): an unrecognised type sorts last and keeps its
+// relative position, so a state Beacon has never heard of still appears in the picker.
+const TYPE_RANK: Record<string, number> = {
+  triage: 0,
+  backlog: 1,
+  unstarted: 2,
+  started: 3,
+  completed: 4,
+  canceled: 5,
+  duplicate: 6,
+};
+
+/** PURE — the states in the order Linear itself shows them. Unknown types sort last, stably. */
+export function sortWorkflowStates(states: LinearWorkflowState[]): LinearWorkflowState[] {
+  const rank = (s: LinearWorkflowState) => TYPE_RANK[s.type] ?? 99;
+  return [...states].sort((a, b) => rank(a) - rank(b) || a.position - b.position);
+}
+
+/** PURE — map each Beacon status to a concrete state UUID (write-back needs it). Unit-tested. */
+export function stateMapFromStates(states: LinearWorkflowState[]): Partial<Record<NodeStatus, string>> {
+  const first = (type: string) => states.find((s) => s.type === type)?.id;
   const map: Partial<Record<NodeStatus, string>> = {};
   const done = first("completed");
-  const cancelled = first("canceled");
+  // A team may name its only cancel-ish state "Duplicate" (type `duplicate`); without the fallback
+  // CANCELLED resolves to nothing and writing it back silently no-ops.
+  const cancelled = first("canceled") ?? first("duplicate");
   const started = first("started");
   const pending = first("unstarted") ?? first("backlog");
   if (done) map.DONE = done;
@@ -172,6 +206,14 @@ export async function resolveStateMap(
   // writes back as the team's started state. (Round-tripping through Linear reads it back IN_PROGRESS.)
   if (started) map.BLOCKED = started;
   return map;
+}
+
+/** Map each Beacon status to a concrete Linear workflow-state UUID for a team. */
+export async function resolveStateMap(
+  apiKey: string,
+  teamId: string,
+): Promise<Partial<Record<NodeStatus, string>>> {
+  return stateMapFromStates(await fetchTeamStates(apiKey, teamId));
 }
 
 /**

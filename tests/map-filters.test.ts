@@ -15,7 +15,7 @@ const linearNode: FilterableNode = {
   priority: 0,
   source: "LINEAR",
   externalMeta: {
-    state: { name: "In Review", color: "#0f783c", type: "started" },
+    state: { id: "s-review", name: "In Review", color: "#0f783c", type: "started" },
     team: { id: "team-1", key: "V3", name: "Terra Nova" },
     project: { id: "proj-1", name: "Shimizu PWA" },
     milestone: { id: "ms-1", name: "Beta launch" },
@@ -28,7 +28,7 @@ const linearNodeNoProjectOrMilestone: FilterableNode = {
   priority: 2,
   source: "LINEAR",
   externalMeta: {
-    state: { name: "Todo", color: "#e2e2e2", type: "unstarted" },
+    state: { id: "s-todo", name: "Todo", color: "#e2e2e2", type: "unstarted" },
     team: { id: "team-1", key: "V3", name: "Terra Nova" },
   },
 };

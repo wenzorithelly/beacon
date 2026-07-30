@@ -9,9 +9,16 @@ import { resolveHasFrontend } from "@/lib/project-meta";
 import { getLinearFlag, setLinearFlag } from "@/lib/linear/config";
 import * as realClient from "@/lib/linear/client";
 import type { IssuePatch, ScopedFetch, ViewerOrg } from "@/lib/linear/client";
+import { stateMapFromStates } from "@/lib/linear/client";
 import { beaconPriorityToLinear, buildExternalMeta, issueToNodeFields } from "@/lib/linear/mapping";
 import { planReconcile, type LocalNode } from "@/lib/linear/reconcile";
-import { effectiveScopes, type LinearIssue, type LinearScope, type NodeStatus } from "@/lib/linear/types";
+import {
+  effectiveScopes,
+  type LinearIssue,
+  type LinearScope,
+  type LinearWorkflowState,
+  type NodeStatus,
+} from "@/lib/linear/types";
 
 export interface SyncClient {
   resolveViewerAndOrg: (apiKey: string) => Promise<ViewerOrg>;
@@ -26,7 +33,7 @@ export interface SyncClient {
     ids: string[],
     opts: { onlyMineViewerId?: string },
   ) => Promise<LinearIssue[]>;
-  resolveStateMap: (apiKey: string, teamId: string) => Promise<Partial<Record<NodeStatus, string>>>;
+  fetchTeamStates: (apiKey: string, teamId: string) => Promise<LinearWorkflowState[]>;
   updateIssue: (apiKey: string, id: string, patch: IssuePatch) => Promise<number>;
 }
 
@@ -138,13 +145,21 @@ async function runSyncInner(opts: { client?: SyncClient; now?: number; force?: b
   const layer = (await resolveHasFrontend()) ? "fullstack" : null;
 
   // Workflow states are per-team; the scope can span teams, so resolve + cache per team on demand.
+  // The FULL list is cached too (not just the Beacon-status map): it's the vocabulary the Status
+  // picker offers on every card in the workspace, and it comes from the same one query.
   const stateMapByTeam: Record<string, Partial<Record<NodeStatus, string>>> = { ...(config.stateMapByTeam ?? {}) };
+  const statesByTeam: Record<string, LinearWorkflowState[]> = { ...(config.statesByTeam ?? {}) };
   let stateMapDirty = false;
-  const stateIdFor = async (teamId: string, status: NodeStatus): Promise<string | undefined> => {
-    if (!stateMapByTeam[teamId]) {
-      stateMapByTeam[teamId] = await client.resolveStateMap(config.apiKey, teamId);
+  const statesFor = async (teamId: string): Promise<LinearWorkflowState[]> => {
+    if (!statesByTeam[teamId]?.length) {
+      statesByTeam[teamId] = await client.fetchTeamStates(config.apiKey, teamId);
+      stateMapByTeam[teamId] = stateMapFromStates(statesByTeam[teamId]);
       stateMapDirty = true;
     }
+    return statesByTeam[teamId];
+  };
+  const stateIdFor = async (teamId: string, status: NodeStatus): Promise<string | undefined> => {
+    await statesFor(teamId);
     return stateMapByTeam[teamId]?.[status];
   };
 
@@ -248,9 +263,36 @@ async function runSyncInner(opts: { client?: SyncClient; now?: number; force?: b
 
   await relinkParents(current, now);
 
-  if (stateMapDirty) await setLinearFlag({ config: { stateMapByTeam } });
-  await setLinearFlag({ config: { lastSyncedAt: new Date(now).toISOString() } });
+  // The workspace's status vocabulary comes from ONE team — a card's picker must offer a stable
+  // list, and Beacon-native cards belong to no team at all. Prefer the first team in scope; a
+  // project/milestone/workspace scope has no team id, so fall back to the team most of the synced
+  // issues live in. Warmed here so the picker never waits on a network round-trip.
+  const primaryTeamId = pickPrimaryTeam(scopes, current) ?? config.primaryTeamId;
+  if (primaryTeamId) {
+    try {
+      await statesFor(primaryTeamId);
+    } catch (e) {
+      console.error("[beacon-linear] could not resolve the workspace status vocabulary:", e instanceof Error ? e.message : e);
+    }
+  }
+
+  if (stateMapDirty) await setLinearFlag({ config: { stateMapByTeam, statesByTeam } });
+  await setLinearFlag({ config: { lastSyncedAt: new Date(now).toISOString(), primaryTeamId } });
   return summary;
+}
+
+/** PURE — which team's workflow states become the workspace's status vocabulary. First team scope
+ *  wins (explicit intent); otherwise the team the most synced issues belong to; otherwise none. */
+export function pickPrimaryTeam(scopes: LinearScope[], issues: LinearIssue[]): string | undefined {
+  const teamScope = scopes.find((s) => s.kind === "team");
+  if (teamScope) return teamScope.id;
+  const counts = new Map<string, number>();
+  for (const i of issues) counts.set(i.teamId, (counts.get(i.teamId) ?? 0) + 1);
+  let best: string | undefined;
+  let bestN = 0;
+  // Ties break on the FIRST team seen, so the vocabulary doesn't flip between passes.
+  for (const [id, n] of counts) if (n > bestN) [best, bestN] = [id, n];
+  return best;
 }
 
 // Reconcile parent → sub-task nesting for the fetched issues, in BOTH directions: a new/changed

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Boxes,
@@ -60,9 +60,49 @@ import {
 import { NodeFormDialog } from "@/components/graph/node-form-dialog";
 import { useNodeEdit } from "@/components/graph/node-edit-context";
 import { LAYER_META, normalizeLayer } from "@/lib/layer";
+import { linearStateToStatus } from "@/lib/linear/mapping";
 import { cn } from "@/lib/utils";
 import type { MapNodePayload } from "@/components/graph/types";
+import type { LinearWorkflowState } from "@/lib/linear/types";
 import type { ReactNode } from "react";
+
+// The workspace's Linear status vocabulary — one unchanging list per team, read by every card that
+// mounts a Status picker. Modelled as an external store rather than per-component state: opening
+// ten cards must not mean ten round-trips, and a plain useState+useEffect would setState
+// synchronously on a cache hit (a cascading render the compiler rightly rejects).
+const NO_STATES: LinearWorkflowState[] = []; // stable identity — getSnapshot must not allocate
+const STATES_CACHE = new Map<string, LinearWorkflowState[]>();
+const STATES_INFLIGHT = new Map<string, Promise<void>>();
+const STATES_LISTENERS = new Set<() => void>();
+
+function loadLinearStates(key: string, teamId: string | undefined): void {
+  if (STATES_CACHE.has(key) || STATES_INFLIGHT.has(key)) return;
+  const p = fetch(`/api/linear/status${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ""}`)
+    .then((r) => (r.ok ? r.json() : { states: [] }))
+    .then((d: { states?: LinearWorkflowState[] }) => {
+      STATES_CACHE.set(key, d.states?.length ? d.states : NO_STATES);
+      for (const l of STATES_LISTENERS) l();
+    })
+    // A failed lookup must not wedge the picker: nothing is cached, so the next card retries, and
+    // the empty list falls back to Beacon's own statuses meanwhile.
+    .catch(() => {})
+    .finally(() => STATES_INFLIGHT.delete(key));
+  STATES_INFLIGHT.set(key, p);
+}
+
+function useLinearStates(teamId: string | undefined): LinearWorkflowState[] {
+  const key = teamId ?? "";
+  const states = useSyncExternalStore(
+    (cb) => {
+      STATES_LISTENERS.add(cb);
+      return () => STATES_LISTENERS.delete(cb);
+    },
+    () => STATES_CACHE.get(key) ?? NO_STATES,
+    () => NO_STATES, // server render: no vocabulary, Beacon's statuses
+  );
+  useEffect(() => loadLinearStates(key, teamId), [key, teamId]);
+  return states;
+}
 
 export type SidebarTab = PanelTab;
 
@@ -328,9 +368,27 @@ export function NodeDetail({
     node.source === "LINEAR" && node.sourceRef
       ? node.sourceRef.match(/\/issue\/([^/]+)/)?.[1] ?? "Linear issue"
       : null;
-  // The issue's real workflow state. When present it REPLACES the Beacon status label in the
-  // Status row — one row, spelled the way the user's Linear team spells it.
-  const linearState = node.source === "LINEAR" ? (node.externalMeta?.state ?? null) : null;
+  // The workspace's status vocabulary: the Linear team's real workflow states. Empty unless Linear
+  // is connected, which is exactly when the picker falls back to Beacon's own statuses. Keyed by
+  // the card's OWN team when it has one (the scope can span teams), else the workspace's primary.
+  const linearStates = useLinearStates(node.externalMeta?.team?.id);
+  // What the trigger shows. Prefer the state stored on the card (the exact one the user or Linear
+  // set — several states share a type, so re-deriving from node.status would rewrite the choice);
+  // fall back to mapping the Beacon status onto the vocabulary for a card that has never carried one.
+  const stored = node.externalMeta?.state ?? null;
+  const currentState =
+    linearStates.find((s) => s.id === stored?.id) ??
+    (stored?.name ? { id: stored.id ?? "", name: stored.name, color: stored.color, type: stored.type, position: 0 } : null) ??
+    linearStates.find((s) => linearStateToStatus(s.type) === node.status) ??
+    null;
+
+  const saveLinearState = async (stateId: string) => {
+    await fetch("/api/linear/status", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ nodeId: node.id, stateId }),
+    });
+  };
 
   const run = (fn: () => Promise<unknown>) =>
     startTransition(async () => {
@@ -444,52 +502,58 @@ export function NodeDetail({
           )}
         >
           <div className="space-y-px">
+            {/* Once Linear is connected the whole workspace speaks LINEAR'S status vocabulary —
+                the team's real workflow states, in the team's own order, on every card. Beacon's
+                five statuses are the internal mapping underneath, not what the user picks from.
+                A Beacon-native card speaks it too and is never pushed to Linear (see
+                app/api/linear/status/route.ts). No connection → Beacon's own statuses. */}
             <PropRow icon={CircleDashed} label="Status">
               <Select
-                value={node.status}
-                onValueChange={(v) => v != null && run(() => saveFields(node.id, { status: v }))}
+                value={linearStates.length ? (currentState?.id ?? "") : node.status}
+                onValueChange={(v) =>
+                  v != null &&
+                  run(() =>
+                    linearStates.length ? saveLinearState(v) : saveFields(node.id, { status: v }),
+                  )
+                }
               >
                 <SelectTrigger
                   aria-label="Status"
                   className={QUIET_TRIGGER}
                   disabled={pending || readOnly}
                 >
-                  {/* On a Linear card this row shows LINEAR'S OWN workflow state — its name and
-                      its color, straight from the issue — because that's the status the user
-                      actually works in ("In Review", "Triage", whatever the team named it).
-                      Beacon's five-way status is only the internal mapping the picker writes
-                      through; showing both was two rows saying one thing, and disagreeing whenever
-                      the mapping was lossy. */}
                   <SelectValue>
-                    {(v: string) =>
-                      linearState ? (
+                    {(v: string) => {
+                      const dot = currentState?.color ?? STATUS_STRIPE[v] ?? "#71717a";
+                      const label = currentState?.name ?? STATUS_META[v]?.label ?? v;
+                      return (
                         <span className="flex items-center gap-1.5">
-                          <span
-                            aria-hidden
-                            className="size-2 rounded-full"
-                            style={{ background: linearState.color }}
-                          />
-                          {linearState.name}
+                          <span aria-hidden className="size-2 rounded-full" style={{ background: dot }} />
+                          {label}
                         </span>
-                      ) : (
-                        <span className="flex items-center gap-1.5">
-                          <span
-                            aria-hidden
-                            className="size-2 rounded-full"
-                            style={{ background: STATUS_STRIPE[v] ?? "#71717a" }}
-                          />
-                          {STATUS_META[v]?.label ?? v}
-                        </span>
-                      )
-                    }
+                      );
+                    }}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent alignItemWithTrigger={false}>
-                  {statuses.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {STATUS_META[s]?.label ?? s}
-                    </SelectItem>
-                  ))}
+                  {linearStates.length
+                    ? linearStates.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          <span className="flex items-center gap-1.5">
+                            <span
+                              aria-hidden
+                              className="size-2 rounded-full"
+                              style={{ background: s.color }}
+                            />
+                            {s.name}
+                          </span>
+                        </SelectItem>
+                      ))
+                    : statuses.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {STATUS_META[s]?.label ?? s}
+                        </SelectItem>
+                      ))}
                 </SelectContent>
               </Select>
             </PropRow>

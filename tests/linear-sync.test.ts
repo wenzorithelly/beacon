@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { node } from "@/lib/drizzle/schema";
-import { setLinearFlag } from "@/lib/linear/config";
-import { runSync, type SyncClient } from "@/lib/linear/sync";
+import { getLinearFlag, setLinearFlag } from "@/lib/linear/config";
+import { pickPrimaryTeam, runSync, type SyncClient } from "@/lib/linear/sync";
 import type { IssuePatch, ScopedFetch } from "@/lib/linear/client";
 import type { LinearIssue, LinearScope } from "@/lib/linear/types";
 import { resetDb } from "./helpers";
@@ -18,6 +18,7 @@ const issueA: LinearIssue = {
   description: "d",
   updatedAt: 500,
   priority: 1,
+  stateId: "s-started",
   stateType: "started",
   stateName: "In Progress",
   stateColor: "#0f783c",
@@ -65,9 +66,17 @@ function fakeClient(over: Partial<SyncClient> = {}): Fake {
       probedIds.push(ids);
       return [];
     },
-    resolveStateMap: async (_k, teamId) => {
+    fetchTeamStates: async (_k, teamId) => {
       stateMapCalls.push(teamId);
-      return { DONE: "s-done", IN_PROGRESS: "s-started", BLOCKED: "s-started" };
+      // A realistic team list: several states share a type, which is what the picker exists for.
+      return [
+        { id: "s-backlog", name: "Backlog", color: "#bec2c8", type: "backlog", position: 0 },
+        { id: "s-todo", name: "Todo", color: "#e2e2e2", type: "unstarted", position: 1 },
+        { id: "s-started", name: "In Progress", color: "#f2c94c", type: "started", position: 2 },
+        { id: "s-review", name: "In Review", color: "#0f783c", type: "started", position: 3 },
+        { id: "s-done", name: "Done", color: "#5e6ad2", type: "completed", position: 4 },
+        { id: "s-cancel", name: "Canceled", color: "#95a2b3", type: "canceled", position: 5 },
+      ];
     },
     updateIssue: async (_k, id, patch) => {
       updates.push({ id, patch });
@@ -156,7 +165,7 @@ describe("runSync (v2 — scoped, full-set, soft-hide)", () => {
     expect(n.assigneeName).toBe("Leticia");
     expect(n.hiddenAt).toBeNull();
     expect(JSON.parse(n.externalMeta!)).toEqual({
-      state: { name: "In Progress", color: "#0f783c", type: "started" },
+      state: { id: "s-started", name: "In Progress", color: "#0f783c", type: "started" },
       team: { id: "team-1", key: "V3", name: "Terra Nova" },
     });
   });
@@ -174,7 +183,7 @@ describe("runSync (v2 — scoped, full-set, soft-hide)", () => {
     await runSync({ client, now: 2_000, force: true });
     const [n] = await db.select().from(node).where(eq(node.externalId, "ext-A"));
     expect(JSON.parse(n.externalMeta!)).toEqual({
-      state: { name: "In Progress", color: "#0f783c", type: "started" },
+      state: { id: "s-started", name: "In Progress", color: "#0f783c", type: "started" },
       team: { id: "team-1", key: "V3", name: "Terra Nova" },
     });
     // Both LWW stamps advanced together, so the mirror write is not read as a user edit…
@@ -213,12 +222,12 @@ describe("runSync (v2 — scoped, full-set, soft-hide)", () => {
       externalUpdatedAt: new Date(100),
       externalSyncedAt: new Date(100),
     });
-    const changed = { ...issueA, updatedAt: 9_000, stateName: "Done", stateColor: "#5e6ad2", stateType: "completed" };
+    const changed = { ...issueA, updatedAt: 9_000, stateId: "s-done", stateName: "Done", stateColor: "#5e6ad2", stateType: "completed" };
     await runSync({ client: fakeClient({ fetchScopedOpenIssues: async () => scoped([changed]) }), now: 10_000, force: true });
     const [n] = await db.select().from(node).where(eq(node.externalId, "ext-A"));
     expect(n.status).toBe("DONE");
     expect(JSON.parse(n.externalMeta!)).toEqual({
-      state: { name: "Done", color: "#5e6ad2", type: "completed" },
+      state: { id: "s-done", name: "Done", color: "#5e6ad2", type: "completed" },
       team: { id: "team-1", key: "V3", name: "Terra Nova" },
     });
   });
@@ -247,7 +256,7 @@ describe("runSync (v2 — scoped, full-set, soft-hide)", () => {
   // Linear read as "left the scope" and soft-hid the card. The probe re-asks about JUST the ids we
   // already track, closed states included, and the same scope applied.
   describe("a tracked card that got COMPLETED in Linear", () => {
-    const done = { ...issueA, updatedAt: 9_000, stateType: "completed", stateName: "Done" };
+    const done = { ...issueA, updatedAt: 9_000, stateId: "s-done", stateType: "completed", stateName: "Done" };
 
     it("lands in Done instead of vanishing off the board", async () => {
       await connect();
@@ -285,7 +294,7 @@ describe("runSync (v2 — scoped, full-set, soft-hide)", () => {
         fetchScopedOpenIssues: async () => scoped([]),
         fetchScopedIssuesByIds: async (_k, _s, ids) => {
           asked.push(ids);
-          return [done, { ...issueA, id: "ext-ANCIENT", stateType: "completed" }];
+          return [done, { ...issueA, id: "ext-ANCIENT", stateId: "s-done", stateType: "completed" }];
         },
       });
       const s = await runSync({ client, now: 10_000, force: true });
@@ -309,6 +318,38 @@ describe("runSync (v2 — scoped, full-set, soft-hide)", () => {
       const client = fakeClient({ fetchScopedOpenIssues: async () => scoped([], false) });
       await runSync({ client, now: 2_000, force: true });
       expect(client.probedIds).toEqual([]);
+    });
+  });
+
+  // The workspace speaks ONE status vocabulary — the team's real workflow states — so a card that
+  // belongs to no team (a Beacon-native one) still has a list to pick from.
+  describe("the workspace status vocabulary", () => {
+    it("caches the team's full state list, not just the Beacon-status map", async () => {
+      await connect();
+      await runSync({ client: fakeClient({ fetchScopedOpenIssues: async () => scoped([issueA]) }), now: 1_000, force: true });
+      const { config } = await getLinearFlag();
+      expect(config.statesByTeam?.["team-1"]?.map((s) => s.name)).toEqual([
+        "Backlog",
+        "Todo",
+        "In Progress",
+        "In Review",
+        "Done",
+        "Canceled",
+      ]);
+      expect(config.stateMapByTeam?.["team-1"]?.DONE).toBe("s-done");
+    });
+
+    it("names a primary team so Beacon-native cards have a vocabulary too", async () => {
+      await connect();
+      await runSync({ client: fakeClient({ fetchScopedOpenIssues: async () => scoped([issueA]) }), now: 1_000, force: true });
+      expect((await getLinearFlag()).config.primaryTeamId).toBe("team-1");
+    });
+
+    it("resolves the vocabulary even when nothing synced (one team, zero open issues)", async () => {
+      await connect();
+      const client = fakeClient({ fetchScopedOpenIssues: async () => scoped([]) });
+      await runSync({ client, now: 1_000, force: true });
+      expect((await getLinearFlag()).config.statesByTeam?.["team-1"]).toBeDefined();
     });
   });
 
@@ -387,5 +428,35 @@ describe("runSync (v2 — scoped, full-set, soft-hide)", () => {
     const [a, b] = await Promise.all([runSync({ client, now: 1_000 }), runSync({ client, now: 2_000 })]);
     expect(a.created + b.created).toBe(1);
     expect(await db.$count(node, eq(node.externalId, "ext-A"))).toBe(1);
+  });
+});
+
+// Which team's workflow states become the workspace's ONE status vocabulary. Pure, so it's tested
+// directly: the fallback only shows up on a project/milestone/workspace scope, which carries no
+// team id at all.
+describe("pickPrimaryTeam", () => {
+  const issue = (teamId: string): LinearIssue => ({ ...issueA, teamId });
+
+  it("prefers the first team in scope — an explicit choice beats a head-count", () => {
+    const scopes: LinearScope[] = [
+      { kind: "project", id: "p1", name: "Shimizu" },
+      { kind: "team", id: "team-2", name: "Plataform" },
+      { kind: "team", id: "team-3", name: "Avocado" },
+    ];
+    expect(pickPrimaryTeam(scopes, [issue("team-9"), issue("team-9")])).toBe("team-2");
+  });
+
+  it("falls back to the team most synced issues belong to", () => {
+    const scopes: LinearScope[] = [{ kind: "project", id: "p1", name: "Shimizu" }];
+    expect(pickPrimaryTeam(scopes, [issue("t-a"), issue("t-b"), issue("t-b")])).toBe("t-b");
+  });
+
+  it("breaks a tie on the first team seen, so the vocabulary can't flip between passes", () => {
+    const scopes: LinearScope[] = [{ kind: "workspace", id: "workspace", name: "Acme" }];
+    expect(pickPrimaryTeam(scopes, [issue("t-a"), issue("t-b")])).toBe("t-a");
+  });
+
+  it("is undefined with nothing to go on (caller keeps the last known team)", () => {
+    expect(pickPrimaryTeam([], [])).toBeUndefined();
   });
 });

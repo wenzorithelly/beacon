@@ -17,6 +17,7 @@ const issue = (over: Partial<LinearIssue> = {}): LinearIssue => ({
   description: "Long order is a giant scroll.",
   updatedAt: 1_000,
   priority: 2,
+  stateId: "s-review",
   stateType: "started",
   stateName: "In Review",
   stateColor: "#0f783c",
@@ -108,7 +109,7 @@ describe("buildExternalMeta", () => {
   it("carries the real workflow-state name/color + team, omitting absent project/milestone", () => {
     const meta = buildExternalMeta(issue());
     expect(meta).toEqual({
-      state: { name: "In Review", color: "#0f783c", type: "started" },
+      state: { id: "s-review", name: "In Review", color: "#0f783c", type: "started" },
       team: { id: "team-1", key: "V3", name: "Terra Nova" },
     });
     expect(meta).not.toHaveProperty("project");
@@ -140,7 +141,7 @@ describe("issueToNodeFields externalMeta", () => {
       issue({ projectId: "proj-1", projectName: "Shimizu PWA", milestoneId: "ms-1", milestoneName: "Beta launch" }),
     );
     expect(JSON.parse(f.externalMeta)).toEqual({
-      state: { name: "In Review", color: "#0f783c", type: "started" },
+      state: { id: "s-review", name: "In Review", color: "#0f783c", type: "started" },
       team: { id: "team-1", key: "V3", name: "Terra Nova" },
       project: { id: "proj-1", name: "Shimizu PWA" },
       milestone: { id: "ms-1", name: "Beta launch" },
@@ -150,7 +151,7 @@ describe("issueToNodeFields externalMeta", () => {
   it("omits project/milestone from the serialized JSON when absent", () => {
     const f = issueToNodeFields(issue());
     expect(JSON.parse(f.externalMeta)).toEqual({
-      state: { name: "In Review", color: "#0f783c", type: "started" },
+      state: { id: "s-review", name: "In Review", color: "#0f783c", type: "started" },
       team: { id: "team-1", key: "V3", name: "Terra Nova" },
     });
   });
@@ -160,7 +161,7 @@ describe("parseExternalMeta", () => {
   it("parses the JSON round-trip of buildExternalMeta", () => {
     const raw = issueToNodeFields(issue()).externalMeta;
     expect(parseExternalMeta(raw)).toEqual({
-      state: { name: "In Review", color: "#0f783c", type: "started" },
+      state: { id: "s-review", name: "In Review", color: "#0f783c", type: "started" },
       team: { id: "team-1", key: "V3", name: "Terra Nova" },
     });
   });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { buildIssueFilter, flattenIssue } from "@/lib/linear/client";
-import type { LinearScope } from "@/lib/linear/types";
+import { buildIssueFilter, flattenIssue, sortWorkflowStates, stateMapFromStates } from "@/lib/linear/client";
+import type { LinearScope, LinearWorkflowState } from "@/lib/linear/types";
 
 describe("flattenIssue", () => {
   it("flattens Linear's nested issue into a LinearIssue (ISO → ms, team id, assignee, state name/color, project/milestone ids)", () => {
@@ -12,7 +12,7 @@ describe("flattenIssue", () => {
       description: "scroll",
       updatedAt: "2026-07-06T12:40:00.000Z",
       priority: 2,
-      state: { name: "In Review", color: "#0f783c", type: "started" },
+      state: { id: "s-review", name: "In Review", color: "#0f783c", type: "started" },
       labels: { nodes: [{ name: "frontend" }, { name: "bug" }] },
       parent: { id: "parent-uuid" },
       team: { id: "team-uuid", key: "V3", name: "Terra Nova" },
@@ -28,6 +28,7 @@ describe("flattenIssue", () => {
       description: "scroll",
       updatedAt: Date.parse("2026-07-06T12:40:00.000Z"),
       priority: 2,
+      stateId: "s-review",
       stateType: "started",
       stateName: "In Review",
       stateColor: "#0f783c",
@@ -54,7 +55,7 @@ describe("flattenIssue", () => {
       description: null,
       updatedAt: "2026-01-01T00:00:00.000Z",
       priority: 0,
-      state: { name: "Backlog", color: "#888888", type: "backlog" },
+      state: { id: "s-backlog", name: "Backlog", color: "#888888", type: "backlog" },
       labels: { nodes: [] },
       parent: null,
       team: { id: "team-uuid", key: "V3", name: "Terra Nova" },
@@ -70,6 +71,78 @@ describe("flattenIssue", () => {
     expect(f.labels).toEqual([]);
     expect(f.assigneeName).toBeNull();
     expect(f.assigneeAvatarUrl).toBeNull();
+  });
+});
+
+// Linear's menu groups by type, THEN position. Taken from a real team, where In Review is
+// position 1002 but Linear lists it 4th — sorting on position alone put it dead last.
+describe("sortWorkflowStates", () => {
+  it("matches Linear's own order: by type, then position within the type", () => {
+    const real: LinearWorkflowState[] = [
+      { id: "1", name: "Backlog", color: "#bec2c8", type: "backlog", position: 0 },
+      { id: "2", name: "Todo", color: "#e2e2e2", type: "unstarted", position: 1 },
+      { id: "3", name: "In Progress", color: "#f2c94c", type: "started", position: 2 },
+      { id: "4", name: "Done", color: "#5e6ad2", type: "completed", position: 3 },
+      { id: "5", name: "Canceled", color: "#95a2b3", type: "canceled", position: 4 },
+      { id: "6", name: "Duplicate", color: "#95a2b3", type: "duplicate", position: 5 },
+      { id: "7", name: "In Review", color: "#0f783c", type: "started", position: 1002 },
+    ];
+    expect(sortWorkflowStates(real).map((s) => s.name)).toEqual([
+      "Backlog",
+      "Todo",
+      "In Progress",
+      "In Review",
+      "Done",
+      "Canceled",
+      "Duplicate",
+    ]);
+  });
+
+  it("sorts an unknown type last instead of dropping it", () => {
+    const states: LinearWorkflowState[] = [
+      { id: "x", name: "Weird", color: "#fff", type: "future-linear-type", position: 0 },
+      { id: "y", name: "Todo", color: "#eee", type: "unstarted", position: 9 },
+    ];
+    expect(sortWorkflowStates(states).map((s) => s.name)).toEqual(["Todo", "Weird"]);
+  });
+});
+
+// The team's REAL workflow states are the workspace's status vocabulary — the picker renders them
+// verbatim. This map is only the internal collapse to Beacon's five, used for write-back.
+describe("stateMapFromStates", () => {
+  const states: LinearWorkflowState[] = [
+    { id: "s-backlog", name: "Backlog", color: "#bec2c8", type: "backlog", position: 0 },
+    { id: "s-todo", name: "Todo", color: "#e2e2e2", type: "unstarted", position: 1 },
+    { id: "s-started", name: "In Progress", color: "#f2c94c", type: "started", position: 2 },
+    { id: "s-review", name: "In Review", color: "#0f783c", type: "started", position: 3 },
+    { id: "s-done", name: "Done", color: "#5e6ad2", type: "completed", position: 4 },
+    { id: "s-cancel", name: "Canceled", color: "#95a2b3", type: "canceled", position: 5 },
+  ];
+
+  it("takes the FIRST state of each type, so two started states don't fight", () => {
+    expect(stateMapFromStates(states)).toEqual({
+      DONE: "s-done",
+      CANCELLED: "s-cancel",
+      IN_PROGRESS: "s-started",
+      BLOCKED: "s-started", // Linear has no blocked type — a blocked task is started-but-stuck
+      PENDING: "s-todo", // unstarted wins over backlog
+    });
+  });
+
+  it("falls back to backlog when the team defines no unstarted state", () => {
+    expect(stateMapFromStates(states.filter((s) => s.type !== "unstarted")).PENDING).toBe("s-backlog");
+  });
+
+  it("omits what the team doesn't define rather than inventing an id", () => {
+    expect(stateMapFromStates([states[0]])).toEqual({ PENDING: "s-backlog" });
+  });
+
+  it("uses a Duplicate state as the cancel target when the team defines no canceled one", () => {
+    const dupOnly: LinearWorkflowState[] = [
+      { id: "s-todo", name: "Todo", color: "#e2e2e2", type: "unstarted", position: 0 },
+      { id: "s-dup", name: "Duplicate", color: "#95a2b3", type: "duplicate", position: 1 },
+    ];
+    expect(stateMapFromStates(dupOnly).CANCELLED).toBe("s-dup");
   });
 });
 
