@@ -310,6 +310,23 @@ describe("buildColumns — status with a Linear vocabulary", () => {
     expect(cols.find((c) => c.key === "Shipping")!.stateId).toBeUndefined(); // not droppable-as-state
   });
 
+  it("maps a Beacon status onto the SAME state write-back would send it to", () => {
+    // PENDING must not survive as its own column beside Backlog — that was the reported
+    // "why do we still have pending then? shouldn't it be translated to backlog?".
+    const cols = nonEmpty(
+      buildColumns(
+        [node("p", { status: "PENDING" }), node("b", { status: "BLOCKED" }), node("d", { status: "DONE" })],
+        "status",
+        STATES,
+      ),
+    );
+    expect(keysOf(cols)).toEqual(["Todo", "In Progress", "Done"]); // unstarted wins over backlog
+    expect(idsIn(cols, "Todo")).toEqual(["p"]);
+    expect(idsIn(cols, "In Progress")).toEqual(["b"]); // BLOCKED has no Linear type — same as write-back
+    expect(keysOf(cols)).not.toContain("PENDING");
+    expect(keysOf(cols)).not.toContain("BLOCKED");
+  });
+
   it("falls back to Beacon's statuses with no vocabulary (Linear not connected)", () => {
     const cols = buildColumns([node("a")], "status", []);
     expect(keysOf(cols)).toEqual([...ROADMAP_STATUSES]);

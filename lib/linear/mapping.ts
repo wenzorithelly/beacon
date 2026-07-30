@@ -1,7 +1,7 @@
 // Pure Linear ↔ Beacon field maps. No I/O, no db — exhaustively unit-tested
 // (tests/linear-mapping.test.ts) because this is where a wrong status/priority silently
 // corrupts the board.
-import type { LinearIssue, NodeStatus } from "@/lib/linear/types";
+import type { LinearIssue, LinearWorkflowState, NodeStatus } from "@/lib/linear/types";
 
 const STATE_TYPE_TO_STATUS: Record<string, NodeStatus> = {
   completed: "DONE",
@@ -21,6 +21,28 @@ const STATE_TYPE_TO_STATUS: Record<string, NodeStatus> = {
  *  rather than dropping or completing it. */
 export function linearStateToStatus(stateType: string): NodeStatus {
   return STATE_TYPE_TO_STATUS[stateType] ?? "PENDING";
+}
+
+/** PURE — map each Beacon status to a concrete Linear workflow-state UUID. Lives here, in the pure
+ *  module, because it is BOTH the write-back rule and the rule the columns board groups by: one
+ *  definition, so a card can never sit in a column that write-back wouldn't send it to. */
+export function stateMapFromStates(states: LinearWorkflowState[]): Partial<Record<NodeStatus, string>> {
+  const first = (type: string) => states.find((s) => s.type === type)?.id;
+  const map: Partial<Record<NodeStatus, string>> = {};
+  const done = first("completed");
+  // A team may name its only cancel-ish state "Duplicate" (type `duplicate`); without the fallback
+  // CANCELLED resolves to nothing and writing it back silently no-ops.
+  const cancelled = first("canceled") ?? first("duplicate");
+  const started = first("started");
+  const pending = first("unstarted") ?? first("backlog");
+  if (done) map.DONE = done;
+  if (cancelled) map.CANCELLED = cancelled;
+  if (started) map.IN_PROGRESS = started;
+  if (pending) map.PENDING = pending;
+  // Linear has no "blocked" workflow-state type; a blocked task is in-progress-but-stuck, so BLOCKED
+  // writes back as the team's started state. (Round-tripping through Linear reads it back IN_PROGRESS.)
+  if (started) map.BLOCKED = started;
+  return map;
 }
 
 // Linear priority 0=None,1=Urgent,2=High,3=Medium,4=Low → Beacon 0=P0..3=P3 (None → P2).

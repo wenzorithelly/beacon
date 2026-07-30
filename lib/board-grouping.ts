@@ -10,7 +10,7 @@
 
 import { ROADMAP_STATUSES, STATUS_META } from "@/lib/constants";
 import { categoryHex } from "@/lib/category-color";
-import { linearStateToStatus } from "@/lib/linear/mapping";
+import { stateMapFromStates } from "@/lib/linear/mapping";
 import type { LinearWorkflowState } from "@/lib/linear/types";
 
 // The dimensions a board can be split by. Deliberately the SAME names and the SAME set as the
@@ -97,8 +97,12 @@ export function groupKey(n: GroupableNode, by: GroupBy, states?: StatusVocabular
       const name = n.externalMeta?.state?.name?.trim();
       if (name) return name;
       if (!states?.length) return n.status;
-      // No Linear state of its own → the vocabulary column its Beacon status maps onto.
-      return states.find((s) => linearStateToStatus(s.type) === n.status)?.name ?? n.status;
+      // No Linear state of its own → the column its Beacon status maps onto, through the SAME
+      // rule write-back uses. Reusing stateMapFromStates (rather than a second find-by-type) is
+      // what puts BLOCKED in the team's started column instead of stranding it in a "BLOCKED" one
+      // that no Linear state corresponds to.
+      const id = stateMapFromStates([...states])[n.status as keyof ReturnType<typeof stateMapFromStates>];
+      return states.find((s) => s.id === id)?.name ?? n.status;
     }
     case "priority":
       return String(n.priority);

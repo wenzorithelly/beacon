@@ -2,6 +2,7 @@
 // only auth a localhost daemon can do (no OAuth callback). ponytail: the raw fetch wrapper is not
 // unit-tested (testing it would test the mock); the one non-trivial pure bit — flattenIssue — is
 // (tests/linear-client.test.ts).
+import { stateMapFromStates } from "@/lib/linear/mapping";
 import type { LinearIssue, LinearScope, LinearWorkflowState, NodeStatus } from "@/lib/linear/types";
 
 const ENDPOINT = "https://api.linear.app/graphql";
@@ -188,25 +189,8 @@ export function sortWorkflowStates(states: LinearWorkflowState[]): LinearWorkflo
   return [...states].sort((a, b) => rank(a) - rank(b) || a.position - b.position);
 }
 
-/** PURE — map each Beacon status to a concrete state UUID (write-back needs it). Unit-tested. */
-export function stateMapFromStates(states: LinearWorkflowState[]): Partial<Record<NodeStatus, string>> {
-  const first = (type: string) => states.find((s) => s.type === type)?.id;
-  const map: Partial<Record<NodeStatus, string>> = {};
-  const done = first("completed");
-  // A team may name its only cancel-ish state "Duplicate" (type `duplicate`); without the fallback
-  // CANCELLED resolves to nothing and writing it back silently no-ops.
-  const cancelled = first("canceled") ?? first("duplicate");
-  const started = first("started");
-  const pending = first("unstarted") ?? first("backlog");
-  if (done) map.DONE = done;
-  if (cancelled) map.CANCELLED = cancelled;
-  if (started) map.IN_PROGRESS = started;
-  if (pending) map.PENDING = pending;
-  // Linear has no "blocked" workflow-state type; a blocked task is in-progress-but-stuck, so BLOCKED
-  // writes back as the team's started state. (Round-tripping through Linear reads it back IN_PROGRESS.)
-  if (started) map.BLOCKED = started;
-  return map;
-}
+// Re-exported so the sync + the status route keep importing it from here alongside the fetch.
+export { stateMapFromStates };
 
 /** Map each Beacon status to a concrete Linear workflow-state UUID for a team. */
 export async function resolveStateMap(

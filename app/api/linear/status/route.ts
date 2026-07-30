@@ -13,9 +13,38 @@ import { pinned } from "@/lib/api-workspace";
 import { fetchTeamStates, sortWorkflowStates, stateMapFromStates, updateIssue } from "@/lib/linear/client";
 import { getLinearFlag, setLinearFlag } from "@/lib/linear/config";
 import { linearStateToStatus, parseExternalMeta } from "@/lib/linear/mapping";
-import type { LinearWorkflowState } from "@/lib/linear/types";
+import { effectiveScopes, type LinearConfig, type LinearWorkflowState } from "@/lib/linear/types";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * The workspace's primary team, resolved WITHOUT waiting for a sync to name one. The sync stamps
+ * `primaryTeamId`, but a workspace connected before that existed has none — and until it does, a
+ * Beacon-native card gets no vocabulary and the whole board silently falls back to Beacon's own
+ * statuses, showing "Pending" beside "Backlog" as if they were different things.
+ *
+ * Same precedence the sync uses: an explicit team scope first, otherwise the team most of the
+ * synced cards actually belong to. Persisted so this costs one query, once.
+ */
+async function resolvePrimaryTeam(config: LinearConfig): Promise<string | undefined> {
+  const teamScope = effectiveScopes(config).find((s) => s.kind === "team");
+  let id = teamScope?.id;
+  if (!id) {
+    const rows = await db
+      .select({ externalMeta: node.externalMeta })
+      .from(node)
+      .where(eq(node.source, "LINEAR"));
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      const t = parseExternalMeta(r.externalMeta)?.team?.id;
+      if (t) counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+    let best = 0;
+    for (const [t, n] of counts) if (n > best) [id, best] = [t, n];
+  }
+  if (id) await setLinearFlag({ config: { primaryTeamId: id } });
+  return id;
+}
 
 /** The states to offer for a card. A LINEAR card uses ITS OWN team's list (the scope can span
  *  teams); everything else uses the workspace's primary team. Cached in the Linear config by the
@@ -23,7 +52,7 @@ export const dynamic = "force-dynamic";
 async function statesFor(teamId: string | undefined): Promise<{ states: LinearWorkflowState[]; teamId?: string }> {
   const { config } = await getLinearFlag();
   if (!config?.apiKey) return { states: [] };
-  const id = teamId ?? config.primaryTeamId;
+  const id = teamId ?? config.primaryTeamId ?? (await resolvePrimaryTeam(config));
   if (!id) return { states: [] };
 
   // Sorted on READ, not just on fetch: a list cached by an older build (or by a future Linear that
