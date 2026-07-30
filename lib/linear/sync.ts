@@ -20,6 +20,12 @@ export interface SyncClient {
     scopes: LinearScope[],
     opts: { onlyMineViewerId?: string },
   ) => Promise<ScopedFetch>;
+  fetchScopedIssuesByIds: (
+    apiKey: string,
+    scopes: LinearScope[],
+    ids: string[],
+    opts: { onlyMineViewerId?: string },
+  ) => Promise<LinearIssue[]>;
   resolveStateMap: (apiKey: string, teamId: string) => Promise<Partial<Record<NodeStatus, string>>>;
   updateIssue: (apiKey: string, id: string, patch: IssuePatch) => Promise<number>;
 }
@@ -101,6 +107,33 @@ async function runSyncInner(opts: { client?: SyncClient; now?: number; force?: b
   // the issue is otherwise unchanged (a plain `noop`).
   const hiddenIds = new Set(rows.filter((r) => r.hiddenAt).map((r) => r.externalId));
 
+  // A card we already track that's missing from the OPEN set is either finished or gone, and the
+  // open fetch can't tell those apart — it filters closed issues out by design, so ticking a
+  // sub-issue Done in Linear used to read as "left the scope" and soft-hide the card. Probe just
+  // those ids, closed states included but the SAME scope applied: back → reconcile it (a completed
+  // issue pulls as DONE and un-hides), still absent → genuinely gone, hide as before.
+  // Deliberately keyed on ids we ALREADY HAVE: an issue that was already Done when you connected
+  // Linear is not in `locals`, so it is never fetched and never imported.
+  // Skipped on a truncated fetch — absence isn't authoritative there and removals are skipped too.
+  const openIds = new Set(issues.map((i) => i.id));
+  const missingIds = complete
+    ? [...new Set(locals.map((n) => n.externalId).filter((id) => id && !openIds.has(id)))]
+    : [];
+  const probed = missingIds.length
+    ? await client.fetchScopedIssuesByIds(
+        config.apiKey,
+        scopes,
+        missingIds,
+        config.onlyMine ? { onlyMineViewerId: viewerId } : {},
+      )
+    : [];
+  // Hard guard, not an assumption about what came back: only issues we ALREADY track may join the
+  // set. Anything else would reach planReconcile as a `create` and import closed history — the one
+  // thing this probe must never do.
+  const known = new Set(missingIds);
+  const closed = probed.filter((i) => known.has(i.id));
+  const current = closed.length ? [...issues, ...closed] : issues;
+
   // Linear has no layer; only carry one where the workspace has a frontend (AGENTS.md).
   const layer = (await resolveHasFrontend()) ? "fullstack" : null;
 
@@ -115,7 +148,7 @@ async function runSyncInner(opts: { client?: SyncClient; now?: number; force?: b
     return stateMapByTeam[teamId]?.[status];
   };
 
-  for (const d of planReconcile(locals, issues)) {
+  for (const d of planReconcile(locals, current)) {
     // A truncated fetch (complete=false) is NOT authoritative about what's absent, so never hide on
     // it — a card missing only because the pull was capped would otherwise vanish then re-appear.
     if (d.action === "remove" && !complete) continue;
@@ -207,7 +240,7 @@ async function runSyncInner(opts: { client?: SyncClient; now?: number; force?: b
     }
   }
 
-  await relinkParents(issues, now);
+  await relinkParents(current, now);
 
   if (stateMapDirty) await setLinearFlag({ config: { stateMapByTeam } });
   await setLinearFlag({ config: { lastSyncedAt: new Date(now).toISOString() } });

@@ -192,11 +192,19 @@ export interface ScopedFetch {
  * A `workspace` scope short-circuits to no container constraint at all. Otherwise each present
  * kind becomes one `in`-comparator branch of an `or`, so the fetch is a single paged query with
  * no client-side merge/dedup needed.
+ *
+ * `ids` flips it to the CLOSED-ISSUE probe: the state exclusion is dropped and the set is pinned to
+ * those issue ids. The scope constraint STAYS, which is the whole point — it tells "finished, still
+ * ours" (comes back → the card goes Done) apart from "left the scope" (doesn't → the card hides).
  */
-export function buildIssueFilter(scopes: LinearScope[], onlyMineViewerId?: string): Record<string, unknown> {
-  const filter: Record<string, unknown> = {
-    state: { type: { nin: ["completed", "canceled"] } },
-  };
+export function buildIssueFilter(
+  scopes: LinearScope[],
+  onlyMineViewerId?: string,
+  ids?: string[],
+): Record<string, unknown> {
+  const filter: Record<string, unknown> = ids
+    ? { id: { in: ids } }
+    : { state: { type: { nin: ["completed", "canceled"] } } };
   if (onlyMineViewerId) filter.assignee = { id: { eq: onlyMineViewerId } };
 
   if (!scopes.some((s) => s.kind === "workspace")) {
@@ -218,8 +226,27 @@ export async function fetchScopedOpenIssues(
   scopes: LinearScope[],
   opts: { onlyMineViewerId?: string } = {},
 ): Promise<ScopedFetch> {
-  const filter = buildIssueFilter(scopes, opts.onlyMineViewerId);
+  return fetchByFilter(apiKey, buildIssueFilter(scopes, opts.onlyMineViewerId));
+}
 
+/**
+ * The issues among `ids` that are STILL IN SCOPE, closed ones included. Its only caller is the
+ * reconcile: a tracked card missing from the open set is either finished or gone, and hiding both
+ * is what made a completed sub-issue disappear off the board instead of landing in Done. Bounded to
+ * ids Beacon already tracks, so a repo's closed-issue history can never flood in.
+ */
+export async function fetchScopedIssuesByIds(
+  apiKey: string,
+  scopes: LinearScope[],
+  ids: string[],
+  opts: { onlyMineViewerId?: string } = {},
+): Promise<LinearIssue[]> {
+  if (ids.length === 0) return [];
+  const { issues } = await fetchByFilter(apiKey, buildIssueFilter(scopes, opts.onlyMineViewerId, ids));
+  return issues;
+}
+
+async function fetchByFilter(apiKey: string, filter: Record<string, unknown>): Promise<ScopedFetch> {
   const query = `
     query($filter: IssueFilter, $after: String) {
       issues(filter: $filter, first: 100, after: $after) {

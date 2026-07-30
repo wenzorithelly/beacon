@@ -121,4 +121,26 @@ describe("buildIssueFilter", () => {
   it("no scopes → no container constraint (skip-guard in sync.ts prevents this in practice)", () => {
     expect(buildIssueFilter([])).toEqual({ state: openState });
   });
+
+  // The closed-issue probe: same scope, no state exclusion, pinned to ids we already track. Both
+  // halves matter — dropping `state` is what lets a completed issue come back as Done instead of
+  // silently hiding the card, and KEEPING the scope is what still tells "moved out" from "finished".
+  describe("with ids (the closed-issue probe)", () => {
+    const scopes: LinearScope[] = [{ kind: "team", id: "t1", name: "V3" }];
+
+    it("drops the open-state exclusion and pins the id set, scope intact", () => {
+      expect(buildIssueFilter(scopes, undefined, ["ext-A", "ext-B"])).toEqual({
+        id: { in: ["ext-A", "ext-B"] },
+        or: [{ team: { id: { in: ["t1"] } } }],
+      });
+    });
+
+    it("still composes onlyMine", () => {
+      expect(buildIssueFilter(scopes, "viewer-1", ["ext-A"])).toEqual({
+        id: { in: ["ext-A"] },
+        assignee: { id: { eq: "viewer-1" } },
+        or: [{ team: { id: { in: ["t1"] } } }],
+      });
+    });
+  });
 });

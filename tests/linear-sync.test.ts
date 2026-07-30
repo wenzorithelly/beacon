@@ -40,20 +40,30 @@ interface Fake extends SyncClient {
   updates: { id: string; patch: IssuePatch }[];
   stateMapCalls: string[];
   fetchArgs: { scopes: LinearScope[]; opts: { onlyMineViewerId?: string } }[];
+  /** ids the closed-issue probe asked about, one entry per call (empty = never called). */
+  probedIds: string[][];
 }
 
 function fakeClient(over: Partial<SyncClient> = {}): Fake {
   const updates: { id: string; patch: IssuePatch }[] = [];
   const stateMapCalls: string[] = [];
   const fetchArgs: { scopes: LinearScope[]; opts: { onlyMineViewerId?: string } }[] = [];
+  const probedIds: string[][] = [];
   return {
     updates,
     stateMapCalls,
     fetchArgs,
+    probedIds,
     resolveViewerAndOrg: async () => ({ viewerId: "me", viewerName: "Me", orgName: "Acme", orgUrlKey: "acme" }),
     fetchScopedOpenIssues: async (_k, scopes, opts) => {
       fetchArgs.push({ scopes, opts });
       return scoped([]);
+    },
+    // Default: nothing missing is still in scope — i.e. the pre-fix behaviour, so every existing
+    // removal test keeps asserting exactly what it did before.
+    fetchScopedIssuesByIds: async (_k, _s, ids) => {
+      probedIds.push(ids);
+      return [];
     },
     resolveStateMap: async (_k, teamId) => {
       stateMapCalls.push(teamId);
@@ -230,6 +240,76 @@ describe("runSync (v2 — scoped, full-set, soft-hide)", () => {
     await runSync({ client: fakeClient({ fetchScopedOpenIssues: async () => scoped([issueA]) }), now: 3_000, force: true });
     const [n] = await db.select().from(node).where(eq(node.externalId, "ext-A"));
     expect(n.hiddenAt).toBeNull();
+  });
+
+  // Reported: "this ticket has 8 sub-issues in linear but only 7 here... once they were completed
+  // they were gone from the board". The open fetch filters closed issues out, so completing one in
+  // Linear read as "left the scope" and soft-hid the card. The probe re-asks about JUST the ids we
+  // already track, closed states included, and the same scope applied.
+  describe("a tracked card that got COMPLETED in Linear", () => {
+    const done = { ...issueA, updatedAt: 9_000, stateType: "completed", stateName: "Done" };
+
+    it("lands in Done instead of vanishing off the board", async () => {
+      await connect();
+      await insertLinear({ externalId: "ext-A", status: "IN_PROGRESS" });
+      const client = fakeClient({
+        fetchScopedOpenIssues: async () => scoped([]), // closed → absent from the open set
+        fetchScopedIssuesByIds: async () => [done],
+      });
+      const s = await runSync({ client, now: 10_000, force: true });
+      expect(s.removed).toBe(0);
+      const [n] = await db.select().from(node).where(eq(node.externalId, "ext-A"));
+      expect(n.status).toBe("DONE");
+      expect(n.hiddenAt).toBeNull();
+    });
+
+    it("comes BACK on the next pass if an earlier sync already hid it", async () => {
+      await connect();
+      await insertLinear({ externalId: "ext-A", status: "IN_PROGRESS", hiddenAt: new Date(1_500) });
+      const client = fakeClient({
+        fetchScopedOpenIssues: async () => scoped([]),
+        fetchScopedIssuesByIds: async () => [done],
+      });
+      await runSync({ client, now: 10_000, force: true });
+      const [n] = await db.select().from(node).where(eq(node.externalId, "ext-A"));
+      expect(n.hiddenAt).toBeNull();
+      expect(n.status).toBe("DONE");
+    });
+
+    it("probes ONLY ids already on the board, so a long-done issue is never imported", async () => {
+      await connect();
+      await insertLinear({ externalId: "ext-A" });
+      // Linear answers with an extra closed issue nobody asked about — it must not become a card.
+      const asked: string[][] = [];
+      const client = fakeClient({
+        fetchScopedOpenIssues: async () => scoped([]),
+        fetchScopedIssuesByIds: async (_k, _s, ids) => {
+          asked.push(ids);
+          return [done, { ...issueA, id: "ext-ANCIENT", stateType: "completed" }];
+        },
+      });
+      const s = await runSync({ client, now: 10_000, force: true });
+      expect(asked).toEqual([["ext-A"]]); // never the whole scope
+      expect(s.created).toBe(0);
+      expect(await db.select().from(node).where(eq(node.externalId, "ext-ANCIENT"))).toEqual([]);
+    });
+
+    it("still hides a card the probe does NOT return — genuinely out of scope", async () => {
+      await connect();
+      await insertLinear({ externalId: "ext-gone" });
+      const s = await runSync({ client: fakeClient({ fetchScopedOpenIssues: async () => scoped([]) }), now: 2_000, force: true });
+      expect(s.removed).toBe(1);
+      const [n] = await db.select().from(node).where(eq(node.externalId, "ext-gone"));
+      expect(n.hiddenAt?.getTime()).toBe(2_000);
+    });
+
+    it("skips the probe entirely on a truncated fetch (absence proves nothing there)", async () => {
+      await connect();
+      await insertLinear({ externalId: "ext-A" });
+      const client = fakeClient({ fetchScopedOpenIssues: async () => scoped([], false) });
+      await runSync({ client, now: 2_000, force: true });
+      expect(client.probedIds).toEqual([]);
+    });
   });
 
   it("does NOT hide anything when the fetch was truncated (complete:false)", async () => {

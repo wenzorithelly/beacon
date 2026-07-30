@@ -72,6 +72,11 @@ export function ColumnsView({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  // WHICH card the modal is showing, kept apart from which card is selected. Closing the modal
+  // drops the selection (owner ruling: no ring left behind), and the two can't be one value — the
+  // modal renders only when it has a node, so clearing the selection would tear it out mid-fade
+  // instead of letting its 100ms exit animation play. This one outlives the close by design.
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -105,6 +110,14 @@ export function ColumnsView({
   // (no orphan panel, no board dimmed against a card that's gone).
   const selected = selectedId ? (byId.get(selectedId) ?? null) : null;
   const activeId = selected?.id ?? null;
+  const detailNode = detailId ? (byId.get(detailId) ?? null) : null;
+
+  /** Spotlight a card AND open its detail — the two always move together. */
+  const openDetail = useCallback((id: string) => {
+    setSelectedId(id);
+    setDetailId(id);
+    setDetailOpen(true);
+  }, []);
 
   // Spotlight sets, kept apart by DIRECTION so each highlighted card can say which relationship
   // it has. Two small Sets — the React Compiler memoizes them; a manual useMemo only confuses it.
@@ -147,7 +160,7 @@ export function ColumnsView({
       if (e.key === "Enter") {
         if (detailOpen) return;
         e.preventDefault(); // a <button> would otherwise re-fire onClick and drop the selection
-        setDetailOpen(true);
+        openDetail(activeId);
         return;
       }
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
@@ -158,11 +171,12 @@ export function ColumnsView({
       if (!next) return;
       e.preventDefault();
       setSelectedId(next.id);
+      if (detailOpen) setDetailId(next.id); // an open modal follows the arrow keys
       reveal(next.id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeId, columns, detailOpen, reveal]);
+  }, [activeId, columns, detailOpen, openDetail, reveal]);
 
   const toggleCollapse = (key: string) =>
     setCollapsed((c) => {
@@ -236,7 +250,7 @@ export function ColumnsView({
             </span>
             <button
               type="button"
-              onClick={() => setDetailOpen(true)}
+              onClick={() => openDetail(selected.id)}
               className="shrink-0 rounded-full border border-border px-2 py-0.5 font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               Open details
@@ -386,10 +400,7 @@ export function ColumnsView({
                           setSelectedId((s) => (s === n.id ? null : n.id));
                           setDetailOpen(false);
                         }}
-                        onOpen={() => {
-                          setSelectedId(n.id);
-                          setDetailOpen(true);
-                        }}
+                        onOpen={() => openDetail(n.id)}
                         onDragStart={(e) => {
                           e.dataTransfer.effectAllowed = "move";
                           e.dataTransfer.setData("text/plain", n.id); // Firefox needs a payload
@@ -420,17 +431,19 @@ export function ColumnsView({
         })}
       </div>
 
-      {selected && (
+      {/* Rendered off detailNode, NOT the selection: closing drops the spotlight (no ring left
+          behind on the board) while the dialog keeps its node long enough to animate out. */}
+      {detailNode && (
         <CardDetailModal
           open={detailOpen}
-          node={selected}
+          node={detailNode}
           byId={byId}
-          blockedBy={deps.blockedBy[selected.id] ?? []}
-          blocks={deps.blocks[selected.id] ?? []}
-          blocked={deps.blocked.has(selected.id)}
+          blockedBy={deps.blockedBy[detailNode.id] ?? []}
+          blocks={deps.blocks[detailNode.id] ?? []}
+          blocked={deps.blocked.has(detailNode.id)}
           onJump={jump}
           onEditingDescription={onEditingDescription}
-          onClose={() => setDetailOpen(false)}
+          onClose={clearSpotlight}
         />
       )}
     </div>
