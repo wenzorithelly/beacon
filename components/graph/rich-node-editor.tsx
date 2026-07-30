@@ -82,7 +82,7 @@ export function RichNodeEditor({
 
   if (!editor) return null;
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col">
       {/* The toolbar is DOCKED, not selection-triggered. A selection bubble costs a gesture
           before every format and covers the words you're editing (owner call). The original
           "toolbar pollutes the card" problem is solved a different way now: cards render their
@@ -92,7 +92,7 @@ export function RichNodeEditor({
       {editable && (
         <div
           className={cn(
-            "nodrag nopan sticky top-0 z-10 -mt-0.5 flex items-center gap-0.5 border-b border-border bg-[var(--popover)] pb-1",
+            "nodrag nopan sticky top-0 z-10 flex items-center gap-0.5 border-b border-border bg-[var(--popover)] pb-1",
             roomy ? "mb-1.5" : "rounded-t",
           )}
         >
