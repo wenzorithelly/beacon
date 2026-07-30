@@ -10,10 +10,8 @@ import {
   ExternalLink,
   Flag,
   Layers,
-  Maximize2,
   Milestone,
   MoreHorizontal,
-  Pencil,
   Plus,
   Sparkles,
   Tag,
@@ -190,6 +188,66 @@ export function Breadcrumb({ node, view }: { node: MapNodePayload; view: string 
   );
 }
 
+/** The card title, click-to-edit — Linear style: no separate edit dialog, the text itself becomes
+ *  the field. Shared by the modal's DialogTitle and this file's own `showTitle` heading, so there
+ *  is exactly one editable-title implementation for both card-detail hosts. */
+export function EditableTitle({ node, className }: { node: MapNodePayload; className?: string }) {
+  const { saveFields, readOnly } = useNodeEdit();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(node.title);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setValue(node.title), [node.id, node.title]);
+
+  const commit = () => {
+    setEditing(false);
+    const v = value.trim();
+    if (v && v !== node.title) void saveFields(node.id, { title: v });
+    else setValue(node.title);
+  };
+
+  if (editing && !readOnly) {
+    return (
+      <input
+        autoFocus
+        value={value}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          } else if (e.key === "Escape") {
+            setValue(node.title);
+            setEditing(false);
+          }
+        }}
+        className={cn(
+          "-mx-1 w-[calc(100%+0.5rem)] rounded bg-[var(--ink-hover)] px-1 outline-none",
+          className,
+        )}
+      />
+    );
+  }
+  return (
+    <span
+      role={readOnly ? undefined : "button"}
+      tabIndex={readOnly ? undefined : 0}
+      title={readOnly ? undefined : "Click to edit"}
+      onClick={() => !readOnly && setEditing(true)}
+      onKeyDown={(e) => {
+        if (!readOnly && e.key === "Enter") setEditing(true);
+      }}
+      className={cn(
+        !readOnly && "-mx-1 cursor-text rounded px-1 transition-colors hover:bg-[var(--ink-hover)]",
+        className,
+      )}
+    >
+      {node.title}
+    </span>
+  );
+}
+
 /** THE card detail body — Linear's issue view: a reading column (description, files, bug flags)
  *  beside a narrow properties rail, with the actions in a footer under both. Two panes from `md`
  *  up; `stacked` (the 340px dock) forces the single-column order, rail after the content. */
@@ -201,6 +259,7 @@ export function NodeDetail({
   showBreadcrumb = false,
   showTitle = false,
   railExtra,
+  mainExtra,
   onEditingDescription,
 }: {
   node: MapNodePayload;
@@ -215,11 +274,12 @@ export function NodeDetail({
   showTitle?: boolean;
   /** Extra rail content under the properties — the modal's Blocked by / Blocks lists. */
   railExtra?: ReactNode;
+  /** Extra reading-column content, below the description — the modal's Sub-issues list, Linear-style. */
+  mainExtra?: ReactNode;
   onEditingDescription?: (id: string | null) => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [editOpen, setEditOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
@@ -240,7 +300,7 @@ export function NodeDetail({
   // All mutations go through the NodeEditContext (tab-pinned /api/nodes routes with
   // optimistic update + rollback) — NEVER server actions, which pin by the browser-wide
   // beacon_ws cookie and write to the wrong workspace in a tab pinned via ?ws.
-  const { hasFrontend, readOnly, openFocus, acceptSuggestion, saveFields, removeNode } =
+  const { hasFrontend, readOnly, acceptSuggestion, saveFields, removeNode } =
     useNodeEdit();
 
   const statuses = view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES;
@@ -276,7 +336,11 @@ export function NodeDetail({
               <Breadcrumb node={node} view={view} />
             </div>
           )}
-          {showTitle && <h2 className="text-base font-semibold leading-snug">{node.title}</h2>}
+          {showTitle && (
+            <h2 className="text-base font-semibold leading-snug">
+              <EditableTitle node={node} />
+            </h2>
+          )}
 
           {node.source === "INIT" && view === "ROADMAP" && !readOnly && (
             <div className="mt-3 rounded-lg border border-violet-400/25 bg-violet-500/[0.05] p-2.5">
@@ -309,39 +373,11 @@ export function NodeDetail({
             </div>
           )}
 
-          {/* ── Description — first and prominent; clean render, edit on click, toolbar only
-              while editing. Capped at a comfortable measure so a 900px modal doesn't run prose
-              the full width of the pane. ── */}
-          <PanelSection
-            className="mt-3 border-t-0 pt-0"
-            title={
-              <>
-                Description
-                <button
-                  type="button"
-                  title="Edit in focus mode"
-                  onClick={() =>
-                    openFocus({
-                      id: node.id,
-                      title: node.title,
-                      value: plain,
-                      editable: !readOnly,
-                      onCommit: (v) => {
-                        setPlain(v);
-                        const next = v.trim() || null;
-                        if (next !== (node.plain ?? null))
-                          run(() => saveFields(node.id, { plain: next }));
-                      },
-                    })
-                  }
-                  className="ml-auto rounded p-0.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-[var(--accent-2,#ff7a45)]"
-                >
-                  <Maximize2 className="size-3.5" />
-                </button>
-              </>
-            }
-          >
-            <div className="max-w-[68ch]">
+          {/* ── Description — the document. No eyebrow and no focus-mode button: Linear's issue
+              body starts straight under the title, and writing happens in place via the selection
+              bubble, so a second full-screen editor was one surface too many. ── */}
+          <div className="mt-3">
+            <div className="max-w-[72ch]">
               {editingDesc && !readOnly ? (
                 <RichNodeEditor
                   key="edit"
@@ -349,6 +385,7 @@ export function NodeDetail({
                   onChange={setPlain}
                   onBlur={commitDesc}
                   autoFocus
+                  roomy
                 />
               ) : plain.trim() ? (
                 <div
@@ -364,10 +401,10 @@ export function NodeDetail({
                     !readOnly && "cursor-text hover:bg-[var(--ink-hover)]",
                   )}
                 >
-                  <RichNodeEditor key="view" value={plain} onChange={() => {}} editable={false} />
+                  <RichNodeEditor key="view" value={plain} onChange={() => {}} editable={false} roomy />
                 </div>
               ) : readOnly ? (
-                <p className="px-1.5 text-xs text-muted-foreground">No description yet.</p>
+                <p className="text-[15px] text-muted-foreground">No description yet.</p>
               ) : (
                 <button
                   type="button"
@@ -378,7 +415,9 @@ export function NodeDetail({
                 </button>
               )}
             </div>
-          </PanelSection>
+          </div>
+
+          {mainExtra}
 
           {node.files.length > 0 && (
             <PanelSection title={`Files (${node.files.length})`}>
@@ -583,18 +622,13 @@ export function NodeDetail({
         </aside>
       </div>
 
-      {/* ── Actions — primaries quiet in the footer, destructive behind the overflow menu ── */}
+      {/* ── Actions — primaries quiet in the footer, destructive behind the overflow menu ──
+          No "Edit" button: it used to open a full form dialog duplicating fields already
+          editable in place (title above, status/priority/layer in the rail, description below) —
+          a modal opening another modal over the same node. Sub-node stays: it creates a NEW
+          node, not a second way to edit this one. */}
       {!readOnly && (
         <div className="flex shrink-0 items-center gap-1 border-t border-border px-4 py-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => setEditOpen(true)}
-          >
-            <Pencil className="size-3.5" />
-            Edit
-          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -672,26 +706,6 @@ export function NodeDetail({
         </AlertDialogContent>
       </AlertDialog>
 
-      {editOpen && (
-        <NodeFormDialog
-          open
-          onOpenChange={setEditOpen}
-          mode="edit"
-          view={view}
-          heading="Edit node"
-          nodeId={node.id}
-          hasFrontend={hasFrontend}
-          defaults={{
-            title: node.title,
-            role: node.role,
-            plain: node.plain,
-            status: node.status,
-            cluster: node.cluster,
-            kind: node.kind,
-            layer: node.layer,
-          }}
-        />
-      )}
       {subOpen && (
         <NodeFormDialog
           open

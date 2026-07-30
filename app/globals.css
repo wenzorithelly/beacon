@@ -554,6 +554,74 @@ html[data-shell="desktop"] .board-chrome {
   min-width: 0;
 }
 
+/* ── Long-form description scale (`roomy`) — the card-detail modal ────────────────────────
+   Linear's issue body is the reference: prose sits directly on the panel with no inset box, at
+   a size you can actually read, on a bounded measure, with real heading hierarchy. The compact
+   scale below stays for the canvas card, which must not inherit any of this. */
+.node-roomy .node-prose {
+  max-width: 72ch;
+}
+.node-roomy .node-prose > * + * {
+  margin-top: 0.95rem;
+}
+.node-roomy .node-prose h1,
+.node-roomy .node-prose h2,
+.node-roomy .node-prose h3 {
+  line-height: 1.3;
+  letter-spacing: -0.012em;
+}
+/* More air above a heading than below it, so a section binds to the text it introduces. */
+.node-roomy .node-prose * + h1,
+.node-roomy .node-prose * + h2,
+.node-roomy .node-prose * + h3 {
+  margin-top: 1.65rem;
+}
+.node-roomy .node-prose h1 + *,
+.node-roomy .node-prose h2 + *,
+.node-roomy .node-prose h3 + * {
+  margin-top: 0.5rem;
+}
+.node-roomy .node-prose h1 {
+  font-size: 1.25rem;
+}
+.node-roomy .node-prose h2 {
+  font-size: 1.12rem;
+}
+.node-roomy .node-prose h3 {
+  font-size: 1rem;
+}
+.node-roomy .node-prose ul,
+.node-roomy .node-prose ol {
+  padding-left: 1.35rem;
+}
+.node-roomy .node-prose li + li {
+  margin-top: 0.35rem;
+}
+/* Quiet inline code — a tint, not a chip. It appears mid-sentence constantly in these
+   descriptions (file paths, symbols), so a heavy box turns the paragraph into confetti. */
+.node-roomy .node-prose code {
+  background: color-mix(in oklab, var(--muted-foreground) 15%, transparent);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.88em;
+}
+/* Fenced blocks get a real panel and never widen the modal. */
+.node-roomy .node-prose pre {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--sunk, color-mix(in oklab, var(--foreground) 5%, transparent));
+  padding: 0.85rem 0.95rem;
+  overflow-x: auto;
+  font-size: 0.84em;
+  line-height: 1.55;
+}
+.node-roomy .node-prose pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+
 /* Node-description editor (components/graph/rich-node-editor) — compact, for the canvas card +
    detail side panel. */
 .node-prose > * + * {

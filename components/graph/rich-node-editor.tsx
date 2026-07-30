@@ -25,6 +25,7 @@ export function RichNodeEditor({
   autoFocus,
   compact,
   bare,
+  roomy,
   className,
   placeholder = "Description (markdown)… type @ to mention a file, feature, table…",
   editable = true,
@@ -37,6 +38,10 @@ export function RichNodeEditor({
   /** Drop the inset surface (background + padding) and size the text up — used by the focus modal,
       which already provides its own roomy writing surface. */
   bare?: boolean;
+  /** Long-form reading scale for the card-detail modal: Linear's issue body — 15px at full
+      contrast on a ~72ch measure, real heading hierarchy, and NO inset box in either state, so
+      clicking into it to edit doesn't reflow the prose. The canvas card keeps the compact scale. */
+  roomy?: boolean;
   className?: string;
   placeholder?: string;
   // When false (read-only boards: shared view, archived plan history, the expanded card's
@@ -101,11 +106,15 @@ export function RichNodeEditor({
           "node-editor rounded",
           // The inset writing surface only appears while the editor is EDITABLE — a read-only
           // render (detail sidebar view mode, shared boards) shows the rich text clean, no box.
-          bare
-            ? "min-h-[3.5rem] text-[15px] leading-relaxed"
-            : editable
-              ? "min-h-[3.5rem] bg-[var(--ink-hover)] px-1.5 py-1 text-xs focus-within:bg-[var(--ink-active)]"
-              : "text-xs",
+          // `roomy` opts out of the box in BOTH states: the detail modal reads like a document,
+          // and clicking into it to edit must not reflow the prose it just replaced.
+          roomy
+            ? "node-roomy min-h-[3.5rem] text-[15px] leading-[1.62] text-foreground"
+            : bare
+              ? "min-h-[3.5rem] text-[15px] leading-relaxed"
+              : editable
+                ? "min-h-[3.5rem] bg-[var(--ink-hover)] px-1.5 py-1 text-xs focus-within:bg-[var(--ink-active)]"
+                : "text-xs",
           compact && "max-h-[24rem] overflow-y-auto",
         )}
       />

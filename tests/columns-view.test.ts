@@ -165,6 +165,104 @@ describe("columns view — hide-empty is this layout's own, not shared board sta
   });
 });
 
+// Owner ruling: "if there's no blocks then dont show" — an empty Blocked by / Blocks section used
+// to render a placeholder sentence and a divider; both must vanish along with the empty section.
+describe("columns view — dependency sections disappear when empty", () => {
+  const panel = () => src("components/columns/peek-panel.tsx");
+
+  it("gates each section on having entries instead of always rendering it", () => {
+    const body = panel();
+    expect(body).toContain("deps.length > 0 && (");
+    expect(body).toContain("dependents.length > 0 && (");
+  });
+
+  it("drops the old empty-state placeholder copy", () => {
+    const body = panel();
+    expect(body).not.toContain("this is startable");
+    expect(body).not.toContain("Nothing depends on this");
+  });
+});
+
+// Owner ruling: sub-issues render Linear-style — a row per child, click to drill in, and a way
+// back out — reusing DepRow rather than a second row component.
+describe("columns view — sub-issues drill-in and back", () => {
+  const panel = () => src("components/columns/peek-panel.tsx");
+
+  it("lists children by parentId, hidden when there are none", () => {
+    const body = panel();
+    expect(body).toContain("n.parentId === current.id");
+    expect(body).toContain("children.length > 0 && (");
+  });
+
+  it("shows a done/total progress indicator on the section header", () => {
+    expect(panel()).toContain("({childDone}/{children.length})");
+  });
+
+  it("reuses DepRow for sub-issue rows instead of a second row component", () => {
+    const body = panel();
+    const depRowDef = body.match(/function DepRow/g) ?? [];
+    expect(depRowDef.length).toBe(1); // ONE row component, used by all three lists
+    expect(body).toContain("<DepRow\n");
+  });
+
+  it("drills in and back through local state, not the board's own selection", () => {
+    const body = panel();
+    expect(body).toContain("useState<string | null>(null)"); // viewId — no board onJump on drill-in
+    expect(body).toContain("onJump={() => setViewId(n.id)}");
+    expect(body).toContain("Back to {backTo.title}");
+    // back walks the real parent pointer, so it supports arbitrary depth without a tracked stack
+    expect(body).toContain("setViewId(current.parentId)");
+  });
+
+  it("resets the drilled-in view when the host selects a different root card", () => {
+    expect(panel()).toContain("useEffect(() => setViewId(null), [node.id, open])");
+  });
+
+  // Owner ruling: "should be below the description, like linear" — sub-issues are reading-column
+  // content (`mainExtra`), not a rail section next to Blocked by / Blocks.
+  it("renders sub-issues in the reading column below the description, not the rail", () => {
+    expect(panel()).toContain("mainExtra={");
+    const sidebar = src("components/graph/detail-sidebar.tsx");
+    const descIdx = sidebar.indexOf("Description");
+    const mainExtraIdx = sidebar.indexOf("{mainExtra}");
+    const filesIdx = sidebar.indexOf("Files (${node.files.length})");
+    expect(descIdx).toBeGreaterThan(-1);
+    expect(mainExtraIdx).toBeGreaterThan(descIdx); // after the description…
+    expect(mainExtraIdx).toBeLessThan(filesIdx); // …and before Files
+  });
+});
+
+// Owner ruling: "doesnt make sense for a modal to open another modal" — the Edit button used to
+// open a full NodeFormDialog duplicating fields already editable in place (title, status,
+// priority, layer, description), stacking a modal over the card-detail modal. Removed in favor of
+// click-to-edit on the title itself, Linear-style. Sub-node stays: it creates a new node.
+describe("columns view — no modal-on-modal edit; the title is click-to-edit", () => {
+  const sidebar = () => src("components/graph/detail-sidebar.tsx");
+  const panel = () => src("components/columns/peek-panel.tsx");
+
+  it("has no Edit button opening a second form dialog", () => {
+    const body = sidebar();
+    expect(body).not.toContain('mode="edit"');
+    expect(body).not.toContain("Edit node");
+    expect(body).not.toMatch(/>\s*Edit\s*</);
+  });
+
+  it("keeps Sub-node — creating a new node is a different action", () => {
+    expect(sidebar()).toContain('mode="create"');
+  });
+
+  it("defines one shared EditableTitle and both hosts use it", () => {
+    const body = sidebar();
+    expect(body).toContain("export function EditableTitle(");
+    expect(body).toContain("<EditableTitle node={node} />"); // the docked/showTitle heading
+    expect(panel()).toContain("<EditableTitle node={current} />"); // the modal's DialogTitle
+  });
+
+  it("commits the title through the same saveFields path as every other field", () => {
+    expect(sidebar()).toContain("saveFields(node.id, { title: v })");
+  });
+});
+
 describe("columns view — accessible names on icon-only controls", () => {
   it("names the collapse rail, the collapse chevron and the add affordance", () => {
     const body = src("components/columns/columns-view.tsx");

@@ -1,22 +1,34 @@
 "use client";
 
-import { Lock, Unlock } from "lucide-react";
-import { Breadcrumb, NodeDetail } from "@/components/graph/detail-sidebar";
+import { useEffect, useState } from "react";
+import { ArrowLeft, ListTree, Lock, Unlock } from "lucide-react";
+import { Breadcrumb, EditableTitle, NodeDetail } from "@/components/graph/detail-sidebar";
 import { PanelSection } from "@/components/graph/panel/primitives";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { STATUS_DOT, isBlocking } from "@/lib/board-grouping";
+import { PRIORITY_LABELS, STATUS_DOT, isBlocking } from "@/lib/board-grouping";
 import { STATUS_META } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { MapNodePayload } from "@/components/graph/types";
+import type { ReactNode } from "react";
 
-/** One row in the Blocked by / Blocks lists — click to jump to that card on the board. */
-function DepRow({ node, onJump }: { node: MapNodePayload; onJump: () => void }) {
+/** One row in the Blocked by / Blocks / Sub-issues lists — click to jump to (or drill into) that
+ *  card. `meta` overrides the right-aligned label, which defaults to the card's status — Sub-issue
+ *  rows pass their priority instead. */
+function DepRow({
+  node,
+  onJump,
+  meta,
+}: {
+  node: MapNodePayload;
+  onJump: () => void;
+  meta?: ReactNode;
+}) {
   const done = node.status === "DONE";
   return (
     <button
       type="button"
       onClick={onJump}
-      title={`Show ${node.title} on the board`}
+      title={`Open ${node.title}`}
       className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-[var(--ink-hover)]"
     >
       <span
@@ -28,7 +40,7 @@ function DepRow({ node, onJump }: { node: MapNodePayload; onJump: () => void }) 
         {node.title}
       </span>
       <span className="shrink-0 text-[9px] uppercase tracking-wide text-muted-foreground">
-        {STATUS_META[node.status]?.label ?? node.status}
+        {meta ?? STATUS_META[node.status]?.label ?? node.status}
       </span>
     </button>
   );
@@ -76,9 +88,27 @@ export function CardDetailModal({
   onEditingDescription,
   onClose,
 }: CardDetailModalProps) {
-  const deps = blockedBy.map((id) => byId.get(id)).filter((n) => n != null);
-  const dependents = blocks.map((id) => byId.get(id)).filter((n) => n != null);
-  const parentTitle = node.parentId ? byId.get(node.parentId)?.title ?? null : null;
+  // Sub-issue drill-in stays a LOCAL nav stack, derived from `parentId` rather than tracked as its
+  // own array: `viewId` is the id of the card currently shown (null = the root the board selected),
+  // and "back" is simply that card's real parent — no separate breadcrumb list to keep in sync.
+  // Resets whenever the host selects a different root or the dialog is reopened.
+  const [viewId, setViewId] = useState<string | null>(null);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setViewId(null), [node.id, open]);
+  const current = (viewId ? byId.get(viewId) : null) ?? node;
+  // Compared by id, not `viewId === null` — clicking "back" out of a direct child sets `viewId`
+  // to the root's OWN id (its real parent pointer), which must still read as "at root".
+  const atRoot = current.id === node.id;
+
+  // Blocked by / Blocks are computed by the host for the ROOT card only — showing them while
+  // drilled into a child would attribute the wrong card's dependencies, so they're root-only too.
+  const deps = atRoot ? blockedBy.map((id) => byId.get(id)).filter((n) => n != null) : [];
+  const dependents = atRoot ? blocks.map((id) => byId.get(id)).filter((n) => n != null) : [];
+  const parentTitle = current.parentId ? byId.get(current.parentId)?.title ?? null : null;
+  const backTo = atRoot ? null : (byId.get(current.parentId ?? "") ?? node);
+
+  const children = [...byId.values()].filter((n) => n.parentId === current.id);
+  const childDone = children.filter((n) => n.status === "DONE").length;
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -87,11 +117,23 @@ export function CardDetailModal({
         className="flex h-[82vh] w-full max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[900px]"
       >
         <div className="shrink-0 border-b border-border py-3 pl-5 pr-11">
+          {backTo && (
+            <button
+              type="button"
+              onClick={() => setViewId(current.parentId)}
+              className="-ml-1 mb-1 flex items-center gap-1 rounded px-1 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
+            >
+              <ArrowLeft className="size-3" />
+              Back to {backTo.title}
+            </button>
+          )}
           <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            <Breadcrumb node={node} view={view} />
+            <Breadcrumb node={current} view={view} />
           </p>
-          <DialogTitle className="mt-1 text-sm leading-snug font-semibold">{node.title}</DialogTitle>
-          {blocked && (
+          <DialogTitle className="mt-1 text-sm leading-snug font-semibold">
+            <EditableTitle node={current} />
+          </DialogTitle>
+          {atRoot && blocked && (
             <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium text-orange-700 dark:text-orange-300">
               <Lock className="size-3" />
               Blocked — {deps.filter((n) => isBlocking(n.status)).length} dependency(ies) not done
@@ -100,49 +142,66 @@ export function CardDetailModal({
         </div>
 
         <NodeDetail
-          key={node.id}
-          node={node}
+          key={current.id}
+          node={current}
           view={view}
           parentTitle={parentTitle}
           onEditingDescription={onEditingDescription}
+          mainExtra={
+            children.length > 0 && (
+              <PanelSection
+                title={
+                  <>
+                    <ListTree className="size-3" /> Sub-issues
+                    <span className="tabular-nums">
+                      ({childDone}/{children.length})
+                    </span>
+                  </>
+                }
+              >
+                {children.map((n) => (
+                  <DepRow
+                    key={n.id}
+                    node={n}
+                    onJump={() => setViewId(n.id)}
+                    meta={PRIORITY_LABELS[n.priority]?.split(" ")[0]}
+                  />
+                ))}
+              </PanelSection>
+            )
+          }
           railExtra={
-            view === "ROADMAP" ? (
-              <>
+            <>
+              {view === "ROADMAP" && deps.length > 0 && (
                 <PanelSection
                   title={
                     <>
                       <Lock className="size-3" /> Blocked by
-                      {deps.length > 0 && <span className="tabular-nums">({deps.length})</span>}
+                      <span className="tabular-nums">({deps.length})</span>
                     </>
                   }
                 >
-                  {deps.length === 0 ? (
-                    <p className="px-1.5 text-xs text-muted-foreground">
-                      Nothing — this is startable.
-                    </p>
-                  ) : (
-                    deps.map((n) => <DepRow key={n.id} node={n} onJump={() => onJump(n.id)} />)
-                  )}
+                  {deps.map((n) => (
+                    <DepRow key={n.id} node={n} onJump={() => onJump(n.id)} />
+                  ))}
                 </PanelSection>
+              )}
 
+              {view === "ROADMAP" && dependents.length > 0 && (
                 <PanelSection
                   title={
                     <>
                       <Unlock className="size-3" /> Blocks
-                      {dependents.length > 0 && (
-                        <span className="tabular-nums">({dependents.length})</span>
-                      )}
+                      <span className="tabular-nums">({dependents.length})</span>
                     </>
                   }
                 >
-                  {dependents.length === 0 ? (
-                    <p className="px-1.5 text-xs text-muted-foreground">Nothing depends on this.</p>
-                  ) : (
-                    dependents.map((n) => <DepRow key={n.id} node={n} onJump={() => onJump(n.id)} />)
-                  )}
+                  {dependents.map((n) => (
+                    <DepRow key={n.id} node={n} onJump={() => onJump(n.id)} />
+                  ))}
                 </PanelSection>
-              </>
-            ) : null
+              )}
+            </>
           }
         />
       </DialogContent>
