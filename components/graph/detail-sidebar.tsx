@@ -328,6 +328,9 @@ export function NodeDetail({
     node.source === "LINEAR" && node.sourceRef
       ? node.sourceRef.match(/\/issue\/([^/]+)/)?.[1] ?? "Linear issue"
       : null;
+  // The issue's real workflow state. When present it REPLACES the Beacon status label in the
+  // Status row — one row, spelled the way the user's Linear team spells it.
+  const linearState = node.source === "LINEAR" ? (node.externalMeta?.state ?? null) : null;
 
   const run = (fn: () => Promise<unknown>) =>
     startTransition(async () => {
@@ -451,17 +454,34 @@ export function NodeDetail({
                   className={QUIET_TRIGGER}
                   disabled={pending || readOnly}
                 >
+                  {/* On a Linear card this row shows LINEAR'S OWN workflow state — its name and
+                      its color, straight from the issue — because that's the status the user
+                      actually works in ("In Review", "Triage", whatever the team named it).
+                      Beacon's five-way status is only the internal mapping the picker writes
+                      through; showing both was two rows saying one thing, and disagreeing whenever
+                      the mapping was lossy. */}
                   <SelectValue>
-                    {(v: string) => (
-                      <span className="flex items-center gap-1.5">
-                        <span
-                          aria-hidden
-                          className="size-2 rounded-full"
-                          style={{ background: STATUS_STRIPE[v] ?? "#71717a" }}
-                        />
-                        {STATUS_META[v]?.label ?? v}
-                      </span>
-                    )}
+                    {(v: string) =>
+                      linearState ? (
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            aria-hidden
+                            className="size-2 rounded-full"
+                            style={{ background: linearState.color }}
+                          />
+                          {linearState.name}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            aria-hidden
+                            className="size-2 rounded-full"
+                            style={{ background: STATUS_STRIPE[v] ?? "#71717a" }}
+                          />
+                          {STATUS_META[v]?.label ?? v}
+                        </span>
+                      )
+                    }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent alignItemWithTrigger={false}>
@@ -570,20 +590,8 @@ export function NodeDetail({
               </PropRow>
             )}
 
-            {/* Real Linear workflow state + container identity — display fidelity on top of the
-                editable Beacon Status row above (only rows that actually exist on the issue). */}
-            {node.source === "LINEAR" && node.externalMeta?.state && (
-              <PropRow icon={CircleDashed} label="State">
-                <span className="flex items-center gap-1.5">
-                  <span
-                    aria-hidden
-                    className="size-2 rounded-full"
-                    style={{ background: node.externalMeta.state.color }}
-                  />
-                  {node.externalMeta.state.name}
-                </span>
-              </PropRow>
-            )}
+            {/* No separate "State" row — the Status row above IS the Linear state. What's left
+                here is container identity, which Beacon has no field of its own for. */}
             {node.source === "LINEAR" && node.externalMeta?.team && (
               <PropRow icon={Users} label="Team">
                 <span className="truncate">{node.externalMeta.team.name}</span>

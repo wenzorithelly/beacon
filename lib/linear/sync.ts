@@ -216,21 +216,27 @@ async function runSyncInner(opts: { client?: SyncClient; now?: number; force?: b
         // an existing meta — pulls do that when the issue actually changes).
         const set: Record<string, unknown> = {};
         if (hiddenIds.has(d.node.externalId)) set.hiddenAt = null;
-        if (!d.node.externalMeta) {
-          set.externalMeta = JSON.stringify(buildExternalMeta(d.issue));
-          // Stamp BOTH markers together so the LWW planner doesn't read this mirror write as a
-          // user edit next pass (beaconChanged = updatedAt > externalSyncedAt).
+        if (!d.node.externalMeta) set.externalMeta = JSON.stringify(buildExternalMeta(d.issue));
+        if (Object.keys(set).length > 0) {
+          // Stamp BOTH markers on ANY write here so the LWW planner doesn't read this mirror write
+          // as a user edit next pass (beaconChanged = updatedAt > externalSyncedAt, and updatedAt
+          // auto-bumps via $onUpdate). Un-hiding alone used to skip the stamp, which manufactured a
+          // phantom Beacon edit and could push stale local fields back over Linear.
           set.updatedAt = new Date(now);
           set.externalSyncedAt = new Date(now);
-        }
-        if (Object.keys(set).length > 0) {
           await db.update(node).set(set).where(eq(node.id, d.node.id));
         }
       } else if (d.action === "remove") {
-        // Left the scope (unassigned / closed / moved out, or filtered by a scope/only-mine change).
+        // Left the scope (unassigned / moved out, or filtered by a scope/only-mine change).
         // SOFT-hide — keep the row so positions, edges and annotations survive; un-hidden if the
         // issue returns. Never db.delete (that cascades onto manual sub-tasks via the parentId FK).
-        await db.update(node).set({ hiddenAt: new Date(now) }).where(eq(node.id, d.node.id));
+        // externalSyncedAt is stamped with it: hiding is OUR write, and $onUpdate bumps updatedAt,
+        // so without the stamp the next pass reads a Beacon-side edit that never happened and can
+        // push the card's stale pre-hide status back over Linear.
+        await db
+          .update(node)
+          .set({ hiddenAt: new Date(now), updatedAt: new Date(now), externalSyncedAt: new Date(now) })
+          .where(eq(node.id, d.node.id));
         summary.removed++;
       }
     } catch (e) {
