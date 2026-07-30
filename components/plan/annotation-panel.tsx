@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Check, MessageSquarePlus, Trash2, Send, Strikethrough, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clampToViewport } from "@/lib/popover-position";
-import { findExcerptSpan } from "@/lib/excerpt-match";
+import { findExcerptRange } from "@/lib/excerpt-match";
 import { currentPlanWs, wsHeaders } from "@/components/plan/use-plan-ws";
 import type { TextAnnotation } from "@/lib/annotations";
 import {
@@ -40,40 +40,6 @@ function makeHighlight(...ranges: Range[]): unknown {
   return new Ctor(...ranges);
 }
 
-// Find the first rendered occurrence of `query` (the excerpt's plain text) inside `root`, spanning
-// text nodes as needed, and return a Range for it. Searching the RENDERED text — not the raw
-// markdown — is what lets a comment on text containing inline `code`/**bold** still highlight: the
-// markers aren't in the DOM, so the plain excerpt matches. Skips FENCED code (<pre>) + tables, which
-// aren't annotated; INLINE `code` (a bare <code>, no <pre>) stays searchable — it's part of prose.
-function findFirstTextRange(root: HTMLElement, query: string): Range | null {
-  if (!query) return null;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode: (n) =>
-      (n.parentElement?.closest("pre, table") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
-  });
-  const nodes: { node: Node; start: number }[] = [];
-  let full = "";
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-    nodes.push({ node: n, start: full.length });
-    full += n.nodeValue ?? "";
-  }
-  const span = findExcerptSpan(full, query);
-  if (!span) return null;
-  const idx = span.start;
-  const locate = (pos: number) => {
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      if (nodes[i].start <= pos) return { node: nodes[i].node, offset: pos - nodes[i].start };
-    }
-    return null;
-  };
-  const s = locate(idx);
-  const e = locate(span.end);
-  if (!s || !e) return null;
-  const range = document.createRange();
-  range.setStart(s.node, s.offset);
-  range.setEnd(e.node, e.offset);
-  return range;
-}
 
 // Anchor point (viewport coords) for the floating popover/composer: the END of the selection —
 // the bottom-right of its LAST client rect, i.e. where the user finished dragging. Anchoring at
@@ -308,7 +274,7 @@ export function AnnotationPanel({
     const commentRanges: Range[] = [];
     const deletionRanges: Range[] = [];
     for (const a of annotations) {
-      const r = findFirstTextRange(docRef.current, a.excerpt);
+      const r = findExcerptRange(docRef.current, a.excerpt);
       if (!r) continue;
       ((a.kind ?? "comment") === "deletion" ? deletionRanges : commentRanges).push(r);
     }

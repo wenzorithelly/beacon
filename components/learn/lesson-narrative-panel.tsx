@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, HelpCircle, X } from "lucide-react";
+import { findExcerptRange } from "@/lib/excerpt-match";
 import {
   splitBlocks,
   CodeBlock,
@@ -34,37 +35,6 @@ function makeHighlight(...ranges: Range[]): unknown {
   return new Ctor(...ranges);
 }
 
-// Locate `query` in the RENDERED text (so excerpts spanning inline `code`/**bold** still match —
-// the markers aren't in the DOM) and return a Range. Skips fenced code + tables. Ported from the
-// plan annotation panel.
-function findFirstTextRange(root: HTMLElement, query: string): Range | null {
-  if (!query) return null;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode: (n) =>
-      n.parentElement?.closest("pre, table") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
-  });
-  const nodes: { node: Node; start: number }[] = [];
-  let full = "";
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-    nodes.push({ node: n, start: full.length });
-    full += n.nodeValue ?? "";
-  }
-  const idx = full.indexOf(query);
-  if (idx < 0) return null;
-  const locate = (pos: number) => {
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      if (nodes[i].start <= pos) return { node: nodes[i].node, offset: pos - nodes[i].start };
-    }
-    return null;
-  };
-  const s = locate(idx);
-  const e = locate(idx + query.length);
-  if (!s || !e) return null;
-  const range = document.createRange();
-  range.setStart(s.node, s.offset);
-  range.setEnd(e.node, e.offset);
-  return range;
-}
 
 export interface TextQuestion {
   id: string;
@@ -184,11 +154,11 @@ export function LessonNarrativePanel({
     const ask: Range[] = [];
     const ans: Range[] = [];
     for (const q of questions) {
-      const r = findFirstTextRange(docRef.current, q.excerpt);
+      const r = findExcerptRange(docRef.current, q.excerpt);
       if (r) ask.push(r);
     }
     for (const a of answered) {
-      const r = findFirstTextRange(docRef.current, a.excerpt);
+      const r = findExcerptRange(docRef.current, a.excerpt);
       if (r) ans.push(r);
     }
     const apply = (key: string, ranges: Range[]) =>
