@@ -239,7 +239,8 @@ export function EditableTitle({ node, className }: { node: MapNodePayload; class
         if (!readOnly && e.key === "Enter") setEditing(true);
       }}
       className={cn(
-        !readOnly && "-mx-1 cursor-text rounded px-1 transition-colors hover:bg-[var(--ink-hover)]",
+        // No hover tint on the reading surfaces — the text cursor is the whole affordance.
+        !readOnly && "-mx-1 cursor-text rounded px-1",
         className,
       )}
     >
@@ -398,7 +399,7 @@ export function NodeDetail({
                   }}
                   className={cn(
                     "-mx-1.5 rounded-md px-1.5 py-1 transition-colors",
-                    !readOnly && "cursor-text hover:bg-[var(--ink-hover)]",
+                    !readOnly && "cursor-text",
                   )}
                 >
                   <RichNodeEditor key="view" value={plain} onChange={() => {}} editable={false} roomy />
