@@ -125,10 +125,25 @@ export interface RoadmapLayoutOptions {
   viewportAspect?: number;
 }
 
-function keyFor(groupBy: RoadmapGroupBy): (n: RoadmapLayoutNode) => string {
+/** Everything a lane key is computed from — the roadmap board, the server-side placement of a new
+ *  card, and this layout all key on exactly these fields. */
+export type LaneKeyed = Pick<
+  RoadmapLayoutNode,
+  "cluster" | "status" | "priority" | "stateName" | "teamKey"
+>;
+
+function keyFor(groupBy: RoadmapGroupBy): (n: LaneKeyed) => string {
   if (groupBy === "status") return statusLaneKey;
   if (groupBy === "priority") return (n) => String(n.priority);
   return (n) => (n.cluster ?? "").trim() || "—"; // cluster
+}
+
+/** THE lane key for a card under `groupBy` — the single definition. Every surface that has to say
+ *  "which lane is this card in" (the canvas regions, the lane-collapse lens, the server placing a
+ *  newly created card) calls this; a second copy is how the client keyed "Done · ENG" while the
+ *  server keyed "Done" and new cards landed among the wrong siblings. */
+export function roadmapLaneKey(groupBy: RoadmapGroupBy, n: LaneKeyed): string {
+  return keyFor(groupBy)(n);
 }
 
 // Lane ordering per dimension: status follows Now→Next→Later (named workflow-state lanes slot in

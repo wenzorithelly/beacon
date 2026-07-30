@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { layoutRoadmapLanes, statusLaneKey } from "@/lib/roadmap-layout";
+import { layoutRoadmapLanes, roadmapLaneKey, statusLaneKey } from "@/lib/roadmap-layout";
 import { computeGroupRegions } from "@/lib/group-regions";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -67,6 +67,40 @@ describe("grouped roadmap — positions are derived, on load and on every resync
     expect(arrange.slice(0, 900)).toContain("/api/nodes/positions");
     expect(arrange.slice(0, 900)).toContain('body: JSON.stringify({ board: "roadmap", arrangedBy: by })');
   });
+
+  // A derived layout and a persisted drag are mutually exclusive: the derive pass recomputed every
+  // card from the server payload on each resync, so a drag was visibly undone by the next refresh
+  // AND the row it wrote was never read again. Cards are locked while a grouping owns the layout.
+  it("locks card positions while a grouping owns them", () => {
+    expect(MAP_CLIENT).toContain("const base = laneMode ? { ...n, draggable: false } : n;");
+  });
+
+  it("never persists a card position the derive pass would overwrite", () => {
+    expect(MAP_CLIENT).toContain("} else if (!readOnly && !laneMode) {");
+    expect(MAP_CLIENT).not.toContain("} else if (!readOnly) {");
+  });
+
+  // …which is only honest if freeform is reachable: every board is arranged by default
+  // (ensureBoardArranged writes arrangedBy: "cluster"), so without a None pill there is no way back.
+  it("offers a None pill back to freeform, freezing the derived layout on the way out", () => {
+    expect(MAP_CLIENT).toContain("const ungroup = useCallback");
+    const ungroup = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const ungroup = useCallback")).slice(0, 900);
+    expect(ungroup).toContain("/api/nodes/positions");
+    expect(ungroup).toContain('body: JSON.stringify({ board: "roadmap", arrangedBy: null })');
+    expect(ungroup).toContain("setArrangedBy(null)");
+    expect(MAP_CLIENT).toContain("onClick={ungroup}");
+  });
+
+  // The one-shot derive fit must be armed on the FIRST run whether or not a grouping is active, or
+  // a board that mounted ungrouped, was then grouped and panned, gets its camera yanked to fit-all
+  // by the next unrelated SSE refresh.
+  it("arms the derived fit on the first run, grouped or not", () => {
+    const derive = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const firstDerive = !derivedFitDone.current;"));
+    expect(derive.slice(0, 200)).toContain("derivedFitDone.current = true;");
+    expect(derive.indexOf("derivedFitDone.current = true;")).toBeLessThan(
+      derive.indexOf("if (!by) {"),
+    );
+  });
 });
 
 describe("lane regions — drawn from the layout, not from where cards drifted", () => {
@@ -74,8 +108,22 @@ describe("lane regions — drawn from the layout, not from where cards drifted",
     expect(MAP_CLIENT).toContain("layoutRoadmapLanes(");
     expect(MAP_CLIENT).toContain("computeGroupRegions(items, laneRects ? { lanes: laneRects } : {})");
     expect(MAP_CLIENT).toContain('const laneRects = view === "ROADMAP" && arrangedBy ? lanes : null');
-    // Items carry the RAW lane key so they join their rect; display text rides on the lane.
-    expect(MAP_CLIENT).toContain("? laneKeyOf(arrangedBy!, groupNode.data)");
+    // Items carry the RAW lane key so they join their rect; display text rides on the lane. The key
+    // is the LAYOUT's (roadmapLaneKey, via laneOf) — a private copy is what let the client key
+    // "Done · ENG" while the server keyed "Done".
+    expect(MAP_CLIENT).toContain("? laneOf(n, byId)!");
+    expect(MAP_CLIENT).toContain("return roadmapLaneKey(arrangedBy, laneInput((parent ?? n).data));");
+    expect(MAP_CLIENT).not.toContain("function laneKeyOf");
+  });
+
+  // A card hidden by a FILTER and sitting in a collapsed lane was re-admitted by the lane-collapse
+  // exemption, so the collapsed header counted cards the filter had removed (and "Hide empty"
+  // refused to fold a lane at zero matches).
+  it("counts only the cards hidden SOLELY by their lane's collapse", () => {
+    expect(MAP_CLIENT).toContain(
+      "laneHiddenIds.has(n.id) && passes(n.data) && !collapseHiddenIds.has(n.id)",
+    );
+    expect(MAP_CLIENT).not.toContain("(n.hidden && !laneHiddenIds.has(n.id))");
   });
 
   it("uses the layout's card-height model instead of a second hardcoded one", () => {
@@ -113,6 +161,9 @@ describe("lane keys line up with the lanes the layout emits", () => {
       ["priority", (n: (typeof nodes)[number]) => String(n.priority)],
       ["cluster", (n: (typeof nodes)[number]) => n.cluster?.trim() || "—"],
     ] as const) {
+      // …and the exported single-definition key agrees with each dimension's expectation, so the
+      // canvas, the layout and the server-side placement can all route through it.
+      for (const n of nodes) expect(roadmapLaneKey(by, n)).toBe(keyOf(n));
       const { lanes } = layoutRoadmapLanes(nodes, by);
       const laneKeys = new Set(lanes.map((l) => l.key));
       for (const n of nodes) expect(laneKeys.has(keyOf(n))).toBe(true);
@@ -143,7 +194,29 @@ describe("columns view — mounted as a /map view", () => {
     expect(tabs).toContain('{ value: "COLUMNS", label: "Columns", href: "/map?view=COLUMNS" }');
     expect(MAP_CLIENT).toContain('<CanvasTabs active="COLUMNS" tabs={BOARD_TABS} />');
     const page = src("app/map/page.tsx");
-    expect(page).toContain('if (view === "COLUMNS")');
-    expect(page).toContain("columns");
+    expect(page).toContain("columns={");
   });
+
+  // Columns lives INSIDE the tab shell: rendered as its own page it made every hop in and out of it
+  // a full navigation, discarding the shell's mounted boards and their React Flow viewports.
+  it("is a shell view, so switching to/from it never navigates", () => {
+    expect(src("components/graph/tab-switch-context.tsx")).toContain('"COLUMNS",');
+    const shell = src("components/graph/map-tabs-shell.tsx");
+    expect(shell).toContain('const ORDER: ShellView[] = ["ROADMAP", "COLUMNS", "ARCHITECTURE", "DATABASE"]');
+    expect(shell).toContain("COLUMNS: columns,");
+    expect(src("app/map/page.tsx")).not.toContain('if (view === "COLUMNS")');
+  });
+});
+
+// Every board's tab strip is the SAME strip — a hardcoded copy is how Database and Files silently
+// dropped the Columns tab when it was added.
+describe("canvas tabs — one shared strip, no per-board copies", () => {
+  for (const f of ["components/graph/db-map-client.tsx", "components/graph/files-map-client.tsx"]) {
+    it(`${f} renders BOARD_TABS`, () => {
+      const s = src(f);
+      expect(s).toContain('BOARD_TABS, CanvasTabs } from "@/components/graph/canvas-tabs"');
+      expect(s).toContain("tabs={BOARD_TABS}");
+      expect(s).not.toContain('label: "Roadmap", href: "/map?view=ROADMAP"');
+    });
+  }
 });

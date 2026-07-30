@@ -85,8 +85,9 @@ import { LayerToggle, layerEmphasisMatch } from "@/components/graph/layer-toggle
 import {
   estimateRoadmapCardHeight,
   layoutRoadmapLanes,
-  statusLaneKey,
+  roadmapLaneKey,
   ROADMAP_ROW_H,
+  type LaneKeyed,
   type RoadmapGroupBy,
   type RoadmapLane,
 } from "@/lib/roadmap-layout";
@@ -109,20 +110,16 @@ const GROUP_BY_OPTIONS: { value: RoadmapGroupBy; label: string }[] = [
   { value: "priority", label: "Priority" },
 ];
 
-// The lane a card belongs to, as the RAW key the layout used (`layoutRoadmapLanes`) — that's what
-// joins a card to its lane rect. Display text comes back on the lane itself, so nothing here has
-// to label anything. Status lanes key on the REAL workflow state when the card carries one, per
-// team (statusLaneKey), so two teams' "Done" states stay separate lanes.
-function laneKeyOf(groupBy: RoadmapGroupBy, d: MapNodeData): string {
-  if (groupBy === "status")
-    return statusLaneKey({
-      status: d.status,
-      stateName: d.externalMeta?.state?.name,
-      teamKey: d.externalMeta?.team?.key,
-    });
-  if (groupBy === "priority") return String(d.priority);
-  return d.cluster?.trim() || "—";
-}
+// A card's fields in the shape `roadmapLaneKey` reads. Pure reshaping — the KEY itself is the
+// layout's (`roadmapLaneKey`), so the canvas can never key a lane differently than the layout that
+// drew it or the server that places a new card into it.
+const laneInput = (d: MapNodeData): LaneKeyed => ({
+  cluster: d.cluster,
+  status: d.status,
+  priority: d.priority,
+  stateName: d.externalMeta?.state?.name ?? null,
+  teamKey: d.externalMeta?.team?.key ?? null,
+});
 
 /** Stable empty lane list so a resync on an ungrouped board doesn't re-render on a fresh []. */
 const NO_LANES: RoadmapLane[] = [];
@@ -921,6 +918,12 @@ export function MapClient({
   // above (declaration order), so it lays out the nodes that effect just installed. Deliberately
   // NOT persisted: a derived board can't go stale, and a page view shouldn't write.
   useEffect(() => {
+    // Arm the one-shot on the FIRST run whether or not a grouping is active: a board that mounted
+    // ungrouped, was then grouped and panned by the user, must not have its camera yanked to
+    // fit-all by the next unrelated resync (an SSE bump, a Details save). The pill's own arrange()
+    // does the framing when the user asks for it.
+    const firstDerive = !derivedFitDone.current;
+    derivedFitDone.current = true;
     const by = view === "ROADMAP" ? arrangedByRef.current : null;
     if (!by) {
       setLanes(NO_LANES);
@@ -928,8 +931,7 @@ export function MapClient({
     }
     relayout(initialNodes, by);
     // The one-shot `fitView` prop framed the pre-layout positions; frame the derived board once.
-    if (derivedFitDone.current) return;
-    derivedFitDone.current = true;
+    if (!firstDerive) return;
     requestAnimationFrame(() =>
       requestAnimationFrame(() =>
         flowRef.current?.fitView({ padding: 0.15, minZoom: 0.38, maxZoom: 0.9, duration: 0 }),
@@ -1095,10 +1097,10 @@ export function MapClient({
   // Only meaningful while the roadmap is grouped: which lane a card sits in (a sub-task rides its
   // parent's lane, exactly as the layout stacked it).
   const laneOf = useCallback(
-    (n: Node<MapNodeData>, byId: Map<string, Node<MapNodeData>>) => {
+    (n: { data: MapNodeData }, byId: Map<string, { data: MapNodeData }>) => {
       if (view !== "ROADMAP" || !arrangedBy) return null;
       const parent = n.data.parentId ? byId.get(n.data.parentId) : undefined;
-      return laneKeyOf(arrangedBy, (parent ?? n).data);
+      return roadmapLaneKey(arrangedBy, laneInput((parent ?? n).data));
     },
     [view, arrangedBy],
   );
@@ -1293,15 +1295,19 @@ export function MapClient({
     if (view !== "ROADMAP" && view !== "ARCHITECTURE") return [];
     const laneRects = view === "ROADMAP" && arrangedBy ? lanes : null;
     const byId = new Map(displayNodes.map((n) => [n.id, n]));
+    // Hidden ONLY by its lane's collapse → the card is still on the board and still counts in that
+    // lane's header. Hidden by a filter (or folded behind a collapsed parent) → it is off the board,
+    // and re-admitting it made a collapsed lane report cards the filters had already removed.
+    const laneOnlyHidden = (n: { id: string; data: MapNodeData }) =>
+      laneHiddenIds.has(n.id) && passes(n.data) && !collapseHiddenIds.has(n.id);
     const items: RegionInput[] = [];
     for (const n of displayNodes) {
-      // A lane-collapsed card is hidden but still belongs to (and counts toward) its lane.
-      if ((n.hidden && !laneHiddenIds.has(n.id)) || n.type === "annotation") continue;
+      if (n.type === "annotation") continue;
+      if (n.hidden && !laneOnlyHidden(n)) continue;
       const parent = n.data.parentId ? byId.get(n.data.parentId) : undefined;
-      const groupNode = parent ?? n;
       const group = laneRects
-        ? laneKeyOf(arrangedBy!, groupNode.data)
-        : groupNode.data.cluster?.trim() || "—";
+        ? laneOf(n, byId)!
+        : (parent ?? n).data.cluster?.trim() || "—";
       items.push({
         id: n.id,
         group,
@@ -1331,6 +1337,9 @@ export function MapClient({
     arrangedBy,
     lanes,
     laneHiddenIds,
+    laneOf,
+    passes,
+    collapseHiddenIds,
     childCountById,
     view,
     tableNodes,
@@ -1532,10 +1541,16 @@ export function MapClient({
       ];
     });
     const withPins = displayNodes.map((n) => {
+      // While a grouping owns the layout, card positions are DERIVED from it on every resync — a
+      // free drag would be silently undone by the next refresh and the position it wrote never read
+      // again. So the cards are pinned to their lane slot; "Group by · None" returns the board to
+      // freeform, where a drag is yours and is persisted. Annotation cards are unaffected (they
+      // live in their own store and are never derived).
+      const base = laneMode ? { ...n, draggable: false } : n;
       const pins = pinsByTarget.get(n.id);
-      if (!pins && !effectiveAddComment) return n;
+      if (!pins && !effectiveAddComment) return base;
       return {
-        ...n,
+        ...base,
         data: {
           ...n.data,
           pins,
@@ -1575,6 +1590,7 @@ export function MapClient({
     patchBoardAnno,
     removeBoardAnno,
     annoMeasured,
+    laneMode,
     tableNodes,
     tableMeasured,
     tableDragged,
@@ -1868,6 +1884,29 @@ export function MapClient({
     [nodes, relayout],
   );
 
+  // Back to FREEFORM. A grouped board derives its positions, so nothing on screen has been written
+  // — freeze the layout the user is looking at into the DB first, then drop the grouping. From here
+  // the cards are draggable again and each drag is persisted.
+  const ungroup = useCallback(() => {
+    const batch = nodes
+      .filter((n) => n.type !== "annotation")
+      .map((n) => ({ id: n.id, x: n.position.x, y: n.position.y }));
+    if (batch.length)
+      void fetch("/api/nodes/positions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ batch }),
+      });
+    void fetch("/api/board-layout", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ board: "roadmap", arrangedBy: null }),
+    });
+    setArrangedBy(null);
+    setLanes(NO_LANES);
+    setCollapsedLanes(new Set());
+  }, [nodes]);
+
   // Auto re-arrange when a card's value for the CURRENT group-by dimension changes — e.g. marking
   // a task Done while grouped by status should move it into the Done lane immediately, without the
   // user toggling Group-by off and back on. Applies to every dimension (status / priority / theme).
@@ -2109,8 +2148,9 @@ export function MapClient({
             if (n.id.startsWith("anno-")) {
               // Board annotations remember where you parked the card; plan cards don't move.
               if (boardMode) patchBoardAnno(n.id.slice(5), { x: n.position.x, y: n.position.y });
-            } else if (!readOnly) {
-              // archived board: dragging declutters locally, never persists
+            } else if (!readOnly && !laneMode) {
+              // archived board: dragging declutters locally, never persists. Same for a GROUPED
+              // roadmap — those positions are derived, so a write here would never be read back.
               moved.push({ id: n.id, x: n.position.x, y: n.position.y });
             }
           }
@@ -2279,6 +2319,21 @@ export function MapClient({
           {view === "ROADMAP" && (
             <div className="glass flex items-center gap-1 rounded-full p-1">
               <span className="pl-2 pr-0.5 text-[11px] text-muted-foreground">Group by</span>
+              {/* The way OUT of a grouping. Without it a board that has ever been arranged (which
+                  is every board — the default arrange sets "cluster") can never reach freeform,
+                  where positions are the user's own and a drag sticks. */}
+              <button
+                onClick={ungroup}
+                title="Freeform — no lanes; drag cards anywhere and the positions stick"
+                className={cn(
+                  "h-7 rounded-full px-2.5 text-[11px] font-medium transition-colors",
+                  arrangedBy === null
+                    ? "bg-[var(--ink-active)] text-foreground"
+                    : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
+                )}
+              >
+                None
+              </button>
               {GROUP_BY_OPTIONS.map((o) => (
                 <button
                   key={o.value}

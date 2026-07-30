@@ -29,8 +29,9 @@ const ICON_BY_VALUE: Record<string, ComponentType<{ className?: string }>> = {
   DATABASE: Database,
 };
 
-/** The /map view strip, in reading order. COLUMNS is not a <MapTabsShell/> view, so it navigates
- *  (a <Link>) while the other three switch client-side — see TabSwitchContext. */
+/** The /map view strip, in reading order. The first four are <MapTabsShell/> views and switch
+ *  client-side; FILES navigates (a <Link>) because its code-graph scales with the repo — see
+ *  TabSwitchContext. */
 export const BOARD_TABS: CanvasTab[] = [
   { value: "ROADMAP", label: "Roadmap", href: "/map?view=ROADMAP" },
   { value: "COLUMNS", label: "Columns", href: "/map?view=COLUMNS" },
