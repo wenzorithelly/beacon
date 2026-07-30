@@ -84,6 +84,24 @@ describe("columns view — the detail is a centered modal", () => {
   it("keeps Enter as the keyboard route into the detail", () => {
     expect(src("components/columns/columns-view.tsx")).toContain('e.key === "Enter"');
   });
+
+  // Owner ruling: ONE card-detail surface, and it is wide and laid out like Linear's issue view —
+  // the description reading column on the left, the properties rail on the right. The narrow
+  // 560px single column (properties stacked above the description) is retired.
+  it("is wide, not the old narrow single column", () => {
+    expect(panel()).toContain("sm:max-w-[900px]");
+    expect(panel()).not.toContain("sm:max-w-[560px]");
+  });
+
+  it("renders the ONE shared card-detail body instead of a second copy of it", () => {
+    expect(panel()).toContain('from "@/components/graph/detail-sidebar"');
+    expect(panel()).toContain("<NodeDetail");
+    // …and that body is the two-pane layout, collapsing to one column on a narrow surface.
+    const body = src("components/graph/detail-sidebar.tsx");
+    expect(body).toContain("md:flex-row");
+    expect(body).toContain("md:w-[280px]");
+    expect(body).toContain("md:border-l");
+  });
 });
 
 describe("columns view — the spotlight says WHICH relationship", () => {
@@ -151,8 +169,9 @@ describe("columns view — accessible names on icon-only controls", () => {
     expect(body).toContain('aria-label="Group cards by"');
   });
 
-  it("names the peek panel's property selects", () => {
-    const body = src("components/columns/peek-panel.tsx");
+  it("names the card detail's property selects", () => {
+    // They live in the shared body now — one implementation, so one place to name them.
+    const body = src("components/graph/detail-sidebar.tsx");
     expect(body).toContain('aria-label="Status"');
     expect(body).toContain('aria-label="Priority"');
   });

@@ -38,7 +38,6 @@ import {
   GitBranch,
   HelpCircle,
   LayoutGrid,
-  PanelRight,
   Plus,
   Redo2,
   SlidersHorizontal,
@@ -67,7 +66,8 @@ import { NodeEditContext, type NodeEditApi } from "@/components/graph/node-edit-
 import { neighborIds } from "@/components/graph/db-types";
 import { BOARD_TABS, CanvasTabs } from "@/components/graph/canvas-tabs";
 import { ColumnsView } from "@/components/columns/columns-view";
-import type { GroupBy, GroupField } from "@/lib/board-grouping";
+import { CardDetailModal } from "@/components/columns/peek-panel";
+import { dependencyGraph, type GroupBy, type GroupField } from "@/lib/board-grouping";
 import type { RoadmapLayout } from "@/lib/board-layout-state";
 import { CanvasSearch } from "@/components/graph/canvas-search";
 import { CommandPalette } from "@/components/graph/command-palette";
@@ -1309,21 +1309,6 @@ export function MapClient({
     },
     [createNodeAt],
   );
-  const editDescription = useCallback(
-    (nodeId: string) => {
-      const n = nodesRef.current.find((x) => x.id === nodeId);
-      if (!n) return;
-      openFocus({
-        id: nodeId,
-        title: n.data.title || "Untitled",
-        value: n.data.plain ?? "",
-        editable: !readOnly,
-        onCommit: (v) => void saveFields(nodeId, { plain: v.trim() || null }),
-      });
-    },
-    [openFocus, readOnly, saveFields],
-  );
-
   const editApi: NodeEditApi = useMemo(
     () => ({
       view,
@@ -2534,6 +2519,14 @@ export function MapClient({
     () => livePayload.find((n) => n.id === selectedId) ?? null,
     [livePayload, selectedId],
   );
+  // What the card-detail modal needs beyond the node itself: every card by id (its Parent row and
+  // the dependency rows resolve titles through this) and the DEPENDS graph the columns layout
+  // already derives. Both fall out of `livePayload`, which is empty while nothing is open.
+  const payloadById = useMemo(() => new Map(livePayload.map((n) => [n.id, n])), [livePayload]);
+  const canvasDeps = useMemo(
+    () => dependencyGraph(livePayload, edgePayload),
+    [livePayload, edgePayload],
+  );
 
   // Where the dragged cards sat before the drag. React Flow has already moved them by the time
   // the write goes out, so this is the only snapshot a failed write can restore.
@@ -3059,6 +3052,9 @@ export function MapClient({
   // roadmap.
   if (columns) {
     return (
+      // The provider comes along: the card detail is the SAME component both layouts open, and it
+      // writes through this context (never a prop callback of its own).
+      <NodeEditContext.Provider value={editApi}>
       <div ref={rootRef} className="canvas-dots relative h-screen w-full">
         {/* `board-chrome` (globals.css) carries the SAME inset React Flow's `<Panel>` gives the
             canvas branch, including the desktop shell's 6px override — hardcoding `top-3 right-3`
@@ -3072,17 +3068,17 @@ export function MapClient({
         <ColumnsView
           nodes={livePayload}
           edges={edgePayload}
-          hasFrontend={hasFrontend}
           groupBy={columnsGroupBy}
           onGroupBy={changeColumnsGroupBy}
           readOnly={readOnly}
           onChangeField={changeField}
           onAddCard={addCardInColumn}
-          onEditDescription={editDescription}
+          onEditingDescription={setDescEditingId}
           className="pt-14"
         />
         <FocusEditorModal payload={focusEdit} onDismiss={() => setFocusEdit(null)} />
       </div>
+      </NodeEditContext.Provider>
     );
   }
 
@@ -3692,18 +3688,13 @@ export function MapClient({
         )}
 
         {/* View tabs — anchored to the RIGHT edge (was top-center) so they can't drift into the
-            left-pinned top nav; the canvas tools stack directly below them (`!mt-14`). Both shift
-            left with the same `!mr-[352px]` when the detail sidebar opens so it never covers them.
+            left-pinned top nav; the canvas tools stack directly below them (`!mt-14`). Nothing
+            docks over them any more — the card detail is a centered modal here, so the right
+            margin they used to shift by (and the button that opened the dock) are gone.
             The roadmap's layout toggle rides alongside in its OWN pill — same band, separate
             control, so it never reads as another dataset tab. */}
         {!embedded && (
-          <Panel
-            position="top-right"
-            className={cn(
-              "flex items-center gap-2 transition-[margin] duration-200",
-              panelOpen && "!mr-[352px]",
-            )}
-          >
+          <Panel position="top-right" className="flex items-center gap-2">
             {view === "ROADMAP" && <LayoutToggle value={layout} onChange={changeLayout} />}
             <div className="glass rounded-full px-1 py-0.5">
               <CanvasTabs active={view} tabs={BOARD_TABS} />
@@ -3713,11 +3704,7 @@ export function MapClient({
 
         <Panel
           position="top-right"
-          className={cn(
-            "!mt-14 flex items-center gap-1 transition-[margin] duration-200",
-            panelOpen && "!mr-[352px]",
-            embedded && "hidden",
-          )}
+          className={cn("!mt-14 flex items-center gap-1", embedded && "hidden")}
         >
           <CanvasSearch
             query={searchQuery}
@@ -3880,42 +3867,52 @@ export function MapClient({
             onApply={applySavedView}
             activeViewId={activeViewId}
           />
-
-          {!panelOpen && (
-            <button
-              onClick={() => {
-                setPanelOpen(true);
-                setPanelTab("details"); // canvas Show-panel button always lands on Details
-              }}
-              title="Show panel"
-              className="glass flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <PanelRight className="size-4" />
-            </button>
-          )}
         </Panel>
       </ReactFlow>
 
-      {panelOpen && (
-        <DetailSidebar
-          view={view}
-          selected={selected}
-          allNodes={livePayload}
-          onClose={() => {
-            setPanelOpen(false);
-            setPanelTab("details"); // closing always resets to Details for the next open
-          }}
-          commentsContent={commentsContent}
-          commentsCount={commentsCount}
-          activeTab={panelTab}
-          onTabChange={setPanelTab}
-          onAddComment={effectiveAddComment}
-          // Its inline description editor is a second `plain` editor with the same re-seed
-          // problem the focus modal has — so it claims the same reconcile hold.
-          onEditingDescription={setDescEditingId}
-          topOffset={embedded ? 64 : undefined}
-        />
-      )}
+      {/* THE card detail. Standalone /map gets the wide centered modal — one surface, nothing
+          docked, so no chrome has to move out of its way. The EMBEDDED boards (/plan review, plan
+          history, /learn, shared boards) keep the right-docked panel: each of them is one half of
+          a split screen, a full-viewport modal would cover the other half, and the dock is also
+          where /plan's Comments tab and the nothing-selected Overview live. */}
+      {panelOpen &&
+        (embedded ? (
+          <DetailSidebar
+            view={view}
+            selected={selected}
+            allNodes={livePayload}
+            onClose={() => {
+              setPanelOpen(false);
+              setPanelTab("details"); // closing always resets to Details for the next open
+            }}
+            commentsContent={commentsContent}
+            commentsCount={commentsCount}
+            activeTab={panelTab}
+            onTabChange={setPanelTab}
+            onAddComment={effectiveAddComment}
+            // Its inline description editor is a second `plain` editor with the same re-seed
+            // problem the focus modal has — so it claims the same reconcile hold.
+            onEditingDescription={setDescEditingId}
+            topOffset={64}
+          />
+        ) : selected ? (
+          <CardDetailModal
+            open
+            node={selected}
+            view={view}
+            byId={payloadById}
+            blockedBy={canvasDeps.blockedBy[selected.id] ?? []}
+            blocks={canvasDeps.blocks[selected.id] ?? []}
+            blocked={canvasDeps.blocked.has(selected.id)}
+            // Following a dependency hands the board back, exactly like the columns layout.
+            onJump={(id) => {
+              setPanelOpen(false);
+              jumpTo(id);
+            }}
+            onEditingDescription={setDescEditingId}
+            onClose={() => setPanelOpen(false)}
+          />
+        ) : null)}
 
       <FocusEditorModal payload={focusEdit} onDismiss={() => setFocusEdit(null)} />
 

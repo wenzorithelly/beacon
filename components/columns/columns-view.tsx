@@ -41,19 +41,18 @@ export interface ColumnsViewProps {
   nodes: MapNodePayload[];
   /** View-internal edges; only `kind: "DEPENDS"` matters here. */
   edges: MapEdgePayload[];
-  /** Mirrors node-card's LayerSelect in the detail modal. */
-  hasFrontend: boolean;
   /** The dimension the columns split on. OWNED BY THE CALLER: this is the roadmap's ONE grouping,
    *  shared with the canvas lanes, so flipping the layout keeps the split you were looking at. */
   groupBy: GroupBy;
   onGroupBy: (by: GroupBy) => void;
-  /** Persist a field change (drag between columns, detail-modal status/priority). Take the awaited,
-   *  optimistic-and-rolled-back save path — this view never fetches. */
+  /** Persist a field change (a drag between columns). Take the awaited, optimistic-and-rolled-back
+   *  save path — this view never fetches. The detail modal writes through the same NodeEditContext
+   *  the canvas uses, so its property edits don't come back through here. */
   onChangeField: (nodeId: string, field: GroupField, value: string | number | null) => void;
   /** Create a card already carrying the target column's value ("+ Add" column foot). */
   onAddCard: (field: GroupField, value: string | number | null) => void;
-  /** Open the real description editor for a card — the detail modal itself is read-only. */
-  onEditDescription: (nodeId: string) => void;
+  /** Registers the board's reconcile hold while the modal's inline description editor is open. */
+  onEditingDescription?: (id: string | null) => void;
   readOnly?: boolean;
   className?: string;
 }
@@ -61,12 +60,11 @@ export interface ColumnsViewProps {
 export function ColumnsView({
   nodes,
   edges,
-  hasFrontend,
   groupBy,
   onGroupBy,
   onChangeField,
   onAddCard,
-  onEditDescription,
+  onEditingDescription,
   readOnly = false,
   className,
 }: ColumnsViewProps) {
@@ -427,15 +425,8 @@ export function ColumnsView({
           blockedBy={deps.blockedBy[selected.id] ?? []}
           blocks={deps.blocks[selected.id] ?? []}
           blocked={deps.blocked.has(selected.id)}
-          hasFrontend={hasFrontend}
-          readOnly={readOnly}
-          onChangeField={onChangeField}
           onJump={jump}
-          // The rich editor is its own modal — hand the screen over rather than stack two traps.
-          onEditDescription={(id) => {
-            setDetailOpen(false);
-            onEditDescription(id);
-          }}
+          onEditingDescription={onEditingDescription}
           onClose={() => setDetailOpen(false)}
         />
       )}

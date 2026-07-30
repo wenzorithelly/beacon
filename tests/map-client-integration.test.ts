@@ -214,11 +214,36 @@ describe("columns is a layout of the roadmap, not a tab", () => {
     expect(MAP_CLIENT).toContain("<ColumnsView");
     expect(MAP_CLIENT).toContain("onChangeField={changeField}");
     expect(MAP_CLIENT).toContain("onAddCard={addCardInColumn}");
-    expect(MAP_CLIENT).toContain("onEditDescription={editDescription}");
+    // The detail modal edits the description in place (through the shared NodeEditContext), so the
+    // layout hands it the reconcile hold instead of a "open the focus editor" callback.
+    expect(MAP_CLIENT).toContain("onEditingDescription={setDescEditingId}");
     // changeField takes saveFields (awaited + rollback), never the fire-and-forget patch.
     const changeField = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const changeField = useCallback"), MAP_CLIENT.indexOf("const addCardInColumn"));
     expect(changeField).toContain("void saveFields(nodeId, { [field]: value })");
     expect(changeField).not.toContain("patch(");
+  });
+
+  // ONE card-detail surface (owner ruling): the wide centered modal. The right-docked panel
+  // survives ONLY on the EMBEDDED boards (/plan review, plan history, /learn, shared boards) —
+  // each of those is one half of a split screen a full-viewport modal would cover, and the dock is
+  // also the host of /plan's Comments tab and of the nothing-selected Overview.
+  it("opens the modal on standalone /map and docks the panel only when embedded", () => {
+    expect(MAP_CLIENT).toContain("<CardDetailModal");
+    const detail = MAP_CLIENT.slice(MAP_CLIENT.indexOf("{panelOpen &&"));
+    expect(detail).toContain("embedded ? (");
+    expect(detail.indexOf("<DetailSidebar")).toBeLessThan(detail.indexOf("<CardDetailModal"));
+  });
+
+  it("drops the dock's chrome shift and its open button — a modal displaces nothing", () => {
+    expect(MAP_CLIENT).not.toContain("!mr-[352px]");
+    expect(MAP_CLIENT).not.toContain("Show panel");
+    expect(MAP_CLIENT).not.toContain("PanelRight");
+  });
+
+  it("keeps /plan's Comments tab wired through the docked panel", () => {
+    expect(MAP_CLIENT).toContain("commentsContent={commentsContent}");
+    expect(MAP_CLIENT).toContain("activeTab={panelTab}");
+    expect(MAP_CLIENT).toContain("onTabChange={setPanelTab}");
   });
 
   it("is gone from the dataset tab strip, the shell and the shell's view union", () => {
@@ -658,9 +683,10 @@ describe("URL filters + saved views", () => {
     // Sets↔arrays at the boundary.
     expect(MAP_CLIENT).toContain("status: [...statusFilter],");
     expect(MAP_CLIENT).toContain("collapsed: [...collapsedLanes],");
-    // …and it sits next to Filters, not somewhere else on the canvas.
+    // …and it sits next to Filters, at the end of that rail, not somewhere else on the canvas.
     const rail = MAP_CLIENT.slice(MAP_CLIENT.indexOf('title="Filters"'));
-    expect(rail.indexOf("<SavedViewsMenu")).toBeLessThan(rail.indexOf("Show panel"));
+    expect(rail).toContain("<SavedViewsMenu");
+    expect(rail.indexOf("<SavedViewsMenu")).toBeLessThan(rail.indexOf("</Panel>"));
   });
 
   it("restores filters, arrange and folded lanes on apply", () => {

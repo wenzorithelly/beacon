@@ -38,7 +38,7 @@ import {
   clusterLabel,
 } from "@/lib/constants";
 import { categoryColorClass } from "@/lib/category-color";
-import { PRIORITY_LABELS } from "@/lib/board-grouping";
+import { PRIORITY_HUE, PRIORITY_LABELS } from "@/lib/board-grouping";
 import { STATUS_STRIPE } from "@/components/graph/node-card";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,9 +67,16 @@ import type { ReactNode } from "react";
 
 export type SidebarTab = PanelTab;
 
-// Right-docked, full-height detail panel for the roadmap/architecture boards (Linear-style
-// properties panel). Composed from the shared panel primitives — see panel/primitives.tsx for
-// the shell/header/row/section language it shares with the DB board's sidebar.
+// THE card detail is `NodeDetail` below — one two-pane body (reading column + properties rail),
+// rendered by exactly two hosts:
+//   • the WIDE CENTERED MODAL (components/columns/peek-panel.tsx) — the standalone /map boards
+//     (canvas + columns, roadmap + architecture) open it and nothing is docked there anymore;
+//   • this right-docked panel — kept ONLY for the EMBEDDED boards (/plan review, plan history,
+//     /learn, shared boards), where the board is one half of a split screen and a full-viewport
+//     modal would cover the other half. It is also the host of /plan's Comments tab and of the
+//     nothing-selected Overview, neither of which is card detail.
+// Composed from the shared panel primitives — see panel/primitives.tsx for the shell/header/row/
+// section language it shares with the DB board's sidebar.
 export function DetailSidebar({
   view,
   selected,
@@ -135,30 +142,35 @@ export function DetailSidebar({
         onClose={onClose}
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="px-4 py-3">
-          {tab === "comments" && tabbed ? (
-            commentsContent
-          ) : selected ? (
-            <NodeDetail
-              key={selected.id}
-              node={selected}
-              view={view}
-              parentTitle={parentTitle}
-              showBreadcrumb={tabbed}
-              onEditingDescription={onEditingDescription}
-            />
-          ) : (
-            <Overview view={view} nodes={allNodes} />
-          )}
+      {tab === "comments" && tabbed ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="px-4 py-3">{commentsContent}</div>
         </div>
-      </div>
+      ) : selected ? (
+        <NodeDetail
+          key={selected.id}
+          node={selected}
+          view={view}
+          parentTitle={parentTitle}
+          stacked
+          showBreadcrumb={tabbed}
+          showTitle
+          onEditingDescription={onEditingDescription}
+        />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="px-4 py-3">
+            <Overview view={view} nodes={allNodes} />
+          </div>
+        </div>
+      )}
     </PanelShell>
   );
 }
 
-// category · layer · kind — the node's place, in one whispered line.
-function Breadcrumb({ node, view }: { node: MapNodePayload; view: string }) {
+// category · layer · kind — the node's place, in one whispered line. Exported: the modal renders
+// the very same eyebrow above its title.
+export function Breadcrumb({ node, view }: { node: MapNodePayload; view: string }) {
   const { hasFrontend } = useNodeEdit();
   const layer = normalizeLayer(node.layer);
   const kind =
@@ -178,17 +190,31 @@ function Breadcrumb({ node, view }: { node: MapNodePayload; view: string }) {
   );
 }
 
-function NodeDetail({
+/** THE card detail body — Linear's issue view: a reading column (description, files, bug flags)
+ *  beside a narrow properties rail, with the actions in a footer under both. Two panes from `md`
+ *  up; `stacked` (the 340px dock) forces the single-column order, rail after the content. */
+export function NodeDetail({
   node,
   view,
   parentTitle,
-  showBreadcrumb,
+  stacked = false,
+  showBreadcrumb = false,
+  showTitle = false,
+  railExtra,
   onEditingDescription,
 }: {
   node: MapNodePayload;
   view: "ROADMAP" | "ARCHITECTURE";
   parentTitle: string | null;
-  showBreadcrumb: boolean;
+  /** Never split into two panes — the narrow docked panel. */
+  stacked?: boolean;
+  /** Render the category · layer · kind eyebrow here (the dock's header shows it instead when it
+      is displaying the Details/Comments tab strip; the modal puts it in its own header). */
+  showBreadcrumb?: boolean;
+  /** Render the title here (the modal's title is its DialogTitle). */
+  showTitle?: boolean;
+  /** Extra rail content under the properties — the modal's Blocked by / Blocks lists. */
+  railExtra?: ReactNode;
   onEditingDescription?: (id: string | null) => void;
 }) {
   const router = useRouter();
@@ -214,7 +240,8 @@ function NodeDetail({
   // All mutations go through the NodeEditContext (tab-pinned /api/nodes routes with
   // optimistic update + rollback) — NEVER server actions, which pin by the browser-wide
   // beacon_ws cookie and write to the wrong workspace in a tab pinned via ?ws.
-  const { hasFrontend, openFocus, acceptSuggestion, saveFields, removeNode } = useNodeEdit();
+  const { hasFrontend, readOnly, openFocus, acceptSuggestion, saveFields, removeNode } =
+    useNodeEdit();
 
   const statuses = view === "ARCHITECTURE" ? ARCH_STATUSES : ROADMAP_STATUSES;
   const linearIssue =
@@ -235,346 +262,398 @@ function NodeDetail({
   };
 
   return (
-    <div>
-      {showBreadcrumb && (
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          <Breadcrumb node={node} view={view} />
-        </div>
-      )}
-      <h2 className="text-base font-semibold leading-snug">{node.title}</h2>
-
-      {node.source === "INIT" && view === "ROADMAP" && (
-        <div className="mt-3 rounded-lg border border-violet-400/25 bg-violet-500/[0.05] p-2.5">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-violet-700 dark:text-violet-300">
-            <Sparkles className="size-3.5" /> AI suggestion
-          </div>
-          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-            Suggested direction surfaced when mapping the repo. Accept to turn it into your
-            own feature, or dismiss.
-          </p>
-          <div className="mt-2 flex gap-1.5">
-            <Button
-              size="sm"
-              className="h-7 px-2.5 text-xs"
-              disabled={pending}
-              onClick={() => run(() => acceptSuggestion(node.id))}
-            >
-              Accept
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2.5 text-xs text-muted-foreground"
-              disabled={pending}
-              onClick={() => run(() => removeNode(node.id))}
-            >
-              Dismiss
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Properties — compact icon · label · value rows ── */}
-      <div className="mt-3 space-y-px">
-        <PropRow icon={CircleDashed} label="Status">
-          <Select
-            value={node.status}
-            onValueChange={(v) => v != null && run(() => saveFields(node.id, { status: v }))}
-          >
-            <SelectTrigger className={QUIET_TRIGGER} disabled={pending}>
-              <SelectValue>
-                {(v: string) => (
-                  <span className="flex items-center gap-1.5">
-                    <span
-                      aria-hidden
-                      className="size-2 rounded-full"
-                      style={{ background: STATUS_STRIPE[v] ?? "#71717a" }}
-                    />
-                    {STATUS_META[v]?.label ?? v}
-                  </span>
-                )}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent alignItemWithTrigger={false}>
-              {statuses.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {STATUS_META[s]?.label ?? s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </PropRow>
-
-        {view !== "ARCHITECTURE" && (
-          <PropRow icon={Flag} label="Priority">
-            <Select
-              value={String(node.priority)}
-              onValueChange={(v) =>
-                v != null && run(() => saveFields(node.id, { priority: Number(v) }))
-              }
-            >
-              <SelectTrigger className={QUIET_TRIGGER} disabled={pending}>
-                <SelectValue>
-                  {(v: string) => PRIORITY_LABELS[Number(v)] ?? v}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                {PRIORITY_LABELS.map((l, v) => (
-                  <SelectItem key={v} value={String(v)}>
-                    {l}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </PropRow>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col overflow-y-auto",
+          !stacked && "md:flex-row md:overflow-hidden",
         )}
+      >
+        {/* ── LEFT — the reading column: what you actually read, in a reading gutter ── */}
+        <div className={cn("min-w-0 flex-1 px-5 py-3", !stacked && "md:min-h-0 md:overflow-y-auto")}>
+          {showBreadcrumb && (
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <Breadcrumb node={node} view={view} />
+            </div>
+          )}
+          {showTitle && <h2 className="text-base font-semibold leading-snug">{node.title}</h2>}
 
-        {hasFrontend && (
-          <PropRow icon={Layers} label="Layer">
-            <Select
-              value={normalizeLayer(node.layer) ?? "none"}
-              onValueChange={(v) =>
-                v != null &&
-                run(() =>
-                  saveFields(node.id, {
-                    layer: v === "none" ? null : (v as "frontend" | "backend" | "fullstack"),
-                  }),
-                )
-              }
-            >
-              <SelectTrigger className={QUIET_TRIGGER} disabled={pending}>
-                <SelectValue>
-                  {(v: string) =>
-                    v === "none" ? (
-                      <span className="text-muted-foreground">No layer</span>
-                    ) : (
-                      LAYER_META[v as keyof typeof LAYER_META]?.label ?? v
+          {node.source === "INIT" && view === "ROADMAP" && !readOnly && (
+            <div className="mt-3 rounded-lg border border-violet-400/25 bg-violet-500/[0.05] p-2.5">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-violet-700 dark:text-violet-300">
+                <Sparkles className="size-3.5" /> AI suggestion
+              </div>
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                Suggested direction surfaced when mapping the repo. Accept to turn it into your
+                own feature, or dismiss.
+              </p>
+              <div className="mt-2 flex gap-1.5">
+                <Button
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  disabled={pending}
+                  onClick={() => run(() => acceptSuggestion(node.id))}
+                >
+                  Accept
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2.5 text-xs text-muted-foreground"
+                  disabled={pending}
+                  onClick={() => run(() => removeNode(node.id))}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Description — first and prominent; clean render, edit on click, toolbar only
+              while editing. Capped at a comfortable measure so a 900px modal doesn't run prose
+              the full width of the pane. ── */}
+          <PanelSection
+            className="mt-3 border-t-0 pt-0"
+            title={
+              <>
+                Description
+                <button
+                  type="button"
+                  title="Edit in focus mode"
+                  onClick={() =>
+                    openFocus({
+                      id: node.id,
+                      title: node.title,
+                      value: plain,
+                      editable: !readOnly,
+                      onCommit: (v) => {
+                        setPlain(v);
+                        const next = v.trim() || null;
+                        if (next !== (node.plain ?? null))
+                          run(() => saveFields(node.id, { plain: next }));
+                      },
+                    })
+                  }
+                  className="ml-auto rounded p-0.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-[var(--accent-2,#ff7a45)]"
+                >
+                  <Maximize2 className="size-3.5" />
+                </button>
+              </>
+            }
+          >
+            <div className="max-w-[68ch]">
+              {editingDesc && !readOnly ? (
+                <RichNodeEditor
+                  key="edit"
+                  value={plain}
+                  onChange={setPlain}
+                  onBlur={commitDesc}
+                  autoFocus
+                />
+              ) : plain.trim() ? (
+                <div
+                  role={readOnly ? undefined : "button"}
+                  tabIndex={readOnly ? undefined : 0}
+                  title={readOnly ? undefined : "Click to edit"}
+                  onClick={() => !readOnly && setEditingDesc(true)}
+                  onKeyDown={(e) => {
+                    if (!readOnly && e.key === "Enter") setEditingDesc(true);
+                  }}
+                  className={cn(
+                    "-mx-1.5 rounded-md px-1.5 py-1 transition-colors",
+                    !readOnly && "cursor-text hover:bg-[var(--ink-hover)]",
+                  )}
+                >
+                  <RichNodeEditor key="view" value={plain} onChange={() => {}} editable={false} />
+                </div>
+              ) : readOnly ? (
+                <p className="px-1.5 text-xs text-muted-foreground">No description yet.</p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditingDesc(true)}
+                  className="-mx-1.5 w-full rounded-md px-1.5 py-1 text-left text-xs text-muted-foreground/60 transition-colors hover:bg-[var(--ink-hover)] hover:text-muted-foreground"
+                >
+                  Add a description…
+                </button>
+              )}
+            </div>
+          </PanelSection>
+
+          {node.files.length > 0 && (
+            <PanelSection title={`Files (${node.files.length})`}>
+              <FileTree files={node.files.map((p) => ({ path: p }))} />
+            </PanelSection>
+          )}
+
+          {/* Bug flags — architecture components carry findings raised by the user or by an
+              agent examining the code (beacon-init / beacon-refresh / describe_feature). */}
+          {view === "ARCHITECTURE" && <BugFlagsSection node={node} readOnly={!!readOnly} />}
+        </div>
+
+        {/* ── RIGHT — the properties rail ── */}
+        <aside
+          className={cn(
+            "shrink-0 border-t border-border px-4 py-3",
+            !stacked && "md:min-h-0 md:w-[280px] md:overflow-y-auto md:border-l md:border-t-0",
+          )}
+        >
+          <div className="space-y-px">
+            <PropRow icon={CircleDashed} label="Status">
+              <Select
+                value={node.status}
+                onValueChange={(v) => v != null && run(() => saveFields(node.id, { status: v }))}
+              >
+                <SelectTrigger
+                  aria-label="Status"
+                  className={QUIET_TRIGGER}
+                  disabled={pending || readOnly}
+                >
+                  <SelectValue>
+                    {(v: string) => (
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          aria-hidden
+                          className="size-2 rounded-full"
+                          style={{ background: STATUS_STRIPE[v] ?? "#71717a" }}
+                        />
+                        {STATUS_META[v]?.label ?? v}
+                      </span>
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  {statuses.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {STATUS_META[s]?.label ?? s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </PropRow>
+
+            {view !== "ARCHITECTURE" && (
+              <PropRow icon={Flag} label="Priority">
+                <Select
+                  value={String(node.priority)}
+                  onValueChange={(v) =>
+                    v != null && run(() => saveFields(node.id, { priority: Number(v) }))
+                  }
+                >
+                  <SelectTrigger
+                    aria-label="Priority"
+                    className={QUIET_TRIGGER}
+                    disabled={pending || readOnly}
+                  >
+                    <SelectValue>
+                      {(v: string) => (
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            aria-hidden
+                            className="size-2 rounded-full"
+                            style={{ background: PRIORITY_HUE[Number(v)] ?? "#71717a" }}
+                          />
+                          {PRIORITY_LABELS[Number(v)] ?? v}
+                        </span>
+                      )}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent alignItemWithTrigger={false}>
+                    {PRIORITY_LABELS.map((l, v) => (
+                      <SelectItem key={v} value={String(v)}>
+                        {l}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </PropRow>
+            )}
+
+            {hasFrontend && (
+              <PropRow icon={Layers} label="Layer">
+                <Select
+                  value={normalizeLayer(node.layer) ?? "none"}
+                  onValueChange={(v) =>
+                    v != null &&
+                    run(() =>
+                      saveFields(node.id, {
+                        layer: v === "none" ? null : (v as "frontend" | "backend" | "fullstack"),
+                      }),
                     )
                   }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                <SelectItem value="none">— no layer</SelectItem>
-                {Object.entries(LAYER_META).map(([v, m]) => (
-                  <SelectItem key={v} value={v}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </PropRow>
-        )}
+                >
+                  <SelectTrigger
+                    aria-label="Layer"
+                    className={QUIET_TRIGGER}
+                    disabled={pending || readOnly}
+                  >
+                    <SelectValue>
+                      {(v: string) =>
+                        v === "none" ? (
+                          <span className="text-muted-foreground">No layer</span>
+                        ) : (
+                          LAYER_META[v as keyof typeof LAYER_META]?.label ?? v
+                        )
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectItem value="none">— no layer</SelectItem>
+                    {Object.entries(LAYER_META).map(([v, m]) => (
+                      <SelectItem key={v} value={v}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </PropRow>
+            )}
 
-        {node.cluster && (
-          <PropRow icon={Tag} label="Category">
-            <span
-              className={cn(
-                "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                categoryColorClass(node.cluster),
-              )}
-            >
-              {node.cluster}
-            </span>
-          </PropRow>
-        )}
+            {node.cluster && (
+              <PropRow icon={Tag} label="Category">
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    categoryColorClass(node.cluster),
+                  )}
+                >
+                  {node.cluster}
+                </span>
+              </PropRow>
+            )}
 
-        {parentTitle && (
-          <PropRow icon={CornerDownRight} label="Parent">
-            <span className="truncate">{parentTitle}</span>
-          </PropRow>
-        )}
+            {parentTitle && (
+              <PropRow icon={CornerDownRight} label="Parent">
+                <span className="truncate">{parentTitle}</span>
+              </PropRow>
+            )}
 
-        {/* Real Linear workflow state + container identity — display fidelity on top of the
-            editable Beacon Status row above (only rows that actually exist on the issue). */}
-        {node.source === "LINEAR" && node.externalMeta?.state && (
-          <PropRow icon={CircleDashed} label="State">
-            <span className="flex items-center gap-1.5">
-              <span
-                aria-hidden
-                className="size-2 rounded-full"
-                style={{ background: node.externalMeta.state.color }}
-              />
-              {node.externalMeta.state.name}
-            </span>
-          </PropRow>
-        )}
-        {node.source === "LINEAR" && node.externalMeta?.team && (
-          <PropRow icon={Users} label="Team">
-            <span className="truncate">{node.externalMeta.team.name}</span>
-          </PropRow>
-        )}
-        {node.source === "LINEAR" && node.externalMeta?.project && (
-          <PropRow icon={Boxes} label="Project">
-            <span className="truncate">{node.externalMeta.project.name}</span>
-          </PropRow>
-        )}
-        {node.source === "LINEAR" && node.externalMeta?.milestone && (
-          <PropRow icon={Milestone} label="Milestone">
-            <span className="truncate">{node.externalMeta.milestone.name}</span>
-          </PropRow>
-        )}
+            {/* Real Linear workflow state + container identity — display fidelity on top of the
+                editable Beacon Status row above (only rows that actually exist on the issue). */}
+            {node.source === "LINEAR" && node.externalMeta?.state && (
+              <PropRow icon={CircleDashed} label="State">
+                <span className="flex items-center gap-1.5">
+                  <span
+                    aria-hidden
+                    className="size-2 rounded-full"
+                    style={{ background: node.externalMeta.state.color }}
+                  />
+                  {node.externalMeta.state.name}
+                </span>
+              </PropRow>
+            )}
+            {node.source === "LINEAR" && node.externalMeta?.team && (
+              <PropRow icon={Users} label="Team">
+                <span className="truncate">{node.externalMeta.team.name}</span>
+              </PropRow>
+            )}
+            {node.source === "LINEAR" && node.externalMeta?.project && (
+              <PropRow icon={Boxes} label="Project">
+                <span className="truncate">{node.externalMeta.project.name}</span>
+              </PropRow>
+            )}
+            {node.source === "LINEAR" && node.externalMeta?.milestone && (
+              <PropRow icon={Milestone} label="Milestone">
+                <span className="truncate">{node.externalMeta.milestone.name}</span>
+              </PropRow>
+            )}
 
-        {linearIssue ? (
-          <PropRow icon={ExternalLink} label="Linear">
-            <a
-              href={node.sourceRef!}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-xs transition-colors hover:bg-[var(--ink-hover)] hover:text-[var(--accent-2,#ff7a45)]"
-            >
-              {linearIssue}
-              <ExternalLink className="size-3" />
-            </a>
-          </PropRow>
-        ) : node.sourceRef ? (
-          <PropRow icon={ExternalLink} label="Source">
-            <span className="truncate font-mono text-[11px] text-muted-foreground">
-              {node.sourceRef}
-            </span>
-          </PropRow>
-        ) : null}
-      </div>
-
-      {/* ── Description — clean render, edit on click, toolbar only while editing ── */}
-      <PanelSection
-        title={
-          <>
-            Description
-            <button
-              type="button"
-              title="Edit in focus mode"
-              onClick={() =>
-                openFocus({
-                  id: node.id,
-                  title: node.title,
-                  value: plain,
-                  editable: true,
-                  onCommit: (v) => {
-                    setPlain(v);
-                    const next = v.trim() || null;
-                    if (next !== (node.plain ?? null))
-                      run(() => saveFields(node.id, { plain: next }));
-                  },
-                })
-              }
-              className="ml-auto rounded p-0.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-[var(--accent-2,#ff7a45)]"
-            >
-              <Maximize2 className="size-3.5" />
-            </button>
-          </>
-        }
-      >
-        {editingDesc ? (
-          <RichNodeEditor
-            key="edit"
-            value={plain}
-            onChange={setPlain}
-            onBlur={commitDesc}
-            autoFocus
-          />
-        ) : plain.trim() ? (
-          <div
-            role="button"
-            tabIndex={0}
-            title="Click to edit"
-            onClick={() => setEditingDesc(true)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") setEditingDesc(true);
-            }}
-            className="-mx-1.5 cursor-text rounded-md px-1.5 py-1 transition-colors hover:bg-[var(--ink-hover)]"
-          >
-            <RichNodeEditor key="view" value={plain} onChange={() => {}} editable={false} />
+            {linearIssue ? (
+              <PropRow icon={ExternalLink} label="Linear">
+                <a
+                  href={node.sourceRef!}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-xs transition-colors hover:bg-[var(--ink-hover)] hover:text-[var(--accent-2,#ff7a45)]"
+                >
+                  {linearIssue}
+                  <ExternalLink className="size-3" />
+                </a>
+              </PropRow>
+            ) : node.sourceRef ? (
+              <PropRow icon={ExternalLink} label="Source">
+                <span className="truncate font-mono text-[11px] text-muted-foreground">
+                  {node.sourceRef}
+                </span>
+              </PropRow>
+            ) : null}
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setEditingDesc(true)}
-            className="-mx-1.5 w-full rounded-md px-1.5 py-1 text-left text-xs text-muted-foreground/60 transition-colors hover:bg-[var(--ink-hover)] hover:text-muted-foreground"
-          >
-            Add a description…
-          </button>
-        )}
-      </PanelSection>
 
-      {node.files.length > 0 && (
-        <PanelSection title={`Files (${node.files.length})`}>
-          <FileTree files={node.files.map((p) => ({ path: p }))} />
-        </PanelSection>
-      )}
-
-      {/* Bug flags — architecture components carry findings raised by the user or by an
-          agent examining the code (beacon-init / beacon-refresh / describe_feature). */}
-      {view === "ARCHITECTURE" && <BugFlagsSection node={node} />}
+          {railExtra}
+        </aside>
+      </div>
 
       {/* ── Actions — primaries quiet in the footer, destructive behind the overflow menu ── */}
-      <div className="mt-4 flex items-center gap-1 border-t border-border pt-3">
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-          onClick={() => setEditOpen(true)}
-        >
-          <Pencil className="size-3.5" />
-          Edit
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-          onClick={() => setSubOpen(true)}
-        >
-          <Plus className="size-3.5" />
-          Sub-node
-        </Button>
-        <div className="relative ml-auto">
-          <button
-            type="button"
-            title="More actions"
-            onClick={() => setMenuOpen((o) => !o)}
-            className={cn(
-              "rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground",
-              menuOpen && "bg-[var(--ink-active)] text-foreground",
-            )}
+      {!readOnly && (
+        <div className="flex shrink-0 items-center gap-1 border-t border-border px-4 py-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setEditOpen(true)}
           >
-            <MoreHorizontal className="size-4" />
-          </button>
-          {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute bottom-full right-0 z-20 mb-1 w-44 rounded-lg border border-border bg-popover p-1 shadow-xl">
-                <MenuItem
-                  disabled={pending}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    run(() => saveFields(node.id, { status: "DEPRIORITIZED", priority: 3 }));
-                  }}
-                >
-                  Deprioritize
-                </MenuItem>
-                <MenuItem
-                  disabled={pending}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    run(() => saveFields(node.id, { status: "CANCELLED" }));
-                  }}
-                >
-                  Cancel node
-                </MenuItem>
-                <MenuItem
-                  destructive
-                  disabled={pending}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setDelOpen(true);
-                  }}
-                >
-                  Delete…
-                </MenuItem>
-              </div>
-            </>
-          )}
+            <Pencil className="size-3.5" />
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setSubOpen(true)}
+          >
+            <Plus className="size-3.5" />
+            Sub-node
+          </Button>
+          <div className="relative ml-auto">
+            <button
+              type="button"
+              title="More actions"
+              onClick={() => setMenuOpen((o) => !o)}
+              className={cn(
+                "rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground",
+                menuOpen && "bg-[var(--ink-active)] text-foreground",
+              )}
+            >
+              <MoreHorizontal className="size-4" />
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                <div className="absolute bottom-full right-0 z-20 mb-1 w-44 rounded-lg border border-border bg-popover p-1">
+                  <MenuItem
+                    disabled={pending}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      run(() => saveFields(node.id, { status: "DEPRIORITIZED", priority: 3 }));
+                    }}
+                  >
+                    Deprioritize
+                  </MenuItem>
+                  <MenuItem
+                    disabled={pending}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      run(() => saveFields(node.id, { status: "CANCELLED" }));
+                    }}
+                  >
+                    Cancel node
+                  </MenuItem>
+                  <MenuItem
+                    destructive
+                    disabled={pending}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setDelOpen(true);
+                    }}
+                  >
+                    Delete…
+                  </MenuItem>
+                </div>
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <AlertDialog open={delOpen} onOpenChange={setDelOpen}>
         <AlertDialogContent>
@@ -658,7 +737,7 @@ function MenuItem({
   );
 }
 
-function BugFlagsSection({ node }: { node: MapNodePayload }) {
+function BugFlagsSection({ node, readOnly }: { node: MapNodePayload; readOnly: boolean }) {
   const router = useRouter();
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -683,6 +762,8 @@ function BugFlagsSection({ node }: { node: MapNodePayload }) {
       if (res.ok) setNote("");
     });
   };
+
+  if (readOnly && node.bugFlags.length === 0) return null;
 
   return (
     <PanelSection
@@ -715,33 +796,35 @@ function BugFlagsSection({ node }: { node: MapNodePayload }) {
                 >
                   {f.by === "agent" ? "agent" : "you"}
                 </span>
-                <div className="ml-auto flex items-center gap-1">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      act(() =>
-                        fetch(`/api/bug-flags/${f.id}`, {
-                          method: "PATCH",
-                          headers: { "content-type": "application/json" },
-                          body: JSON.stringify({ resolved: !f.resolved }),
-                        }),
-                      )
-                    }
-                    className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
-                  >
-                    {f.resolved ? "Reopen" : "Resolve"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    title="Delete flag"
-                    onClick={() => act(() => fetch(`/api/bug-flags/${f.id}`, { method: "DELETE" }))}
-                    className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-red-600 dark:hover:text-red-300"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
+                {!readOnly && (
+                  <div className="ml-auto flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        act(() =>
+                          fetch(`/api/bug-flags/${f.id}`, {
+                            method: "PATCH",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({ resolved: !f.resolved }),
+                          }),
+                        )
+                      }
+                      className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-foreground"
+                    >
+                      {f.resolved ? "Reopen" : "Resolve"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      title="Delete flag"
+                      onClick={() => act(() => fetch(`/api/bug-flags/${f.id}`, { method: "DELETE" }))}
+                      className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-[var(--ink-hover)] hover:text-red-600 dark:hover:text-red-300"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                )}
               </div>
               <p className={cn("mt-1 text-[11.5px] leading-snug", f.resolved && "line-through")}>
                 {f.note}
@@ -750,30 +833,32 @@ function BugFlagsSection({ node }: { node: MapNodePayload }) {
           ))}
         </ul>
       )}
-      <div className="mt-1.5 flex items-start gap-1.5">
-        <textarea
-          rows={1}
-          value={note}
-          placeholder="Flag a bug or something worth investigating…"
-          onChange={(e) => setNote(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              addFlag();
-            }
-          }}
-          className="field-sizing-content min-h-7 w-full resize-none rounded-md bg-[var(--ink-hover)] px-2 py-1 text-[11.5px] outline-none placeholder:text-muted-foreground/60 focus:bg-[var(--ink-active)]"
-        />
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 shrink-0 px-2 text-[11px] text-muted-foreground hover:text-foreground"
-          disabled={busy || !note.trim()}
-          onClick={addFlag}
-        >
-          Flag
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="mt-1.5 flex items-start gap-1.5">
+          <textarea
+            rows={1}
+            value={note}
+            placeholder="Flag a bug or something worth investigating…"
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                addFlag();
+              }
+            }}
+            className="field-sizing-content min-h-7 w-full resize-none rounded-md bg-[var(--ink-hover)] px-2 py-1 text-[11.5px] outline-none placeholder:text-muted-foreground/60 focus:bg-[var(--ink-active)]"
+          />
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 shrink-0 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            disabled={busy || !note.trim()}
+            onClick={addFlag}
+          >
+            Flag
+          </Button>
+        </div>
+      )}
     </PanelSection>
   );
 }
