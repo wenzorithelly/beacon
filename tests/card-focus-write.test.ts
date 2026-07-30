@@ -63,7 +63,8 @@ describe("icon-only card buttons carry an accessible name", () => {
   it("labels every icon-only control", () => {
     for (const label of [
       "Edit description in focus mode",
-      "Open details side panel",
+      // Not "…side panel": on /map the dock is retired and this opens the centered detail modal.
+      "Open details",
       "Flag a bug on this component",
       "Accept suggestion — turn it into your own feature",
       "Dismiss suggestion (deletes the card)",

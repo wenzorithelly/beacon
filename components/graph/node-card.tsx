@@ -333,8 +333,8 @@ function CornerTools({
           e.stopPropagation();
           onDetails();
         }}
-        title="Open details side panel"
-        aria-label="Open details side panel"
+        title="Open details"
+        aria-label="Open details"
         className="flex w-0 items-center justify-center overflow-hidden rounded p-0 text-muted-foreground opacity-0 transition-all hover:text-[#ff7a45] group-hover/nc:w-6 group-hover/nc:p-0.5 group-hover/nc:opacity-100"
       >
         <PanelRight className="size-3.5" />

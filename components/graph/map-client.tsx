@@ -502,19 +502,19 @@ function LayoutToggle({
             key={v}
             type="button"
             aria-pressed={on}
+            aria-label={`${label} layout`}
             title={`${label} layout · ⌘B`}
             onClick={() => onChange(v)}
             className={cn(
-              "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium tracking-tight transition-colors",
+              "flex size-7 items-center justify-center rounded-full transition-colors",
               on
                 ? "bg-[var(--ink-active)] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                 : "text-muted-foreground/80 hover:bg-[var(--ink-hover)] hover:text-foreground",
             )}
           >
-            <Icon className={cn("size-3", on && "text-[#ff7a45]")} />
-            {/* Same breakpoint as CanvasTabs: icon-only below `lg` so the right-anchored chrome
-                never collides with the left-pinned top nav. */}
-            <span className="hidden lg:inline">{label}</span>
+            {/* Icon-only, always. Two options that differ only by shape don't need words next to
+                the dataset tabs — the label lives in the tooltip and the accessible name. */}
+            <Icon className={cn("size-3.5", on && "text-[var(--accent-2,#ff7a45)]")} />
           </button>
         );
       })}
