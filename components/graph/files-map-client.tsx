@@ -31,7 +31,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { Pencil, X, FileCode2, HelpCircle, Compass } from "lucide-react";
 import { GlassPanel } from "@/components/ui/glass-panel";
-import { CanvasTabs } from "@/components/graph/canvas-tabs";
+import { BOARD_TABS, CanvasTabs } from "@/components/graph/canvas-tabs";
 import { CanvasSearch } from "@/components/graph/canvas-search";
 import { FileTree } from "@/components/file-tree/file-tree";
 import { buildFileTour } from "@/lib/canvas-tour";
@@ -972,15 +972,7 @@ export function FilesMapClient({
             panelOpen && "!mr-[300px]",
           )}
         >
-          <CanvasTabs
-            active="FILES"
-            tabs={[
-              { value: "ROADMAP", label: "Roadmap", href: "/map?view=ROADMAP" },
-              { value: "ARCHITECTURE", label: "Architecture", href: "/map?view=ARCHITECTURE" },
-              { value: "DATABASE", label: "Database", href: "/map?view=DATABASE" },
-              { value: "FILES", label: "Files", href: "/map?view=FILES" },
-            ]}
-          />
+          <CanvasTabs active="FILES" tabs={BOARD_TABS} />
         </Panel>
 
         {/* Color legend: which hue is which directory. Click a chip to fly to that cluster. */}

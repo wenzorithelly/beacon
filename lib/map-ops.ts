@@ -9,7 +9,7 @@ import { collidesWith, validateFeatureCreation, validateFront } from "@/lib/feat
 import { normalizeLayer } from "@/lib/layer";
 import { resolveHasFrontend } from "@/lib/project-meta";
 import { placeInGroup, placeWithoutOverlap } from "@/lib/node-placement";
-import { layoutRoadmap, statusLaneKey, type RoadmapGroupBy } from "@/lib/roadmap-layout";
+import { layoutRoadmap, roadmapLaneKey, type RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { parseExternalMeta } from "@/lib/linear/mapping";
 import { layeredLayout } from "@/lib/layered-layout";
 import {
@@ -29,9 +29,9 @@ async function setCurrent(id: string) {
 // Which lane a roadmap card belongs to ON THE BOARD AS IT IS CURRENTLY ARRANGED. `arrangedBy` is
 // the dimension the last arrange used (null → cluster, the board's default). Placing a new card by
 // its theme cluster on a status- or priority-grouped board dropped it in the wrong lane, so the
-// layout drifted further out of its grouping every session. Same three dimensions as
-// lib/roadmap-layout's lane keys — status reuses statusLaneKey, so a Linear card lands in its
-// real workflow-state lane ("In Review"), exactly where the layout would put it.
+// layout drifted further out of its grouping every session. The key itself is NOT redefined here —
+// it's `roadmapLaneKey`, the same function the layout and the canvas use, so a Linear card lands in
+// its real per-team workflow-state lane ("Done · ENG") exactly where the layout would put it.
 interface GroupKeyed {
   cluster: string | null;
   status: string;
@@ -39,15 +39,18 @@ interface GroupKeyed {
   externalMeta?: string | null;
 }
 function activeGroupKey(): (n: GroupKeyed) => string {
-  const by = readBoardLayout("roadmap").arrangedBy;
-  if (by === "status")
-    return (n) =>
-      statusLaneKey({
-        status: n.status,
-        stateName: parseExternalMeta(n.externalMeta)?.state?.name ?? null,
-      });
-  if (by === "priority") return (n) => String(n.priority);
-  return (n) => (n.cluster ?? "").trim() || "—";
+  const stored = readBoardLayout("roadmap").arrangedBy;
+  const by: RoadmapGroupBy = stored === "status" || stored === "priority" ? stored : "cluster";
+  return (n) => {
+    const meta = parseExternalMeta(n.externalMeta);
+    return roadmapLaneKey(by, {
+      cluster: n.cluster,
+      status: n.status,
+      priority: n.priority,
+      stateName: meta?.state?.name ?? null,
+      teamKey: meta?.team?.key ?? null,
+    });
+  };
 }
 
 // Map write operations used by the HTTP API + the MCP server. Lets a Claude Code
@@ -261,16 +264,18 @@ export async function ensureBoardArranged(view: "ROADMAP" | "ARCHITECTURE"): Pro
     arrangedBy = by;
     pos = layoutRoadmap(
       nodes.map((n) => {
-        // Real workflow state (Linear cards) — status lanes split by it ("In Review" ≠ started).
-        const state = parseExternalMeta(n.externalMeta)?.state;
+        // Real workflow state (Linear cards) — status lanes split by it ("In Review" ≠ started),
+        // per team, since a state name is only unique within its team.
+        const meta = parseExternalMeta(n.externalMeta);
         return {
           id: n.id,
           parentId: n.parentId,
           cluster: n.cluster,
           status: n.status,
           priority: n.priority,
-          stateName: state?.name ?? null,
-          stateType: state?.type ?? null,
+          stateName: meta?.state?.name ?? null,
+          stateType: meta?.state?.type ?? null,
+          teamKey: meta?.team?.key ?? null,
           // Feed the title + role so the layout reserves enough vertical room for the full-LOD
           // (zoomed-in) card — a long, multi-line title no longer overlaps the slot below it.
           title: n.title,

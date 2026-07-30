@@ -98,26 +98,10 @@ export default async function MapPage({
       );
     }
 
-    if (view === "COLUMNS") {
-      // The kanban board over the roadmap: layout is computed at render time and stored nowhere,
-      // so it needs no arrange pass and no positions — just the cards and their DEPENDS edges.
-      // Kept OUT of the tab shell (which only holds the three canvas boards).
-      const { nodes, edges } = await readRoadmapBoard("ROADMAP");
-      return (
-        <MapClient
-          view="ROADMAP"
-          columns
-          nodes={nodes}
-          edges={edges}
-          hasFrontend={await resolveHasFrontend()}
-        />
-      );
-    }
-
-    // Roadmap + Architecture + Database all live in ONE shell so switching between them is instant
-    // (client-side toggle, no remount/refetch/fitView). All three are bounded by curated planning
-    // entities — modest payloads — so we render every board up front and let the shell keep the
-    // visited ones mounted. `view` only seeds which one starts active.
+    // Roadmap + Columns + Architecture + Database all live in ONE shell so switching between them
+    // is instant (client-side toggle, no remount/refetch/fitView). All four are bounded by curated
+    // planning entities — modest payloads — so we render every board up front and let the shell keep
+    // the visited ones mounted. `view` only seeds which one starts active.
 
     // Organized by default: the one-shot arrange (sig-gated) tidies each board into labeled groups
     // the first time this algo version sees it; after that the user's arrangement is never moved.
@@ -179,6 +163,17 @@ export default async function MapPage({
             boardAnnotations={boardAnnotations}
             initialArrangedBy={initialArrangedBy}
             initialCollapsed={roadmapCollapsed}
+            hasFrontend={hasFrontend}
+          />
+        }
+        columns={
+          // The kanban board over the SAME roadmap cards: its layout is computed at render time and
+          // stored nowhere, so it needs no arrange pass and no positions.
+          <MapClient
+            view="ROADMAP"
+            columns
+            nodes={roadmapNodes}
+            edges={roadmapEdges}
             hasFrontend={hasFrontend}
           />
         }

@@ -48,7 +48,7 @@ import {
   SEARCH_HIT_GLOW,
   type SearchHit,
 } from "@/lib/canvas-search";
-import { CanvasTabs } from "@/components/graph/canvas-tabs";
+import { BOARD_TABS, CanvasTabs } from "@/components/graph/canvas-tabs";
 import { accessForMethod } from "@/lib/access";
 import { computeGroupRegions, type RegionInput } from "@/lib/group-regions";
 import {
@@ -1522,15 +1522,7 @@ export function DbMapClient({
                 panelOpen && "!mr-[352px]",
               )}
             >
-              <CanvasTabs
-                active="DATABASE"
-                tabs={[
-                  { value: "ROADMAP", label: "Roadmap", href: "/map?view=ROADMAP" },
-                  { value: "ARCHITECTURE", label: "Architecture", href: "/map?view=ARCHITECTURE" },
-                  { value: "DATABASE", label: "Database", href: "/map?view=DATABASE" },
-                  { value: "FILES", label: "Files", href: "/map?view=FILES" },
-                ]}
-              />
+              <CanvasTabs active="DATABASE" tabs={BOARD_TABS} />
             </Panel>
           )}
 

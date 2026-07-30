@@ -3,7 +3,7 @@
 import { useCallback, useState, type ReactNode } from "react";
 import { SHELL_VIEWS, TabSwitchContext, type ShellView } from "./tab-switch-context";
 
-// Client shell that hosts the three bounded boards (Roadmap / Architecture / Database) so
+// Client shell that hosts the four bounded boards (Roadmap / Columns / Architecture / Database) so
 // switching between them is INSTANT — no server round-trip, no canvas remount, no fitView
 // re-measure (the old <Link href="/map?view=X"> did all three on every tab click). Each board is
 // passed pre-rendered from the server page; we mount one lazily on first visit and keep it mounted
@@ -11,16 +11,18 @@ import { SHELL_VIEWS, TabSwitchContext, type ShellView } from "./tab-switch-cont
 // survives the switch. The URL is kept in sync via history.replaceState — a refresh or a shared
 // link still lands on the right tab — WITHOUT triggering a Next navigation (router.replace would
 // re-run the server component and defeat the whole point).
-const ORDER: ShellView[] = ["ROADMAP", "ARCHITECTURE", "DATABASE"];
+const ORDER: ShellView[] = ["ROADMAP", "COLUMNS", "ARCHITECTURE", "DATABASE"];
 
 export function MapTabsShell({
   initialView,
   roadmap,
+  columns,
   architecture,
   database,
 }: {
   initialView: ShellView;
   roadmap: ReactNode;
+  columns: ReactNode;
   architecture: ReactNode;
   database: ReactNode;
 }) {
@@ -43,6 +45,7 @@ export function MapTabsShell({
 
   const content: Record<ShellView, ReactNode> = {
     ROADMAP: roadmap,
+    COLUMNS: columns,
     ARCHITECTURE: architecture,
     DATABASE: database,
   };
