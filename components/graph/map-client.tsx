@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
-  type RefObject,
 } from "react";
 import { createId } from "@paralleldrive/cuid2";
 import {
@@ -33,8 +32,8 @@ import "@xyflow/react/dist/style.css";
 
 import {
   Bug as BugIcon,
+  Columns3,
   Compass,
-  EyeOff,
   Focus,
   GitBranch,
   HelpCircle,
@@ -45,6 +44,7 @@ import {
   SlidersHorizontal,
   Target,
   Undo2,
+  Workflow,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { BOARDS_CHANGED_EVENT, type BoardsChangedDetail } from "@/components/live-refresh";
@@ -67,11 +67,12 @@ import { NodeEditContext, type NodeEditApi } from "@/components/graph/node-edit-
 import { neighborIds } from "@/components/graph/db-types";
 import { BOARD_TABS, CanvasTabs } from "@/components/graph/canvas-tabs";
 import { ColumnsView } from "@/components/columns/columns-view";
-import type { GroupField } from "@/lib/board-grouping";
+import type { GroupBy, GroupField } from "@/lib/board-grouping";
+import type { RoadmapLayout } from "@/lib/board-layout-state";
 import { CanvasSearch } from "@/components/graph/canvas-search";
 import { CommandPalette } from "@/components/graph/command-palette";
 import { BulkEditBar } from "@/components/graph/bulk-edit-bar";
-import { BOARD_KEY_HELP, useBoardKeys } from "@/components/graph/use-board-keys";
+import { BOARD_KEY_HELP, isTypingTarget, useBoardKeys } from "@/components/graph/use-board-keys";
 import { buildCommands, orderBoardIds, type BoardCommand } from "@/lib/board-commands";
 import { ShareBoardButton } from "@/components/share/share-dialog";
 import {
@@ -125,6 +126,22 @@ const GROUP_BY_OPTIONS: { value: RoadmapGroupBy; label: string }[] = [
   { value: "status", label: "Status" },
   { value: "priority", label: "Priority" },
 ];
+
+// The canvas lanes and the Columns layout are two DRAWINGS of one grouping, so `arrangedBy` is the
+// single source of truth for both and these two maps are the whole translation: the dimensions
+// differ only in what each module calls the category field. Columns has no freeform — an ungrouped
+// canvas opens as status columns, and picking a dimension there arranges the canvas the same way
+// the Group-by dock does.
+const COLUMNS_GROUP_BY: Record<RoadmapGroupBy, GroupBy> = {
+  cluster: "category",
+  status: "status",
+  priority: "priority",
+};
+const CANVAS_GROUP_BY: Partial<Record<GroupBy, RoadmapGroupBy>> = {
+  category: "cluster",
+  status: "status",
+  priority: "priority",
+};
 
 // A card's fields in the shape `roadmapLaneKey` reads. Pure reshaping — the KEY itself is the
 // layout's (`roadmapLaneKey`), so the canvas can never key a lane differently than the layout that
@@ -433,19 +450,76 @@ export function landsInLane(
  * so this is true and every listener behaves exactly as it did before. Being merely scrolled
  * off-screen is NOT hidden, which is why the rects (not the observer's own ratio) are the answer;
  * the observer is only here to fire on the frame the shell flips a tab.
+ *
+ * A CALLBACK ref (React 19 returns its cleanup), not an object ref + effect: the roadmap swaps its
+ * whole root element when the layout toggles (canvas ⇄ columns), and an effect keyed on the stable
+ * ref object would keep observing the DETACHED node — which reports zero rects, so the board the
+ * user is looking at would park itself and never come back.
  */
-function useVisibleBoard(ref: RefObject<HTMLElement | null>): boolean {
+function useVisibleBoard(): [(el: HTMLElement | null) => void, boolean] {
   const [visible, setVisible] = useState(true);
-  useEffect(() => {
-    const el = ref.current;
+  const attach = useCallback((el: HTMLElement | null) => {
     if (!el || typeof IntersectionObserver === "undefined") return;
     const read = () => setVisible(el.getClientRects().length > 0);
     read();
     const io = new IntersectionObserver(read);
     io.observe(el);
     return () => io.disconnect();
-  }, [ref]);
-  return visible;
+  }, []);
+  return [attach, visible];
+}
+
+const LAYOUT_OPTIONS = [
+  { value: "canvas", label: "Canvas", Icon: Workflow },
+  { value: "columns", label: "Columns", Icon: Columns3 },
+] as const satisfies readonly { value: RoadmapLayout; label: string; Icon: unknown }[];
+
+/**
+ * How the ROADMAP is drawn — not which board you are on. Same nodes, same edges, same grouping,
+ * laid out on the canvas or bucketed into columns; Linear's Board/List toggle, bound to ⌘B.
+ *
+ * It gets its OWN pill next to the dataset tabs (Roadmap / Architecture / Database / Files) rather
+ * than a slot inside them, because a fifth tab would say "Columns is another dataset", which is
+ * exactly the thing it is not.
+ */
+function LayoutToggle({
+  value,
+  onChange,
+}: {
+  value: RoadmapLayout;
+  onChange: (next: RoadmapLayout) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Roadmap layout"
+      className="glass flex items-center gap-0.5 rounded-full p-0.5"
+    >
+      {LAYOUT_OPTIONS.map(({ value: v, label, Icon }) => {
+        const on = value === v;
+        return (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={on}
+            title={`${label} layout · ⌘B`}
+            onClick={() => onChange(v)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium tracking-tight transition-colors",
+              on
+                ? "bg-[var(--ink-active)] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                : "text-muted-foreground/80 hover:bg-[var(--ink-hover)] hover:text-foreground",
+            )}
+          >
+            <Icon className={cn("size-3", on && "text-[#ff7a45]")} />
+            {/* Same breakpoint as CanvasTabs: icon-only below `lg` so the right-anchored chrome
+                never collides with the left-pinned top nav. */}
+            <span className="hidden lg:inline">{label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export interface MapClientHandle {
@@ -480,7 +554,7 @@ export function MapClient({
   minimap,
   staticEdgeLabels = false,
   tableNodes,
-  columns = false,
+  initialLayout = "canvas",
 }: {
   view: "ROADMAP" | "ARCHITECTURE";
   nodes: MapNodePayload[];
@@ -543,10 +617,10 @@ export function MapClient({
   // (x/y) — they cross the MapNodeData boundary via a cast, like the annotation cards. `group` is
   // the banding group the layout used, so the card joins that labeled region box.
   tableNodes?: { id: string; x: number; y: number; group?: string; data: LessonTableData }[];
-  // Render the COLUMNS (kanban) board over this same roadmap data instead of the canvas. That view
-  // stores no layout — a drop writes the grouped field — so it shares this component only for the
-  // mutation paths (saveFields / createNodeAt / the focus editor), not the React Flow surface.
-  columns?: boolean;
+  // Which rendering of the ROADMAP to open with (standalone /map only) — the positioned canvas, or
+  // the columns layout over the very same nodes/edges/grouping. Seeded from `?layout=` or the
+  // workspace's last choice; ⌘B and the LayoutToggle flip it from here on.
+  initialLayout?: RoadmapLayout;
 }) {
   // 1-based work-order rank per feature id (#1, #2, …); #1 also drives the jump button.
   const workOrderKey = workOrder.join(",");
@@ -561,12 +635,59 @@ export function MapClient({
   // ── THE gate: only the visible board owns anything global ─────────────────────────────────────
   // One boolean, applied in four places (the undo stack, the board keys, the URL sync and the
   // live-refresh listener) — see useVisibleBoard for why hidden-but-mounted boards exist at all.
-  // What stays PER-BOARD: the undo stack (each board inverts its own edits — ⌘Z on the roadmap
-  // must not revert something you did on the architecture map) and the filter state (React state,
-  // preserved across a tab switch). What is SHARED: the query string, which is the page's, not a
-  // board's — so it is written by the ACTIVE board only and always describes the tab `?view=` names.
-  const rootRef = useRef<HTMLDivElement>(null);
-  const activeBoard = useVisibleBoard(rootRef);
+  // The shell still keeps the Roadmap, Architecture and Database tabs mounted at once, so a
+  // roadmap parked behind Architecture must not answer j/k, own ⌘Z, rewrite the query string or
+  // refetch. What stays PER-BOARD: the undo stack (⌘Z on the roadmap must not revert an
+  // architecture edit) and the filter state (React state, preserved across a tab switch). What is
+  // SHARED: the query string, which is the page's, not a board's — so it is written by the ACTIVE
+  // board only and always describes the tab `?view=` names.
+  const [rootRef, activeBoard] = useVisibleBoard();
+
+  // ── Roadmap layout: canvas ⇄ columns ─────────────────────────────────────────────────────────
+  // ONE instance renders both. It used to be two mounted <MapClient view="ROADMAP"/>s — which is
+  // how the same board came to bind ⌘Z, j/k and the query string twice.
+  const [layout, setLayout] = useState<RoadmapLayout>(initialLayout);
+  const columns = view === "ROADMAP" && !embedded && layout === "columns";
+  // Remember the choice for the workspace AND for this tab's URL, so a refresh, a shared link and
+  // the next `beacon` all come back to the layout you were last using.
+  const changeLayout = useCallback(
+    (next: RoadmapLayout) => {
+      setLayout(next);
+      if (embedded || readOnly) return;
+      try {
+        const url = new URL(window.location.href);
+        if (next === "columns") url.searchParams.set("layout", "columns");
+        else url.searchParams.delete("layout");
+        // A legacy `?view=COLUMNS` link still resolves to this layout server-side, so it would
+        // out-live the flip and pull columns back on the next reload. Retire it on first touch.
+        if (url.searchParams.get("view") === "COLUMNS") url.searchParams.set("view", "ROADMAP");
+        window.history.replaceState(window.history.state, "", url);
+      } catch {
+        /* URL sync is best-effort; the layout still flips if it fails. */
+      }
+      void fetch("/api/board-layout", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ board: "roadmap", layout: next }),
+      }).catch(() => {});
+    },
+    [embedded, readOnly],
+  );
+  // ⌘B flips it (Linear's binding). Its own listener rather than a useBoardKeys action: those keys
+  // drive the CANVAS selection and stand down in the columns layout, but ⌘B has to work in both —
+  // it is the way back.
+  const canToggleLayout = view === "ROADMAP" && !embedded && !readOnly && activeBoard;
+  useEffect(() => {
+    if (!canToggleLayout) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.altKey || e.shiftKey || !(e.metaKey || e.ctrlKey)) return;
+      if (e.key.toLowerCase() !== "b" || isTypingTarget(e.target)) return;
+      e.preventDefault();
+      changeLayout(layout === "canvas" ? "columns" : "canvas");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canToggleLayout, changeLayout, layout]);
 
   const initialNodes = useMemo(() => buildNodes(nodePayload), [nodePayload]);
   const initialEdges = useMemo(
@@ -1233,10 +1354,11 @@ export function MapClient({
   // from these, not from the bounding box of wherever the cards have since drifted — so they stay
   // uniform and non-overlapping. Only valid for `arrangedBy`, so the two are always set together.
   const [lanes, setLanes] = useState<RoadmapLane[]>(NO_LANES);
-  // Lane lenses: fold a lane down to its header strip (its cards hide with it), and drop lanes
-  // that have no cards left after filtering.
+  // Lane lens: fold a lane down to its header strip (its cards hide with it). There is deliberately
+  // no hide-empty here — on the canvas an EMPTY LANE IS A DROP TARGET (dragging a card into the
+  // empty Done lane is the only pointer route to that status), so hiding it removes the affordance.
+  // It stays in the columns layout, where an empty column is just a full-height shelf.
   const [collapsedLanes, setCollapsedLanes] = useState<ReadonlySet<string>>(() => new Set());
-  const [hideEmptyLanes, setHideEmptyLanes] = useState(false);
   const toggleLane = useCallback(
     (key: string, next: boolean) =>
       setCollapsedLanes((prev) => {
@@ -1523,12 +1645,14 @@ export function MapClient({
   }, []);
 
   // ── The board's view state as a URL ───────────────────────────────────────────────────────────
-  // One object over the seven filter Sets + the layer lens + the arrange dimension + hide-empty,
-  // so a filtered board is a link you can paste. Writes go through mergeFilterParams, which keeps
-  // `?ws=` and `?view=` intact — clobbering `ws` would swap which repo the board is showing.
+  // One object over the seven filter Sets + the layer lens + the arrange dimension, so a filtered
+  // board is a link you can paste. Writes go through mergeFilterParams, which keeps `?ws=`,
+  // `?view=` and `?layout=` intact — clobbering `ws` would swap which repo the board is showing.
+  // `hideEmpty` is pinned false: it is a COLUMNS lens now, owned by that layout's own local state,
+  // and the canvas has nothing to encode (BoardFilterState still carries the field for old links).
   const filterState = useMemo<BoardFilterState>(
-    () => ({ ...roadmapFilters, layerEmphasis, arrangedBy, hideEmpty: hideEmptyLanes }),
-    [roadmapFilters, layerEmphasis, arrangedBy, hideEmptyLanes],
+    () => ({ ...roadmapFilters, layerEmphasis, arrangedBy, hideEmpty: false }),
+    [roadmapFilters, layerEmphasis, arrangedBy],
   );
   const applyFilterSeed = useCallback((seed: BoardFilterState) => {
     setStatusFilter(new Set(seed.status));
@@ -1539,7 +1663,6 @@ export function MapClient({
     setMilestoneFilter(new Set(seed.milestone));
     setStateFilter(new Set(seed.state));
     setLayerEmphasis(seed.layerEmphasis);
-    setHideEmptyLanes(seed.hideEmpty);
     // A URL with no `by` parses to null — adopting that would WIPE the server-provided
     // initialArrangedBy and drop the board to freeform on every plain /map load. Only an explicit
     // `by` seeds. The ref is written too: this runs in a LAYOUT effect, before the passive effect
@@ -1552,10 +1675,10 @@ export function MapClient({
   // The query string is the PAGE's, not a board's: only the visible board reads or writes it, so
   // it always describes the tab `?view=` names. Three boards writing one slot is what silently
   // dropped the architecture filter when you switched to the roadmap and touched Group-by. The
-  // Columns board opts out entirely — it renders neither the filters nor the lanes these params
-  // encode, so its stale copy of `by=` had no business being written back over the roadmap's.
+  // roadmap writes it in EITHER layout — same instance, same state, and `by=` describes the
+  // grouping both of them render.
   useUrlFilters(filterState, applyFilterSeed, {
-    enabled: !embedded && !readOnly && !columns && activeBoard,
+    enabled: !embedded && !readOnly && activeBoard,
   });
 
   // Collapse a feature to fold its sub-tasks behind it (parent stays, subtree hides). A view lens
@@ -1880,25 +2003,14 @@ export function MapClient({
   // Lane lenses only make sense where the boxes ARE lanes: the architecture board's regions are
   // bounding boxes around cards this component doesn't fold away, so it gets no collapse control.
   const laneMode = view === "ROADMAP" && !!arrangedBy;
-  // How many lanes "Hide empty" would actually fold away. A toggle that does nothing visible when
-  // every lane has cards is indistinguishable from a broken one, so the pill carries the number
-  // and goes disabled at zero instead of silently no-oping.
-  const emptyLaneCount = useMemo(
-    () => (laneMode ? regions.filter((r) => r.count === 0).length : 0),
-    [laneMode, regions],
-  );
 
   // The lane boxes a card can be DROPPED into, in the exact geometry the user sees (regions are
   // the padded rects GroupRegions draws). A folded lane is not a target — the card would vanish
-  // into the fold — and neither is a hidden empty one.
+  // into the fold. An EMPTY one very much is: dropping into the empty Done lane is how a card
+  // reaches that status with the pointer, which is why the canvas draws every lane.
   const dropRects = useMemo<DropRect[]>(
-    () =>
-      laneMode && !readOnly
-        ? regions.filter(
-            (r) => !collapsedLanes.has(r.key) && !(hideEmptyLanes && r.count === 0),
-          )
-        : [],
-    [laneMode, readOnly, regions, collapsedLanes, hideEmptyLanes],
+    () => (laneMode && !readOnly ? regions.filter((r) => !collapsedLanes.has(r.key)) : []),
+    [laneMode, readOnly, regions, collapsedLanes],
   );
   // The lane currently under the pointer during a drag — drawn as a highlight ring.
   const [dropLane, setDropLane] = useState<string | null>(null);
@@ -2577,6 +2689,18 @@ export function MapClient({
     setCollapsedLanes(new Set());
   }, [nodes]);
 
+  // The columns layout's dimension IS `arrangedBy` — see COLUMNS_GROUP_BY. Picking one there runs
+  // the very same `arrange` the Group-by dock runs, so the two layouts can never disagree about
+  // how the roadmap is split, and flipping between them keeps your grouping.
+  const columnsGroupBy: GroupBy = arrangedBy ? COLUMNS_GROUP_BY[arrangedBy] : "status";
+  const changeColumnsGroupBy = useCallback(
+    (g: GroupBy) => {
+      const by = CANVAS_GROUP_BY[g];
+      if (by) arrange(by);
+    },
+    [arrange],
+  );
+
   // ── Saved views ───────────────────────────────────────────────────────────────────────────────
   // Named snapshots of how this board is being looked at. The menu owns its own CRUD round-trips;
   // all this side does is hand it the live state (as ARRAYS — the store is JSON) and apply one.
@@ -2595,9 +2719,11 @@ export function MapClient({
       },
       layerEmphasis,
       arrangedBy,
-      hideEmpty: hideEmptyLanes,
+      // Both dead fields of the saved-view schema now: hide-empty is the columns layout's own
+      // local lens, and `arrangedBy` IS the columns dimension (see COLUMNS_GROUP_BY).
+      hideEmpty: false,
       collapsed: [...collapsedLanes],
-      groupBy: null, // the Columns board's dimension; this canvas has none
+      groupBy: null,
     }),
     [
       statusFilter,
@@ -2609,7 +2735,6 @@ export function MapClient({
       stateFilter,
       layerEmphasis,
       arrangedBy,
-      hideEmptyLanes,
       collapsedLanes,
     ],
   );
@@ -2624,7 +2749,6 @@ export function MapClient({
       setMilestoneFilter(new Set(s.filters.milestone));
       setStateFilter(new Set(s.filters.state));
       setLayerEmphasis(s.layerEmphasis);
-      setHideEmptyLanes(s.hideEmpty);
       setCollapsedLanes(new Set(s.collapsed));
       // Route the grouping through the two paths that already own it, so the cards actually move
       // (and the choice persists) instead of the pill claiming a layout the board never ran.
@@ -2742,10 +2866,10 @@ export function MapClient({
 
   // ── Keyboard + command palette ────────────────────────────────────────────────────────────────
   // Only on the live standalone roadmap CANVAS, and only while it is the board on screen: /plan and
-  // archived snapshots must not grab ⌘K or mutate cards from a stray keystroke, the palette's board
-  // commands (Group by …) are roadmap-only, and the Columns board — same `view`, same component,
-  // its own selection — used to bind the very same keys, so one `s` advanced the status of two
-  // different cards, one of them on a tab you couldn't see.
+  // archived snapshots must not grab ⌘K or mutate cards from a stray keystroke, and the palette's
+  // board commands (Group by …) are roadmap-only. `!columns` stays for a reason of its own now: the
+  // canvas selection these keys drive isn't on screen in the columns layout, which runs its own
+  // ↑/↓/Enter over its own selection. ⌘B is the exception and lives outside this gate.
   const boardKeysMounted = !embedded && !readOnly && !columns && view === "ROADMAP" && activeBoard;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
@@ -2855,7 +2979,6 @@ export function MapClient({
       categories,
       arrangedBy,
       hasActiveFilters: activeFilterCount > 0 || !!isolateId,
-      hideEmpty: hideEmptyLanes,
       jumpTo: (id) => jumpTo(id),
       setStatus: (id, status) => void saveFields(id, { status }),
       setPriority: (id, priority) => void saveFields(id, { priority }),
@@ -2870,7 +2993,8 @@ export function MapClient({
         const p = byId.get(parentId);
         if (p && !p.data.isChild) void createChildOf(p, p.position.x + 300, p.position.y + 60);
       },
-      toggleHideEmpty: () => setHideEmptyLanes((v) => !v),
+      // The hide-empty toggle is deliberately NOT wired: it is a columns lens now, and
+      // buildCommands drops that command whenever the caller omits its callback.
       toggleIsolate,
     });
   }, [
@@ -2882,7 +3006,6 @@ export function MapClient({
     arrangedBy,
     activeFilterCount,
     isolateId,
-    hideEmptyLanes,
     jumpTo,
     saveFields,
     removeNode,
@@ -2930,18 +3053,25 @@ export function MapClient({
     });
   }
 
-  // The COLUMNS board: same data, same mutation paths, no canvas. Its own tab strip sits in the
-  // top band next to the floating nav, exactly where the canvas puts its own.
+  // The COLUMNS LAYOUT: the same roadmap, the same mutation paths and the same grouping, bucketed
+  // instead of positioned. It carries the identical top-right chrome as the canvas — the layout
+  // toggle plus the dataset tabs, with ROADMAP still the active tab, because you have not left the
+  // roadmap.
   if (columns) {
     return (
       <div ref={rootRef} className="canvas-dots relative h-screen w-full">
-        <div className="glass absolute right-3 top-3 z-30 rounded-full px-1 py-0.5">
-          <CanvasTabs active="COLUMNS" tabs={BOARD_TABS} />
+        <div className="absolute right-3 top-3 z-30 flex items-center gap-2">
+          <LayoutToggle value={layout} onChange={changeLayout} />
+          <div className="glass rounded-full px-1 py-0.5">
+            <CanvasTabs active="ROADMAP" tabs={BOARD_TABS} />
+          </div>
         </div>
         <ColumnsView
           nodes={livePayload}
           edges={edgePayload}
           hasFrontend={hasFrontend}
+          groupBy={columnsGroupBy}
+          onGroupBy={changeColumnsGroupBy}
           readOnly={readOnly}
           onChangeField={changeField}
           onAddCard={addCardInColumn}
@@ -3187,7 +3317,6 @@ export function MapClient({
           lod={lod}
           collapsed={laneMode ? collapsedLanes : undefined}
           onToggleCollapse={laneMode ? toggleLane : undefined}
-          hideEmpty={laneMode && hideEmptyLanes}
         />
         {/* Drop target: the lane under the pointer during a drag. Drawn here rather than in
             GroupRegions because it is a transient drag affordance, not part of the region model. */}
@@ -3465,36 +3594,6 @@ export function MapClient({
                   </button>
                 ))}
               </div>
-              {arrangedBy && (
-                <>
-                  <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
-                  <button
-                    type="button"
-                    aria-pressed={hideEmptyLanes}
-                    disabled={emptyLaneCount === 0 && !hideEmptyLanes}
-                    onClick={() => setHideEmptyLanes((v) => !v)}
-                    title={
-                      emptyLaneCount === 0
-                        ? "Every lane has cards — nothing to hide"
-                        : `Hide ${emptyLaneCount} lane${emptyLaneCount === 1 ? "" : "s"} with no cards`
-                    }
-                    className={cn(
-                      "flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium transition-colors",
-                      hideEmptyLanes
-                        ? "bg-[var(--ink-active)] text-foreground"
-                        : "text-muted-foreground hover:bg-[var(--ink-hover)] hover:text-foreground",
-                      "disabled:pointer-events-none disabled:opacity-40",
-                    )}
-                  >
-                    <EyeOff className="size-3" />
-                    Hide empty
-                    {/* The count IS the feedback: at 0 the toggle is inert and says so. */}
-                    {emptyLaneCount > 0 && (
-                      <span className="font-mono text-[10px] opacity-70">{emptyLaneCount}</span>
-                    )}
-                  </button>
-                </>
-              )}
             </div>
           )}
           <div className="glass flex items-center gap-1 rounded-full p-1">
@@ -3591,16 +3690,21 @@ export function MapClient({
 
         {/* View tabs — anchored to the RIGHT edge (was top-center) so they can't drift into the
             left-pinned top nav; the canvas tools stack directly below them (`!mt-14`). Both shift
-            left with the same `!mr-[352px]` when the detail sidebar opens so it never covers them. */}
+            left with the same `!mr-[352px]` when the detail sidebar opens so it never covers them.
+            The roadmap's layout toggle rides alongside in its OWN pill — same band, separate
+            control, so it never reads as another dataset tab. */}
         {!embedded && (
           <Panel
             position="top-right"
             className={cn(
-              "glass rounded-full px-1 py-0.5 transition-[margin] duration-200",
+              "flex items-center gap-2 transition-[margin] duration-200",
               panelOpen && "!mr-[352px]",
             )}
           >
-            <CanvasTabs active={view} tabs={BOARD_TABS} />
+            {view === "ROADMAP" && <LayoutToggle value={layout} onChange={changeLayout} />}
+            <div className="glass rounded-full px-1 py-0.5">
+              <CanvasTabs active={view} tabs={BOARD_TABS} />
+            </div>
           </Panel>
         )}
 

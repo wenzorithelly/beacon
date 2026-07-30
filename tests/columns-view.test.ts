@@ -106,8 +106,26 @@ describe("columns view — the spotlight says WHICH relationship", () => {
   });
 });
 
-describe("columns view — hide-empty cannot silently do nothing", () => {
+// Owner ruling: hide-empty belongs HERE and nowhere else. An empty column is a full-height shelf
+// worth reclaiming; an empty canvas lane is a drop target, so hiding it removes the only pointer
+// route to that status. That split also decides what state is shared with the canvas.
+describe("columns view — hide-empty is this layout's own, not shared board state", () => {
   const body = () => src("components/columns/columns-view.tsx");
+
+  it("keeps hide-empty local, and the canvas keeps none of it", () => {
+    expect(body()).toContain("const [hideEmpty, setHideEmpty] = useState(false)");
+    expect(src("components/graph/map-client.tsx")).not.toContain("hideEmptyLanes");
+  });
+
+  // Grouping is the SHARED half: same dimension on both layouts, so flipping keeps your split.
+  it("takes the grouping from the caller instead of owning a second copy", () => {
+    expect(body()).not.toContain("useState<GroupBy>");
+    expect(body()).toContain("groupBy,");
+    expect(body()).toContain("onGroupBy,");
+    expect(body()).toContain("onClick={() => onGroupBy(g)}");
+    // Only dimensions the canvas can lane by too — a columns-only pill would un-share the two.
+    expect(body()).toContain('GROUP_BYS.filter((g) => g !== "layer")');
+  });
 
   it("counts the empty columns and shows the count", () => {
     expect(body()).toContain("const emptyCount = allColumns.filter((c) => c.cards.length === 0)");

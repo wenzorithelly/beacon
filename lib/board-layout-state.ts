@@ -25,6 +25,10 @@ export const BOARD_ALGO_VERSIONS: Record<BoardKey, string> = {
   db: "db-dock-3",
 };
 
+/** Which RENDERING of the roadmap's data the user last chose — the positioned canvas or the
+ *  columns layout. Same nodes, same edges, same grouping; only the drawing differs. */
+export type RoadmapLayout = "canvas" | "columns";
+
 interface BoardEntry {
   sig?: string | null;
   arrangedBy?: string | null;
@@ -32,6 +36,8 @@ interface BoardEntry {
   // fold survives a refresh AND killing/reopening the session — localStorage couldn't (its key
   // depended on the session-scoped tab workspace, which resets on close).
   collapsed?: string[];
+  // Roadmap only — see readRoadmapLayout.
+  layout?: string;
 }
 
 // `savedViews` is the same file's second tenant — the named filter/arrange presets owned by
@@ -77,6 +83,13 @@ export function readBoardLayout(board: BoardKey): {
     arrangedBy: entry?.arrangedBy ?? null,
     collapsed: Array.isArray(entry?.collapsed) ? entry.collapsed : [],
   };
+}
+
+/** The roadmap's last-chosen layout, defaulting to the canvas. Its OWN reader rather than another
+ *  field on readBoardLayout's return: that shape is asserted whole by several tests and by every
+ *  other board, and only the roadmap has two renderings. */
+export function readRoadmapLayout(): RoadmapLayout {
+  return readState()?.roadmap?.layout === "columns" ? "columns" : "canvas";
 }
 
 // Read-modify-write, and deliberately SYNCHRONOUS end to end (readFileSync → merge →

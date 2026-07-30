@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Columns3, Database, FolderTree, MapPinned, Network } from "lucide-react";
+import { Database, FolderTree, MapPinned, Network } from "lucide-react";
 import type { ComponentType } from "react";
 import { currentTabWs } from "@/lib/tab-ws";
 import { useTabSwitch, type ShellView } from "@/components/graph/tab-switch-context";
@@ -23,18 +23,20 @@ export type CanvasTab = {
 
 const ICON_BY_VALUE: Record<string, ComponentType<{ className?: string }>> = {
   ROADMAP: MapPinned,
-  COLUMNS: Columns3,
   ARCHITECTURE: Network,
   FILES: FolderTree,
   DATABASE: Database,
 };
 
-/** The /map view strip, in reading order. The first four are <MapTabsShell/> views and switch
- *  client-side; FILES navigates (a <Link>) because its code-graph scales with the repo — see
- *  TabSwitchContext. */
+/** The /map view strip, in reading order — one entry per DATASET. The first three are
+ *  <MapTabsShell/> views and switch client-side; FILES navigates (a <Link>) because its code-graph
+ *  scales with the repo — see TabSwitchContext.
+ *
+ *  Columns is deliberately NOT here: it is a second RENDERING of the roadmap's nodes and edges, so
+ *  it lives as a layout toggle inside the roadmap board (map-client's LayoutToggle, ⌘B), the way
+ *  Linear splits Board/List from its nav. */
 export const BOARD_TABS: CanvasTab[] = [
   { value: "ROADMAP", label: "Roadmap", href: "/map?view=ROADMAP" },
-  { value: "COLUMNS", label: "Columns", href: "/map?view=COLUMNS" },
   { value: "ARCHITECTURE", label: "Architecture", href: "/map?view=ARCHITECTURE" },
   { value: "DATABASE", label: "Database", href: "/map?view=DATABASE" },
   { value: "FILES", label: "Files", href: "/map?view=FILES" },

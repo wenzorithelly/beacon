@@ -24,8 +24,9 @@ export type BoardKeyAction =
   | "clear";
 
 /** Keys → what they do, for the "?" help sheet and so tests can assert nothing is undocumented.
- *  ⌘Z/⌘⇧Z belong to use-undo, not to this hook — they are listed because the help sheet is the
- *  board's ONLY keyboard reference, and an undocumented undo may as well not exist. */
+ *  ⌘Z/⌘⇧Z (use-undo) and ⌘B (map-client's layout toggle) belong to other owners — they are listed
+ *  because the help sheet is the board's ONLY keyboard reference, and an undocumented shortcut may
+ *  as well not exist. */
 export const BOARD_KEY_HELP: { keys: string; label: string }[] = [
   { keys: "j / k", label: "Next / previous card" },
   { keys: "s", label: "Set status" },
@@ -33,6 +34,7 @@ export const BOARD_KEY_HELP: { keys: string; label: string }[] = [
   { keys: "l", label: "Set category" },
   { keys: "c", label: "New card" },
   { keys: "\\", label: "Isolate dependencies" },
+  { keys: "⌘B", label: "Canvas / Columns layout" },
   { keys: "⌘Z", label: "Undo" },
   { keys: "⌘⇧Z", label: "Redo" },
   { keys: "⌘K", label: "Command palette" },

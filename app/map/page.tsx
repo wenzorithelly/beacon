@@ -3,7 +3,7 @@ import { readDbBoard, readRoadmapBoard } from "@/lib/board-readers";
 import { ensureBoardArranged } from "@/lib/map-ops";
 import { resolveClassificationRoots, resolveHasFrontend } from "@/lib/project-meta";
 import { ensureDbBoardArranged } from "@/lib/board-arrange";
-import { readBoardLayout } from "@/lib/board-layout-state";
+import { readBoardLayout, readRoadmapLayout, type RoadmapLayout } from "@/lib/board-layout-state";
 import type { RoadmapGroupBy } from "@/lib/roadmap-layout";
 import { MapClient } from "@/components/graph/map-client";
 import { MapTabsShell } from "@/components/graph/map-tabs-shell";
@@ -23,9 +23,12 @@ export const dynamic = "force-dynamic";
 export default async function MapPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string; ws?: string }>;
+  searchParams: Promise<{ view?: string; ws?: string; layout?: string }>;
 }) {
   const sp = await searchParams;
+  // `?view=` names a DATASET. Columns is not one — it is a rendering of the roadmap, carried by
+  // `?layout=`. The legacy `?view=COLUMNS` links (bookmarks, the old tab strip) still resolve:
+  // they land on the roadmap in its columns layout instead of 404ing or on a blank board.
   const view =
     sp.view === "ARCHITECTURE"
       ? "ARCHITECTURE"
@@ -33,9 +36,16 @@ export default async function MapPage({
         ? "FILES"
         : sp.view === "DATABASE"
           ? "DATABASE"
-          : sp.view === "COLUMNS"
-            ? "COLUMNS"
-            : "ROADMAP";
+          : "ROADMAP";
+  // An explicit `?layout=` wins (a pasted link must show what it says), then the legacy view name;
+  // otherwise fall through to whatever this workspace last chose (resolved below, once the
+  // workspace is pinned — readRoadmapLayout reads that workspace's data dir).
+  const urlLayout: RoadmapLayout | null =
+    sp.layout === "columns" || sp.layout === "canvas"
+      ? sp.layout
+      : sp.view === "COLUMNS"
+        ? "columns"
+        : null;
 
   // Pin the render to THIS tab's workspace: the per-tab `?ws=` param wins (so a /map tab keeps
   // showing its repo even after opening another repo flips the browser-wide beacon_ws cookie),
@@ -98,10 +108,10 @@ export default async function MapPage({
       );
     }
 
-    // Roadmap + Columns + Architecture + Database all live in ONE shell so switching between them
-    // is instant (client-side toggle, no remount/refetch/fitView). All four are bounded by curated
-    // planning entities — modest payloads — so we render every board up front and let the shell keep
-    // the visited ones mounted. `view` only seeds which one starts active.
+    // Roadmap + Architecture + Database all live in ONE shell so switching between them is instant
+    // (client-side toggle, no remount/refetch/fitView). All three are bounded by curated planning
+    // entities — modest payloads — so we render every board up front and let the shell keep the
+    // visited ones mounted. `view` only seeds which one starts active.
 
     // Organized by default: the one-shot arrange (sig-gated) tidies each board into labeled groups
     // the first time this algo version sees it; after that the user's arrangement is never moved.
@@ -164,17 +174,9 @@ export default async function MapPage({
             initialArrangedBy={initialArrangedBy}
             initialCollapsed={roadmapCollapsed}
             hasFrontend={hasFrontend}
-          />
-        }
-        columns={
-          // The kanban board over the SAME roadmap cards: its layout is computed at render time and
-          // stored nowhere, so it needs no arrange pass and no positions.
-          <MapClient
-            view="ROADMAP"
-            columns
-            nodes={roadmapNodes}
-            edges={roadmapEdges}
-            hasFrontend={hasFrontend}
+            // Canvas or columns — ONE MapClient renders both, so the two never disagree about
+            // grouping, selection or which of them owns the keyboard.
+            initialLayout={urlLayout ?? readRoadmapLayout()}
           />
         }
         architecture={

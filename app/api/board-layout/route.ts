@@ -9,12 +9,17 @@ export const dynamic = "force-dynamic";
 // File-backed — no DB table. Writes ONLY the fields present in the body so a collapse write never
 // clobbers arrangedBy (and vice-versa).
 export const POST = pinned(async (req: Request) => {
-  const body = (await req.json()) as { board?: string; arrangedBy?: unknown; collapsed?: unknown };
+  const body = (await req.json()) as {
+    board?: string;
+    arrangedBy?: unknown;
+    collapsed?: unknown;
+    layout?: unknown;
+  };
   const { board } = body;
   if (board !== "roadmap" && board !== "architecture" && board !== "db") {
     return new Response("unknown board", { status: 400 });
   }
-  const patch: { arrangedBy?: string | null; collapsed?: string[] } = {};
+  const patch: { arrangedBy?: string | null; collapsed?: string[]; layout?: string } = {};
   if ("arrangedBy" in body) {
     patch.arrangedBy =
       typeof body.arrangedBy === "string" && body.arrangedBy ? body.arrangedBy : null;
@@ -24,6 +29,8 @@ export const POST = pinned(async (req: Request) => {
       ? body.collapsed.filter((x): x is string => typeof x === "string")
       : [];
   }
+  // Roadmap only: canvas ⇄ columns, the two renderings of the same board.
+  if ("layout" in body) patch.layout = body.layout === "columns" ? "columns" : "canvas";
   writeBoardLayout(board, patch);
   return Response.json({ ok: true });
 });

@@ -41,8 +41,12 @@ export interface ColumnsViewProps {
   nodes: MapNodePayload[];
   /** View-internal edges; only `kind: "DEPENDS"` matters here. */
   edges: MapEdgePayload[];
-  /** Gates the "Layer" grouping option, mirroring node-card's LayerSelect. */
+  /** Mirrors node-card's LayerSelect in the detail modal. */
   hasFrontend: boolean;
+  /** The dimension the columns split on. OWNED BY THE CALLER: this is the roadmap's ONE grouping,
+   *  shared with the canvas lanes, so flipping the layout keeps the split you were looking at. */
+  groupBy: GroupBy;
+  onGroupBy: (by: GroupBy) => void;
   /** Persist a field change (drag between columns, detail-modal status/priority). Take the awaited,
    *  optimistic-and-rolled-back save path — this view never fetches. */
   onChangeField: (nodeId: string, field: GroupField, value: string | number | null) => void;
@@ -58,13 +62,16 @@ export function ColumnsView({
   nodes,
   edges,
   hasFrontend,
+  groupBy,
+  onGroupBy,
   onChangeField,
   onAddCard,
   onEditDescription,
   readOnly = false,
   className,
 }: ColumnsViewProps) {
-  const [groupBy, setGroupBy] = useState<GroupBy>("status");
+  // Hide-empty stays LOCAL and columns-only: an empty column here is a full-height shelf, while on
+  // the canvas an empty lane is the only drop target for that status.
   const [hideEmpty, setHideEmpty] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -73,10 +80,9 @@ export function ColumnsView({
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
 
-  const options = useMemo(
-    () => GROUP_BYS.filter((g) => g !== "layer" || hasFrontend),
-    [hasFrontend],
-  );
+  // Only the dimensions the canvas can lane by too — the grouping is shared, so a Columns-only
+  // dimension would be a pill that silently un-shares the two layouts.
+  const options = useMemo(() => GROUP_BYS.filter((g) => g !== "layer"), []);
 
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   // Build EVERY column, then filter — the count of what "Hide empty" would remove is what makes
@@ -215,7 +221,7 @@ export function ColumnsView({
             className="flex items-center gap-0.5 rounded-full border border-border p-0.5"
           >
             {options.map((g) => (
-              <TabBtn key={g} pill active={groupBy === g} onClick={() => setGroupBy(g)}>
+              <TabBtn key={g} pill active={groupBy === g} onClick={() => onGroupBy(g)}>
                 {GROUP_LABEL[g]}
               </TabBtn>
             ))}

@@ -155,20 +155,23 @@ describe("lane regions — drawn from the layout, not from where cards drifted",
     expect(MAP_CLIENT).toContain("teamKey: n.data.externalMeta?.team?.key ?? null");
   });
 
-  it("wires lane collapse + hide-empty, and invents no WIP cap", () => {
+  it("wires lane collapse, and invents no WIP cap", () => {
     expect(MAP_CLIENT).toContain("collapsed={laneMode ? collapsedLanes : undefined}");
     expect(MAP_CLIENT).toContain("onToggleCollapse={laneMode ? toggleLane : undefined}");
-    expect(MAP_CLIENT).toContain("hideEmpty={laneMode && hideEmptyLanes}");
     expect(MAP_CLIENT).not.toContain("wipCaps");
   });
 
-  // "Hide empty does nothing": with no empty lane there is nothing to hide, and the toggle said so
-  // in no way at all. It now carries the count and goes inert at zero.
-  it("tells the user what hide-empty would actually fold away", () => {
-    expect(MAP_CLIENT).toContain("const emptyLaneCount = useMemo(");
-    expect(MAP_CLIENT).toContain("regions.filter((r) => r.count === 0).length");
-    expect(MAP_CLIENT).toContain("disabled={emptyLaneCount === 0 && !hideEmptyLanes}");
-    expect(MAP_CLIENT).toContain("Every lane has cards — nothing to hide");
+  // Owner ruling: hide-empty is a COLUMNS control and does not belong on the canvas at all. On the
+  // canvas an empty lane is a DROP TARGET — dropping a card into the empty Done lane is the only
+  // pointer route to that status — so hiding it removes the affordance rather than decluttering.
+  it("keeps every lane drawn on the canvas: no hide-empty state, control or plumbing", () => {
+    expect(MAP_CLIENT).not.toContain("hideEmptyLanes");
+    expect(MAP_CLIENT).not.toContain("emptyLaneCount");
+    expect(MAP_CLIENT).not.toContain("Hide empty");
+    // …and nothing is passed down to GroupRegions' (now caller-less) hideEmpty prop.
+    expect(MAP_CLIENT).not.toContain("hideEmpty={");
+    // The saved-view + URL codecs still carry the field for old links; the canvas pins it off.
+    expect(MAP_CLIENT).toContain("hideEmpty: false,");
   });
 });
 
@@ -203,7 +206,10 @@ describe("lane keys line up with the lanes the layout emits", () => {
   });
 });
 
-describe("columns view — mounted as a /map view", () => {
+// Columns is a LAYOUT of the roadmap, not a fifth board (owner ruling). The tab strip enumerates
+// DATASETS — Roadmap / Architecture / Database / Files — and the same roadmap nodes and edges are
+// drawn either on the canvas or in buckets, Linear's Board/List toggle.
+describe("columns is a layout of the roadmap, not a tab", () => {
   it("is rendered with the awaited save path and both create/write affordances", () => {
     expect(MAP_CLIENT).toContain("<ColumnsView");
     expect(MAP_CLIENT).toContain("onChangeField={changeField}");
@@ -215,22 +221,64 @@ describe("columns view — mounted as a /map view", () => {
     expect(changeField).not.toContain("patch(");
   });
 
-  it("has a tab in the shared strip and a route that renders it", () => {
+  it("is gone from the dataset tab strip, the shell and the shell's view union", () => {
     const tabs = src("components/graph/canvas-tabs.tsx");
-    expect(tabs).toContain('{ value: "COLUMNS", label: "Columns", href: "/map?view=COLUMNS" }');
-    expect(MAP_CLIENT).toContain('<CanvasTabs active="COLUMNS" tabs={BOARD_TABS} />');
-    const page = src("app/map/page.tsx");
-    expect(page).toContain("columns={");
+    expect(tabs).not.toContain("COLUMNS");
+    expect(tabs.match(/\{ value: "/g)?.length).toBe(4);
+    expect(src("components/graph/tab-switch-context.tsx")).not.toContain("COLUMNS");
+    const shell = src("components/graph/map-tabs-shell.tsx");
+    expect(shell).toContain('const ORDER: ShellView[] = ["ROADMAP", "ARCHITECTURE", "DATABASE"]');
+    expect(shell).not.toContain("COLUMNS");
+    expect(shell).not.toContain("columns");
   });
 
-  // Columns lives INSIDE the tab shell: rendered as its own page it made every hop in and out of it
-  // a full navigation, discarding the shell's mounted boards and their React Flow viewports.
-  it("is a shell view, so switching to/from it never navigates", () => {
-    expect(src("components/graph/tab-switch-context.tsx")).toContain('"COLUMNS",');
-    const shell = src("components/graph/map-tabs-shell.tsx");
-    expect(shell).toContain('const ORDER: ShellView[] = ["ROADMAP", "COLUMNS", "ARCHITECTURE", "DATABASE"]');
-    expect(shell).toContain("COLUMNS: columns,");
-    expect(src("app/map/page.tsx")).not.toContain('if (view === "COLUMNS")');
+  // ONE <MapClient view="ROADMAP"/> renders both layouts. Two mounted instances of the same board
+  // is what made a DOM-visibility gate necessary for the keyboard, undo and URL listeners.
+  it("is one instance switching what it draws — the page mounts no second roadmap", () => {
+    const page = src("app/map/page.tsx");
+    expect(page.match(/view="ROADMAP"/g)?.length).toBe(1);
+    expect(page).not.toContain("columns={");
+    expect(MAP_CLIENT).toContain('const columns = view === "ROADMAP" && !embedded && layout === "columns";');
+    // The columns layout keeps ROADMAP as the active dataset tab — you have not left the roadmap.
+    expect(MAP_CLIENT).toContain('<CanvasTabs active="ROADMAP" tabs={BOARD_TABS} />');
+  });
+
+  // The whole point of one view with two renderings: the split you are looking at survives the flip.
+  it("shares ONE grouping with the canvas lanes instead of a private groupBy", () => {
+    expect(src("components/columns/columns-view.tsx")).not.toContain("useState<GroupBy>");
+    expect(MAP_CLIENT).toContain("groupBy={columnsGroupBy}");
+    expect(MAP_CLIENT).toContain("onGroupBy={changeColumnsGroupBy}");
+    expect(MAP_CLIENT).toContain(
+      'const columnsGroupBy: GroupBy = arrangedBy ? COLUMNS_GROUP_BY[arrangedBy] : "status";',
+    );
+    // Picking a dimension in columns runs the SAME arrange the Group-by dock runs.
+    const change = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const changeColumnsGroupBy")).slice(0, 260);
+    expect(change).toContain("const by = CANVAS_GROUP_BY[g];");
+    expect(change).toContain("if (by) arrange(by);");
+  });
+
+  it("has its own toggle bound to ⌘B, persisted per workspace and in the URL", () => {
+    expect(MAP_CLIENT).toContain("function LayoutToggle(");
+    expect(MAP_CLIENT).toContain('aria-label="Roadmap layout"');
+    expect(MAP_CLIENT).toContain("<LayoutToggle value={layout} onChange={changeLayout} />");
+    expect(BOARD_KEY_HELP.map((k) => k.keys)).toContain("⌘B");
+    const flip = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const changeLayout = useCallback")).slice(0, 1300);
+    expect(flip).toContain('url.searchParams.set("layout", "columns")');
+    expect(flip).toContain('body: JSON.stringify({ board: "roadmap", layout: next })');
+    // …and a legacy ?view=COLUMNS link is retired on the first flip, or it would drag the columns
+    // layout back on the next reload.
+    expect(flip).toContain('if (url.searchParams.get("view") === "COLUMNS") url.searchParams.set("view", "ROADMAP");');
+    expect(MAP_CLIENT).toContain('changeLayout(layout === "canvas" ? "columns" : "canvas")');
+  });
+
+  // `?view=COLUMNS` stopped being a view; the old links must still land somewhere real.
+  it("routes on ?layout=, and old ?view=COLUMNS links still open the columns layout", () => {
+    const page = src("app/map/page.tsx");
+    expect(page).toContain("searchParams: Promise<{ view?: string; ws?: string; layout?: string }>");
+    expect(page).not.toContain('? "COLUMNS"');
+    expect(page).toContain('sp.layout === "columns" || sp.layout === "canvas"');
+    expect(page).toContain('sp.view === "COLUMNS"');
+    expect(page).toContain("initialLayout={urlLayout ?? readRoadmapLayout()}");
   });
 });
 
@@ -359,8 +407,9 @@ describe("granular live refresh — the canvas claims only what it can serve", (
   // must fall through — the Database and Files boards have no listener of their own.
   it("claims a bundle only when every board in it is the roadmap", () => {
     expect(MAP_CLIENT).toContain('if (!boards.length || !boards.every((b) => b === "roadmap")) return;');
-    const claim = MAP_CLIENT.indexOf("e.preventDefault();");
-    expect(claim).toBeGreaterThan(MAP_CLIENT.indexOf('boards.every((b) => b === "roadmap")'));
+    // Scoped to THIS handler — other listeners on the board (⌘B) call preventDefault too.
+    const guard = MAP_CLIENT.indexOf('boards.every((b) => b === "roadmap")');
+    expect(MAP_CLIENT.indexOf("e.preventDefault();", guard)).toBeGreaterThan(guard);
     // …and a claim it couldn't honour still gets the user a fresh board.
     expect(MAP_CLIENT).toContain("router.refresh();");
   });
@@ -429,9 +478,10 @@ describe("granular live refresh — the canvas claims only what it can serve", (
 });
 
 // ── The one gate ──────────────────────────────────────────────────────────────────────────────
-// <MapTabsShell/> keeps every visited tab MOUNTED under display:none, so two or three live
-// MapClients each registered their own window listeners. One boolean — "am I the board on screen?"
-// — gates all four of them.
+// <MapTabsShell/> still keeps every visited tab MOUNTED under display:none — Roadmap, Architecture
+// and Database at once — so the roadmap and the architecture MapClient are both live while only one
+// is on screen. One boolean — "am I the board on screen?" — gates every window listener they own.
+// (Collapsing Columns into the roadmap removed the SECOND roadmap instance, not the shell.)
 describe("hidden boards own nothing global", () => {
   it("asks the DOM, so a board with no shell around it is always active", () => {
     expect(MAP_CLIENT).toContain("function useVisibleBoard(");
@@ -442,17 +492,28 @@ describe("hidden boards own nothing global", () => {
     // The gate is read from the DOM, never from the tab-switch context — /plan, an archived
     // snapshot and a shared /s board have no shell to ask.
     expect(MAP_CLIENT).not.toContain("useTabSwitch");
-    expect(MAP_CLIENT).toContain("const activeBoard = useVisibleBoard(rootRef);");
+    expect(MAP_CLIENT).toContain("const [rootRef, activeBoard] = useVisibleBoard();");
     // …and the ref is actually attached, on BOTH roots this component can return.
     expect(MAP_CLIENT.match(/ref=\{rootRef\}/g)?.length).toBe(2);
+  });
+
+  // A CALLBACK ref, not an object ref + effect: flipping canvas ⇄ columns swaps the root element,
+  // and an effect keyed on the stable ref object would keep observing the DETACHED node — which
+  // reports zero rects, so the board you are looking at would park itself and never come back.
+  it("re-observes when the roadmap swaps its root element", () => {
+    const hook = MAP_CLIENT.slice(MAP_CLIENT.indexOf("function useVisibleBoard(")).slice(0, 600);
+    expect(hook).toContain("const attach = useCallback((el: HTMLElement | null) => {");
+    expect(hook).toContain("return () => io.disconnect();");
+    expect(hook).not.toContain("ref.current");
   });
 
   it("applies it to every global listener the board registers", () => {
     for (const site of [
       "const undo = useUndo(!readOnly && !embedded && !focusEdit && activeBoard);", // ⌘Z
       'const boardKeysMounted = !embedded && !readOnly && !columns && view === "ROADMAP" && activeBoard;', // j k s p c l \ ?
-      "enabled: !embedded && !readOnly && !columns && activeBoard,", // the query string
+      "enabled: !embedded && !readOnly && activeBoard,", // the query string
       "if (!activeBoard) {", // the live-refresh refetch
+      'const canToggleLayout = view === "ROADMAP" && !embedded && !readOnly && activeBoard;', // ⌘B
     ])
       expect(MAP_CLIENT).toContain(site);
   });
@@ -567,13 +628,13 @@ describe("undo — recorded where the pre-state lives, and only where it inverts
 describe("URL filters + saved views", () => {
   it("builds one filter state and syncs it only where the URL is the board's own", () => {
     expect(MAP_CLIENT).toContain(
-      "() => ({ ...roadmapFilters, layerEmphasis, arrangedBy, hideEmpty: hideEmptyLanes })",
+      "() => ({ ...roadmapFilters, layerEmphasis, arrangedBy, hideEmpty: false })",
     );
     // …which now also means: only the board on SCREEN. Three mounted boards sharing one query
-    // string is what dropped the architecture filter the moment the roadmap wrote `by=`, and the
-    // Columns board (no filters, no lanes) writes nothing at all.
+    // string is what dropped the architecture filter the moment the roadmap wrote `by=`. The
+    // roadmap writes it in EITHER layout now — one instance, one copy of the state.
     expect(MAP_CLIENT).toContain(
-      "enabled: !embedded && !readOnly && !columns && activeBoard,",
+      "enabled: !embedded && !readOnly && activeBoard,",
     );
     // Seeding happens through the hook's apply callback — never a useState initializer, which
     // would render a filtered client tree against the unfiltered server one.
@@ -585,7 +646,7 @@ describe("URL filters + saved views", () => {
     const seed = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const applyFilterSeed = useCallback")).slice(0, 1600);
     expect(seed).toContain("if (seed.arrangedBy) {");
     expect(seed).toContain("arrangedByRef.current = seed.arrangedBy;");
-    expect(seed).not.toContain("setArrangedBy(seed.arrangedBy);\n    setHideEmpty");
+    expect(seed).not.toContain("setHideEmpty");
   });
 
   it("mounts the saved-views menu in the icon rail with array-shaped state", () => {
@@ -602,12 +663,11 @@ describe("URL filters + saved views", () => {
     expect(rail.indexOf("<SavedViewsMenu")).toBeLessThan(rail.indexOf("Show panel"));
   });
 
-  it("restores filters, arrange, hide-empty and folded lanes on apply", () => {
+  it("restores filters, arrange and folded lanes on apply", () => {
     const apply = MAP_CLIENT.slice(MAP_CLIENT.indexOf("const applySavedView = useCallback")).slice(0, 1600);
     for (const line of [
       "setStatusFilter(new Set(s.filters.status));",
       "setLayerEmphasis(s.layerEmphasis);",
-      "setHideEmptyLanes(s.hideEmpty);",
       "setCollapsedLanes(new Set(s.collapsed));",
     ])
       expect(apply).toContain(line);
@@ -715,9 +775,10 @@ describe("landsInLane — a write that cannot re-lane the card is not a write", 
 describe("lane drop — writes the field, never a coordinate", () => {
   it("hit-tests the DROP POINT against the lane rects the user can actually see", () => {
     // The rects are the drawn regions (padded, header included) minus the ones nothing can be
-    // dropped into: a folded lane would swallow the card, a hidden empty lane isn't there.
+    // dropped into: a folded lane would swallow the card. An EMPTY lane is very much a target —
+    // dropping into it is the only pointer route to that status, which is why none are hidden.
     expect(MAP_CLIENT).toContain("const dropRects = useMemo<DropRect[]>(");
-    expect(MAP_CLIENT).toContain("!collapsedLanes.has(r.key) && !(hideEmptyLanes && r.count === 0)");
+    expect(MAP_CLIENT).toContain("regions.filter((r) => !collapsedLanes.has(r.key))");
     expect(DRAG_STOP).toContain("laneAt(flowRef.current.screenToFlowPosition(eventPoint(e)), dropRects)");
   });
 
@@ -797,10 +858,12 @@ describe("command palette + keybindings", () => {
       "createFeature:",
       "createBug:",
       "createSubtask:",
-      "toggleHideEmpty:",
       "toggleIsolate,",
     ])
       expect(cmds).toContain(key);
+    // …except hide-empty, which is a columns lens now — buildCommands drops the command when the
+    // caller doesn't wire it, so the palette stops offering a canvas control that no longer exists.
+    expect(cmds).not.toContain("toggleHideEmpty");
     // Only built while the palette is open — ~1200 command objects per drag frame otherwise.
     expect(MAP_CLIENT).toContain("if (!paletteOpen) return [];");
   });
