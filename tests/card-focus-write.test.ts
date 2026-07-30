@@ -44,25 +44,35 @@ describe("the expanded card is read-only; writing hands off to the focus modal",
 // highlight is not good... not productive at all". The original "toolbar pollutes the card"
 // complaint is answered structurally instead — cards render their description read-only, so an
 // editable editor only exists while you are deliberately writing.
-describe("the description toolbar", () => {
-  it("is docked, not a selection bubble", () => {
-    expect(editor).not.toContain("BubbleMenu");
-    expect(editor).toMatch(/\{editable && focused && \([\s\S]{0,900}<Toolbar/);
+// Linear's editing model, adopted after a docked bar could not satisfy "sticky", "no gap",
+// "only when I click in" and "no ghost band" at the same time: there IS no persistent toolbar.
+// Blocks come from `/`, inline formatting from a bubble over the selection. Nothing is pinned,
+// so nothing can have prose scroll behind it.
+describe("the description editor follows Linear's model", () => {
+  it("has no persistent/docked toolbar at all", () => {
+    expect(editor).not.toContain("sticky top-0");
+    expect(editor).not.toContain("const [focused, setFocused]");
   });
 
-  it("appears only once the editor has focus", () => {
-    expect(editor).toContain("const [focused, setFocused] = useState(false)");
-    expect(editor).toContain("setFocused(true)");
-    expect(editor).toContain("setFocused(false)");
+  it("formats inline through a selection bubble", () => {
+    expect(editor).toMatch(/<BubbleMenu[\s\S]{0,600}<Toolbar/);
   });
 
-  it("is sticky, opaque, gutter-bleeding and borderless — the anti-ghosting contract", () => {
-    const bar = editor.slice(editor.indexOf("{editable && focused"), editor.indexOf("<EditorContent"));
-    expect(bar).toContain("sticky top-0");
-    expect(bar).toContain("bg-[var(--popover)]"); // opaque: masks prose scrolling underneath
-    expect(bar).toContain("-mx-5 px-5"); // bleeds past the pane gutter, no sliver at the edges
-    expect(bar).toContain("py-2"); // tall enough to mask a full line
-    expect(bar).not.toContain("border-b");
+  it("inserts blocks through a / menu, not the bubble", () => {
+    expect(editor).toContain("const SlashCommands = Extension.create");
+    expect(editor).toContain('char: "/"');
+    expect(editor).toContain("startOfLine: true"); // a "/" inside a file path must not trigger it
+    for (const label of ["Heading 1", "Bulleted list", "Checklist", "Code block", "Quote"])
+      expect(editor).toContain(`"${label}"`);
+    // Block controls left the bubble when the slash menu took them.
+    const bar = editor.slice(editor.indexOf("function Toolbar"), editor.indexOf("// ── `/` slash"));
+    expect(bar).not.toContain("toggleBulletList");
+    expect(bar).not.toContain("toggleTaskList");
+  });
+
+  it('prompts with "Type / for commands…" on the focused empty line only', () => {
+    expect(editor).toContain('"Type / for commands…"');
+    expect(editor).toContain("showOnlyCurrent: true");
   });
 
   it("uses ONE always-mounted editor so the caret lands where you click", () => {
@@ -70,11 +80,6 @@ describe("the description toolbar", () => {
     expect(sidebar).not.toContain('key="edit"');
     expect(sidebar).not.toContain('key="view"');
     expect(sidebar).toContain("onFocus={() => setEditingDesc(true)}");
-    // The reading gap lives on the SCROLL CONTAINER, never on the sticky bar's parent: a sticky
-    // child cannot rise above its containing block's content box, so padding there becomes a
-    // permanent band where scrolled prose shows above the bar.
-    expect(sidebar).toContain('className="max-w-[72ch]"');
-    expect(sidebar).toContain('"min-w-0 flex-1 px-5 pb-3 pt-3"');
   });
 
   it("keeps the shared ToolbarButton (aria-label + aria-pressed come from it)", () => {

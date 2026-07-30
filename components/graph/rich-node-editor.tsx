@@ -2,12 +2,29 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 import { EditorContent, ReactRenderer, useEditor } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
+import { Extension } from "@tiptap/core";
+import Suggestion from "@tiptap/suggestion";
 import type { Editor } from "@tiptap/core";
 import { Placeholder } from "@tiptap/extensions";
-import { Bold, Italic, List, ListChecks, ListOrdered } from "lucide-react";
+import {
+  Bold,
+  Code,
+  Heading1,
+  Heading2,
+  Heading3,
+  Italic,
+  List,
+  ListChecks,
+  ListOrdered,
+  Quote,
+  Strikethrough,
+  Underline as UnderlineIcon,
+} from "lucide-react";
 import { docToMarkdown, markdownToEditorDoc, nodeEditorBaseExtensions } from "@/lib/note-markdown";
 import { MentionNode } from "@/lib/node-mention";
 import type { MentionHit } from "@/lib/mention-search";
+import type { LucideIcon } from "lucide-react";
 import { ToolbarButton, useEditorTick } from "@/components/editor/editor-toolbar";
 import { currentTabWs, wsHeaders } from "@/lib/tab-ws";
 import { cn } from "@/lib/utils";
@@ -49,15 +66,16 @@ export function RichNodeEditor({
   // description) the editor renders its content but can't be typed into.
   editable?: boolean;
 }) {
-  // Toolbar shows only while the editor has focus. Safe now that the editor is always mounted:
-  // the caret is a DOM selection, so the bar appearing after your click shifts the layout but
-  // never moves the caret (the remount was what used to lose it).
-  const [focused, setFocused] = useState(false);
   const editor = useEditor({
     editable,
     extensions: [
       ...nodeEditorBaseExtensions,
-      Placeholder.configure({ placeholder }),
+      Placeholder.configure({
+        // Only on the line the caret is on, so a long description isn't littered with hints.
+        showOnlyCurrent: true,
+        placeholder: ({ editor: ed }) => (ed.isEmpty ? placeholder : "Type / for commands…"),
+      }),
+      SlashCommands,
       MentionNode.configure({ suggestion: mentionSuggestion() as never }),
     ],
     content: value ? (markdownToEditorDoc(value) as object) : undefined,
@@ -70,14 +88,8 @@ export function RichNodeEditor({
       },
     },
     onUpdate: ({ editor }) => onChange(docToMarkdown(editor.getJSON())),
-    onBlur: () => {
-      setFocused(false);
-      onBlur?.();
-    },
-    onFocus: () => {
-      setFocused(true);
-      onFocus?.();
-    },
+    onBlur: () => onBlur?.(),
+    onFocus: () => onFocus?.(),
   });
 
   // Keep the editor's editable flag in sync if it ever flips after mount.
@@ -96,26 +108,18 @@ export function RichNodeEditor({
   if (!editor) return null;
   return (
     <div className="flex flex-col">
-      {/* Requirements this satisfies together — each one was broken by fixing another in turn:
-            · docked, not a selection bubble (a bubble costs a gesture and covers the words)
-            · only once you've clicked INTO the text, never while merely reading
-            · sticky, so it stays reachable down a long description
-            · no border under it
-            · no ghost band: it is OPAQUE, bleeds past the pane's px-5 reading gutter, and carries
-              enough vertical padding to fully mask a line passing underneath. Confined to the
-              text column with hairline padding, scrolled glyphs peeked around its edges and read
-              as a stray gap — that was never a margin problem.
-          Safe to mount on focus because the editor itself is never remounted: the caret is a DOM
-          selection, so the bar appearing shifts the layout without moving the caret. */}
-      {editable && focused && (
-        <div
-          className={cn(
-            "nodrag nopan sticky top-0 z-10 flex shrink-0 items-center gap-0.5 bg-[var(--popover)] py-2",
-            roomy && "-mx-5 px-5",
-          )}
+      {/* Linear's model, and the reason the docked bar is gone: blocks come from `/`, inline
+          formatting comes from a bubble over the selection. There is no persistent toolbar to
+          pin, so the whole class of sticky/ghosting bugs it caused simply does not exist. */}
+      {editable && (
+        <BubbleMenu
+          editor={editor}
+          appendTo={() => document.body}
+          options={{ strategy: "fixed", placement: "top", offset: 8 }}
+          className="glass nodrag nopan z-[100] flex items-center gap-0.5 rounded-lg p-1 shadow-xl"
         >
           <Toolbar editor={editor} compact={compact} />
-        </div>
+        </BubbleMenu>
       )}
       <EditorContent
         editor={editor}
@@ -155,19 +159,147 @@ function Toolbar({ editor, compact }: { editor: Editor; compact?: boolean }) {
       <ToolbarButton label="Italic" active={editor.isActive("italic")} onClick={() => c().toggleItalic().run()}>
         <Italic className={size} />
       </ToolbarButton>
-      <span aria-hidden className="mx-0.5 h-3.5 w-px bg-border" />
-      <ToolbarButton label="Checklist" active={editor.isActive("taskList")} onClick={() => c().toggleTaskList().run()}>
-        <ListChecks className={size} />
+      <ToolbarButton label="Strikethrough" active={editor.isActive("strike")} onClick={() => c().toggleStrike().run()}>
+        <Strikethrough className={size} />
       </ToolbarButton>
-      <ToolbarButton label="Bullet list" active={editor.isActive("bulletList")} onClick={() => c().toggleBulletList().run()}>
-        <List className={size} />
+      <ToolbarButton label="Underline" active={editor.isActive("underline")} onClick={() => c().toggleUnderline().run()}>
+        <UnderlineIcon className={size} />
       </ToolbarButton>
-      <ToolbarButton label="Numbered list" active={editor.isActive("orderedList")} onClick={() => c().toggleOrderedList().run()}>
-        <ListOrdered className={size} />
+      <ToolbarButton label="Inline code" active={editor.isActive("code")} onClick={() => c().toggleCode().run()}>
+        <Code className={size} />
       </ToolbarButton>
     </div>
   );
 }
+
+// ── `/` slash commands ─────────────────────────────────────────────────────────────────
+// Blocks are inserted from here, not from a toolbar (Linear's model). Reuses the same
+// Suggestion + ReactRenderer plumbing as @-mentions below, so there is one popup mechanism.
+type SlashItem = { label: string; hint: string; Icon: LucideIcon; run: (e: Editor) => void };
+
+const SLASH_ITEMS: SlashItem[] = [
+  { label: "Heading 1", hint: "#", Icon: Heading1, run: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
+  { label: "Heading 2", hint: "##", Icon: Heading2, run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
+  { label: "Heading 3", hint: "###", Icon: Heading3, run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run() },
+  { label: "Bulleted list", hint: "-", Icon: List, run: (e) => e.chain().focus().toggleBulletList().run() },
+  { label: "Numbered list", hint: "1.", Icon: ListOrdered, run: (e) => e.chain().focus().toggleOrderedList().run() },
+  { label: "Checklist", hint: "[ ]", Icon: ListChecks, run: (e) => e.chain().focus().toggleTaskList().run() },
+  { label: "Quote", hint: ">", Icon: Quote, run: (e) => e.chain().focus().toggleBlockquote().run() },
+  { label: "Code block", hint: "```", Icon: Code, run: (e) => e.chain().focus().toggleCodeBlock().run() },
+];
+
+const SlashList = forwardRef<
+  { onKeyDown: (p: { event: KeyboardEvent }) => boolean },
+  { items: SlashItem[]; command: (item: SlashItem) => void }
+>(function SlashList({ items, command }, ref) {
+  const [sel, setSel] = useState(0);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setSel(0), [items]);
+  useImperativeHandle(ref, () => ({
+    onKeyDown: ({ event }) => {
+      if (event.key === "ArrowDown") {
+        setSel((i) => (i + 1) % items.length);
+        return true;
+      }
+      if (event.key === "ArrowUp") {
+        setSel((i) => (i - 1 + items.length) % items.length);
+        return true;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        const it = items[sel];
+        if (it) command(it);
+        return true;
+      }
+      return false;
+    },
+  }));
+  if (!items.length) return null;
+  return (
+    <div className="glass max-h-72 w-60 overflow-y-auto rounded-lg p-1 shadow-xl" role="listbox">
+      {items.map((it, i) => (
+        <button
+          key={it.label}
+          type="button"
+          role="option"
+          aria-selected={i === sel}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => command(it)}
+          onMouseEnter={() => setSel(i)}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs",
+            i === sel ? "bg-[var(--ink-active)] text-foreground" : "text-muted-foreground",
+          )}
+        >
+          <it.Icon className="size-3.5 shrink-0" />
+          <span className="flex-1">{it.label}</span>
+          <span className="font-mono text-[10px] text-muted-foreground/60">{it.hint}</span>
+        </button>
+      ))}
+    </div>
+  );
+});
+
+const SlashCommands = Extension.create({
+  name: "slashCommands",
+  addProseMirrorPlugins() {
+    return [
+      Suggestion({
+        editor: this.editor,
+        char: "/",
+        // Start-of-line only, so a "/" inside a file path never opens the menu.
+        startOfLine: true,
+        items: ({ query }: { query: string }) =>
+          SLASH_ITEMS.filter((i) => i.label.toLowerCase().includes(query.toLowerCase())),
+        command: ({ editor, range, props }: { editor: Editor; range: { from: number; to: number }; props: SlashItem }) => {
+          editor.chain().focus().deleteRange(range).run();
+          props.run(editor);
+        },
+        render: () => {
+          let component: ReactRenderer<
+            { onKeyDown: (p: { event: KeyboardEvent }) => boolean },
+            { items: SlashItem[]; command: (item: SlashItem) => void }
+          > | null = null;
+          let popup: HTMLDivElement | null = null;
+          const place = (rect: (() => DOMRect | null) | null | undefined) => {
+            if (!popup || !rect) return;
+            const r = rect();
+            if (!r) return;
+            popup.style.left = `${r.left}px`;
+            popup.style.top = `${r.bottom + 4}px`;
+          };
+          return {
+            onStart: (props: { editor: Editor; clientRect?: (() => DOMRect | null) | null }) => {
+              component = new ReactRenderer(SlashList, { props, editor: props.editor });
+              popup = document.createElement("div");
+              popup.style.position = "fixed";
+              popup.style.zIndex = "10000";
+              document.body.appendChild(popup);
+              popup.appendChild(component.element);
+              place(props.clientRect);
+            },
+            onUpdate: (props: { clientRect?: (() => DOMRect | null) | null }) => {
+              component?.updateProps(props);
+              place(props.clientRect);
+            },
+            onKeyDown: (props: { event: KeyboardEvent }) => {
+              if (props.event.key === "Escape") {
+                popup?.remove();
+                return true;
+              }
+              return component?.ref?.onKeyDown(props) ?? false;
+            },
+            onExit: () => {
+              popup?.remove();
+              popup = null;
+              component?.destroy();
+              component = null;
+            },
+          };
+        },
+      }),
+    ];
+  },
+});
 
 // ── @-mention suggestion ────────────────────────────────────────────────────────────────
 const KIND_ICON: Record<string, string> = {
