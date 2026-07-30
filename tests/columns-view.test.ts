@@ -220,15 +220,29 @@ describe("columns view — sub-issues drill-in and back", () => {
 
   // Owner ruling: "should be below the description, like linear" — sub-issues are reading-column
   // content (`mainExtra`), not a rail section next to Blocked by / Blocks.
-  it("renders sub-issues in the reading column below the description, not the rail", () => {
+  it("renders sub-issues in the reading column below the description", () => {
     expect(panel()).toContain("mainExtra={");
     const sidebar = src("components/graph/detail-sidebar.tsx");
     const descIdx = sidebar.indexOf("Description");
     const mainExtraIdx = sidebar.indexOf("{mainExtra}");
-    const filesIdx = sidebar.indexOf("Files (${node.files.length})");
     expect(descIdx).toBeGreaterThan(-1);
-    expect(mainExtraIdx).toBeGreaterThan(descIdx); // after the description…
-    expect(mainExtraIdx).toBeLessThan(filesIdx); // …and before Files
+    expect(mainExtraIdx).toBeGreaterThan(descIdx); // after the description
+  });
+
+  // Owner: "it should go to the right, not here... make it minimized by default". A 7-file tree
+  // expands to ~20 nested rows; in the reading column it dwarfed the prose.
+  it("puts the Files tree in the rail, collapsed by default", () => {
+    const sidebar = src("components/graph/detail-sidebar.tsx");
+    expect(sidebar).toContain("const [filesOpen, setFilesOpen] = useState(false)");
+    expect(sidebar).toContain('aria-expanded={filesOpen}');
+    // In the rail (before the closing </aside>), not the main column.
+    const filesIdx = sidebar.indexOf("aria-expanded={filesOpen}");
+    const asideEnd = sidebar.indexOf("</aside>");
+    const mainExtraIdx = sidebar.indexOf("{mainExtra}");
+    expect(filesIdx).toBeGreaterThan(mainExtraIdx);
+    expect(filesIdx).toBeLessThan(asideEnd);
+    // Long paths scroll inside the ~280px rail instead of widening the modal.
+    expect(sidebar).toMatch(/max-h-64 overflow-auto/);
   });
 });
 

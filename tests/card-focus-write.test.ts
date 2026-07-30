@@ -40,15 +40,18 @@ describe("the expanded card is read-only; writing hands off to the focus modal",
   });
 });
 
-describe("formatting controls are a selection bubble, not a fixed bar", () => {
-  it("uses the already-installed Tiptap bubble menu", () => {
-    expect(editor).toContain('from "@tiptap/react/menus"');
-    expect(editor).toContain("BubbleMenu");
+// Owner ruling, reversing the earlier selection-bubble design: "this appearing only when i
+// highlight is not good... not productive at all". The original "toolbar pollutes the card"
+// complaint is answered structurally instead — cards render their description read-only, so an
+// editable editor only exists while you are deliberately writing.
+describe("formatting controls are a docked bar, shown only while editable", () => {
+  it("does not use a selection bubble", () => {
+    expect(editor).not.toContain("BubbleMenu");
   });
 
-  it("renders the toolbar only inside the bubble", () => {
-    expect(editor).not.toMatch(/\{editable && <Toolbar/);
-    expect(editor).toMatch(/<BubbleMenu[\s\S]{0,600}<Toolbar/);
+  it("docks the toolbar above the content, gated on editable", () => {
+    expect(editor).toMatch(/\{editable && \([\s\S]{0,600}<Toolbar/);
+    expect(editor).toContain("sticky top-0");
   });
 
   it("keeps the shared ToolbarButton (aria-label + aria-pressed come from it)", () => {

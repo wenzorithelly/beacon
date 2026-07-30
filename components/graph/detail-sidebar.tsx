@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Boxes,
+  ChevronRight,
   Bug,
   CircleDashed,
   CornerDownRight,
@@ -284,6 +285,8 @@ export function NodeDetail({
   const [subOpen, setSubOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
+  // Collapsed by default — see the rail's Files block.
+  const [filesOpen, setFilesOpen] = useState(false);
   // Description: rendered clean by default; click to edit (the toolbar appears only then).
   const [editingDesc, setEditingDesc] = useState(false);
   const [plain, setPlain] = useState(node.plain ?? "");
@@ -377,7 +380,7 @@ export function NodeDetail({
           {/* ── Description — the document. No eyebrow and no focus-mode button: Linear's issue
               body starts straight under the title, and writing happens in place via the selection
               bubble, so a second full-screen editor was one surface too many. ── */}
-          <div className="mt-3">
+          <div>
             <div className="max-w-[72ch]">
               {editingDesc && !readOnly ? (
                 <RichNodeEditor
@@ -419,12 +422,6 @@ export function NodeDetail({
           </div>
 
           {mainExtra}
-
-          {node.files.length > 0 && (
-            <PanelSection title={`Files (${node.files.length})`}>
-              <FileTree files={node.files.map((p) => ({ path: p }))} />
-            </PanelSection>
-          )}
 
           {/* Bug flags — architecture components carry findings raised by the user or by an
               agent examining the code (beacon-init / beacon-refresh / describe_feature). */}
@@ -618,6 +615,34 @@ export function NodeDetail({
               </PropRow>
             ) : null}
           </div>
+
+          {/* Files live in the RAIL, folded shut. A 7-file tree expands to ~20 nested rows —
+              reference data that dwarfed the prose when it sat in the reading column. The count
+              stays visible on the header so you know it's there without opening it. */}
+          {node.files.length > 0 && (
+            <div className="mt-3 border-t border-border pt-2">
+              <button
+                type="button"
+                aria-expanded={filesOpen}
+                onClick={() => setFilesOpen((o) => !o)}
+                className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <ChevronRight
+                  className={cn("size-3 shrink-0 transition-transform", filesOpen && "rotate-90")}
+                />
+                Files
+                <span className="tabular-nums text-muted-foreground/70">
+                  ({node.files.length})
+                </span>
+              </button>
+              {filesOpen && (
+                // Deep paths are long and the rail is ~280px — scroll inside, never widen the modal.
+                <div className="mt-1 max-h-64 overflow-auto pr-1 text-xs">
+                  <FileTree files={node.files.map((p) => ({ path: p }))} />
+                </div>
+              )}
+            </div>
+          )}
 
           {railExtra}
         </aside>
