@@ -28,6 +28,7 @@ const ENTRYPOINTS = [
   "bin/stop-hook.ts",
   "bin/doctor.ts",
   "bin/uninstall.ts",
+  "bin/unlink.ts",
   "bin/remove.ts",
   "lib/workspaces.ts",
   "lib/assets.ts",
