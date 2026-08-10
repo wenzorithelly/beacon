@@ -148,6 +148,34 @@ export function transcriptShowsAnswered(transcript: string, question: string): b
   return false;
 }
 
+/** Has the tool call this mirror was pushed for RESOLVED — by any outcome? Claude Code writes the
+ *  tool_result line keyed by the SAME `tool_use_id` the PreToolUse event carried, whatever happened,
+ *  so this settles a mirror without reading the result's PROSE. That matters because the prose is not
+ *  one string and never was:
+ *
+ *    answered      `Your questions have been answered: "<q>"="<a>". You can now continue…`
+ *    answered      `The user answered: "<q>"="<a>". Read the answers carefully…`   ← same release,
+ *                                                        different wording; transcriptShowsAnswered
+ *                                                        above matches only the first.
+ *    escaped       `The user doesn't want to proceed with this tool use. …`        ← carries NEITHER
+ *                                                        the marker nor the question text, and fires
+ *                                                        NO PostToolUse hook (only PostToolUse runs
+ *                                                        on success — see bin/ask.ts), so the primary
+ *                                                        clear signal never arrives either.
+ *
+ *  An escaped question therefore had NO settle path at all and sat pending for its whole 30-minute
+ *  MIRROR_TTL_MS, re-prompting in the panel long after the user had moved on (owner report with two
+ *  captured cases, 2026-08-09). Keying on the id fixes all three at once and cannot drift again: the
+ *  id is a correlation key, not copy. A re-ask gets a NEW tool_use_id, so this is also self-isolating
+ *  against the prior-answer false-clear the offset window exists to prevent.
+ *
+ *  The `"tool_use_id":` key is what makes this the RESULT line rather than the tool_use that raised it
+ *  — that one carries the same id under `"id"`. */
+export function transcriptShowsSettled(transcript: string, toolUseId: string): boolean {
+  if (!toolUseId || !transcript) return false;
+  return transcript.includes(`"tool_use_id":"${toolUseId}"`);
+}
+
 /** The POST body the `beacon ask` hook sends for a QUESTION — ALWAYS a mirror push now: the native
  *  terminal prompt is never held or hijacked (see bin/ask.ts's header comment), so every question
  *  is pushed as a mirror unconditionally, regardless of tab focus. Whether it renders as clickable

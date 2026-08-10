@@ -7,6 +7,7 @@ import {
   pushAsk,
   readPendingAsks,
   transcriptShowsAnswered,
+  transcriptShowsSettled,
   writePendingAsks,
 } from "@/lib/ask-store";
 import { ASK_DELIVERED_CLEAR_MS, MIRROR_TTL_MS } from "@/lib/constants";
@@ -55,14 +56,20 @@ const pushSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("approval"), approval: approvalSchema }),
 ]);
 
-// A mirror is a read-only aid; drop it once it's settled. "answered" (the answer landed in the
-// terminal) is detected two ways: a Beacon pick handed to a live deliverer clears a couple of
-// seconds after the delivery-ack (deliveredAt — the deliverer types it within milliseconds, and
-// this is the ONLY reliable signal for sessions whose transcript file Claude Code never flushes to
-// disk, observed on desktop-spawned v2.1.206 sessions); a terminal-typed answer is spotted by
-// scanning ONLY the transcript written AFTER the mirror was pushed (transcriptOffset), so a prior
-// identical question can't false-clear a re-ask — 1MB from the offset covers it: the native picker
-// blocks the agent, so only this question's tool_use + its answer land between push and answer.
+// A mirror is a read-only aid; drop it once it's settled. "answered" — meaning the terminal's own
+// picker is DONE with, whether the user answered it or escaped out of it — is detected three ways:
+//   • the transcript carrying the tool_result for this ask's `toolUseId`. The outcome-agnostic one,
+//     and the only one that catches an ESCAPED question (which writes no marker and fires no
+//     PostToolUse hook) — see lib/ask-store's transcriptShowsSettled;
+//   • a Beacon pick handed to a live deliverer clears a couple of seconds after the delivery-ack
+//     (deliveredAt — the deliverer types it within milliseconds, and this is the ONLY reliable
+//     signal for sessions whose transcript file Claude Code never flushes to disk, observed on
+//     desktop-spawned v2.1.206 sessions);
+//   • the older prose match on a terminal-typed answer, kept for asks pushed before `toolUseId`.
+// All transcript scanning reads ONLY what was written AFTER the mirror was pushed (transcriptOffset),
+// so a prior identical question can't false-clear a re-ask — 1MB from the offset covers it: the
+// native picker blocks the agent, so only this question's tool_use + its answer land between push
+// and answer.
 // "expired" (TTL) is the abandoned/interrupted backstop — dropped, but NOT an answer signal.
 // v2 multi-question: Claude Code emits ONE combined "answered" tool_result only after ALL of the
 // tool call's questions are answered (see lib/ask-store's HookEvent doc), so matching `ask.question`
@@ -75,6 +82,11 @@ function mirrorResolution(ask: PendingAsk, now: number): "answered" | "expired" 
   if (!ask.transcriptPath || !ask.question) return null;
   try {
     const since = readFileRange(ask.transcriptPath, ask.transcriptOffset ?? 0, 1_048_576);
+    // By tool_use_id first: settles on ANY outcome of the tool call, including the user ESCAPING the
+    // picker — which writes no "answered" marker and fires no PostToolUse, so it previously had no
+    // settle path at all and re-prompted for the full TTL. Prose matching stays for asks pushed
+    // before `toolUseId` existed. See transcriptShowsSettled.
+    if (ask.toolUseId && transcriptShowsSettled(since, ask.toolUseId)) return "answered";
     return transcriptShowsAnswered(since, ask.question.question) ? "answered" : null;
   } catch {
     return null; // transcript unreadable → rely on the delivered-ack / TTL paths

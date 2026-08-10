@@ -37,8 +37,10 @@ export async function openSurface(
 
 // Make a presented plan VISIBLE: if no /plan tab is already live for this workspace, open one via
 // openSurface (desktop-first). The ?ws param pins the tab to THIS repo so a second agent's plan
-// opens its own tab. When a /plan tab IS live it picks the new plan up on its own (PlanProvider
-// polls /api/plan), so we don't open a duplicate.
+// opens its own tab. When a /plan tab IS live it picks the new plan up on its own — via the SSE
+// stream (app/api/stream → components/live-refresh.tsx → router.refresh() on the version bump
+// every push ends with), NOT via PlanProvider's /api/plan poll, which only carries the header
+// status and never plan CONTENT — so we don't open a duplicate.
 //
 // The ExitPlanMode hook always did this; the MCP present/propose paths only ACTIVATED the
 // workspace (which silently switches an already-open tab but opens nothing) — so a plan presented

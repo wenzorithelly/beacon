@@ -255,16 +255,35 @@ export function PlanWorkspace({
   // A new plan round (re-present) resets the feedback surface — pending questions AND the
   // board-edited flag. Leaving hasBoardEdits true across rounds kept Approve gated ("Clear
   // to approve") on a fresh round the user had nothing pending on.
+  //
+  // It also raises a transient "Revised plan" mark. The revision is swapped in IMMEDIATELY and is
+  // never gated behind an acknowledgement — the owner's requirement is that the newest plan is the
+  // one being reviewed, and a "click to load" gate re-creates the exact failure the moment it's
+  // ignored. But the swap must not be SILENT: a fresh round also drops the comments the reviewer
+  // had in flight (resetPlanRound, server-side), so a canvas that changes underneath them with no
+  // explanation is its own hazard. First render is not a revision — only a round following an
+  // earlier one is.
+  const lastRound = useRef(0);
+  const [revisionArrived, setRevisionArrived] = useState(false);
   useEffect(() => {
     // Deliberate reset-on-new-round: proposedAt is the external signal of a re-present.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setQuestions([]);
     setAskOpen(false);
     setHasBoardEdits(false);
+    const prev = lastRound.current;
+    lastRound.current = status.proposedAt;
+    if (!prev || !status.proposedAt || status.proposedAt === prev) return;
+    setRevisionArrived(true);
+    const t = setTimeout(() => setRevisionArrived(false), 8000);
+    return () => clearTimeout(t);
   }, [status.proposedAt]);
   // Heartbeat so the ExitPlanMode hook knows a /plan tab is already open for this workspace and
-  // lets it refresh in place — PlanProvider's poll swaps in the revised plan — instead of
-  // spawning a duplicate browser tab on every re-present. Pinned to the browser's workspace via
+  // lets it refresh in place instead of spawning a duplicate browser tab on every re-present.
+  // What actually swaps the revised plan in is the SSE stream (components/live-refresh.tsx →
+  // router.refresh() on the version bump every push ends with), NOT PlanProvider's poll — that
+  // poll only carries the header status (pending / counts / proposedAt), never plan CONTENT.
+  // Pinned to the browser's workspace via
   // the beacon_ws cookie. Only PlanWorkspace beats, so presence means specifically "/plan is up".
   useEffect(() => {
     const beat = () =>
@@ -604,6 +623,14 @@ export function PlanWorkspace({
           </button>
         )}
         <div className="glass pointer-events-auto flex h-10 items-center gap-0.5 rounded-full px-1">
+        {revisionArrived && (
+          <span
+            title="Your terminal session sent a revised plan. Everything here — prose and canvas — is that newest version; the previous one is gone."
+            className="ml-1 mr-1 flex shrink-0 items-center rounded-full bg-sky-500/15 px-2 py-1 text-[11px] font-semibold text-sky-300"
+          >
+            Revised plan
+          </span>
+        )}
         <button
           onClick={() => router.push(planHref({ view: "history" }))}
           title="Browse past plans (you can come back to this one)"

@@ -1,9 +1,15 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { draftSchema } from "@/lib/design";
-import { featureSchema, getFeatureDraft, persistFeatureDraft } from "@/lib/feature-design";
+import {
+  clearFeatureDraft,
+  featureSchema,
+  getFeatureDraft,
+  persistFeatureDraft,
+} from "@/lib/feature-design";
 import { validateNoDuplicateFeatures, validateProposedFeatures } from "@/lib/feature-rules";
-import { readDraftDoc, writeProposal } from "@/lib/draft-store";
+import { purgeDraft, readDraftDoc, writeProposal } from "@/lib/draft-store";
+import { readStoredAnnotations } from "@/lib/plan-annotations-store";
 import { extractBeaconBlock } from "@/lib/plan-block";
 import { computeDraftOriginY } from "@/lib/endpoint-layout";
 import { bumpVersion } from "@/lib/ingest";
@@ -140,6 +146,44 @@ export async function POST(req: Request) {
         if (dupErr) return Response.json({ error: dupErr }, { status: 422 });
       }
 
+      const hasMarkdown = !!prose?.trim();
+      // Reject an empty push BEFORE anything is written or cleared, so a malformed push can
+      // never wipe the plan under review.
+      if (!wantsBoard && !hasMarkdown) {
+        return new Response("plan must include at least one table, endpoint, feature, or markdown", {
+          status: 400,
+        });
+      }
+
+      // ── THE ROUND RULE ──────────────────────────────────────────────────────────────────
+      // A push STATES THE WHOLE PROPOSAL. Every content channel it omits — prose, roadmap
+      // features, DB draft — is CLEARED, never inherited. Without this the three channels were
+      // updated independently, so a revision that dropped one silently kept the PREVIOUS round's
+      // content in it and /plan rendered the two side by side as if they were one plan: the agent
+      // re-proposed, the canvas still showed version one, and the user reviewed and approved
+      // something the agent was no longer proposing. Silent staleness in a review gate is worse
+      // than an error, because both sides believe they are looking at the same thing.
+      //
+      // ONE exception: the two-push composition of a SINGLE round — the ExitPlanMode hook pushes
+      // the prose, then a follow-up `beacon_propose_plan` pushes only the board. It is allowed
+      // only in exactly that shape (previous push = prose and NO board; this push = board and NO
+      // prose) and only while the round is still UNREVIEWED. Once the user has submitted feedback
+      // the round is closed by definition — the agent is answering that feedback, so this push is
+      // a new version and replaces everything. `description` equality (the old test) can NOT stand
+      // in for this: an agent keeps the same one-line description across revisions.
+      const prevDraft = readDraftDoc();
+      const prevBoard =
+        (prevDraft?.tables.length ?? 0) +
+        (prevDraft?.endpoints.length ?? 0) +
+        (await getFeatureDraft()).features.length;
+      const amendsOpenRound =
+        !!prevMeta?.markdown?.trim() && // the previous push carried prose…
+        prevBoard === 0 && //   …and no board
+        wantsBoard && // this push carries the board…
+        !hasMarkdown && //   …and no prose
+        prevMeta?.description === parsed.description &&
+        !readStoredAnnotations().submitted; // and the user has not reviewed it yet
+
       let tables = 0;
       let endpoints = 0;
       if (draftInput && (draftInput.tables.length || draftInput.endpoints.length)) {
@@ -150,19 +194,16 @@ export async function POST(req: Request) {
         const doc = writeProposal(draftInput, originY, realTables);
         tables = doc.tables.length;
         endpoints = doc.endpoints.length;
+      } else if (!amendsOpenRound) {
+        purgeDraft(); // this round proposes no schema — the last one's must not linger on /db
       }
 
       let features = 0;
       if (featureInput && featureInput.length) {
         await persistFeatureDraft({ features: featureInput });
         features = featureInput.length;
-      }
-
-      const hasMarkdown = !!prose?.trim();
-      if (tables === 0 && endpoints === 0 && features === 0 && !hasMarkdown) {
-        return new Response("plan must include at least one table, endpoint, feature, or markdown", {
-          status: 400,
-        });
+      } else if (!amendsOpenRound) {
+        await clearFeatureDraft(); // …nor its cards on /map
       }
 
       writePlanMeta({
@@ -170,23 +211,16 @@ export async function POST(req: Request) {
         // Strictly monotonic: proposedAt doubles as the round token for the stale-submit
         // guard, so two rounds landing in the same millisecond must still differ.
         proposedAt: Math.max(Date.now(), (prevMeta?.proposedAt ?? 0) + 1),
-        // Preserve the rich markdown a prior push (e.g. the ExitPlanMode hook) stored for
-        // the SAME in-flight plan when this push omits it. Otherwise a follow-up
-        // propose_plan that only carries a board would wipe the prose, and the approved
-        // plan would archive as just its title. A different plan (description changed)
-        // starts fresh, so the stale prose is dropped.
-        markdown: hasMarkdown
-          ? prose
-          : prevMeta?.description === parsed.description
-            ? prevMeta?.markdown
-            : undefined,
+        // Prose follows the round rule above: kept ONLY while the round is still being composed
+        // (amendsOpenRound — the ExitPlanMode prose push, then the board-only propose_plan push),
+        // so the approved plan still archives its full text instead of just its title. Any other
+        // push without prose is a new version: /plan synthesises the prose from THIS round's
+        // description + board rather than showing the previous round's words.
+        markdown: hasMarkdown ? prose : amendsOpenRound ? prevMeta?.markdown : undefined,
         originalFeatures: featureInput?.map((f) => f.title) ?? [],
-        // Preserve a prior push's declared scope for the SAME in-flight plan when this push omits
-        // it (e.g. a follow-up propose_plan that only revises the board), so the contract still
-        // freezes at approval. A genuinely different plan (description changed) starts fresh.
-        contractFiles:
-          contractInput ??
-          (prevMeta?.description === parsed.description ? prevMeta?.contractFiles : undefined),
+        // Same rule for the declared scope contract — inherited only by a push that is amending
+        // the open round, never carried across a revision.
+        contractFiles: contractInput ?? (amendsOpenRound ? prevMeta?.contractFiles : undefined),
         contentHash,
       });
       // Fresh round = clean slate: drop the previous round's annotation + verdict state so the
