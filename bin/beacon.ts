@@ -109,6 +109,10 @@ if (sub === "mcp") {
   await import(mod("bin/doctor.ts"));
 } else if (sub === "uninstall") {
   await import(mod("bin/uninstall.ts"));
+} else if (sub === "unlink") {
+  // Per-repo reversal — see bin/unlink.ts for why this is a subcommand rather than a flag on
+  // `uninstall` (an old binary drops an unknown flag and would run the global wipe instead).
+  await import(mod("bin/unlink.ts"));
 } else if (sub === "update") {
   await updateBeacon(process.argv.includes("--force") || process.argv.includes("-f"));
 } else if (sub === "telemetry") {

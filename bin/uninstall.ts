@@ -10,6 +10,9 @@
  *              workflow block, CLAUDE.md @-import if it was the only content, the
  *              .claude/skills/beacon-* and .agents/skills/beacon-* directories
  *
+ * To reverse ONE repository instead of the machine, use `beacon unlink <path>` — a separate
+ * subcommand on purpose, because an old binary would drop a `--repo` flag and run this global wipe.
+ *
  * Defaults to a dry run that lists what WILL be removed. Pass `--yes` to actually do it.
  * The CLI binary itself (the cloned source tree on disk + the symlink on PATH) is NOT
  * removed by this command — the shell installer is in charge of that.
@@ -23,6 +26,7 @@ import { beaconHome, listWorkspaces } from "@/lib/workspaces";
 
 const args = process.argv.slice(3); // process.argv[2] is "uninstall"
 const apply = args.includes("--yes") || args.includes("-y");
+
 
 const ok = (s: string) => `\x1b[32m✓\x1b[0m ${s}`;
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
