@@ -1,6 +1,6 @@
 {
   "name": "trybeacon",
-  "version": "0.1.116",
+  "version": "0.1.117",
   "description": "The visual planning surface for the coding agent in your terminal.",
   "homepage": "https://trybeacon.sh",
   "license": "Apache-2.0",
@@ -20,7 +20,7 @@
     ".next",
     "public",
     "drizzle",
-    "next.config.ts",
+    "next.config.mjs",
     "bun.lock",
     ".claude-plugin/plugin.json",
     "plugin"
