@@ -15,6 +15,7 @@ import {
   auditGlobal,
   ensureGlobalClaudeMdBlock,
   ensureGlobalHook,
+  GLOBAL_HOOKS,
   installGlobalSkill,
   removeBeaconArtifacts,
   removeGlobalClaudeMdBlock,
@@ -336,7 +337,7 @@ describe("selfHealGlobal", () => {
     expect(result.skillsAdded).toEqual(
       expect.arrayContaining(["beacon-init", "beacon-refresh", "beacon-plan", "beacon-explain"]),
     );
-    expect(result.hooksAdded).toBe(8); // +3: beacon ask (PreToolUse AskUserQuestion, PostToolUse AskUserQuestion, PermissionRequest edits); +1: beacon artifact (PostToolUse Artifact)
+    expect(result.hooksAdded).toBe(9); // +3: beacon ask (PreToolUse AskUserQuestion, PostToolUse AskUserQuestion, PermissionRequest edits); +1: beacon artifact (PostToolUse Artifact); +1: beacon orient (PreToolUse Read|Grep|Glob)
     expect(result.claudeMdBlockTouched).toBe(true);
 
     const after = auditGlobal();
@@ -434,4 +435,13 @@ describe("entry-point self-heal (subprocess)", () => {
     expect(src).toContain("selfHealGlobal");
   });
 
+});
+
+describe("GLOBAL_HOOKS", () => {
+  it("wires beacon orient as a PreToolUse hook over Read|Grep|Glob", () => {
+    const orient = GLOBAL_HOOKS.find((h) => h.command === "beacon orient");
+    expect(orient).toBeDefined();
+    expect(orient?.event).toBe("PreToolUse");
+    expect(orient?.matcher).toBe("Read|Grep|Glob");
+  });
 });

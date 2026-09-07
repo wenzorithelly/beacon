@@ -25,6 +25,10 @@ const SKIP_DIRS = new Set([
   ".next",
   "dist",
   "build",
+  // TypeScript's and Electron's usual outDir, and Next's static export. Committed build output
+  // (beacon-desktop checks its emitted .js in) gave every symbol a compiled twin, so `beacon explain`
+  // called each real name ambiguous (2026-09-07).
+  "out",
   "__pycache__",
   "target",
   ".venv",
@@ -477,5 +481,18 @@ export function createIncrementalCodeGraph(rootOrRoots: string | string[], base?
     return true;
   }
 
-  return { seed, applyChange, snapshot };
+  /**
+   * Resolve one import specifier from `fromPath` to a target file, via the same per-language
+   * resolver (and current aliases/module path) the graph's own edges are built from. First hit
+   * only (Go can return several files for one package import). Used by the symbol layer to
+   * resolve cross-file call/heritage refs the same way file-graph edges are resolved.
+   */
+  function resolveImport(fromPath: string, specifier: string): string | null {
+    const resolver = resolverForPath(fromPath);
+    if (!resolver) return null;
+    const ctx: ResolveCtx = { fileSet: new Set(metaByPath.keys()), tsAliases: aliases, goModulePath };
+    return resolver.resolve(specifier, fromPath, ctx)[0] ?? null;
+  }
+
+  return { seed, applyChange, snapshot, resolveImport };
 }

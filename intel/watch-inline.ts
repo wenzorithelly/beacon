@@ -7,12 +7,14 @@ import { extractModelSchema } from "@/intel/extractors/models";
 import { extractNextRoutes } from "@/intel/extractors/next-routes";
 import type { SourceFile } from "@/intel/extractors/files";
 import { isSchemaCandidate, schemaCandidates } from "@/intel/schema-candidates";
+import { createIncrementalSymbolGraph, type SymbolSnapshot } from "@/intel/extractors/symbol-graph";
 import {
   applyCodeGraphPatch,
   ingestCodeGraph,
   resolveGraph,
   type ResolvedGraph,
 } from "@/lib/code-graph";
+import { applySymbolGraphPatch } from "@/lib/symbol-graph";
 import { ingestSnapshot } from "@/lib/ingest";
 import { getDb } from "@/lib/db-drizzle";
 import { dbUrlFor, ensureWorkspaceDb } from "@/lib/workspaces";
@@ -60,6 +62,46 @@ export function startWatcherForWorkspace(ws: WatchTarget): { stop: () => Promise
   // the one file that changed (mtime-gated) and we persist a MINIMAL DB diff — no re-walk and
   // no full re-ingest per save. `prev` is the stored representation (mirrors the DB).
   const graph = createIncrementalCodeGraph(roots, ws.path);
+
+  // Symbol layer — same target db, seeded/patched right after the file graph on the same tick.
+  // Its own failure domain: syncSymbols() below swallows + logs (once) any error so a broken
+  // parse or DB hiccup here can never take down the (much more load-bearing) file-graph sync.
+  const symGraph = createIncrementalSymbolGraph({
+    files: () =>
+      graph.snapshot().files.map((f) => ({ abs: join(ws.path, f.path), path: f.path, lang: f.lang })),
+    resolveImport: graph.resolveImport,
+  });
+  let prevSym: SymbolSnapshot | null = null;
+  let symErrorLogged = false;
+
+  async function syncSymbols(seed: boolean, changedAbs: string[]): Promise<void> {
+    try {
+      let next: SymbolSnapshot;
+      if (seed) {
+        next = await symGraph.seed();
+      } else {
+        let changed = false;
+        for (const abs of changedAbs) changed = (await symGraph.applyChange(abs)) || changed;
+        if (!changed) return; // none of the changed paths were symbol-relevant
+        next = symGraph.snapshot(); // one resolution for the whole batch, not one per file
+      }
+      const r = await applySymbolGraphPatch(prevSym, next, targetDb);
+      prevSym = next;
+      console.log(
+        `[beacon-inline] symbol-graph ${seed ? "synced" : "updated"} (${ws.name}): ${r.symbols} symbols / ${r.edges} edges`,
+      );
+    } catch (e) {
+      // The patch is a run of autocommitting statements, so a failure mid-way leaves the tables
+      // somewhere between prevSym and next. Forgetting prevSym makes the next tick a full replace
+      // (applySymbolGraphPatch with prev: null), which heals whatever landed instead of re-diffing
+      // against a snapshot the DB no longer matches and hitting PK conflicts forever.
+      prevSym = null;
+      if (!symErrorLogged) {
+        symErrorLogged = true;
+        console.error(`[beacon-inline] symbol-graph error (${ws.name}):`, e instanceof Error ? e.message : e);
+      }
+    }
+  }
 
   // Deterministic DB-board sync: parse ORM models + Next route files (a handful, already
   // known from the graph's file list) and upsert tables/endpoints as INTROSPECTION — so a
@@ -160,7 +202,10 @@ export function startWatcherForWorkspace(ws: WatchTarget): { stop: () => Promise
             r.circular > 0 ? ` (${r.circular} circular)` : ""
           }`,
         );
+        // Schema first: the /db board's first population is a handful of files, the symbol seed is a
+        // parse of every file — it must not sit in front of the board.
         await syncSchema();
+        await syncSymbols(true, []);
         return;
       }
       // Incremental: re-read only the files that changed, then persist a minimal diff.
@@ -181,6 +226,7 @@ export function startWatcherForWorkspace(ws: WatchTarget): { stop: () => Promise
           }`,
         );
       }
+      await syncSymbols(false, changed);
       if (schemaTouched) await syncSchema();
     } catch (e) {
       console.error(`[beacon-inline] error (${ws.name}):`, e instanceof Error ? e.message : e);

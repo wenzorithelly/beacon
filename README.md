@@ -52,9 +52,16 @@ Then run it inside any repo:
 
 ```bash
 beacon            # registers the repo, ensures the shared server, opens the panel
+beacon query "<question>"    # scoped subgraph over the live symbol graph — no model call
+beacon explain <symbol>      # callers + callees of a symbol, with file:line
+beacon affected <symbol>     # what a change to a symbol reaches
+beacon path <A> <B>          # how symbol A reaches symbol B
 beacon doctor     # audit what's wired (global hooks, repo .mcp.json, AGENTS.md block)
 beacon stop       # stop the shared background server
 ```
+
+A `PreToolUse` hook (`beacon orient`) nudges a fresh session toward those four verbs, once per
+session, before it starts grepping — model-free, answered straight from the live symbol graph.
 
 > Prefer Claude Code's plugin system? Add the marketplace and install the plugin instead:
 > `/plugin marketplace add wenzorithelly/beacon` then `/plugin install beacon@trybeacon`.

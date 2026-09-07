@@ -22,9 +22,22 @@ function toPosix(p: string): string {
   return p.split(/[\\/]/).join("/");
 }
 
-/** Try a repo-relative base against the file set: exact, +ext, /index+ext. */
+// NodeNext / ESM TypeScript writes `./x.js` (and `.mjs`/`.cjs`) for a `./x.ts` source: the specifier
+// names the compiled OUTPUT, which never exists in the tree being scanned. Map it back before
+// probing — without this, beacon-desktop resolved 38 of its ~600 imports (e2e, 2026-09-07), and every
+// cross-file call the symbol layer could have proved through an import fell to INFERRED instead.
+const JS_TO_TS: Record<string, string[]> = { ".js": [".ts", ".tsx"], ".jsx": [".tsx"], ".mjs": [".mts"], ".cjs": [".cts"] };
+
+/** Try a repo-relative base against the file set: exact, compiled-name twin, +ext, /index+ext. */
 function probe(repoRel: string, fileSet: Set<string>): string | null {
   if (fileSet.has(repoRel)) return repoRel;
+  const jsExt = repoRel.match(/\.(?:m|c)?jsx?$/)?.[0];
+  if (jsExt) {
+    for (const ext of JS_TO_TS[jsExt] ?? []) {
+      const p = repoRel.slice(0, -jsExt.length) + ext;
+      if (fileSet.has(p)) return p;
+    }
+  }
   for (const ext of TS_EXTENSIONS) {
     const p = `${repoRel}${ext}`;
     if (fileSet.has(p)) return p;

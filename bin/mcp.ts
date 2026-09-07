@@ -471,6 +471,57 @@ server.registerTool(
   },
 );
 
+// api() throws on a non-2xx with the response body inlined in the message. beacon_graph's route
+// always answers with a human-readable `text` field — even its 400/503 bodies — so pull THAT out
+// instead of errText's `.error`-first extraction (used by the create-guard tools above).
+function graphErrText(e: unknown): { content: { type: "text"; text: string }[]; isError: true } {
+  const raw = e instanceof Error ? e.message : String(e);
+  const m = raw.match(/\{[\s\S]*\}$/);
+  if (m) {
+    try {
+      const j = JSON.parse(m[0]) as { text?: string };
+      if (j?.text) return { content: [{ type: "text" as const, text: j.text }], isError: true };
+    } catch {
+      /* fall through */
+    }
+  }
+  return errText(e);
+}
+
+server.registerTool(
+  "beacon_graph",
+  {
+    description:
+      "Symbol-level questions beacon_blast_radius (file-level import impact) can't answer: who calls X, what X reaches (`affected`), how A reaches B (`path`), or a scoped subgraph answering a free-text question (`query`) over the functions/classes/methods + calls/extends/implements/references graph. Model-free — every answer comes straight from the live symbol graph, never a guess.",
+    inputSchema: {
+      action: z.enum(["query", "explain", "affected", "path", "stats"]).describe("query = free-text subgraph; explain = one symbol's neighbors; affected = reverse blast radius; path = shortest route between two symbols; stats = graph size."),
+      q: z.string().optional().describe("query: the free-text question. explain/affected: the symbol name."),
+      from: z.string().optional().describe("path only: the starting symbol name."),
+      to: z.string().optional().describe("path only: the target symbol name."),
+      mode: z.enum(["bfs", "dfs"]).optional().describe("query only: traversal order (default bfs)."),
+      depth: z.number().optional().describe("query/affected: how far to walk (default 2)."),
+      budget: z.number().optional().describe("query only: response size cap in ~tokens (default 2000)."),
+      undirected: z.boolean().optional().describe("path only: also walk edges backwards if no directed path exists forward."),
+    },
+  },
+  async ({ action, q, from, to, mode, depth, budget, undirected }) => {
+    const qs = new URLSearchParams({ action });
+    if (q != null) qs.set("q", q);
+    if (from != null) qs.set("from", from);
+    if (to != null) qs.set("to", to);
+    if (mode != null) qs.set("mode", mode);
+    if (depth != null) qs.set("depth", String(depth));
+    if (budget != null) qs.set("budget", String(budget));
+    if (undirected) qs.set("undirected", "1");
+    try {
+      const r = (await api(`/api/code-graph/query?${qs.toString()}`)) as { text?: string };
+      return { content: [{ type: "text" as const, text: r?.text ?? JSON.stringify(r) }] };
+    } catch (e) {
+      return graphErrText(e);
+    }
+  },
+);
+
 server.registerTool(
   "beacon_entities",
   {

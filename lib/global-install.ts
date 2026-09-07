@@ -119,6 +119,13 @@ export const GLOBAL_HOOKS = [
     description:
       "On feature-y prompts in a Beacon-wired repo, remind the agent to run the context→propose→describe loop (no-op otherwise).",
   },
+  {
+    event: "PreToolUse" as const,
+    matcher: "Read|Grep|Glob",
+    command: "beacon orient",
+    description:
+      "Once per session, point the agent at the live symbol graph (beacon query|explain|affected|path) before it starts grepping. No-op once nudged, or when the graph isn't ready.",
+  },
 ];
 
 // ── Skills ──────────────────────────────────────────────────────────────────

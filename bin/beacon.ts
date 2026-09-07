@@ -48,6 +48,8 @@ if (
 // The in-process db provisioner (lib/drizzle/provision) and the spawned server both resolve
 // migrations from here — import.meta.url is unreliable once bundled / inside `.next`.
 if (!process.env.BEACON_MIGRATIONS_DIR) process.env.BEACON_MIGRATIONS_DIR = join(pkgDir, "drizzle");
+// Same reason for the tree-sitter grammars the symbol extractor loads (intel/extractors/symbols.ts).
+if (!process.env.BEACON_TREE_SITTER_DIR) process.env.BEACON_TREE_SITTER_DIR = join(pkgDir, "public", "tree-sitter");
 
 // Resolve a Beacon module by its source-relative path. Dev runs the TS sources directly; a
 // published build runs the minified bundles under dist/, which mirror the source tree
@@ -65,6 +67,9 @@ function mod(rel: string): string {
 //   beacon artifact   — PostToolUse hook handler (matcher Artifact; records published artifact URLs)
 //   beacon prompt     — UserPromptSubmit hook handler (nudges the feature loop)
 //   beacon stop-hook  — Stop hook handler (nudges prose plan-approval → present on /plan)
+//   beacon query "<q>" | explain <symbol> | affected <symbol> | path <A> <B>
+//                     — graph verbs over the symbol graph (bin/graph.ts; model-free, answers from the db)
+//   beacon orient     — PreToolUse hook handler (Read|Grep|Glob; one nudge per session toward the graph verbs)
 //   beacon stop       — stop the shared daemon
 //   beacon remove     — delete a workspace (unregister + wipe its ~/.beacon/<id>/ data)
 //   beacon setup      — (re-)install per-repo skills + .mcp.json in CWD
@@ -95,6 +100,11 @@ if (sub === "mcp") {
   await import(mod("bin/prompt.ts"));
 } else if (sub === "stop-hook") {
   await import(mod("bin/stop-hook.ts"));
+} else if (sub === "query" || sub === "explain" || sub === "affected" || sub === "path") {
+  // Graph verbs over this workspace's symbol graph — bin/graph.ts reads argv itself.
+  await import(mod("bin/graph.ts"));
+} else if (sub === "orient") {
+  await import(mod("bin/orient.ts"));
 } else if (sub === "stop") {
   stopDaemon();
 } else if (sub === "remove") {
@@ -321,6 +331,7 @@ function startDaemon(port: string): { pid: number; port: string } {
     PORT: port,
     BEACON_NO_OPEN: "1",
     BEACON_MIGRATIONS_DIR: join(pkgDir, "drizzle"),
+    BEACON_TREE_SITTER_DIR: join(pkgDir, "public", "tree-sitter"),
   };
   delete env.BEACON_REPO;
   delete env.BEACON_DATA_DIR;

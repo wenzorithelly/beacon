@@ -405,6 +405,8 @@ export const syncState = sqliteTable("SyncState", {
   id: text().primaryKey().default("singleton"),
   version: integer().default(0).notNull(),
   codeGraphSyncedAt: integer({ mode: "timestamp_ms" }),
+  // Symbol layer (CodeSymbol/CodeSymbolEdge) — set by lib/symbol-graph.ts on every persist.
+  symbolGraphSyncedAt: integer({ mode: "timestamp_ms" }),
   updatedAt: integer({ mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date())
@@ -482,5 +484,52 @@ export const planContract = sqliteTable(
   (t) => [
     uniqueIndex("PlanContract_planId_key").on(t.planId),
     index("PlanContract_active_idx").on(t.active),
+  ],
+);
+
+// ── Symbol layer of the code graph ─────────────────────────────────────────────────────────────
+// One row per function / class / method / type / exported const, extracted by tree-sitter on the
+// same watcher tick as the file scan (intel/extractors/symbols.ts) and persisted by
+// lib/symbol-graph.ts. `path` cascades from CodeFile, so a file leaving the file graph takes its
+// symbols (and, through the edge FKs, every edge that touched them) with it.
+export const codeSymbol = sqliteTable(
+  "CodeSymbol",
+  {
+    id: text().primaryKey(), // `${path}::${qualifiedName}@${line}`
+    path: text()
+      .notNull()
+      .references((): AnySQLiteColumn => codeFile.path, { onDelete: "cascade", onUpdate: "cascade" }),
+    name: text().notNull(),
+    qualifiedName: text().notNull(), // `Class.method` for members, else the bare name
+    kind: text().notNull(), // function | class | method | type | const
+    line: integer().notNull(),
+    endLine: integer().notNull(),
+    exported: integer({ mode: "boolean" }).default(false).notNull(),
+    parentId: text().references((): AnySQLiteColumn => codeSymbol.id, { onDelete: "cascade" }),
+    updatedAt: integer({ mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date())
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index("CodeSymbol_path_idx").on(t.path), index("CodeSymbol_name_idx").on(t.name)],
+);
+
+export const codeSymbolEdge = sqliteTable(
+  "CodeSymbolEdge",
+  {
+    fromId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => codeSymbol.id, { onDelete: "cascade" }),
+    toId: text()
+      .notNull()
+      .references((): AnySQLiteColumn => codeSymbol.id, { onDelete: "cascade" }),
+    relation: text().notNull(), // calls | extends | implements | references
+    confidence: text().notNull(), // EXTRACTED | INFERRED
+    line: integer(), // the call/heritage site, not the definition
+  },
+  (t) => [
+    index("CodeSymbolEdge_toId_idx").on(t.toId),
+    index("CodeSymbolEdge_fromId_idx").on(t.fromId),
+    primaryKey({ columns: [t.fromId, t.toId, t.relation], name: "CodeSymbolEdge_pk" }),
   ],
 );

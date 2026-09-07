@@ -201,3 +201,18 @@ describe("fallback resolver (other languages, best-effort)", () => {
     expect(sw.resolve("Foo", "App.swift", c)).toEqual([]);
   });
 });
+
+describe("ts resolver: NodeNext specifiers name the compiled output", () => {
+  const fileSet = new Set(["src/a.ts", "src/b.tsx", "src/c.mts", "src/d.cts", "src/real.js"]);
+  const ctx: ResolveCtx = { fileSet, tsAliases: [] };
+  const ts = resolverForPath("src/main.ts")!;
+  it("maps ./x.js, ./x.jsx, ./x.mjs and ./x.cjs back to the .ts/.tsx/.mts/.cts source", () => {
+    expect(ts.resolve("./a.js", "src/main.ts", ctx)).toEqual(["src/a.ts"]);
+    expect(ts.resolve("./b.jsx", "src/main.ts", ctx)).toEqual(["src/b.tsx"]);
+    expect(ts.resolve("./c.mjs", "src/main.ts", ctx)).toEqual(["src/c.mts"]);
+    expect(ts.resolve("./d.cjs", "src/main.ts", ctx)).toEqual(["src/d.cts"]);
+  });
+  it("still prefers a .js file that really exists", () => {
+    expect(ts.resolve("./real.js", "src/main.ts", ctx)).toEqual(["src/real.js"]);
+  });
+});

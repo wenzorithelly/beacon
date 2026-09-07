@@ -306,6 +306,8 @@ That bundle replaces the discovery phase. Read only the files it returns plus wh
 
 Mid-feature, when deciding whether a change is safe, call \`beacon_blast_radius({ path })\` for the file you're about to edit — same code-graph data, file-centric.
 
+For a symbol-level question — who calls X, what X reaches, how A gets to B — reach for the live symbol graph instead of grepping: \`beacon query "<question>"\` for a scoped subgraph, \`beacon explain <symbol>\` for callers and callees with file:line, \`beacon affected <symbol>\` for what a change to it reaches, or \`beacon path <A> <B>\` for how one symbol reaches another — from the terminal, or the \`beacon_graph\` MCP tool. Model-free, one call, answers straight from the graph.
+
 ### 2. Design the data BEFORE writing code
 
 Determine the database tables the feature needs. If any don't exist yet, design the schema and call \`beacon_propose_plan\` (tables + relations + endpoints). This renders an **editable draft on the /plan page** for the user to review. The tool BLOCKS until the user clicks Approve / Discard / submits feedback. Implement migrations + code ONLY after it returns approval.

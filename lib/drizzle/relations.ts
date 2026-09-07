@@ -17,6 +17,7 @@ import {
   codeFile,
   codeFileEdge,
 } from "@/lib/drizzle/schema";
+import { codeSymbol, codeSymbolEdge } from "@/lib/drizzle/schema";
 
 // Drizzle relations powering relational queries (db.query.*.findMany({ with: … })) — the
 // equivalent of Prisma's `include`. Both sides of each relation must be declared. Self-relations
@@ -113,6 +114,7 @@ export const draftRelationRelations = relations(draftRelation, ({ one }) => ({
 export const codeFileRelations = relations(codeFile, ({ many }) => ({
   edgesOut: many(codeFileEdge, { relationName: "CFEFrom" }),
   edgesIn: many(codeFileEdge, { relationName: "CFETo" }),
+  symbols: many(codeSymbol),
 }));
 
 export const codeFileEdgeRelations = relations(codeFileEdge, ({ one }) => ({
@@ -125,5 +127,30 @@ export const codeFileEdgeRelations = relations(codeFileEdge, ({ one }) => ({
     fields: [codeFileEdge.toPath],
     references: [codeFile.path],
     relationName: "CFETo",
+  }),
+}));
+
+export const codeSymbolRelations = relations(codeSymbol, ({ one, many }) => ({
+  file: one(codeFile, { fields: [codeSymbol.path], references: [codeFile.path] }),
+  parent: one(codeSymbol, {
+    fields: [codeSymbol.parentId],
+    references: [codeSymbol.id],
+    relationName: "CSParent",
+  }),
+  members: many(codeSymbol, { relationName: "CSParent" }),
+  edgesOut: many(codeSymbolEdge, { relationName: "CSEFrom" }),
+  edgesIn: many(codeSymbolEdge, { relationName: "CSETo" }),
+}));
+
+export const codeSymbolEdgeRelations = relations(codeSymbolEdge, ({ one }) => ({
+  from: one(codeSymbol, {
+    fields: [codeSymbolEdge.fromId],
+    references: [codeSymbol.id],
+    relationName: "CSEFrom",
+  }),
+  to: one(codeSymbol, {
+    fields: [codeSymbolEdge.toId],
+    references: [codeSymbol.id],
+    relationName: "CSETo",
   }),
 }));

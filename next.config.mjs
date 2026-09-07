@@ -24,6 +24,8 @@ const nextConfig = {
     "@prisma/adapter-libsql",
     "@libsql/client",
     "libsql",
+    // Loads its runtime .wasm from its own package dir via fs — must stay out of the bundle.
+    "web-tree-sitter",
   ],
   // Hide the Next.js dev-mode "N" overlay button that intercepts clicks at the bottom-right.
   devIndicators: false,

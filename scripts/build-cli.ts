@@ -30,6 +30,8 @@ const ENTRYPOINTS = [
   "bin/uninstall.ts",
   "bin/unlink.ts",
   "bin/remove.ts",
+  "bin/graph.ts", // query / explain / affected / path over the symbol graph
+  "bin/orient.ts", // PreToolUse Read|Grep|Glob — one nudge per session toward the graph verbs
   "lib/workspaces.ts",
   "lib/assets.ts",
   "lib/global-install.ts",
