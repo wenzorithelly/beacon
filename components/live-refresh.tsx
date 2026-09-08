@@ -108,6 +108,11 @@ export function LiveRefresh() {
           /* ignore */
         }
       } else if (action.kind === "park") {
+        // The desktop shell's web view IS the app, never a forgotten browser tab — and it is the
+        // caller that issues the sweep, naming itself as the exclusion. When that self-id and this
+        // page's disagreed (2026-09-07), the shell's own view parked itself and every navigation died
+        // on the bridge-less /parked page. A park is for browser tabs; here it never applies.
+        if (isDesktopShell()) return;
         // This tab was named as the one exception in the broadcast — stay put.
         if (action.excludeTab && action.excludeTab === currentTabId()) return;
         // A FULL navigation, on purpose: the entire point is unmounting the whole app tree
